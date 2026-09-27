@@ -143,3 +143,22 @@ export async function getPlan(id: string, path: string, v: number): Promise<Plan
 }
 
 export const fileUrl = (id: string, path: string, v = 0) => `/api/jobs/${id}/files/${path}?v=${v}`
+
+/** Source drawing with the editor corrections applied, downloaded as a file. */
+export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<void> {
+  const r = await fetch(`/api/jobs/${id}/drawing.${fmt}`)
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`
+    try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }
+    throw new Error(msg)
+  }
+  const cd = r.headers.get('content-disposition') ?? ''
+  const m = /filename\*=utf-8''([^;]+)/i.exec(cd) ?? /filename="?([^";]+)"?/i.exec(cd)
+  const name = m ? decodeURIComponent(m[1]) : `drawing.${fmt}`
+  const url = URL.createObjectURL(await r.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}

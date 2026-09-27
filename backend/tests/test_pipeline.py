@@ -166,3 +166,54 @@ def test_manual_opening_spans_wall_thickness(sample, built, tmp_path):
     # the drawn wall stops 0.3 m short of the east wall: it is extended to meet
     # it and no automatic "door" appears at its ends
     assert meta["floors"][0]["stats"]["openings"] == {"window": 1, "door": 2}
+
+
+def test_export_edited_dxf_roundtrip(sample, built, tmp_path):
+    """Edits written into the DXF must reproduce the edited model on re-import."""
+    from dwg3d.dxf_writer import export_edited_dxf
+
+    fid = built[0]["floors"][0]["id"]
+    edits = {fid: {
+        # (an erased wall piece re-imports as a doorway: in a drawing a gap
+        # with jambs is just that, so it is covered by a separate check)
+        "add_walls": [{"a": [5.12, 5.0], "b": [11.7, 5.0], "thickness": 0.12}],
+        "add_openings": [{"a": [0.3, 5.5], "b": [0.3, 6.7], "kind": "window"},
+                         {"a": [8.5, 5.06], "b": [9.4, 5.06], "kind": "door"}],
+        "openings": [{"at": [8.0, 0.15], "kind": "door"}],
+        "rooms": [{"at": [2.0, 5.0], "name": "Холл"}],
+    }}
+    edits[fid]["add_openings"].append({"a": [11.7, 1.0], "b": [11.7, 2.5], "kind": "vitrage"})
+    edited = run(sample, tmp_path / "a", {"edits": edits}, debug_png=False)
+    out = tmp_path / "edited.dxf"
+    stats = export_edited_dxf(sample, out, {"edits": edits})
+    assert stats["floors"] == 1 and stats["trimmed"] > 0 and stats["doors"] == 2 and stats["windows"] == 2
+    again = run(out, tmp_path / "b", debug_png=False)          # no edits this time
+    f1 = next(f for f in edited["floors"] if f["id"] == fid)
+    f2 = next(f for f in again["floors"] if f["level"] == f1["level"])
+    assert f2["stats"]["openings"] == f1["stats"]["openings"]
+    assert f2["stats"]["wall_area_m2"] == pytest.approx(f1["stats"]["wall_area_m2"], rel=0.05)
+    assert f2["stats"]["rooms"] == f1["stats"]["rooms"]
+    assert "Холл" in [r["name"] for r in f2["rooms"]]
+    # the other floor is untouched
+    other = [f for f in again["floors"] if f["level"] != f1["level"]][0]
+    ref = [f for f in built[0]["floors"] if f["level"] == other["level"]][0]
+    assert other["stats"]["openings"] == ref["stats"]["openings"]
+
+
+def test_export_erase_trims_walls(sample, built, tmp_path):
+    import ezdxf
+    from dwg3d.dxf_writer import export_edited_dxf
+
+    fid = built[0]["floors"][0]["id"]
+    edits = {fid: {"erase_walls": [{"a": [2.0, 7.85], "b": [4.0, 7.85], "width": 0.5}]}}
+    out = tmp_path / "erased.dxf"
+    export_edited_dxf(sample, out, {"edits": edits})
+    msp = ezdxf.readfile(out).modelspace()
+    # no wall line of floor 1 passes through the erased area (cm units)
+    for e in msp.query("LINE"):
+        if e.dxf.layer in ("A-WALL", "Стены_правки"):
+            (x0, y0), (x1, y1) = (e.dxf.start.x, e.dxf.start.y), (e.dxf.end.x, e.dxf.end.y)
+            if min(y0, y1) > 760 and max(y0, y1) < 820:          # along the north wall
+                assert max(x0, x1) <= 200.5 or min(x0, x1) >= 399.5
+    jambs = [e for e in msp.query("LWPOLYLINE LINE") if e.dxf.layer == "Стены_правки"]
+    assert len(jambs) == 2

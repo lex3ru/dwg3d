@@ -615,7 +615,7 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
     arcs = detect_door_arcs(shapes, g)
 
     wall_lines, wall_fills, col_polys, col_lines = [], [], [], []
-    win_geoms, door_geoms, room_polys, ins_polys, ins_lines = [], [], [], [], []
+    win_geoms, door_geoms, room_polys, ins_polys, ins_lines, vit_geoms = [], [], [], [], [], []
     for i, s in enumerate(shapes):
         if i in used:
             continue
@@ -640,6 +640,8 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
                 col_lines.append(LineString(pts))
         elif s.role == "windows":
             win_geoms.append(LineString(pts) if len(pts) >= 2 else Point(pts[0]))
+            if mapper.is_vitrage(s.layer):
+                vit_geoms.append(win_geoms[-1])
         elif s.role == "doors":
             door_geoms.append(LineString(pts))
         elif s.role == "insulation":
@@ -734,21 +736,26 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
             openings = [x for x in openings if x.poly.intersection(o.poly).area < 0.3 * min(x.poly.area, o.poly.area)]
             openings.append(o)
     # manual kind changes / removals
-    fills = []
+    fills, kind_changes = [], []
     for e in edits.get("openings") or []:
         o = _find_opening(openings, e["at"])
         if not o:
             continue
         k = e.get("kind")
+        if k:
+            kind_changes.append((dataclasses.replace(o), k))    # (opening as detected, new kind)
         if k in ("none", "wall"):
             openings.remove(o)
             if k == "wall":
                 fills.append(o.poly)
         elif k:
             o.kind = k
-    # vitrage = very wide window
+    # vitrage = very wide window, or window drawn on a vitrage layer
+    vit_tree = STRtree(vit_geoms) if vit_geoms else None
     for o in openings:
-        if o.kind == "window" and o.width >= float(b.get("vitrage_min_width", 99)):
+        if o.kind == "window" and o.source != "manual" and (
+                o.width >= float(b.get("vitrage_min_width", 99)) or (
+                vit_tree is not None and len(vit_tree.query(o.poly.buffer(-0.005), predicate="intersects")))):
             o.kind = "vitrage"
         if o.kind == "door" and not o.leaves:
             o.leaves = _arc_leaves(o.poly, o.width, arcs)
@@ -804,7 +811,9 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
         "stairs": len(stairs), "rooms": len(rooms), "footprint_m2": round(footprint.area, 2),
         "edits": sum(len(v) for v in edits.values() if isinstance(v, list)),
     }
-    plan.debug = {"segments": segs, "windows": win_geoms, "doors": door_geoms}
+    plan.debug = {"segments": segs, "windows": win_geoms, "doors": door_geoms,
+                  # what the manual edits did (used to write them back into the DXF)
+                  "added_walls": added, "erase": erase, "kind_changes": kind_changes}
     return plan
 
 

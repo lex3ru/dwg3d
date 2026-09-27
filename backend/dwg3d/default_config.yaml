@@ -36,6 +36,11 @@ layers:
 wall_types:
   partition: ["*Перегород*", "*PART*", "*A-WALL-PRHT*"]
 
+# Window-layer linework on these layers marks the opening as floor-to-ceiling
+# glazing (vitrage) regardless of its width.
+opening_types:
+  vitrage: ["*Витраж*", "*CURTAIN*"]
+
 # Block name patterns: inserts of these blocks are treated as doors/windows
 # regardless of the layer they sit on.
 blocks:

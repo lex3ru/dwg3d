@@ -11,6 +11,7 @@ Run:  uvicorn dwg3d.api:app --port 8765
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -171,6 +172,54 @@ def rebuild(jid: str, override: dict):
     _update(jid, status="queued", stage="queued", progress=0.0, message="В очереди", config=cfg)
     _executor.submit(_process, jid)
     return _public(_jobs[jid])
+
+
+@app.get("/api/jobs/{jid}/drawing.{fmt}")
+def export_drawing(jid: str, fmt: str):
+    """Source drawing with the 2D-editor corrections applied (DXF or DWG)."""
+    from .dxf_writer import dxf_to_dwg, export_edited_dxf, has_edits
+
+    if jid not in _jobs:
+        raise HTTPException(404, "Задача не найдена")
+    if fmt not in ("dxf", "dwg"):
+        raise HTTPException(400, "Формат: dxf или dwg")
+    job = _jobs[jid]
+    cfg = job.get("config") or {}
+    if not has_edits(cfg):
+        raise HTTPException(400, "Правок нет — сохранять нечего")
+    jdir = _job_dir(jid)
+    src = jdir / job["input"]
+    if src.suffix.lower() == ".dwg":
+        src = jdir / "out" / (src.stem + ".dxf")
+        if not src.exists():
+            raise HTTPException(409, "Чертёж ещё не обработан")
+    stem = Path(job["filename"]).stem + "_правки"
+    # cache per configuration (edits, layer mapping, floors) actually applied
+    key = hashlib.sha1(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+    cache = jdir / "export" / key
+    cache.mkdir(parents=True, exist_ok=True)
+    dxf = cache / "edited.dxf"
+    try:
+        if not dxf.exists():
+            export_edited_dxf(src, dxf, cfg)
+        if fmt == "dxf":
+            return FileResponse(dxf, media_type="image/vnd.dxf", filename=f"{stem}.dxf")
+        dwg = cache / "edited.dwg"
+        failed = cache / "edited.dwg.error"
+        if not dwg.exists():
+            if failed.exists():               # don't re-run a slow converter that already failed
+                raise HTTPException(500, failed.read_text(encoding="utf-8"))
+            try:
+                dxf_to_dwg(dxf, dwg)
+            except Exception as ex:
+                failed.write_text(str(ex), encoding="utf-8")
+                raise
+        return FileResponse(dwg, media_type="application/acad", filename=f"{stem}.dwg")
+    except HTTPException:
+        raise
+    except Exception as ex:
+        log.exception("drawing export failed")
+        raise HTTPException(500, str(ex))
 
 
 @app.get("/api/jobs/{jid}/files/{path:path}")

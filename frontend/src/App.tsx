@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fileUrl, getJob, rebuildJob, uploadFile, type FloorEdits, type Job } from './api'
+import { downloadDrawing, fileUrl, getJob, rebuildJob, uploadFile, type FloorEdits, type Job } from './api'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import Viewer, { type FocusRoom, type MeasureMode, type Tool, type ViewMode, type ViewState } from './Viewer'
@@ -118,6 +118,8 @@ export default function App() {
   const [editor, setEditor] = useState(false)
   const [query, setQuery] = useState('')
   const [focusRoom, setFocusRoom] = useState<FocusRoom | null>(null)
+  const [saving, setSaving] = useState<'dxf' | 'dwg' | null>(null)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
   // keep the last finished model on screen while a rebuild is running
   const [shown, setShown] = useState<Job | null>(null)
   useEffect(() => { if (job?.status === 'done') setShown(job) }, [job])
@@ -178,6 +180,22 @@ export default function App() {
     if (!selFloor) return
     setView((v) => ({ ...v, mode: 'isolate', selected: selFloor.id }))
     setTool('walk')
+  }
+
+  const editCount = Object.values((job?.config?.edits ?? {}) as Record<string, Record<string, unknown[]>>)
+    .reduce((n, fe) => n + Object.values(fe ?? {}).reduce((k, l) => k + (Array.isArray(l) ? l.length : 0), 0), 0)
+
+  const saveDrawing = async (fmt: 'dxf' | 'dwg') => {
+    if (!job) return
+    setSaving(fmt)
+    setSaveErr(null)
+    try {
+      await downloadDrawing(job.id, fmt)
+    } catch (e) {
+      setSaveErr((e as Error).message)
+    } finally {
+      setSaving(null)
+    }
   }
 
   if (!jobId) return <Upload onJob={openJob} />
@@ -309,6 +327,20 @@ export default function App() {
               </button>
             </div>
 
+            {editCount > 0 && (
+              <div className="save-drawing">
+                <div className="sd-title">Чертёж с правками <span>{editCount}</span></div>
+                <div className="sd-buttons">
+                  {(['dxf', 'dwg'] as const).map((f) => (
+                    <button key={f} className="small" disabled={!!saving || !!running} onClick={() => saveDrawing(f)}
+                      title={f === 'dxf' ? 'Исходный чертёж с внесёнными правками' : 'То же в DWG (нужен конвертер DXF→DWG)'}>
+                      {saving === f ? 'Готовлю…' : `Сохранить ${f.toUpperCase()}`}
+                    </button>
+                  ))}
+                </div>
+                {saveErr && <div className="error small-err">{saveErr}</div>}
+              </div>
+            )}
             {r.exports && (
               <div className="exports">
                 <span>Скачать:</span>

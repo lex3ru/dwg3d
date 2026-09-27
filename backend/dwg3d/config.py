@@ -74,6 +74,9 @@ class LayerMapper:
     def is_partition(self, layer: str) -> bool:
         return _match(layer, (self.cfg.get("wall_types") or {}).get("partition", []))
 
+    def is_vitrage(self, layer: str) -> bool:
+        return _match(layer, (self.cfg.get("opening_types") or {}).get("vitrage", []))
+
     def is_label_layer(self, layer: str) -> bool:
         pats = self.layers.get("labels") or []
         return not pats or _match(layer, pats)
