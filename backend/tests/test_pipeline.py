@@ -149,3 +149,20 @@ def test_erase_wall_does_not_create_door(sample, built, tmp_path):
     st = meta["floors"][0]["stats"]
     assert st["openings"] == {"window": 1, "door": 1}
     assert st["wall_area_m2"] < built[0]["floors"][0]["stats"]["wall_area_m2"] - 0.5
+
+
+def test_manual_opening_spans_wall_thickness(sample, built, tmp_path):
+    fid = built[0]["floors"][0]["id"]
+    # door drawn on the inner face of the 30 cm south wall, next to the corner
+    # where the exterior wall meets the partition-free east wall
+    edits = {fid: {"add_openings": [{"a": [10.0, 0.3], "b": [11.0, 0.3], "kind": "door"}],
+                   "add_walls": [{"a": [5.12, 5.0], "b": [11.4, 5.0], "thickness": 0.1}]}}
+    meta = run(sample, tmp_path, {"edits": edits}, debug_png=False)
+    plan = json.loads((tmp_path / meta["floors"][0]["plan"]).read_text())
+    door = next(o for o in plan["openings"] if o["source"] == "manual")
+    ys = [p[1] for p in door["poly"][0]]
+    assert min(ys) == pytest.approx(0.0, abs=0.02) and max(ys) == pytest.approx(0.3, abs=0.02)
+    assert door["width"] == pytest.approx(1.0, abs=0.01)
+    # the drawn wall stops 0.3 m short of the east wall: it is extended to meet
+    # it and no automatic "door" appears at its ends
+    assert meta["floors"][0]["stats"]["openings"] == {"window": 1, "door": 2}

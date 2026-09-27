@@ -213,3 +213,7 @@ kbd { font: 10px/1 ui-monospace, monospace; padding: 1px 4px; border: 1px solid 
 .crosshair::before, .crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 2px rgba(0,0,0,.6); }
 .crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
 .crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
+.e-open-rect { fill-opacity: .75; stroke: #212529; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.e-open-rect.hl { stroke: #1c7ed6; stroke-width: 3; }
+.snap-mark.inter line { stroke: #d6336c; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.status-line.warn { background: #e8590c; }

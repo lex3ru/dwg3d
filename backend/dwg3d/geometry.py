@@ -517,27 +517,68 @@ def _seg_rect(a, b, width) -> Polygon:
     return LineString([a, b]).buffer(width / 2, cap_style="flat", join_style="mitre")
 
 
+def _wall_band(walls, p, n, max_t):
+    """Thickness interval of the wall at point p across direction n:
+    (b0, b1) offsets along n, or None if p is not on/at a wall."""
+    probe = LineString([p - n * max_t, p + n * max_t])
+    best = None
+    for piece in getattr(probe.intersection(walls), "geoms", [probe.intersection(walls)]):
+        if piece.is_empty or piece.geom_type != "LineString":
+            continue
+        d = piece.distance(Point(p))
+        if d <= 0.08 and (best is None or d < best[0]):
+            c = np.asarray(piece.coords) - p
+            t = c @ n
+            best = (d, float(t.min()), float(t.max()))
+    return best[1:] if best else None
+
+
 def _opening_from_segment(a, b, kind, walls, max_t) -> Opening | None:
-    """User drew a segment along a wall -> rectangle through the wall."""
+    """User drew a segment on/along a wall -> rectangle through the full wall
+    thickness (measured with cross-sections), or None if not on a wall."""
     a, b = np.asarray(a, float), np.asarray(b, float)
     u = np.array(_unit(b - a))
     if not u.any():
         return None
     n = np.array((-u[1], u[0]))
-    band = _seg_rect(a, b, 2 * max_t)
-    part = walls.intersection(band.buffer(0.3, cap_style="flat"))
-    mid = (a + b) / 2
-    if part.is_empty:
-        b0, b1 = -0.1, 0.1
-    else:
-        pn = np.vstack([np.asarray(p.exterior.coords) for p in _polys(part)]) - mid
-        near = pn[np.abs(pn @ u) <= math.dist(a, b) / 2 + 0.3]
-        proj = near @ n if len(near) else np.array([-0.1, 0.1])
-        b0, b1 = float(proj.min()), float(proj.max())
+    # several cross-sections; the median rejects a section that runs along an
+    # adjoining perpendicular wall (it would make the opening far too deep)
+    bands = [_wall_band(walls, a + (b - a) * t, n, max_t) for t in (0.1, 0.3, 0.5, 0.7, 0.9)]
+    bands = [x for x in bands if x]
+    if not bands:
+        return None
+    b0 = float(np.median([x[0] for x in bands]))
+    b1 = float(np.median([x[1] for x in bands]))
+    if b1 - b0 < 0.03:
+        return None
     w = math.dist(a, b)
+    mid = (a + b) / 2
+    rect = Polygon([mid - u * w / 2 + n * b0, mid + u * w / 2 + n * b0,
+                    mid + u * w / 2 + n * b1, mid - u * w / 2 + n * b1])
     c = mid + n * (b0 + b1) / 2
-    rect = Polygon([mid - u * w / 2 + n * b0, mid + u * w / 2 + n * b0, mid + u * w / 2 + n * b1, mid - u * w / 2 + n * b1])
     return Opening(kind, rect, w, (float(c[0]), float(c[1])), (float(u[0]), float(u[1])), "manual", b1 - b0)
+
+
+def _extend_to_walls(a, b, walls, reach=0.6):
+    """Extend a manually drawn wall's ends to meet existing walls within
+    `reach` (a sloppy end short of a wall would otherwise leave a gap)."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    u = np.array(_unit(b - a))
+    if walls.is_empty or not u.any():
+        return a, b
+    out = []
+    for p, d in ((a, -u), (b, u)):
+        if walls.contains(Point(p)):
+            out.append(p)
+            continue
+        ray = LineString([p, p + d * reach])
+        x = ray.intersection(walls)
+        if x.is_empty:
+            out.append(p)
+        else:
+            q = shapely.ops.nearest_points(Point(p), x)[1]
+            out.append(np.array((q.x, q.y)) + d * 0.02)
+    return out[0], out[1]
 
 
 def _find_opening(openings, at, tol=0.4):
@@ -630,10 +671,22 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
     quads, singles, _ = pair_leftovers(leftovers, min_t, max_t, g["default_wall_thickness"], walls0)
     pieces += [(q, lookup.at(m, 0.01) or "wall") for q, m in quads]
     pieces += [(q, lookup.at(m, 0.01) or "wall") for q, m in singles]
-    added = []
-    for w in edits.get("add_walls") or []:
+    added, added_ends = [], []
+    auto_walls = _mp([p for p, _ in pieces])
+    user_walls = edits.get("add_walls") or []
+    # ends shared by two drawn walls (a chain / corner) get square caps so the
+    # corner is solid; free ends stay exactly where they were drawn
+    shared = collections.Counter(tuple(np.round(w[k], 2)) for w in user_walls for k in ("a", "b"))
+    for w in user_walls:
         t = float(w.get("thickness") or g["default_wall_thickness"])
-        added.append(LineString([w["a"], w["b"]]).buffer(t / 2, cap_style="square", join_style="mitre"))
+        wa, wb = _extend_to_walls(w["a"], w["b"], auto_walls)
+        u = np.array(_unit(np.asarray(wb) - np.asarray(wa)))
+        if shared[tuple(np.round(w["a"], 2))] > 1:
+            wa = np.asarray(wa) - u * t / 2
+        if shared[tuple(np.round(w["b"], 2))] > 1:
+            wb = np.asarray(wb) + u * t / 2
+        added.append(LineString([wa, wb]).buffer(t / 2, cap_style="flat", join_style="mitre"))
+        added_ends += [Point(wa).buffer(max(t, 0.3)), Point(wb).buffer(max(t, 0.3))]
         pieces.append((added[-1], w.get("type", "wall")))
 
     eps = g["snap_tolerance"]
@@ -669,6 +722,11 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
     manual = _mp([erase, *added])
     if not manual.is_empty:
         openings = [o for o in openings if o.poly.intersection(manual).area < 0.3 * o.poly.area]
+    # hand-drawn walls never spawn automatic openings (at their ends or against
+    # their faces); the user adds openings explicitly with the opening tool
+    if added:
+        touch = _mp([*(p.buffer(0.03) for p in added), *added_ends])
+        openings = [o for o in openings if o.source != "gap" or not o.poly.intersects(touch)]
     # manual openings drawn in the editor
     for e in edits.get("add_openings") or []:
         o = _opening_from_segment(e["a"], e["b"], e.get("kind", "door"), walls, max_t)

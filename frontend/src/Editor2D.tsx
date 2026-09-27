@@ -4,7 +4,8 @@ import { getPlan, type FloorEdits, type FloorMeta, type Job, type OpeningKind, t
 type EditTool = 'select' | 'wall' | 'erase' | 'opening'
 type Ring = [number, number][]
 type EditKey = keyof FloorEdits
-type SnapKind = 'vertex' | 'edge' | 'ortho' | 'free'
+type SnapKind = 'vertex' | 'edge' | 'inter' | 'ortho' | 'free'
+type Snap = { p: XY; kind: SnapKind; dir?: XY }
 type Opening = PlanData['openings'][number]
 
 const KIND_LABEL: Record<string, string> = {
@@ -55,6 +56,29 @@ function projectOnSeg(p: XY, a: XY, b: XY): XY {
   return [a[0] + t * dx, a[1] + t * dy]
 }
 
+/** Intersection of the infinite line (o, d) with segment ab, or null. */
+function lineSeg(o: XY, d: XY, a: XY, b: XY): XY | null {
+  const ex = b[0] - a[0], ey = b[1] - a[1]
+  const den = d[0] * ey - d[1] * ex
+  if (Math.abs(den) < 1e-9) return null
+  const t = ((a[0] - o[0]) * ey - (a[1] - o[1]) * ex) / den
+  const u = ((a[0] - o[0]) * d[1] - (a[1] - o[1]) * d[0]) / den
+  if (u < -1e-6 || u > 1 + 1e-6) return null
+  return [o[0] + d[0] * t, o[1] + d[1] * t]
+}
+
+/** Even-odd point-in-polygon over all rings (holes included). */
+function inside(p: XY, rings: Ring[]): boolean {
+  let c = false
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i], [xj, yj] = r[j]
+      if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) c = !c
+    }
+  }
+  return c
+}
+
 function niceScale(metersPer100px: number): number {
   const steps = [0.5, 1, 2, 5, 10, 20, 50, 100]
   return steps.find((s) => s >= metersPer100px * 0.6) ?? 100
@@ -79,13 +103,21 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
   const [thickness, setThickness] = useState(0.2)
   const [newKind, setNewKind] = useState<OpeningKind>('door')
   const [start, setStart] = useState<XY | null>(null)
-  const [cursor, setCursor] = useState<{ p: XY; kind: SnapKind } | null>(null)
+  const [startDir, setStartDir] = useState<XY | null>(null)   // wall face direction for openings
+  const [cursor, setCursor] = useState<Snap | null>(null)
   const [popup, setPopup] = useState<{ o: Opening; screen: [number, number] } | null>(null)
   const [renaming, setRenaming] = useState<{ at: XY; name: string; screen: [number, number] } | null>(null)
   const [vb, setVb] = useState<[number, number, number, number] | null>(null)   // viewBox (y flipped)
   const [size, setSize] = useState<[number, number]>([1, 1])
   const [hl, setHl] = useState<string | null>(null)          // highlighted edit "key:index"
   const [confirmClose, setConfirmClose] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeTimer = useRef<number | undefined>(undefined)
+  const flash = (msg: string) => {
+    setNotice(msg)
+    window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 2500)
+  }
   const svgRef = useRef<SVGSVGElement>(null)
   const gRef = useRef<SVGGElement>(null)
   const ptr = useRef<{ sx: number; sy: number; button: number; vb: [number, number, number, number]; panning: boolean } | null>(null)
@@ -126,7 +158,8 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
     const verts: XY[] = []
     const segs: [XY, XY][] = []
     if (!plan) return { verts, segs }
-    for (const group of [plan.walls, plan.partitions, plan.columns]) {
+    // wall faces continue across openings, so opening outlines snap too
+    for (const group of [plan.walls, plan.partitions, plan.columns, plan.openings.map((o) => o.poly)]) {
       for (const poly of group) {
         for (const ring of poly) {
           for (let i = 0; i < ring.length - 1; i++) {
@@ -139,47 +172,96 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
     return { verts, segs }
   }, [plan])
 
-  const snap = useCallback((raw: XY, free: boolean, from: XY | null): { p: XY; kind: SnapKind } => {
-    const edgeSnap = (tol: number): XY | null => {
-      let be: XY | null = null
-      let bd = tol
-      for (const [a, b] of snapData.segs) {
-        const q = projectOnSeg(raw, a, b)
-        const d = dist(q, raw)
-        if (d < bd) { bd = d; be = q }
-      }
-      return be
+  const wallRings = useMemo(() => (plan ? [...plan.walls, ...plan.partitions, ...plan.columns].flat() as Ring[] : []), [plan])
+
+  /** Rectangle of a new opening a->b drawn on a wall face: through the wall thickness. */
+  const openingRect = useCallback((a: XY, b: XY): string | null => {
+    const L = dist(a, b)
+    if (L < 0.02) return null
+    const u: XY = [(b[0] - a[0]) / L, (b[1] - a[1]) / L]
+    const n: XY = [-u[1], u[0]]
+    const m: XY = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+    const side = inside([m[0] + n[0] * 0.03, m[1] + n[1] * 0.03], wallRings) ? 1 : -1
+    const dir: XY = [n[0] * side, n[1] * side]
+    let depth = 0.9
+    for (const [p, q] of snapData.segs) {
+      const x = lineSeg(m, dir, p, q)
+      if (!x) continue
+      const t = (x[0] - m[0]) * dir[0] + (x[1] - m[1]) * dir[1]
+      if (t > 0.02 && t < depth) depth = t
     }
-    if (!free) {
-      const tol = SNAP_PX * mpp
-      let best: XY | null = null
-      let bd = tol
-      for (const v of snapData.verts) {
-        const d = dist(v, raw)
-        if (d < bd) { bd = d; best = v }
-      }
-      for (const w of [...edits.add_walls.flatMap((x) => [x.a, x.b])]) {
-        const d = dist(w, raw)
-        if (d < bd) { bd = d; best = w }
-      }
-      if (best) return { p: [r2(best[0]), r2(best[1])], kind: 'vertex' }
-      if (tool === 'opening') {    // openings must sit on a wall face: edges first
-        const e = edgeSnap(tol * 1.5)
-        if (e) return { p: [r2(e[0]), r2(e[1])], kind: 'edge' }
-      }
-      if (from) {
-        const dx = raw[0] - from[0], dy = raw[1] - from[1]
-        const a = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI) % 90
-        if (a < 7 || a > 83) {
-          const p: XY = Math.abs(dx) > Math.abs(dy) ? [raw[0], from[1]] : [from[0], raw[1]]
-          return { p: [r2(p[0]), r2(p[1])], kind: 'ortho' }
+    if (depth >= 0.9) depth = 0.2
+    const o: XY = [dir[0] * depth, dir[1] * depth]
+    return `M${a[0]} ${a[1]}L${b[0]} ${b[1]}L${b[0] + o[0]} ${b[1] + o[1]}L${a[0] + o[0]} ${a[1] + o[1]}Z`
+  }, [wallRings, snapData])
+
+  const snap = useCallback((raw: XY, free: boolean, from: XY | null): Snap => {
+    const tol = SNAP_PX * mpp
+    const R = (p: XY): XY => [r2(p[0]), r2(p[1])]
+    const nearestEdge = (q: XY, maxD: number): { p: XY; dir: XY } | null => {
+      let best: { p: XY; dir: XY } | null = null
+      let bd = maxD
+      for (const [a, b] of snapData.segs) {
+        const pp = projectOnSeg(q, a, b)
+        const d = dist(pp, q)
+        if (d < bd) {
+          const L = dist(a, b) || 1
+          bd = d
+          best = { p: pp, dir: [(b[0] - a[0]) / L, (b[1] - a[1]) / L] }
         }
       }
-      const be = edgeSnap(tol * 0.8)
-      if (be) return { p: [r2(be[0]), r2(be[1])], kind: 'edge' }
+      return best
     }
-    return { p: [r2(raw[0]), r2(raw[1])], kind: 'free' }
-  }, [snapData, mpp, edits.add_walls, tool])
+    if (free) return { p: R(raw), kind: 'free' }
+
+    // opening, second point: slide along the wall face picked by the first click
+    if (tool === 'opening' && from && startDir) {
+      const t = (raw[0] - from[0]) * startDir[0] + (raw[1] - from[1]) * startDir[1]
+      return { p: R([from[0] + startDir[0] * t, from[1] + startDir[1] * t]), kind: 'edge', dir: startDir }
+    }
+    // opening, first point: must be on a wall face
+    if (tool === 'opening') {
+      const e = nearestEdge(raw, tol * 1.5)
+      return e ? { p: R(e.p), kind: 'edge', dir: e.dir } : { p: R(raw), kind: 'free' }
+    }
+
+    // drawing from a point: orthogonal lock wins, then snap along the locked line
+    if (from) {
+      const dx = raw[0] - from[0], dy = raw[1] - from[1]
+      const ang = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI) % 90
+      if (ang < 7 || ang > 83) {
+        const horiz = Math.abs(dx) > Math.abs(dy)
+        const d: XY = horiz ? [Math.sign(dx) || 1, 0] : [0, Math.sign(dy) || 1]
+        const onLine: XY = horiz ? [raw[0], from[1]] : [from[0], raw[1]]
+        let best: XY | null = null
+        let bd = tol
+        for (const v of snapData.verts) {           // corners lying on the locked line
+          if ((horiz ? Math.abs(v[1] - from[1]) : Math.abs(v[0] - from[0])) > tol * 0.3) continue
+          const dd = dist(v, onLine)
+          if (dd < bd) { bd = dd; best = v }
+        }
+        if (best) return { p: R(horiz ? [best[0], from[1]] : [from[0], best[1]]), kind: 'vertex' }
+        for (const [a, b] of snapData.segs) {       // crossings of the locked line with wall faces
+          const x = lineSeg(from, d, a, b)
+          if (!x) continue
+          const dd = dist(x, onLine)
+          if (dd < bd) { bd = dd; best = x }
+        }
+        if (best) return { p: R(best), kind: 'inter' }
+        return { p: R(onLine), kind: 'ortho' }
+      }
+    }
+    let best: XY | null = null
+    let bd = tol
+    for (const v of [...snapData.verts, ...edits.add_walls.flatMap((x) => [x.a, x.b])]) {
+      const d = dist(v, raw)
+      if (d < bd) { bd = d; best = v }
+    }
+    if (best) return { p: R(best), kind: 'vertex' }
+    const e = nearestEdge(raw, tol * 0.8)
+    if (e) return { p: R(e.p), kind: 'edge', dir: e.dir }
+    return { p: R(raw), kind: 'free' }
+  }, [snapData, mpp, edits.add_walls, tool, startDir])
 
   // ------------------------------------------------------------ edits
   const commit = (fn: (e: FloorEdits) => FloorEdits) => {
@@ -210,7 +292,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
       .reduce((n, k) => n + (initial[k] as unknown[]).filter((it) => !(edits[k] as unknown[]).some((x) => JSON.stringify(x) === JSON.stringify(it))).length, 0)
 
   // ------------------------------------------------------------ keyboard
-  const cancelDrawing = useCallback(() => { setStart(null) }, [])
+  const cancelDrawing = useCallback(() => { setStart(null); setStartDir(null) }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') {
@@ -226,7 +308,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
         else undo()
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const t = TOOLS.find((x) => x.code === e.code)
-        if (t) { setTool(t.id); setStart(null); setPopup(null) }
+        if (t) { setTool(t.id); setStart(null); setStartDir(null); setPopup(null) }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -281,6 +363,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
     if (!d || d.panning || busy) return
     if (d.button === 2) {           // right click: finish / cancel the current line
       setStart(null)
+      setStartDir(null)
       return
     }
     if (d.button !== 0) return
@@ -303,8 +386,16 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
       return
     }
 
-    const q = snap(raw, e.shiftKey, start).p
-    if (!start) { setStart(q); return }
+    const sn = snap(raw, e.shiftKey, start)
+    const q = sn.p
+    if (!start) {
+      if (tool === 'opening') {
+        if (!sn.dir) { flash('Проём ставится на грань стены — подведите курсор к стене'); return }
+        setStartDir(sn.dir)
+      }
+      setStart(q)
+      return
+    }
     if (near(start, q, 0.03)) return
     const a = start
     if (tool === 'wall') {
@@ -318,6 +409,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
     } else {
       commit((ed) => ({ ...ed, add_openings: [...ed.add_openings, { a, b: q, kind: newKind }] }))
       setStart(null)
+      setStartDir(null)
     }
   }
 
@@ -360,8 +452,8 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
         ? 'Кликните второй угол области — стены внутри будут удалены · Esc — отмена'
         : 'Кликните первый угол области стирания'
       case 'opening': return start
-        ? `Кликните конец проёма (${KIND_LABEL[newKind].toLowerCase()}) · Esc — отмена`
-        : 'Кликните начало проёма на грани стены (точка привяжется к стене)'
+        ? `Ведите вдоль стены и кликните конец проёма (${KIND_LABEL[newKind].toLowerCase()}) · Esc — отмена`
+        : 'Кликните на грани стены — начало проёма'
     }
   })()
 
@@ -388,7 +480,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
         <div className="seg small-seg">
           {TOOLS.map((t) => (
             <button key={t.id} className={tool === t.id ? 'on' : ''} title={`${t.label} (${t.key})`}
-              onClick={() => { setTool(t.id); setStart(null); setPopup(null) }}>
+              onClick={() => { setTool(t.id); setStart(null); setStartDir(null); setPopup(null) }}>
               {t.label} <kbd>{t.key}</kbd>
             </button>
           ))}
@@ -471,10 +563,11 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
                   <path key={'ew' + i} d={segRect(w.a, w.b, w.width)}
                     className={`e-erase${isApplied('erase_walls', w) ? ' applied' : ''}${hlOf('erase_walls', i) ? ' hl' : ''}`} />
                 ))}
-                {edits.add_openings.map((o, i) => (
-                  <line key={'ao' + i} x1={o.a[0]} y1={o.a[1]} x2={o.b[0]} y2={o.b[1]} stroke={KIND_COLOR[o.kind]}
-                    className={`e-open${isApplied('add_openings', o) ? ' applied' : ''}${hlOf('add_openings', i) ? ' hl' : ''}`} />
-                ))}
+                {edits.add_openings.map((o, i) => isApplied('add_openings', o)
+                  ? <line key={'ao' + i} x1={o.a[0]} y1={o.a[1]} x2={o.b[0]} y2={o.b[1]} stroke={KIND_COLOR[o.kind]}
+                    className={`e-open applied${hlOf('add_openings', i) ? ' hl' : ''}`} />
+                  : <path key={'ao' + i} d={openingRect(o.a, o.b) ?? ''} fill={KIND_COLOR[o.kind]}
+                    className={`e-open-rect${hlOf('add_openings', i) ? ' hl' : ''}`} />)}
                 {edits.openings.map((o, i) => hlOf('openings', i) && (
                   <circle key={'ok' + i} cx={o.at[0]} cy={o.at[1]} r={markR * 3} className="e-mark hl" />
                 ))}
@@ -484,13 +577,19 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
                 {/* drawing preview */}
                 {start && cursor && tool === 'wall' && <path d={segRect(start, cursor.p, thickness)} className="e-add preview" />}
                 {erasePreview && <path d={segRect(erasePreview.a, erasePreview.b, erasePreview.width)} className="e-erase preview" />}
-                {start && cursor && tool === 'opening' && (
-                  <line x1={start[0]} y1={start[1]} x2={cursor.p[0]} y2={cursor.p[1]} stroke={KIND_COLOR[newKind]} className="e-open preview" />
-                )}
+                {start && cursor && tool === 'opening' && (() => {
+                  const r = openingRect(start, cursor.p)
+                  return r ? <path d={r} fill={KIND_COLOR[newKind]} className="e-open-rect preview" /> : null
+                })()}
                 {start && <circle cx={start[0]} cy={start[1]} r={markR} className="start-mark" />}
                 {cursor && tool !== 'select' && !busy && (
                   cursor.kind === 'vertex'
                     ? <rect x={cursor.p[0] - markR} y={cursor.p[1] - markR} width={markR * 2} height={markR * 2} className="snap-mark vertex" />
+                    : cursor.kind === 'inter'
+                      ? <g className="snap-mark inter">
+                        <line x1={cursor.p[0] - markR} y1={cursor.p[1] - markR} x2={cursor.p[0] + markR} y2={cursor.p[1] + markR} />
+                        <line x1={cursor.p[0] - markR} y1={cursor.p[1] + markR} x2={cursor.p[0] + markR} y2={cursor.p[1] - markR} />
+                      </g>
                     : cursor.kind === 'edge'
                       ? <path d={`M${cursor.p[0] - markR} ${cursor.p[1]}L${cursor.p[0]} ${cursor.p[1] + markR}L${cursor.p[0] + markR} ${cursor.p[1]}L${cursor.p[0]} ${cursor.p[1] - markR}Z`} className="snap-mark edge" />
                       : <g className="snap-mark free">
@@ -517,7 +616,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
               )}
             </svg>
           )}
-          <div className={`status-line${start ? ' active' : ''}`}>{status}</div>
+          <div className={`status-line${start ? ' active' : ''}${notice ? ' warn' : ''}`}>{notice ?? status}</div>
           <div className="zoom-btns">
             <button onClick={() => zoom(1 / 1.4)} title="Приблизить">+</button>
             <button onClick={() => zoom(1.4)} title="Отдалить">−</button>
@@ -530,7 +629,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
             </div>
           )}
           {cursor && <div className="coords">{cursor.p[0].toFixed(2)}, {cursor.p[1].toFixed(2)} м
-            {cursor.kind === 'vertex' ? ' · угол' : cursor.kind === 'edge' ? ' · грань' : cursor.kind === 'ortho' ? ' · ортогонально' : ''}</div>}
+            {cursor.kind === 'vertex' ? ' · угол' : cursor.kind === 'edge' ? ' · грань' : cursor.kind === 'inter' ? ' · пересечение с гранью' : cursor.kind === 'ortho' ? ' · ортогонально' : ''}</div>}
           {busy && <div className="busy-overlay"><div className="progress-card">Модель перестраивается с учётом правок…</div></div>}
           {renaming && (
             <form className="popup rename" style={{ left: renaming.screen[0], top: Math.min(renaming.screen[1], window.innerHeight - 80) }}
