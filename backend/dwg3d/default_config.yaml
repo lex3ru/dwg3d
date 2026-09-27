@@ -1,0 +1,101 @@
+# Default pipeline configuration.
+# All distances are in METERS (the drawing is converted to meters right after
+# reading), except where noted. Layer / block patterns are case-insensitive
+# shell globs (fnmatch): "*" = any chars, "?" = one char.
+
+# Drawing units: auto | mm | cm | dm | m | in | ft
+# "auto" = use $INSUNITS from the header, fall back to a geometric heuristic.
+units: auto
+
+# Layer name -> semantic role. First matching role wins, in this order:
+# ignore, walls, columns, windows, doors, rooms, grid.
+layers:
+  ignore: ["Размеры*", "*DIM*", "Defpoints", "Выноски*", "Штриховка*", "Формат*", "*UNPLOTTED*"]
+  walls:
+    - "*WALL*"          # AIA: A-WALL, A-WALL-FULL ...
+    - "*Стен*"
+    - "*СТЕН*"
+    - "*Перегород*"
+    - "*Несущ*"
+    - "*Кладк*"
+    - "*Wand*"
+  columns: ["*COL*", "*Колонн*", "*Пилон*"]
+  windows: ["*GLAZ*", "*WIND*", "*Окн*", "*Витраж*"]
+  doors: ["*DOOR*", "*Двер*", "*Ворот*"]
+  rooms: ["*AREA*", "*ROOM*", "*SPACE*", "*Помещ*", "*Экспликац*"]
+  grid: ["*GRID*", "*AXIS*", "Оси*", "*Координационн*"]
+  # insulation / cladding: merged into the wall it is attached to
+  insulation: ["*Утеплит*", "*INSUL*", "*Облицов*"]
+  # explicit stair layers (stairs are also auto-detected on any layer)
+  stairs: ["*STAIR*", "*Лестн*"]
+  # Layers whose TEXT/MTEXT can name rooms / floors (empty = any layer).
+  labels: []
+
+# Wall layers matching these patterns are rendered as partitions
+# (separate mesh / IFC PARTITIONING); other wall layers are structural walls.
+wall_types:
+  partition: ["*Перегород*", "*PART*", "*A-WALL-PRHT*"]
+
+# Block name patterns: inserts of these blocks are treated as doors/windows
+# regardless of the layer they sit on.
+blocks:
+  doors: ["*DOOR*", "*Двер*", "ДВ-*", "Д-*"]
+  windows: ["*WIND*", "*Окн*", "ОК-*", "*OKNO*"]
+  grid: ["*axis*", "*grid*", "*Ось*", "*osi*"]
+  # Block inserts that each represent a whole floor (floors.mode = blocks/auto)
+  floors: ["*FLOOR*", "*LEVEL*", "*Этаж*"]
+
+geometry:
+  snap_tolerance: 0.01        # endpoints closer than this are merged
+  gap_tolerance: 0.06         # dangling ends are extended/joined up to this
+  min_wall_thickness: 0.04
+  max_wall_thickness: 0.9     # thicker "thin" polygons are treated as rooms
+  default_wall_thickness: 0.15  # for walls drawn as a single line
+  arc_tolerance: 0.01         # max sagitta when flattening arcs/splines
+  min_room_area: 1.0
+  # Openings detected from gaps between wall ends
+  min_opening_width: 0.5
+  max_door_width: 2.6
+  max_window_width: 7.0
+  detect_gap_openings: true
+  # door swing arcs (any layer): sweep ~90 deg, radius = leaf width
+  door_arc_radius: [0.5, 1.5]
+  # stairs: runs of parallel equally spaced treads (any non-ignored layer)
+  detect_stairs: true
+  stair_tread: [0.2, 0.42]       # tread depth range
+  stair_width: [0.7, 4.0]        # tread line length range
+  stair_min_treads: 5
+
+building:
+  floor_height: 3.0           # default floor-to-floor height
+  slab_thickness: 0.22
+  door_height: 2.1
+  window_sill: 0.9
+  window_head: 2.4
+  vitrage_min_width: 3.0      # wider windows are floor-to-ceiling glazing
+  vitrage_head: 0.15          # glazing top, meters below the ceiling
+  riser: 0.165                # stair riser height
+  roof: true                  # add a roof slab above the top floor
+  use_elevation_marks: true   # read heights from marks like "+4,150" on the plan
+
+floors:
+  # auto | single | clusters | layouts | blocks
+  mode: auto
+  # grid (axes) -> features (grid lines/columns voting) -> bbox; or none
+  alignment: auto
+  cluster_gap: 4.0            # plans further apart than this are separate sheets
+  min_cluster_ratio: 0.2      # clusters smaller than this x largest are annotations
+  # Manual overrides, applied on top of auto-detected candidates, e.g.
+  #  - {candidate: "c3", name: "3 этаж", level: 3, height: 4.2, include: true}
+  #  - {candidate: "c7", offset: [0.5, 0.0]}   # extra shift in meters
+  items: []
+
+# Manual per-floor corrections made in the 2D editor (plan coordinates, m):
+# edits:
+#   c3:
+#     add_walls:    [{a: [x, y], b: [x, y], thickness: 0.2}]
+#     erase_walls:  [{a: [x, y], b: [x, y], width: 0.6}]
+#     add_openings: [{a: [x, y], b: [x, y], kind: door}]
+#     openings:     [{at: [x, y], kind: window}]   # door|window|vitrage|passage|wall|none
+#     rooms:        [{at: [x, y], name: "Кабинет"}]
+edits: {}

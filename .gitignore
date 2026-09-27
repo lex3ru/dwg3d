@@ -1,0 +1,10 @@
+.tools/
+data/
+work/
+backend/.venv/
+**/__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+*.dwg
+!backend/tests/**/*.dwg
