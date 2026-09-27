@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { fileUrl, getJob, rebuildJob, uploadFile, type FloorEdits, type Job } from './api'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
-import Viewer, { type FocusRoom, type Tool, type ViewMode, type ViewState } from './Viewer'
+import Viewer, { type FocusRoom, type MeasureMode, type Tool, type ViewMode, type ViewState } from './Viewer'
 
 const STAGES: Record<string, string> = {
   queued: 'В очереди', start: 'Запуск', convert: 'Конвертация DWG → DXF', read: 'Чтение чертежа',
@@ -19,7 +19,7 @@ const MODES: { id: ViewMode; label: string; title: string }[] = [
 
 const TOOLS: { id: Tool; label: string; title: string }[] = [
   { id: 'orbit', label: 'Осмотр', title: 'Вращение, зум, панорама' },
-  { id: 'measure', label: 'Рулетка', title: 'Два клика по модели — расстояние. Esc — сброс' },
+  { id: 'measure', label: 'Рулетка', title: 'Расстояние между точками или площадь контура' },
   { id: 'walk', label: 'Прогулка', title: 'Вид от первого лица на выбранном этаже (WASD, мышь, Shift — быстрее, Esc — выход)' },
 ]
 
@@ -111,6 +111,7 @@ export default function App() {
     cutH: { on: false, y: 0 }, cutV: { on: false, x: 0 },
   })
   const [tool, setTool] = useState<Tool>('orbit')
+  const [measureMode, setMeasureMode] = useState<MeasureMode>('length')
   const [walkActive, setWalkActive] = useState(false)
   const exitWalk = useCallback(() => { setTool('orbit'); setWalkActive(false) }, [])
   const [settings, setSettings] = useState(false)
@@ -287,6 +288,16 @@ export default function App() {
                   onClick={() => (t.id === 'walk' ? startWalk() : setTool(t.id))}>{t.label}</button>
               ))}
             </div>
+            {tool === 'measure' && (
+              <div className="seg seg2 sub-seg">
+                <button className={measureMode === 'length' ? 'on' : ''} onClick={() => setMeasureMode('length')}>
+                  ↔ Расстояние
+                </button>
+                <button className={measureMode === 'area' ? 'on' : ''} onClick={() => setMeasureMode('area')}>
+                  ▱ Площадь
+                </button>
+              </div>
+            )}
 
             <div className="actions">
               <button className="secondary" disabled={!!running || !selFloor} onClick={() => setEditor(true)}
@@ -319,7 +330,7 @@ export default function App() {
         {shown?.model_url && r ? (
           <Suspense fallback={<div className="center-msg">Загрузка модели…</div>}>
             <Viewer key={shown.model_url} url={shown.model_url} result={r} view={view} tool={tool}
-              focusRoom={focusRoom} onExitWalk={exitWalk} />
+              focusRoom={focusRoom} measureMode={measureMode} onExitWalk={exitWalk} />
           </Suspense>
         ) : running ? (
           <div className="center-msg"><Progress job={job!} /></div>
@@ -348,7 +359,8 @@ export default function App() {
               <span><i style={{ background: '#c7bdad' }} />лестницы</span>
             </div>
             <div className="help">
-              {tool === 'measure' ? 'Кликните две точки на модели · Esc — сброс'
+              {tool === 'measure' && measureMode === 'length' ? 'Кликните две точки на модели · Esc — сброс'
+                : tool === 'measure' ? 'Кликайте вершины контура · замкнуть: клик по первой точке, двойной клик или Enter · Backspace — убрать точку · Esc — сброс'
                 : 'ЛКМ — вращение · ПКМ — панорама · колесо — зум · наведите на помещение'}
             </div>
           </>

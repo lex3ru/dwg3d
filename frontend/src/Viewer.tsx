@@ -7,6 +7,7 @@ import type { FloorMeta, Result, RoomMeta } from './api'
 
 export type ViewMode = 'all' | 'isolate' | 'below' | 'explode'
 export type Tool = 'orbit' | 'measure' | 'walk'
+export type MeasureMode = 'length' | 'area'
 
 export interface ViewState {
   mode: ViewMode
@@ -31,7 +32,36 @@ interface Props {
   view: ViewState
   tool: Tool
   focusRoom: FocusRoom | null
+  measureMode: MeasureMode
   onExitWalk: () => void
+}
+
+/** Vector area (Newell) of a closed 3D polygon: |n| / 2 = area, n = normal. */
+function newell(pts: THREE.Vector3[]): THREE.Vector3 {
+  const n = new THREE.Vector3()
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length]
+    n.x += (a.y - b.y) * (a.z + b.z)
+    n.y += (a.z - b.z) * (a.x + b.x)
+    n.z += (a.x - b.x) * (a.y + b.y)
+  }
+  return n.multiplyScalar(0.5)
+}
+
+/** Fill triangles for a (roughly planar) 3D polygon. */
+function polygonGeometry(pts: THREE.Vector3[]): THREE.BufferGeometry | null {
+  if (pts.length < 3) return null
+  const n = newell(pts)
+  if (n.lengthSq() < 1e-10) return null
+  n.normalize()
+  const u = new THREE.Vector3().crossVectors(Math.abs(n.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0), n).normalize()
+  const v = new THREE.Vector3().crossVectors(n, u)
+  const flat = pts.map((p) => new THREE.Vector2(p.dot(u), p.dot(v)))
+  const tris = THREE.ShapeUtils.triangulateShape(flat, [])
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap((p) => [p.x, p.y, p.z]), 3))
+  g.setIndex(tris.flat())
+  return g
 }
 
 const HOVER_MAT = new THREE.MeshStandardMaterial({ color: 0x4dabf7, emissive: 0x1c7ed6, emissiveIntensity: 0.35 })
@@ -48,7 +78,7 @@ function roleOf(o: THREE.Object3D): string | undefined {
 
 interface Hover { name: string; area: number; point: THREE.Vector3 }
 
-function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
+function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: Props) {
   const { scene } = useGLTF(url)
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
   const camera = useThree((s) => s.camera)
@@ -57,6 +87,9 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
   const hovered = useRef<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] } | null>(null)
   const focus = useRef<{ target: THREE.Vector3; pos: THREE.Vector3 } | null>(null)
   const [measure, setMeasure] = useState<THREE.Vector3[]>([])
+  const [closed, setClosed] = useState(false)                       // area polygon finished
+  const [probe, setProbe] = useState<THREE.Vector3 | null>(null)    // cursor point for previews
+  const size = useThree((s) => s.size)
 
   const floors = useMemo(() => [...result.floors].sort((a, b) => a.elevation! - b.elevation!), [result.floors])
   const roomByNode = useMemo(() => {
@@ -260,13 +293,26 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
     return out
   }, [scene])
 
-  // measure: Esc clears
+  // measure: Esc clears, Backspace removes the last point, Enter closes the area
   useEffect(() => {
-    if (tool !== 'measure') { setMeasure([]); return }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMeasure([]) }
+    setMeasure([])
+    setClosed(false)
+    setProbe(null)
+  }, [tool, measureMode])
+  useEffect(() => {
+    if (tool !== 'measure') return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setMeasure([]); setClosed(false) }
+      else if (e.key === 'Backspace' || e.key === 'Delete') {
+        setClosed(false)
+        setMeasure((m) => m.slice(0, -1))
+      } else if (e.key === 'Enter' && measureMode === 'area') {
+        setMeasure((m) => { if (m.length >= 3) setClosed(true); return m })
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tool])
+  }, [tool, measureMode])
 
   useFrame((_, dt) => {
     const sel = floors.find((x) => x.id === view.selected)
@@ -343,6 +389,11 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
   const onMove = (e: ThreeEvent<PointerEvent>) => {
     if (tool === 'walk') return
     const hit = firstVisibleHit(e)
+    if (tool === 'measure') {
+      if (hovered.current || hover) clearHover()
+      setProbe(hit ? hit.point.clone() : null)
+      return
+    }
     const obj = hit?.object as THREE.Mesh | undefined
     const r = obj && roomByNode.get(obj.name)
     if (!obj || !r) {
@@ -358,13 +409,55 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
     setHover({ name: r.room.name || 'Помещение', area: r.room.area, point: hit!.point.clone() })
   }
 
+  const toScreen = (p: THREE.Vector3) => {
+    const v = p.clone().project(camera)
+    return [(v.x + 1) / 2 * size.width, (1 - v.y) / 2 * size.height]
+  }
+
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     if (tool !== 'measure' || e.delta > 4) return
     const hit = firstVisibleHit(e)
     if (!hit) return
     e.stopPropagation()
-    setMeasure((m) => (m.length >= 2 ? [hit.point.clone()] : [...m, hit.point.clone()]))
+    const p = hit.point.clone()
+    if (measureMode === 'length') {
+      setMeasure((m) => (m.length >= 2 ? [p] : [...m, p]))
+      return
+    }
+    if (closed) { setClosed(false); setMeasure([p]); return }
+    if (measure.length >= 3) {
+      // clicking the first vertex (within 12 px) closes the contour
+      const [fx, fy] = toScreen(measure[0])
+      const [px, py] = toScreen(p)
+      if (Math.hypot(fx - px, fy - py) < 12) { setClosed(true); return }
+    }
+    setMeasure((m) => [...m, p])
   }
+
+  const onDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    if (tool !== 'measure' || measureMode !== 'area' || closed) return
+    e.stopPropagation()
+    // the two clicks of a double click added the same point twice
+    setMeasure((m) => {
+      const out = m.length >= 2 && m[m.length - 1].distanceTo(m[m.length - 2]) < 0.05 ? m.slice(0, -1) : m
+      if (out.length >= 3) setClosed(true)
+      return out
+    })
+  }
+
+  // area polygon (with live preview through the cursor point while open)
+  const areaPts = measureMode === 'area'
+    ? (closed || !probe || measure.length < 2 ? measure : [...measure, probe])
+    : []
+  const areaGeom = useMemo(() => (areaPts.length >= 3 ? polygonGeometry(areaPts) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [areaPts.map((p) => p.toArray().join()).join('|')])
+  const area = areaPts.length >= 3 ? newell(areaPts).length() : 0
+  const perimeter = areaPts.reduce((sum, p, i) =>
+    sum + (i < areaPts.length - 1 || areaPts.length >= 3 ? p.distanceTo(areaPts[(i + 1) % areaPts.length]) : 0), 0)
+  const areaCenter = areaPts.length
+    ? areaPts.reduce((c, p) => c.add(p), new THREE.Vector3()).multiplyScalar(1 / areaPts.length)
+    : null
 
   // labels
   const sel = floors.find((x) => x.id === view.selected)
@@ -372,7 +465,8 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
 
   return (
     <>
-      <primitive object={scene} onPointerMove={onMove} onPointerOut={clearHover} onClick={onClick} />
+      <primitive object={scene} onPointerMove={onMove} onPointerOut={() => { clearHover(); setProbe(null) }}
+        onClick={onClick} onDoubleClick={onDoubleClick} />
       {hover && tool !== 'walk' && (
         <Html position={hover.point} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
           <div className="tooltip"><b>{hover.name}</b><span>{hover.area.toFixed(1)} м²</span></div>
@@ -397,13 +491,44 @@ function Model({ url, result, view, tool, focusRoom, onExitWalk }: Props) {
       })}
       {measure.length > 0 && (
         <>
-          {measure.map((p, i) => (
-            <mesh key={i} position={p}>
-              <sphereGeometry args={[0.08, 12, 12]} />
-              <meshBasicMaterial color="#e03131" depthTest={false} />
-            </mesh>
-          ))}
-          {measure.length === 2 && (
+          {measure.map((p, i) => {
+            // the first vertex of an open area contour is the "close here" target
+            const closeTarget = measureMode === 'area' && !closed && i === 0 && measure.length >= 3
+            return (
+              <mesh key={i} position={p} renderOrder={11}>
+                <sphereGeometry args={[closeTarget ? 0.16 : 0.08, 14, 14]} />
+                <meshBasicMaterial color={closeTarget ? '#1c7ed6' : '#e03131'} depthTest={false} />
+              </mesh>
+            )
+          })}
+          {measureMode === 'length' && measure.length === 1 && probe && (
+            <>
+              <Line points={[measure[0], probe]} color="#e03131" lineWidth={1.5} dashed dashSize={0.2} gapSize={0.1} depthTest={false} />
+              <Html position={probe} style={{ pointerEvents: 'none' }}>
+                <div className="measure-label ghost">{measure[0].distanceTo(probe).toFixed(2)} м</div>
+              </Html>
+            </>
+          )}
+          {measureMode === 'area' && areaPts.length >= 2 && (
+            <>
+              <Line points={closed ? [...areaPts, areaPts[0]] : areaPts} color="#e03131" lineWidth={2} depthTest={false} />
+              {areaGeom && (
+                <mesh geometry={areaGeom} renderOrder={10}>
+                  <meshBasicMaterial color="#fa5252" transparent opacity={closed ? 0.3 : 0.18}
+                    side={THREE.DoubleSide} depthTest={false} />
+                </mesh>
+              )}
+              {areaCenter && areaPts.length >= 3 && (
+                <Html position={areaCenter} center style={{ pointerEvents: 'none' }}>
+                  <div className={`measure-label${closed ? '' : ' ghost'}`}>
+                    S {closed ? '=' : '≈'} {area.toFixed(2)} м²
+                    <small>P = {perimeter.toFixed(2)} м · {areaPts.length} точ.</small>
+                  </div>
+                </Html>
+              )}
+            </>
+          )}
+          {measureMode === 'length' && measure.length === 2 && (
             <>
               <Line points={measure} color="#e03131" lineWidth={2} depthTest={false} />
               <Html position={measure[0].clone().add(measure[1]).multiplyScalar(0.5)} center style={{ pointerEvents: 'none' }}>

@@ -190,6 +190,19 @@ def get_file(jid: str, path: str):
     return FileResponse(p, media_type=media[ext])
 
 
+class _UI(StaticFiles):
+    """Built frontend: index.html must be revalidated (it points to the
+    current hashed bundle), hashed assets can be cached forever."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if path.startswith("assets/"):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 _dist = ROOT / "frontend" / "dist"
 if _dist.is_dir():
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="ui")
+    app.mount("/", _UI(directory=_dist, html=True), name="ui")
