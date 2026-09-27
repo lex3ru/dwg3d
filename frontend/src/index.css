@@ -209,3 +209,7 @@ kbd { font: 10px/1 ui-monospace, monospace; padding: 1px 4px; border: 1px solid 
 .sub-seg button { font-size: 12px; padding: 5px 2px; }
 .measure-label small { display: block; font-size: 11px; font-weight: 400; opacity: .9; }
 .measure-label.ghost { background: rgba(224,49,49,.75); }
+.crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; }
+.crosshair::before, .crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 2px rgba(0,0,0,.6); }
+.crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+.crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }

@@ -146,8 +146,25 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
   planes.h.constant = view.cutH.y
   planes.v.constant = view.cutV.x
 
-  // fit camera on load
+  // fit camera once per loaded model. OrbitControls are unmounted during a
+  // walk and remounted afterwards; that must not re-fit the camera.
+  const fitted = useRef<THREE.Object3D | null>(null)
   useEffect(() => {
+    if (fitted.current === scene) {
+      // controls came back (e.g. after a walk): orbit around a point ahead of the camera
+      if (controls) {
+        const dir = new THREE.Vector3()
+        camera.getWorldDirection(dir)
+        controls.target.copy(camera.position).addScaledVector(dir, 10)
+        controls.update()
+        const size = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3())
+        ;(camera as THREE.PerspectiveCamera).near = Math.max(size.x, size.y, size.z) / 2000
+        camera.updateProjectionMatrix()
+      }
+      return
+    }
+    if (!controls) return
+    fitted.current = scene
     const box = new THREE.Box3().setFromObject(scene)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
@@ -159,10 +176,8 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
     camera.near = r / 2000
     camera.far = r * 20
     camera.updateProjectionMatrix()
-    if (controls) {
-      controls.target.copy(center)
-      controls.update()
-    }
+    controls.target.copy(center)
+    controls.update()
   }, [scene, camera, controls])
 
   // user grabbing the camera cancels an ongoing fly-to
@@ -230,6 +245,13 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusRoom])
 
+  const ray = useMemo(() => new THREE.Raycaster(), [])
+  const solids = useMemo(() => {
+    const out: THREE.Object3D[] = []
+    scene.traverse((o) => { if ((o as THREE.Mesh).isMesh && SOLID_ROLES.has(roleOf(o) ?? '')) out.push(o) })
+    return out
+  }, [scene])
+
   // walk mode: start inside the largest room of the selected floor
   const walkFloor = useMemo(() => floors.find((f) => f.id === view.selected) ?? floors[0], [floors, view.selected])
   useEffect(() => {
@@ -238,8 +260,21 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
     const room = [...walkFloor.rooms].sort((a, b) => b.area - a.area)[0]
     const node = groups.get(walkFloor.id)
     const c = room ? new THREE.Vector3(...room.label_pos) : new THREE.Box3().setFromObject(node!).getCenter(new THREE.Vector3())
-    camera.position.set(c.x, walkFloor.elevation! + 1.6 + (node?.position.y ?? 0), c.z)
-    camera.lookAt(c.x + 1, walkFloor.elevation! + 1.6, c.z)
+    const eye = walkFloor.elevation! + 1.6 + (node?.position.y ?? 0)
+    camera.position.set(c.x, eye, c.z)
+    // look toward the most open horizontal direction from the start point
+    let best = new THREE.Vector3(1, 0, 0), bestD = -1
+    for (let a = 0; a < 16; a++) {
+      const d = new THREE.Vector3(Math.cos(a * Math.PI / 8), 0, Math.sin(a * Math.PI / 8))
+      ray.set(camera.position, d)
+      ray.far = 100
+      const h = ray.intersectObjects(solids, false).find((x) => isVisible(x.object))
+      const dd = h ? h.distance : 100
+      if (dd > bestD) { bestD = dd; best = d }
+    }
+    camera.lookAt(camera.position.clone().add(best))
+    ;(camera as THREE.PerspectiveCamera).near = 0.05
+    camera.updateProjectionMatrix()
   }, [tool, walkFloor, groups, camera])
 
   const keys = useRef<Record<string, boolean>>({})
@@ -286,12 +321,6 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
       keys.current = {}
     }
   }, [tool, gl, camera, onExitWalk])
-  const ray = useMemo(() => new THREE.Raycaster(), [])
-  const solids = useMemo(() => {
-    const out: THREE.Object3D[] = []
-    scene.traverse((o) => { if ((o as THREE.Mesh).isMesh && SOLID_ROLES.has(roleOf(o) ?? '')) out.push(o) })
-    return out
-  }, [scene])
 
   // measure: Esc clears, Backspace removes the last point, Enter closes the area
   useEffect(() => {
@@ -355,11 +384,21 @@ function Model({ url, result, view, tool, focusRoom, measureMode, onExitWalk }: 
       if (kk.KeyA || kk.ArrowLeft) move.sub(right)
       if (move.lengthSq() > 0) {
         move.normalize()
-        // simple collision: stop 0.3 m before walls / glass / doors
-        ray.set(camera.position.clone().setY(camera.position.y - 0.6), move)
-        ray.far = speed + 0.3
-        const hit = ray.intersectObjects(solids, false).find((h) => isVisible(h.object))
-        if (!hit) camera.position.addScaledVector(move, speed)
+        // collision: keep 0.3 m from walls / glass / doors; when blocked, slide
+        // along the wall (try the move's X and Z components separately)
+        const free = (d: THREE.Vector3) => {
+          if (d.lengthSq() < 1e-6) return false
+          const dn = d.clone().normalize()
+          for (const dy of [1.0, 0.2]) {           // knee (0.6 m) and chest (1.4 m) above the floor
+            ray.set(camera.position.clone().setY(camera.position.y - dy), dn)
+            ray.far = speed + 0.3
+            if (ray.intersectObjects(solids, false).some((x) => isVisible(x.object))) return false
+          }
+          return true
+        }
+        const candidates = [move, new THREE.Vector3(move.x, 0, 0), new THREE.Vector3(0, 0, move.z)]
+        const ok = candidates.find(free)
+        if (ok) camera.position.addScaledVector(ok.clone().normalize(), speed * (ok === move ? 1 : Math.max(Math.abs(ok.x), Math.abs(ok.z))))
       }
       return
     }

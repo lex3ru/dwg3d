@@ -338,7 +338,12 @@ export default function App() {
         {r && tool === 'walk' && !walkActive && (
           <div className="walk-overlay" onClick={() => {
             setWalkActive(true)
-            try { void document.querySelector('canvas')?.requestPointerLock?.() } catch { /* drag-to-look fallback */ }
+            // pointer lock may be refused (iframe policy, re-lock right after Esc);
+            // the walk then falls back to looking around by dragging the mouse
+            try {
+              const req = document.querySelector('canvas')?.requestPointerLock?.() as unknown as Promise<void> | undefined
+              req?.catch?.(() => {})
+            } catch { /* fallback */ }
           }}>
             <div>
               <b>Прогулка: {selFloor?.name}</b>
@@ -346,6 +351,7 @@ export default function App() {
             </div>
           </div>
         )}
+        {r && tool === 'walk' && walkActive && <div className="crosshair" />}
         {r && tool === 'walk' && walkActive && (
           <div className="help">WASD — ходьба · мышь — обзор · Shift — быстрее · Esc — выход</div>
         )}
