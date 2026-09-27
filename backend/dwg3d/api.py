@@ -8,6 +8,18 @@
   GET  /api/health               converter availability
 
 Run:  uvicorn dwg3d.api:app --port 8765
+
+Environment:
+  DWG3D_DATA              data directory (default <project>/data)
+  DWG3D_MAX_UPLOAD_MB     upload limit (200)
+  DWG3D_WORKERS           parallel builds (2)
+  DWG3D_CORS_ORIGINS      comma-separated origins allowed cross-origin (none;
+                          the built UI and the Vite dev proxy are same-origin)
+  DWG3D_RETENTION_DAYS    delete jobs not touched for N days (0 = keep forever)
+
+There is no authentication: bind to 127.0.0.1 or put it behind a reverse
+proxy that authenticates. Job state lives in this process, so run a single
+uvicorn worker.
 """
 from __future__ import annotations
 
@@ -15,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 import traceback
@@ -27,22 +40,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import deep_merge, load_config
+from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
-from .pipeline import run
+from .edits import anchor_of
+from .pipeline import render_debug, run
 
 log = logging.getLogger("dwg3d.api")
 ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("DWG3D_DATA", ROOT / "data")) / "jobs"
 DATA.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD = int(os.environ.get("DWG3D_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+RETENTION_DAYS = float(os.environ.get("DWG3D_RETENTION_DAYS", "0"))
+# fields kept in job.json for diagnostics but never sent to the client
+PRIVATE = ("input", "trace")
 
 app = FastAPI(title="dwg3d")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("DWG3D_WORKERS", "2")))
-_lock = threading.Lock()
+_lock = threading.RLock()
 _jobs: dict[str, dict] = {}
+_last_cleanup = 0.0
 
 
 def _job_dir(jid: str) -> Path:
@@ -53,11 +72,12 @@ def _save(job: dict):
     (_job_dir(job["id"]) / "job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 
 
-def _update(jid: str, **kw):
+def _update(jid: str, persist: bool = True, **kw):
     with _lock:
         job = _jobs[jid]
         job.update(kw, updated=time.time())
-        _save(job)
+        if persist:
+            _save(job)
 
 
 def _load_existing():
@@ -71,11 +91,29 @@ def _load_existing():
             pass
 
 
+def _cleanup():
+    """Delete finished jobs untouched for RETENTION_DAYS (disabled when 0)."""
+    global _last_cleanup
+    if RETENTION_DAYS <= 0 or time.time() - _last_cleanup < 3600:
+        return
+    _last_cleanup = time.time()
+    cutoff = time.time() - RETENTION_DAYS * 86400
+    with _lock:
+        old = [j["id"] for j in _jobs.values()
+               if j.get("status") in ("done", "error") and j.get("updated", 0) < cutoff]
+        for jid in old:
+            _jobs.pop(jid, None)
+    for jid in old:
+        shutil.rmtree(_job_dir(jid), ignore_errors=True)
+        log.info("job %s removed (retention %s days)", jid, RETENTION_DAYS)
+
+
 _load_existing()
+_cleanup()
 
 
 def _public(job: dict) -> dict:
-    out = {k: v for k, v in job.items() if k not in ("input",)}
+    out = {k: v for k, v in job.items() if k not in PRIVATE}
     if job.get("status") == "done":
         v = job.get("build", 0)
         out["model_url"] = f"/api/jobs/{job['id']}/files/model.glb?v={v}"
@@ -93,23 +131,35 @@ def _process(jid: str):
         src = dxf
 
     def progress(stage, frac, msg=""):
-        _update(jid, status="running", stage=stage, progress=round(frac, 3), message=msg)
+        # job.json is rewritten only when the stage changes, not on every tick
+        _update(jid, persist=stage != job.get("stage"), status="running", stage=stage,
+                progress=round(frac, 3), message=msg)
 
     try:
         _update(jid, status="running", stage="start", progress=0.0, message="Запуск", error=None)
-        meta = run(src, jdir / "out", job.get("config") or {}, progress=progress)
-        meta.pop("config", None)
+        meta = run(src, jdir / "out", job.get("config") or {}, progress=progress, debug_png=False)
+        cfg_used = meta.pop("config", None) or {}
         if src.suffix.lower() == ".dxf" and job["input"].lower().endswith(".dwg"):
             meta["converter"] = job.get("result", {}).get("converter", meta.get("converter"))
         result = {k: meta[k] for k in ("source", "units", "units_source", "converter", "floors", "roof_node",
                                         "height_range", "candidates", "triangles", "warnings", "elapsed_s",
-                                        "center", "exports", "extent")}
+                                        "center", "exports", "extent", "quality", "edits_unmatched")}
         result["layers"] = meta["layers"]
+        # persist the corrections re-anchored to the floors of this build
+        cfg = dict(job.get("config") or {})
+        cfg["edits"] = cfg_used.get("edits") or {}
+        if cfg_used.get("edits_unmatched"):
+            cfg["edits_unmatched"] = cfg_used["edits_unmatched"]
+        else:
+            cfg.pop("edits_unmatched", None)
+        if (cfg.get("floors") or {}).get("items"):
+            cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
         _update(jid, status="done", stage="done", progress=1.0, message="Готово", result=result,
-                build=job.get("build", 0) + 1)
+                config=cfg, build=job.get("build", 0) + 1)
     except Exception as ex:
         log.exception("job %s failed", jid)
-        _update(jid, status="error", stage="error", error=str(ex), trace=traceback.format_exc()[-3000:])
+        msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
+        _update(jid, status="error", stage="error", error=msg[:1000], trace=traceback.format_exc()[-3000:])
 
 
 @app.get("/api/health")
@@ -132,6 +182,13 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
         override = json.loads(config) if config else {}
     except json.JSONDecodeError:
         raise HTTPException(400, "config: некорректный JSON")
+    if not isinstance(override, dict):
+        raise HTTPException(400, "config: ожидается объект")
+    try:
+        validate_config(load_config(override))
+    except ConfigError as ex:
+        raise HTTPException(400, f"config: {ex}")
+    _cleanup()
     jid = uuid.uuid4().hex[:12]
     jdir = _job_dir(jid)
     jdir.mkdir(parents=True)
@@ -141,6 +198,7 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
             size += len(chunk)
             if size > MAX_UPLOAD:
                 f.close()
+                shutil.rmtree(jdir, ignore_errors=True)
                 raise HTTPException(413, "Файл слишком большой")
             f.write(chunk)
     job = {"id": jid, "filename": name, "input": f"input{ext}", "size": size, "status": "queued",
@@ -164,14 +222,52 @@ def get_job(jid: str):
 def rebuild(jid: str, override: dict):
     if jid not in _jobs:
         raise HTTPException(404, "Задача не найдена")
-    job = _jobs[jid]
-    if job["status"] in ("queued", "running"):
-        raise HTTPException(409, "Задача ещё выполняется")
-    # floors.items is replaced wholesale (a full assignment list), the rest is merged
-    cfg = deep_merge(job.get("config") or {}, override or {})
-    _update(jid, status="queued", stage="queued", progress=0.0, message="В очереди", config=cfg)
+    if not isinstance(override, dict):
+        raise HTTPException(400, "Ожидается объект")
+    with _lock:                         # check + enqueue atomically: no double builds
+        job = _jobs[jid]
+        if job["status"] in ("queued", "running"):
+            raise HTTPException(409, "Задача ещё выполняется")
+        override = _anchor_override(job, override)
+        # floors.items is replaced wholesale (a full assignment list), the rest is merged
+        cfg = deep_merge(job.get("config") or {}, override)
+        try:
+            validate_config(load_config(cfg))
+        except ConfigError as ex:
+            raise HTTPException(400, str(ex))
+        _update(jid, status="queued", stage="queued", progress=0.0, message="В очереди", config=cfg)
     _executor.submit(_process, jid)
     return _public(_jobs[jid])
+
+
+def _anchor_override(job: dict, override: dict) -> dict:
+    """Edits and floor assignments refer to floor ids of the build the user
+    looked at; pin them to that build's sheets and alignment (see edits.py)."""
+    res = job.get("result") or {}
+    floors = {f["id"]: f for f in res.get("floors") or []}
+    cands = {c["id"]: c for c in res.get("candidates") or []}
+    override = dict(override)
+    if isinstance(override.get("edits"), dict):
+        old = (job.get("config") or {}).get("edits") or {}
+        new = {}
+        for fid, e in override["edits"].items():
+            if isinstance(e, dict):
+                e = {k: v for k, v in e.items() if k != "_anchor"}
+                if isinstance(old.get(fid), dict) and old[fid].get("_anchor"):
+                    e["_anchor"] = old[fid]["_anchor"]
+                elif fid in floors and floors[fid].get("bbox"):
+                    e["_anchor"] = anchor_of(floors[fid])
+            new[fid] = e
+        override["edits"] = new
+    items = (override.get("floors") or {}).get("items") if isinstance(override.get("floors"), dict) else None
+    if isinstance(items, list):
+        out = []
+        for it in items:
+            if isinstance(it, dict) and not it.get("_anchor") and str(it.get("candidate")) in cands:
+                it = {**it, "_anchor": anchor_of(cands[str(it["candidate"])], with_offset=False)}
+            out.append(it)
+        override["floors"] = {**override["floors"], "items": out}
+    return override
 
 
 @app.get("/api/jobs/{jid}/drawing.{fmt}")
@@ -231,6 +327,11 @@ def get_file(jid: str, path: str):
     media = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png",
              ".ifc": "application/x-step", ".zip": "application/zip"}
     ext = p.suffix.lower()
+    if base in p.parents and p.parent == base / "debug" and ext == ".png" and not p.is_file():
+        with _lock:
+            busy = _jobs[jid].get("status") in ("queued", "running")
+        if not busy:
+            render_debug(base, p.name)          # rendered on demand from the cached plans
     if base not in p.parents or not p.is_file() or ext not in media:
         raise HTTPException(404)
     if ext in (".ifc", ".zip"):

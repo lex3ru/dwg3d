@@ -104,3 +104,8 @@ floors:
 #     openings:     [{at: [x, y], kind: window}]   # door|window|vitrage|passage|wall|none
 #     rooms:        [{at: [x, y], name: "Кабинет"}]
 edits: {}
+
+# Extra model exports (besides the GLB used by the viewer)
+export:
+  obj: true
+  ifc: true

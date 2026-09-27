@@ -120,6 +120,12 @@ def test_exports(built):
     assert [s.Name for s in f.by_type("IfcBuildingStorey")][:2] == ["План 1-го этажа", "План 2-го этажа"]
     assert len(f.by_type("IfcWindow")) == 2 and len(f.by_type("IfcDoor")) == 2
     assert len(f.by_type("IfcSpace")) == 4 and len(f.by_type("IfcStair")) == 2
+    # every door / window sits in an opening that voids its host wall
+    voids, fills = f.by_type("IfcRelVoidsElement"), f.by_type("IfcRelFillsElement")
+    assert len(f.by_type("IfcOpeningElement")) == len(voids) == len(fills) == 4
+    assert all(v.RelatingBuildingElement.is_a("IfcWall") for v in voids)
+    assert {x.RelatedBuildingElement.is_a() for x in fills} == {"IfcDoor", "IfcWindow"}
+    assert not [w for w in f.by_type("IfcWall") if "Перемычк" in (w.Name or "")]
     import zipfile
     assert {"model.obj", "model.mtl"} <= set(zipfile.ZipFile(out / "model_obj.zip").namelist())
 

@@ -89,6 +89,10 @@ export interface Result {
   layers: Record<string, LayerInfo>
   triangles: number
   warnings: string[]
+  /** plausibility check: "suspect" = built, but most likely recognised wrongly */
+  quality?: { status: 'ok' | 'suspect'; issues: string[] }
+  /** editor corrections whose floor sheet was not found in this build (kept, not applied) */
+  edits_unmatched?: number
   elapsed_s: number
   exports?: Record<string, string>
   extent?: { x: [number, number]; z: [number, number] }

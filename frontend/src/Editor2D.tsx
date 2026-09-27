@@ -95,7 +95,10 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
   const [err, setErr] = useState<string | null>(null)
   const initial = useMemo<FloorEdits>(() => {
     const e = ((job.config?.edits ?? {}) as Record<string, Partial<FloorEdits>>)[floor.id] ?? {}
-    return { ...emptyEdits(), ...e }
+    // only the edit lists: the stored entry also carries the server's `_anchor`
+    const out = emptyEdits()
+    for (const k of Object.keys(out) as EditKey[]) if (Array.isArray(e[k])) (out[k] as unknown[]) = [...e[k]!]
+    return out
   }, [job.config, floor.id])
   const [edits, setEdits] = useState<FloorEdits>(initial)
   const [history, setHistory] = useState<FloorEdits[]>([])

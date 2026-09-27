@@ -15,6 +15,25 @@ import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# LibreDWG parses untrusted files and has a history of memory bugs: cap its
+# address space. ODA (Qt, AppImage) reserves large virtual areas, so it only
+# gets the CPU-time cap.
+CONVERTER_MEM_MB = int(os.environ.get("DWG3D_CONVERTER_MEM_MB", "4096"))
+
+
+def limits(timeout: int, memory: bool):
+    """preexec_fn for subprocess.run: CPU-time (and optionally memory) limits."""
+    def apply():
+        try:
+            import resource
+            resource.setrlimit(resource.RLIMIT_CPU, (timeout, timeout + 5))
+            if memory and CONVERTER_MEM_MB > 0:
+                lim = CONVERTER_MEM_MB * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (lim, lim))
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except Exception:      # non-POSIX: rely on the wall-clock timeout
+            pass
+    return apply if os.name == "posix" else None
 
 
 class ConversionError(RuntimeError):
@@ -58,7 +77,8 @@ def dwg_to_dxf(src: Path, dst: Path, timeout: int = 600) -> str:
             shutil.copy(src, Path(tin) / "in.dwg")
             cmd = [oda, tin, tout, "ACAD2018", "DXF", "0", "1", "*.DWG"]
             env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env,
+                               preexec_fn=limits(timeout, memory=False))
             out = Path(tout) / "in.dxf"
             if out.exists() and out.stat().st_size > 0:
                 shutil.move(out, dst)
@@ -67,7 +87,8 @@ def dwg_to_dxf(src: Path, dst: Path, timeout: int = 600) -> str:
 
     if lr := find_libredwg():
         cmd = [lr, "-y", "-o", str(dst), str(src)]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           preexec_fn=limits(timeout, memory=True))
         if dst.exists() and dst.stat().st_size > 0:
             return "libredwg"
         errors.append(f"libredwg: {r.stderr.strip()[-500:]}")

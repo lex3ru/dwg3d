@@ -114,7 +114,7 @@ class FloorCandidate:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "source": self.source, "space": self.space, "name": self.name,
+            "id": self.id, "source": self.source, "space": self.space, "owner": self.owner, "name": self.name,
             "title_source": self.title_source, "level": self.level, "kind": self.kind,
             "include": self.include, "bbox": [round(v, 3) for v in self.bbox],
             "mark": self.mark, "height_hint": self.height_hint,

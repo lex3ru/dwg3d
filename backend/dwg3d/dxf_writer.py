@@ -31,7 +31,9 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
 
 from .config import LayerMapper, load_config
-from .convert import ConversionError, find_libredwg, find_oda
+from .convert import ConversionError, find_libredwg, find_oda, limits
+from .edits import has_edits as edits_nonempty
+from .edits import resolve_edits, resolve_items
 from .extract import read_doc, read_drawing
 from .floors import align_floors, apply_manual, detect_candidates, parse_mark, resolve_stack
 from .geometry import FloorPlan, Opening, _polys, build_plan
@@ -50,7 +52,7 @@ _RE_NUMERIC = re.compile(r"^[\d\s.,+\-±×x*/=()мм²m2]*$", re.I)
 
 
 def has_edits(cfg: dict) -> bool:
-    return any(any(v for v in (e or {}).values()) for e in (cfg.get("edits") or {}).values())
+    return any(edits_nonempty(e) for e in (cfg.get("edits") or {}).values())
 
 
 class _FloorWriter:
@@ -308,19 +310,21 @@ def export_edited_dxf(src: Path, out: Path, config: dict | None = None) -> dict:
     doc = read_doc(src)
     d = read_drawing(src, cfg, doc=doc)
     cands = detect_candidates(d, cfg)
+    resolve_items(cfg, cands)
     apply_manual(cands, cfg)
     floors = resolve_stack(cands, cfg)
     align_floors(d, floors, cfg)
+    # the same re-anchoring as the 3D build: edits land on the sheet they were made on
+    applied, _, _, _ = resolve_edits(cfg, floors)
     mapper = LayerMapper(cfg)
     for key, (name, color) in EDIT_LAYERS.items():
         if name not in doc.layers:
             doc.layers.add(name, color=color)
     stats = {k: 0 for k in ("floors", "trimmed", "lines_added", "symbols_removed",
                             "windows", "doors", "filled", "rooms")}
-    all_edits = cfg.get("edits") or {}
     for f in floors:
-        e = all_edits.get(f.id) or {}
-        if not any(e.values()):
+        e = applied.get(f.id) or {}
+        if not edits_nonempty(e):
             continue
         shapes = [s for s in d.shapes if f.contains(s, margin=1.0)]
         texts = [t for t in d.texts if f.contains(t)]
@@ -349,7 +353,8 @@ def dxf_to_dwg(src: Path, dst: Path, timeout: int = 600, libredwg_timeout: int =
             shutil.copy(src, Path(tin) / "out.dxf")
             r = subprocess.run([oda, tin, tout, "ACAD2018", "DWG", "0", "1", "*.DXF"],
                                capture_output=True, text=True, timeout=timeout,
-                               env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+                               env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+                               preexec_fn=limits(timeout, memory=False))
             res = Path(tout) / "out.dwg"
             if res.exists() and res.stat().st_size:
                 shutil.move(res, dst)
@@ -361,7 +366,7 @@ def dxf_to_dwg(src: Path, dst: Path, timeout: int = 600, libredwg_timeout: int =
         try:
             # experimental writer: it may crash or loop forever on complex drawings
             r = subprocess.run([str(tool), "-y", "-o", str(dst), str(src)], capture_output=True, text=True,
-                               timeout=libredwg_timeout)
+                               timeout=libredwg_timeout, preexec_fn=limits(libredwg_timeout, memory=True))
             if dst.exists() and dst.stat().st_size and r.returncode == 0:
                 return "libredwg"
             errors.append(f"LibreDWG dxf2dwg: код {r.returncode}")

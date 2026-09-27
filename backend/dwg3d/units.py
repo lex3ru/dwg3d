@@ -48,11 +48,13 @@ def wall_thickness_estimate(segs: np.ndarray, limit=3000) -> float | None:
         else:
             off = (g[:, 0] + g[:, 2]) / 2
             lo, hi = np.minimum(g[:, 1], g[:, 3]), np.maximum(g[:, 1], g[:, 3])
-        dist = np.abs(off[:, None] - off[None, :])
-        overlap = np.minimum(hi[:, None], hi[None, :]) - np.maximum(lo[:, None], lo[None, :])
-        dist[(overlap <= 0) | (dist <= 1e-9)] = np.inf
-        m = dist.min(axis=1)
-        out += m[np.isfinite(m)].tolist()
+        for i in range(0, len(g), 256):      # row blocks: bounded memory (256 x limit)
+            sl = slice(i, i + 256)
+            dist = np.abs(off[sl, None] - off[None, :])
+            overlap = np.minimum(hi[sl, None], hi[None, :]) - np.maximum(lo[sl, None], lo[None, :])
+            dist[(overlap <= 0) | (dist <= 1e-9)] = np.inf
+            m = dist.min(axis=1)
+            out += m[np.isfinite(m)].tolist()
     return float(np.median(out)) if len(out) >= 4 else None
 
 

@@ -349,6 +349,19 @@ export default function App() {
                 ))}
               </div>
             )}
+            {r.quality?.status === 'suspect' && (
+              <div className="quality-card">
+                <b>Результат выглядит сомнительно</b>
+                {r.quality.issues.map((w) => <p key={w}>{w}</p>)}
+                <p className="hint">Проверьте роли слоёв и единицы в «Настройках» и отладочные планы этажей.</p>
+              </div>
+            )}
+            {(r.edits_unmatched ?? 0) > 0 && (
+              <div className="warn-card">
+                <p>⚠ Правки {r.edits_unmatched} этаж(ей) не применены: их лист не найден в текущем разборе
+                  чертежа. Они сохранены и применятся, если лист снова будет распознан.</p>
+              </div>
+            )}
             {r.warnings.length > 0 && (
               <div className="warn-card">{r.warnings.map((w) => <p key={w}>⚠ {w}</p>)}</div>
             )}

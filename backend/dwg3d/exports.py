@@ -8,8 +8,9 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from shapely.geometry import LineString
+from shapely.ops import unary_union
 
-from .geometry import FloorPlan, _polys
+from .geometry import FloorPlan, _opening_rect, _polys
 from .model3d import COLORS, _pane
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,10 @@ class _Ifc:
             self._place(p, 0.0)
         self._origin = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint((0.0, 0.0, 0.0)))
         self._up = f.createIfcDirection((0.0, 0.0, 1.0))
+        self._contained: dict = {}
+        self._spaces: dict = {}
+        import ifcopenshell.guid
+        self.guid = ifcopenshell.guid.new
 
     def _place(self, product, z):
         m = np.eye(4)
@@ -75,19 +80,40 @@ class _Ifc:
             out.append(self.f.createIfcExtrudedAreaSolid(prof, pos, self._up, float(z1 - z0)))
         return out
 
-    def element(self, ifc_class, name, solids, storey, predefined=None, psets=None, container=True):
+    # Elements are created with plain entity constructors and their spatial
+    # relations are written once per storey in finish(): the high-level
+    # ifcopenshell.api calls recompute placements per element and made the
+    # export of a 13-storey building take >10 s.
+    def element(self, ifc_class, name, solids, storey, predefined=None, psets=None, container=True,
+                rel_to=None):
         if not solids:
             return None
-        el = self.api.root.create_entity(self.f, ifc_class, name=name, predefined_type=predefined)
-        self._place(el, 0.0)
-        rep = self.f.createIfcShapeRepresentation(self.body, "Body", "SweptSolid", solids)
-        self.api.geometry.assign_representation(self.f, product=el, representation=rep)
+        f = self.f
+        el = f.create_entity(ifc_class, GlobalId=self.guid(), Name=name)
+        if predefined:
+            el.PredefinedType = predefined
+        # solids carry absolute z: cancel the storey elevation in the placement
+        parent = (rel_to or storey).ObjectPlacement
+        z = 0.0 if rel_to is not None else -float(storey.Elevation or 0.0)
+        el.ObjectPlacement = f.createIfcLocalPlacement(
+            parent, f.createIfcAxis2Placement3D(f.createIfcCartesianPoint((0.0, 0.0, z))))
+        rep = f.createIfcShapeRepresentation(self.body, "Body", "SweptSolid", solids)
+        el.Representation = f.createIfcProductDefinitionShape(None, None, [rep])
         if container:
-            self.api.spatial.assign_container(self.f, products=[el], relating_structure=storey)
+            self._contained.setdefault(storey, []).append(el)
         for pname, props in (psets or {}).items():
-            ps = self.api.pset.add_pset(self.f, product=el, name=pname)
-            self.api.pset.edit_pset(self.f, pset=ps, properties=props)
+            ps = self.api.pset.add_pset(f, product=el, name=pname)
+            self.api.pset.edit_pset(f, pset=ps, properties=props)
         return el
+
+    def void(self, opening, wall):
+        self.f.createIfcRelVoidsElement(self.guid(), None, None, None, wall, opening)
+
+    def fill(self, opening, element):
+        self.f.createIfcRelFillsElement(self.guid(), None, None, None, opening, element)
+
+    def space(self, space, storey):
+        self._spaces.setdefault(storey, []).append(space)
 
     def storey(self, name, elevation):
         s = self.api.root.create_entity(self.f, "IfcBuildingStorey", name=name)
@@ -95,6 +121,34 @@ class _Ifc:
         self.api.aggregate.assign_object(self.f, products=[s], relating_object=self.building)
         self._place(s, elevation)
         return s
+
+    def finish(self):
+        for st, els in self._contained.items():
+            self.f.createIfcRelContainedInSpatialStructure(self.guid(), None, None, None, els, st)
+        for st, sps in self._spaces.items():
+            self.f.createIfcRelAggregates(self.guid(), None, None, None, st, sps)
+
+
+def _ifc_opening(ifc, o, wall, storey, e, door_h, sill, head, v_head):
+    lo, hi = {"door": (0.0, door_h), "window": (sill, head), "vitrage": (0.0, v_head)}[o.kind]
+    void = None
+    if wall is not None:
+        void = ifc.element("IfcOpeningElement", o.id, ifc.solids(_opening_rect(o, 0.1), e + lo, e + hi), storey,
+                           "OPENING", container=False, rel_to=wall)
+        if void is not None:
+            ifc.void(void, wall)
+    if o.kind == "door":
+        leaves = [LineString([h, t]).buffer(0.02, cap_style="flat") for h, t in o.leaves] or [_pane(o, 0.04)]
+        fill = ifc.element("IfcDoor", "Дверь", [s for lf in leaves for s in ifc.solids(lf, e + lo, e + hi)],
+                           storey, "DOOR", {"Pset_DoorCommon": {"Reference": o.id}})
+    else:
+        fill = ifc.element("IfcWindow", "Витраж" if o.kind == "vitrage" else "Окно",
+                           ifc.solids(_pane(o, 0.05), e + lo, e + hi), storey, "WINDOW")
+    if fill is not None:
+        fill.OverallWidth = float(o.width)
+        fill.OverallHeight = float(hi - lo)
+        if void is not None:
+            ifc.fill(void, fill)
 
 
 def export_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, center, name="Здание"):
@@ -109,28 +163,37 @@ def export_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, center, na
         sill = float(b["window_sill"])
         head = min(float(b["window_head"]), top - e - 0.05)
         v_head = max(head, top - e - float(b.get("vitrage_head", 0.15)))
-        for i, p in enumerate(_polys(plan.wall_parts.get("wall", plan.walls))):
-            ifc.element("IfcWall", f"Стена {i + 1}", ifc.solids(p, e, top), st, "SOLIDWALL")
-        for i, p in enumerate(_polys(plan.wall_parts.get("partition"))):
-            ifc.element("IfcWall", f"Перегородка {i + 1}", ifc.solids(p, e, top), st, "PARTITIONING")
         for i, p in enumerate(_polys(plan.columns)):
             ifc.element("IfcColumn", f"Колонна {i + 1}", ifc.solids(p, e, top), st, "COLUMN")
         ifc.element("IfcSlab", "Перекрытие", ifc.solids(plan.footprint, e - slab_t, e), st, "FLOOR")
-        lintels = []
+        # Walls are full-height solids *through* their openings; each door /
+        # window gets an IfcOpeningElement voiding its host wall and fills it
+        # (IfcRelVoidsElement + IfcRelFillsElement), as BIM tools expect.
+        # A passage (no leaf, no lintel) stays a plain gap between walls.
+        parts = {"wall": plan.wall_parts.get("wall", plan.walls), "partition": plan.wall_parts.get("partition")}
+        hosted = {"wall": [], "partition": []}
         for o in plan.openings:
-            if o.kind == "door":
-                lintels += ifc.solids(o.poly, e + door_h, top)
-                leaves = [LineString([h, t]).buffer(0.02, cap_style="flat") for h, t in o.leaves] or [_pane(o, 0.04)]
-                ifc.element("IfcDoor", "Дверь", [s for lf in leaves for s in ifc.solids(lf, e, e + door_h)], st,
-                            "DOOR", {"Pset_DoorCommon": {"Reference": o.id}})
-            elif o.kind in ("window", "vitrage"):
-                lo, hi = (sill, head) if o.kind == "window" else (0.0, v_head)
-                if lo > 0:
-                    lintels += ifc.solids(o.poly, e, e + lo)
-                lintels += ifc.solids(o.poly, e + hi, top)
-                ifc.element("IfcWindow", "Витраж" if o.kind == "vitrage" else "Окно",
-                            ifc.solids(_pane(o, 0.05), e + lo, e + hi), st, "WINDOW")
-        ifc.element("IfcWall", "Перемычки и подоконные части", lintels, st, "SOLIDWALL")
+            if o.kind not in ("door", "window", "vitrage"):
+                continue
+            probe = o.poly.buffer(0.03)
+            area = {k: (probe.intersection(g).area if g is not None and not g.is_empty else 0.0)
+                    for k, g in parts.items()}
+            hosted[max(area, key=area.get)].append(o)
+        n_wall = {"wall": 0, "partition": 0}
+        for cat, predefined, label in (("wall", "SOLIDWALL", "Стена"), ("partition", "PARTITIONING", "Перегородка")):
+            g = parts[cat]
+            bodies = _polys(unary_union([x for x in [g, *(o.poly for o in hosted[cat])]
+                                         if x is not None and not x.is_empty]))
+            left = list(hosted[cat])
+            for p in bodies:
+                n_wall[cat] += 1
+                w = ifc.element("IfcWall", f"{label} {n_wall[cat]}", ifc.solids(p, e, top), st, predefined)
+                mine = [o for o in left if p.intersects(o.poly.centroid.buffer(0.01))]
+                left = [o for o in left if o not in mine]
+                for o in mine:
+                    _ifc_opening(ifc, o, w, st, e, door_h, sill, head, v_head)
+            for o in left:                     # host not found: fill without a void
+                _ifc_opening(ifc, o, None, st, e, door_h, sill, head, v_head)
         for i, stair in enumerate(plan.stairs):
             riser = float(b.get("riser", 0.165))
             sol = [s for k, t in enumerate(stair.treads) for s in ifc.solids(t, e, min(e + (k + 1) * riser, top))]
@@ -140,12 +203,13 @@ def export_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, center, na
                              {"Qto_SpaceBaseQuantities": {"NetFloorArea": float(r.area)}}, container=False)
             if sp is not None:
                 sp.LongName = r.name or None
-                ifc.api.aggregate.assign_object(ifc.f, products=[sp], relating_object=st)
+                ifc.space(sp, st)
     if cfg["building"].get("roof", True) and floors:
         f, plan = floors[-1], plans[-1]
         st = ifc.storey("Кровля", f.elevation + f.height)
         z = f.elevation + f.height
         ifc.element("IfcSlab", "Кровля", ifc.solids(plan.footprint, z - slab_t, z), st, "ROOF")
+    ifc.finish()
     ifc.f.write(str(path))
 
 

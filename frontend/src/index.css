@@ -49,6 +49,9 @@ input, select { font: inherit; border: 1px solid #dee2e6; border-radius: 5px; pa
 .error-card p { margin: 4px 0 0; word-break: break-word; }
 .warn-card { background: #fff9db; color: #8f5a00; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; }
 .warn-card p { margin: 4px 0; }
+.quality-card { background: #fff0f0; color: #a61e1e; border: 1px solid #ffc9c9; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; }
+.quality-card p { margin: 4px 0; }
+.quality-card .hint { color: #7a3b3b; font-size: 11.5px; }
 .info { color: var(--muted); font-size: 11.5px; }
 
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
