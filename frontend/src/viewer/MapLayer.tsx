@@ -42,10 +42,13 @@ function ring(url: string, lat: number, lon: number, zoom: number, n: number, re
 /** Desaturate and lighten the basemap: a quiet, light background. */
 function desaturate(m: THREE.MeshBasicMaterial) {
   m.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.18);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), 0.28);`)
+    // desaturate + lighten the texel first, then the time-of-day tint (material colour) darkens it
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#ifdef USE_MAP
+      vec4 texel = texture2D(map, vMapUv);
+      float lum = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
+      texel.rgb = mix(mix(vec3(lum), texel.rgb, 0.18), vec3(1.0), 0.28);
+      diffuseColor *= texel;
+    #endif`)
   }
   m.customProgramCacheKey = () => 'tile-desaturate'
 }
@@ -92,7 +95,10 @@ export default function Ground({ ctx, site, showMap, dayTime, extent }: {
   const tiles = useMemo(() => {
     if (!site || !showMap) return []
     const url = site.tiles || TILE_URL
-    return [...ring(url, site.lat, site.lon, 14, 7, false, -0.05), ...ring(url, site.lat, site.lon, 17, 7, url.includes('{r}'), 0)]
+    const r = url.includes('{r}')
+    // coarse far ring, the neighbourhood, and sharp tiles right around the building
+    return [...ring(url, site.lat, site.lon, 14, 7, false, -0.1), ...ring(url, site.lat, site.lon, 17, 7, r, -0.05),
+      ...ring(url, site.lat, site.lon, 19, 5, r, 0)]
   }, [site, showMap])
   const mapOn = tiles.length > 0
 

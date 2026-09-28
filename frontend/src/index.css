@@ -383,7 +383,7 @@ button.link:hover { text-decoration: underline; }
 /* hints over the scene */
 .tool-hint { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.85); color: #fff; padding: 6px 14px; border-radius: 18px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
 .tool-hint .link { color: #74c0fc; margin-left: 8px; }
-.walk-hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.82); color: #fff; padding: 8px 16px; border-radius: 18px; font-size: 13.5px; max-width: calc(100% - 32px); text-align: center; pointer-events: none; }
+.walk-hint { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.82); color: #fff; padding: 8px 16px; border-radius: 18px; font-size: 13.5px; max-width: calc(100% - 32px); text-align: center; pointer-events: none; }
 .nav-walk .topbar { display: none; }
 .crosshair-dot { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.55); pointer-events: none; z-index: 16; }
 .attribution { position: absolute; left: 130px; bottom: 4px; z-index: 12; font-size: 10.5px; color: #495057; background: rgba(255,255,255,.7); padding: 1px 6px; border-radius: 4px; pointer-events: none; }
@@ -432,3 +432,6 @@ button.link:hover { text-decoration: underline; }
   .tb-label { display: none; }
   .topbar { width: calc(100% - 66px - 320px); }
 }
+.top-right, .toolbar, .floor-rail, .side-controls, .nav-panel, .chip, .help-btn, .poi, .pin, .floor-label, .route-label { user-select: none; -webkit-user-select: none; }
+.html-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+.html-layer .pin, .html-layer .poi, .html-layer .pin-card { pointer-events: auto; }

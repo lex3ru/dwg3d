@@ -7,7 +7,7 @@ import type { Display, FacadePreset, NavMode, Projection, Tool } from '../state'
 import FloorFollower from './FloorFollower'
 import RoomLabels from './RoomLabels'
 import { roleOf } from './looks'
-import { floorOf, isVisible, typeLabel, visibleFloors, type SceneCtx } from './scene'
+import { floorOf, htmlLayer, isVisible, openFloors, typeLabel, visibleFloors, type SceneCtx } from './scene'
 
 const EXPLODE_MS = 400
 
@@ -162,12 +162,7 @@ export default function Building(p: Props) {
     return () => ctx.looks.setHover(null)
   }, [p.selectedRoom, scene, ctx])
 
-  const labelFloors = floors.filter((f) => {
-    if (!visible.has(f.id) || nav === 'walk') return false
-    if (exploded || display.xray || proj === '2d') return true
-    const above = floors.filter((g) => visible.has(g.id) && g.elevation! > f.elevation!)
-    return above.length === 0 && !roofShown
-  })
+  const open = openFloors(floors, visible, { exploded, xray: display.xray, topDown: proj === '2d', walking: nav === 'walk', roofShown })
 
   return (
     <>
@@ -177,12 +172,12 @@ export default function Building(p: Props) {
         <FloorFollower key={f.id} ctx={ctx} floor={f.id}>
           {/* the font loads asynchronously: never hold the whole scene back for it */}
           <Suspense fallback={null}>
-            <RoomLabels floor={f} show={labelFloors.includes(f)} typeLabels={result.room_types ?? []} />
+            <RoomLabels floor={f} show={open.has(f.id)} typeLabels={result.room_types ?? []} />
           </Suspense>
         </FloorFollower>
       ))}
       {hover && p.tool === 'none' && hover.room.node !== p.selectedRoom && (
-        <Html position={hover.point} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
+        <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={hover.point} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
           <div className="tooltip"><b>{hover.room.name || typeLabel(result, hover.room.type) || 'Помещение'}</b>
             <span>{hover.room.area.toFixed(1)} м² · {hover.floor.name}</span></div>
         </Html>
@@ -191,7 +186,7 @@ export default function Building(p: Props) {
         const b = ctx.floorBox.get(f.id)
         if (!b || !visible.has(f.id)) return null
         return (
-          <Html key={f.id} position={[b.min.x - 1.5, f.elevation! + i * display.explodeGap + 1.5, (b.min.z + b.max.z) / 2]}
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} key={f.id} position={[b.min.x - 1.5, f.elevation! + i * display.explodeGap + 1.5, (b.min.z + b.max.z) / 2]}
             center style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
             <div className={`floor-label${f.id === active ? ' on' : ''}`}>{f.name}</div>
           </Html>

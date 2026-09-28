@@ -1,5 +1,6 @@
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
+import { htmlLayer } from './scene'
 import type { Entrance, Pin, Poi, V3 } from '../api'
 import type { Display } from '../state'
 import FloorFollower from './FloorFollower'
@@ -15,8 +16,11 @@ export interface RouteView {
 
 interface Props {
   ctx: SceneCtx
+  walking: boolean
   display: Display
   visible: Set<string>
+  /** floors whose floor is not covered: pins inside the building show only there */
+  open: Set<string>
   entrances: Entrance[]
   pois: Poi[]
   markers: Pin[]
@@ -32,26 +36,27 @@ const POI_ICON: Record<string, string> = { stair: '▤', lift: '⇅' }
 export default function Markers(p: Props) {
   const { ctx, display, visible } = p
   const onFloor = (f: string) => visible.has(f)
+  const inside = (f: string) => !f || p.open.has(f)
   return (
     <>
-      {display.pois && display.poiKinds.entrance && p.entrances.filter((e) => onFloor(e.floor)).map((e) => (
+      {display.pois && display.poiKinds.entrance && !p.walking && p.entrances.filter((e) => onFloor(e.floor)).map((e) => (
         <FloorFollower key={e.id} ctx={ctx} floor={e.floor}>
-          <Html position={[e.pos[0], e.pos[1] + 3.2, e.pos[2]]} center zIndexRange={[20, 0]}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={[e.pos[0], e.pos[1] + 3.2, e.pos[2]]} center zIndexRange={[20, 0]}>
             <div className={`poi entrance${e.main ? ' main' : ''}`} title={`${e.name} · ширина ${e.width} м`}>{e.label}</div>
           </Html>
           <Line points={[[e.pos[0], e.pos[1] + 0.05, e.pos[2]], [e.pos[0], e.pos[1] + 2.6, e.pos[2]]]} color="#1c7ed6" lineWidth={1.5} transparent opacity={0.6} />
         </FloorFollower>
       ))}
-      {display.pois && p.pois.filter((x) => display.poiKinds[x.kind] && onFloor(x.floor)).map((x, i) => (
+      {display.pois && p.pois.filter((x) => display.poiKinds[x.kind] && inside(x.floor)).map((x, i) => (
         <FloorFollower key={`poi${i}`} ctx={ctx} floor={x.floor}>
-          <Html position={[x.pos[0], x.pos[1] + 1.8, x.pos[2]]} center zIndexRange={[18, 0]}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={[x.pos[0], x.pos[1] + 1.8, x.pos[2]]} center zIndexRange={[18, 0]}>
             <div className={`poi small ${x.kind}`} title={x.kind === 'stair' ? 'Лестница' : 'Лифт'}>{POI_ICON[x.kind]}</div>
           </Html>
         </FloorFollower>
       ))}
-      {display.pois && display.poiKinds.marker && p.markers.filter((m) => !m.floor || onFloor(m.floor)).map((m) => {
+      {display.pois && display.poiKinds.marker && p.markers.filter((m) => inside(m.floor)).map((m) => {
         const el = (
-          <Html position={[m.pos[0], m.pos[1] + 0.2, m.pos[2]]} zIndexRange={[25, 0]} style={{ transform: 'translate(-50%, -100%)' }}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={[m.pos[0], m.pos[1] + 0.2, m.pos[2]]} zIndexRange={[25, 0]} style={{ transform: 'translate(-50%, -100%)' }}>
             <div className={`pin marker${p.openPin === m.id ? ' open' : ''}`} onClick={() => p.onPin(p.openPin === m.id ? null : m.id)}>
               <span>📍</span>{m.label || m.text ? <b>{m.label || m.text}</b> : null}
               {p.openPin === m.id && (
@@ -65,9 +70,9 @@ export default function Markers(p: Props) {
         )
         return m.floor ? <FloorFollower key={m.id} ctx={ctx} floor={m.floor}>{el}</FloorFollower> : <group key={m.id}>{el}</group>
       })}
-      {display.comments && p.comments.filter((c) => !c.floor || onFloor(c.floor)).map((c) => {
+      {display.comments && p.comments.filter((c) => inside(c.floor)).map((c) => {
         const el = (
-          <Html position={c.pos} zIndexRange={[26, 0]} style={{ transform: 'translate(-4px, -100%)' }}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={c.pos} zIndexRange={[26, 0]} style={{ transform: 'translate(-4px, -100%)' }}>
             <div className={`pin comment${p.openPin === c.id ? ' open' : ''}`} onClick={() => p.onPin(p.openPin === c.id ? null : c.id)}>
               <span>💬</span>
               {p.openPin === c.id && (
@@ -93,7 +98,7 @@ export default function Markers(p: Props) {
           {p.route.from && <RouteEnd pos={p.route.from} color="#2b8a3e" />}
           {p.route.to && <RouteEnd pos={p.route.to} color="#e03131" />}
           {p.route.pts.length >= 2 && (
-            <Html position={p.route.pts[Math.floor(p.route.pts.length / 2)]} center style={{ pointerEvents: 'none' }} zIndexRange={[22, 0]}>
+            <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={p.route.pts[Math.floor(p.route.pts.length / 2)]} center style={{ pointerEvents: 'none' }} zIndexRange={[22, 0]}>
               <div className="route-label">{p.route.length.toFixed(0)} м · ~{Math.max(1, Math.round(p.route.length / 1.3 / 60))} мин</div>
             </Html>
           )}

@@ -15,7 +15,7 @@ import { SKY } from './tiles'
 import Markers, { type RouteView } from './Markers'
 import { useMeasure } from './Measure'
 import Rig from './Rig'
-import { visibleFloors, type SceneCtx } from './scene'
+import { openFloors, visibleFloors, type SceneCtx } from './scene'
 
 export interface Cuts { h: { on: boolean; y: number }; v: { on: boolean; x: number } }
 
@@ -92,6 +92,10 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
   const active = ctx.setCuts(p.cuts.h, p.cuts.v)
   const floors = useMemo(() => [...result.floors].sort((a, b) => a.elevation! - b.elevation!), [result.floors])
   const visible = useMemo(() => visibleFloors(floors, display, p.floor, p.nav), [floors, display, p.floor, p.nav])
+  const open = openFloors(floors, visible, {
+    exploded: display.explode && p.proj === '3d' && p.nav !== 'walk', xray: display.xray, topDown: p.proj === '2d',
+    walking: false, roofShown: display.roof && p.proj === '3d' && (p.floor == null || p.nav === 'walk'),
+  })
   const night = NIGHT[display.dayTime] ?? 0
   const preset = FACADE_PRESETS[resolveFacade(display.facade)]
   const extent = ctx.bbox.isEmpty() ? 60 : ctx.bbox.getSize(new THREE.Vector3()).length() / 2
@@ -130,7 +134,7 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
         </Suspense>
       )}
       {measure.node}
-      <Markers ctx={ctx} display={display} visible={visible} entrances={result.entrances ?? []} pois={result.pois ?? []}
+      <Markers ctx={ctx} walking={p.nav === 'walk'} display={display} visible={visible} open={open} entrances={result.entrances ?? []} pois={result.pois ?? []}
         markers={p.view.markers ?? []} comments={p.view.comments ?? []} route={p.route} openPin={p.openPin}
         onPin={p.onPin} onDeletePin={p.onDeletePin} />
       <Ground ctx={ctx} site={p.view.site} showMap={display.map} dayTime={display.dayTime} extent={extent} />

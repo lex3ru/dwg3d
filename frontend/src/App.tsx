@@ -21,7 +21,7 @@ import TopBar from './ui/TopBar'
 import Toolbar, { type RouteState } from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
 import { buildGrid, findPath, type Grid } from './viewer/route'
-import { SceneCtx, entrancePose } from './viewer/scene'
+import { SceneCtx, entrancePose, htmlLayer } from './viewer/scene'
 import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit, type RouteView } from './viewer/Viewer'
 
 const STAGES: Record<string, string> = {
@@ -179,8 +179,8 @@ export default function App() {
 
   // drop a floor id that this build does not have
   useEffect(() => {
-    if (r && floor && !r.floors.some((f) => f.id === floor)) setFloor(null)
-  }, [r, floor])
+    if (r && shown?.id === jobId && floor && !r.floors.some((f) => f.id === floor)) setFloor(null)
+  }, [r, floor, shown?.id, jobId])
 
   // default section positions
   useEffect(() => {
@@ -204,7 +204,10 @@ export default function App() {
     const onPop = () => {
       const hv = parseHash()
       if (!hv) return
-      setJobId(hv.job)
+      setJobId((cur) => {
+        if (cur !== hv.job) setShown(null)
+        return hv.job
+      })
       setFloor(hv.floor)
       setProj(hv.proj)
       setDisplay((d) => ({ ...d, explode: !!hv.explode, onlyActive: !!hv.onlyActive, xray: !!hv.xray }))
@@ -444,6 +447,7 @@ export default function App() {
           ) : running ? (
             <div className="center-msg"><Progress job={job!} /></div>
           ) : null}
+          <div className="html-layer" ref={(el) => { htmlLayer.current = el }} />
         </main>
 
         {r && (

@@ -20,7 +20,7 @@ interface Label {
 /** Font size from the room area (large halls get large text), limited by
  * the room depth so that a couple of wrapped lines still fit. */
 function labelSize(area: number, depth: number | undefined): number {
-  const s = Math.min(0.85, Math.max(0.2, Math.sqrt(Math.max(area, 0)) * 0.075))
+  const s = Math.min(1.5, Math.max(0.2, Math.sqrt(Math.max(area, 0)) * 0.08))
   return depth ? Math.max(0.16, Math.min(s, depth * 0.3)) : s
 }
 

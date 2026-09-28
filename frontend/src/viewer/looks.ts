@@ -31,7 +31,8 @@ function toEco(m: THREE.Material): THREE.Material {
   const s = m as THREE.MeshStandardMaterial
   const l = new THREE.MeshLambertMaterial({
     color: s.color?.clone(), transparent: s.transparent, opacity: s.opacity, side: s.side,
-    map: s.map ?? null, depthWrite: s.depthWrite,
+    map: s.map ?? null, depthWrite: s.depthWrite, vertexColors: s.vertexColors,
+    alphaTest: s.alphaTest,
   })
   l.name = `${m.name}_eco`
   return l

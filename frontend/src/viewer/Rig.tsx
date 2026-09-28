@@ -31,16 +31,25 @@ interface Props {
 /** Cameras (perspective / top-down orthographic), orbit controls, animated
  * camera moves (fit, fly to floor, zoom steps, the intro fly-in). */
 export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onIntroDone }: Props) {
-  const camera = useThree((s) => s.camera)
+  // always read the *current* default camera / controls: switching 2D <-> 3D
+  // replaces them after this component's render
+  const get = useThree((s) => s.get)
   const size = useThree((s) => s.size)
-  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const controlsState = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const cam = () => get().camera
+  const ctl = () => get().controls as OrbitControlsImpl | null
+  const pendingFrame = useRef(false)
   const tween = useRef<Tween | null>(null)
   const introState = useRef<'pending' | 'running' | 'done'>(intro ? 'pending' : 'done')
   const ready = useRef(false)
 
-  const target = () => (controls ? controls.target.clone() : camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)))
+  const target = () => {
+    const camera = cam(), controls = ctl()
+    return controls ? controls.target.clone() : camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10))
+  }
 
   const moveTo = (pos: THREE.Vector3, tgt: THREE.Vector3, dur = 700, zoom?: number) => {
+    const camera = cam()
     const ortho = (camera as THREE.OrthographicCamera).isOrthographicCamera
     tween.current = {
       t0: performance.now(), dur,
@@ -57,13 +66,18 @@ export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onI
     moveTo(new THREE.Vector3(c.x, box.max.y + 200, c.z + 0.001), new THREE.Vector3(c.x, box.max.y, c.z), dur, zoom)
   }
 
-  const frame = (box: THREE.Box3, dur = 700, keepDir = true) => {
+  const frame = (box: THREE.Box3, dur = 700, keepDir = true, minElev = 0.3) => {
     if (proj === '2d') return topDown(box, dur)
+    const camera = cam(), controls = ctl()
     const persp = camera as THREE.PerspectiveCamera
     let dir = VIEW_DIR.clone()
     if (keepDir && controls) {
       dir = camera.position.clone().sub(controls.target).normalize()
-      if (dir.y < 0.3) dir.setY(0.3).normalize()
+      if (dir.y < minElev) {
+        const h = Math.hypot(dir.x, dir.z) || 1
+        const k = Math.sqrt(1 - minElev * minElev) / h
+        dir.set(dir.x * k, minElev, dir.z * k)
+      }
     }
     const { pos, target: t } = framePose(box, persp.fov ?? 45, size.width / size.height, dir)
     moveTo(pos, t, dur)
@@ -73,6 +87,7 @@ export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onI
   ctx.api = {
     zoom: (d) => {
       if (nav === 'walk') return
+      const camera = cam()
       if (nav === 'fly') {
         const dir = camera.getWorldDirection(new THREE.Vector3())
         const step = 6 * speeds.fly * d
@@ -98,12 +113,13 @@ export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onI
     flyToFloor: (id) => frame(ctx.frameBox(id, display)),
     flyToPoint: (p, r = 6) => {
       const box = new THREE.Box3().setFromCenterAndSize(p, new THREE.Vector3(r, r, r))
-      frame(box, 800)
+      frame(box, 800, true, 0.8)          // steep: the room floor is not hidden behind walls
     },
   }
 
   // user grabbing the camera cancels an animated move
   useEffect(() => {
+    const controls = controlsState
     if (!controls) return
     const stop = () => {
       tween.current = null
@@ -111,10 +127,11 @@ export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onI
     }
     controls.addEventListener('start', stop)
     return () => controls.removeEventListener('start', stop)
-  }, [controls, onIntroDone])
+  }, [controlsState, onIntroDone])
 
   // first frame with a model: intro fly-in or a plain fit
-  useFrame(() => {
+  useFrame(({ camera, controls: c }) => {
+    const controls = c as OrbitControlsImpl | null
     if (ready.current || ctx.bbox.isEmpty() || (nav === 'orbit' && !controls)) return
     ready.current = true
     const box = floor ? ctx.frameBox(floor, display) : ctx.frameBox(null, display)
@@ -148,23 +165,30 @@ export default function Rig({ ctx, proj, nav, display, floor, speeds, intro, onI
   useEffect(() => {
     if (first.current) { first.current = false; return }
     if (nav !== 'orbit' || !ready.current) return
-    if (proj === '2d') topDown(ctx.frameBox(floor, display, true))
-    else frame(ctx.frameBox(floor, display), display.explode ? 650 : 800)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [floor, display.explode, display.onlyActive, display.explodeGap, proj])
+    pendingFrame.current = true          // done in the frame loop, once the right camera is in place
+  }, [floor, display.explode, display.onlyActive, display.explodeGap, proj, nav])
 
   // controls came back after flight / walk: orbit around a point ahead
   const prevNav = useRef(nav)
   useEffect(() => {
+    const camera = cam(), controls = controlsState
     if (prevNav.current !== 'orbit' && nav === 'orbit' && controls) {
       const dir = camera.getWorldDirection(new THREE.Vector3())
       controls.target.copy(camera.position).addScaledVector(dir, 15)
       controls.update()
     }
     prevNav.current = nav
-  }, [nav, controls, camera])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav, controlsState])
 
-  useFrame(() => {
+  useFrame(({ camera, controls: c }) => {
+    const controls = c as OrbitControlsImpl | null
+    if (pendingFrame.current && nav === 'orbit' && controls &&
+      !!(camera as THREE.OrthographicCamera).isOrthographicCamera === (proj === '2d')) {
+      pendingFrame.current = false
+      if (proj === '2d') topDown(ctx.frameBox(floor, display, true))
+      else frame(ctx.frameBox(floor, display), display.explode ? 650 : 800)
+    }
     const tw = tween.current
     if (tw) {
       const t = Math.min(1, (performance.now() - tw.t0) / tw.dur)

@@ -50,6 +50,17 @@ def test_door_marks_are_not_room_names():
     assert names == ["Душевая", "Охрана"]
 
 
+def test_hall_with_open_stair_is_not_a_stair_well():
+    from types import SimpleNamespace
+    from dwg3d.semantics import classify_room
+    flight = SimpleNamespace(poly=box(0, 0, 1.2, 3))
+    plan = SimpleNamespace(stairs=[flight])
+    well = SimpleNamespace(name="", poly=box(-0.5, -0.5, 3, 6))
+    hall = SimpleNamespace(name="", poly=box(-10, -10, 20, 20))
+    assert classify_room(well, plan, RULES) == "stair"
+    assert classify_room(hall, plan, RULES) == "other"
+
+
 def test_label_frame_follows_long_side():
     corridor = box(0, 0, 2, 20)                     # long along plan Y
     lf = label_frame(corridor)

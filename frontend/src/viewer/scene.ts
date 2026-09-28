@@ -204,3 +204,21 @@ export function entrancePose(e: Entrance, eye: number) {
   const look = new THREE.Vector3(x, y + eye, z)
   return { pos, look }
 }
+
+/** DOM layer for drei <Html> overlays. It lives outside the Canvas, so
+ * unmounting the scene (switching buildings, quality change) never races
+ * with the overlays' own React roots. */
+export const htmlLayer: { current: HTMLElement | null } = { current: null }
+
+/** Floors whose floor is seen (not covered by a floor above or the roof):
+ * room labels and pins are shown only there. */
+export function openFloors(floors: FloorMeta[], visible: Set<string>, o: {
+  exploded: boolean; xray: boolean; topDown: boolean; walking: boolean; roofShown: boolean
+}): Set<string> {
+  const out = new Set<string>()
+  if (o.walking) return out
+  const vis = floors.filter((f) => visible.has(f.id))
+  if (o.exploded || o.xray || o.topDown) vis.forEach((f) => out.add(f.id))
+  else if (!o.roofShown && vis.length) out.add(vis.reduce((a, b) => (b.elevation! > a.elevation! ? b : a)).id)
+  return out
+}

@@ -2,6 +2,7 @@ import { Html, Line } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
+import { htmlLayer } from './scene'
 import type { MeasureMode } from '../state'
 
 /** Vector area (Newell) of a closed 3D polygon: |n| / 2 = area, n = normal. */
@@ -107,7 +108,7 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
       {mode === 'length' && pts.length === 1 && probe && (
         <>
           <Line points={[pts[0], probe]} color="#e03131" lineWidth={1.5} dashed dashSize={0.2} gapSize={0.1} depthTest={false} />
-          <Html position={probe} style={{ pointerEvents: 'none' }}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={probe} style={{ pointerEvents: 'none' }}>
             <div className="measure-label ghost">{pts[0].distanceTo(probe).toFixed(2)} м</div>
           </Html>
         </>
@@ -115,7 +116,7 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
       {mode === 'length' && pts.length === 2 && (
         <>
           <Line points={pts} color="#e03131" lineWidth={2} depthTest={false} />
-          <Html position={pts[0].clone().add(pts[1]).multiplyScalar(0.5)} center style={{ pointerEvents: 'none' }}>
+          <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={pts[0].clone().add(pts[1]).multiplyScalar(0.5)} center style={{ pointerEvents: 'none' }}>
             <div className="measure-label">{pts[0].distanceTo(pts[1]).toFixed(2)} м</div>
           </Html>
         </>
@@ -129,7 +130,7 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
             </mesh>
           )}
           {center && areaPts.length >= 3 && (
-            <Html position={center} center style={{ pointerEvents: 'none' }}>
+            <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={center} center style={{ pointerEvents: 'none' }}>
               <div className={`measure-label${closed ? '' : ' ghost'}`}>
                 S {closed ? '=' : '≈'} {area.toFixed(2)} м²
                 <small>P = {perimeter.toFixed(2)} м · {areaPts.length} точ.</small>

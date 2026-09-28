@@ -39,11 +39,11 @@ def classify_room(room, plan: FloorPlan, rules) -> str:
     t = classify_name(room.name, rules)
     if t:
         return t
-    # unnamed (or unknown) room with a stair flight in it -> stair well
-    for st in plan.stairs:
-        inter = room.poly.intersection(st.poly).area
-        if inter > 0.3 * st.poly.area or inter > 0.25 * room.poly.area:
-            return "stair" if "stair" in dict(rules) else FALLBACK_TYPE
+    # unnamed (or unknown) room that is mostly a stair flight -> stair well
+    # (a hall with an open stair in it stays a hall)
+    stair = sum(room.poly.intersection(st.poly).area for st in plan.stairs)
+    if stair > 0 and (stair > 0.2 * room.poly.area or room.poly.area <= max(60.0, 5 * stair)):
+        return "stair" if "stair" in dict(rules) else FALLBACK_TYPE
     return FALLBACK_TYPE
 
 
