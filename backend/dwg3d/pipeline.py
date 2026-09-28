@@ -23,6 +23,7 @@ from .extract import read_drawing
 from .floors import align_floors, apply_manual, detect_candidates, resolve_stack
 from .geometry import build_plan, plan_to_json
 from .model3d import SceneBuilder
+from .semantics import classify_room, find_entrances, floor_pois, legend, room_type_rules
 
 log = logging.getLogger(__name__)
 Progress = Callable[[str, float, str], None]
@@ -249,13 +250,17 @@ def run(src: Path | str, out_dir: Path | str, config: dict | str | None = None,
     minx, miny, maxx, maxy = (ref.footprint if not ref.footprint.is_empty else ref.walls).bounds
     center = ((minx + maxx) / 2, (miny + maxy) / 2)
     sb = SceneBuilder(cfg, center)
-    roots, floors_meta = [], []
+    roots, floors_meta, pois = [], [], []
+    rules = room_type_rules(cfg)
     for f, plan in zip(floors, plans):
         extras = {"id": f.id, "name": f.name, "level": f.level, "elevation": f.elevation, "height": f.height}
-        node, rooms = sb.floor(f.id, plan, f.elevation, f.height, extras)
+        types = [classify_room(r, plan, rules) for r in plan.rooms]
+        node, rooms = sb.floor(f.id, plan, f.elevation, f.height, extras, types)
         roots.append(node)
         floors_meta.append({**f.to_dict(), "node": f"floor_{f.id}", "rooms": rooms, "stats": plan.stats,
                             "plan": f"plans/floor_{f.id}.json"})
+        pois += floor_pois(f, plan, types, center)
+    entrances = find_entrances(floors, plans, cfg, center)
     roof_node = None
     if cfg["building"].get("roof", True) and floors:
         top_f, top_p = floors[-1], plans[-1]
@@ -320,6 +325,9 @@ def run(src: Path | str, out_dir: Path | str, config: dict | str | None = None,
         "center": [round(c, 4) for c in center],
         "floors": floors_meta,
         "roof_node": roof_node,
+        "entrances": entrances,
+        "pois": pois,
+        "room_types": legend(cfg),
         "height_range": [floors[0].elevation - cfg["building"]["slab_thickness"], top],
         # glTF X range and Z range (plan Y is flipped) of the model
         "extent": {"x": [round(bx0 - center[0], 2), round(bx1 - center[0], 2)],

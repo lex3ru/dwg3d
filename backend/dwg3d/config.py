@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import copy
 import fnmatch
-import math
 import json
+import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +126,7 @@ def validate_config(cfg: dict) -> dict:
     default = load_config()
 
     def walk(v, ref, path):
-        if isinstance(ref, dict) and path not in ("edits",):
+        if isinstance(ref, dict) and path not in ("edits", "room_types"):
             if not isinstance(v, dict):
                 raise ConfigError(f"{path}: ожидается объект")
             for k, sub in v.items():
@@ -154,7 +155,7 @@ def validate_config(cfg: dict) -> dict:
             if ref and all(_num(x) for x in ref):        # numeric range like [0.2, 0.42]
                 if len(v) != len(ref) or not all(_num(x) and 0 <= x <= 1e4 for x in v):
                     raise ConfigError(f"{path}: ожидается [{', '.join(['число'] * len(ref))}]")
-            elif path != "floors.items":
+            elif path not in ("floors.items", "building.entrances"):
                 if len(v) > MAX_PATTERNS or not all(isinstance(x, str) and len(x) <= 200 for x in v):
                     raise ConfigError(f"{path}: ожидается список строк")
         elif isinstance(ref, str) and not isinstance(v, str):
@@ -171,6 +172,27 @@ def validate_config(cfg: dict) -> dict:
             raise ConfigError("floors.items.height: вне диапазона [1, 50]")
         if it.get("offset") is not None and not _xy(it["offset"]):
             raise ConfigError("floors.items.offset: ожидается [x, y]")
+    for it in (cfg.get("building") or {}).get("entrances") or []:
+        if not isinstance(it, dict) or not _xy(it.get("at")):
+            raise ConfigError("building.entrances: каждый элемент — объект с полем at: [x, y]")
+        if it.get("name") is not None and not isinstance(it["name"], str):
+            raise ConfigError("building.entrances.name: ожидается строка")
+    rt = cfg.get("room_types")
+    if not isinstance(rt, dict):
+        raise ConfigError("room_types: ожидается объект")
+    for k, v in rt.items():
+        if not isinstance(v, dict) or set(v) - {"label", "color", "names"}:
+            raise ConfigError(f"room_types.{k}: ожидается {{label, color, names}}")
+        if not isinstance(v.get("color", "#000"), str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", v.get("color", "#000000")):
+            raise ConfigError(f"room_types.{k}.color: ожидается цвет #rrggbb")
+        names = v.get("names") or []
+        if not isinstance(names, list) or not all(isinstance(x, str) and len(x) <= 200 for x in names):
+            raise ConfigError(f"room_types.{k}.names: ожидается список строк")
+    for pat in (cfg.get("geometry") or {}).get("room_label_ignore") or []:
+        try:
+            re.compile(pat)
+        except re.error:
+            raise ConfigError(f"geometry.room_label_ignore: некорректное выражение {pat!r}")
     edits = cfg.get("edits") or {}
     if not isinstance(edits, dict):
         raise ConfigError("edits: ожидается объект")

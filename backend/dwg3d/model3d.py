@@ -19,6 +19,7 @@ from shapely.geometry import LineString, Polygon
 
 from .geometry import FloorPlan, _polys
 from .gltf import GLBWriter
+from .semantics import label_frame
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +113,8 @@ class SceneBuilder:
             self.w.nodes[node]["children"] = children
         return node
 
-    def floor(self, fid: str, plan: FloorPlan, elevation: float, height: float, extras: dict) -> tuple[int, list]:
+    def floor(self, fid: str, plan: FloorPlan, elevation: float, height: float, extras: dict,
+              room_types: list[str] | None = None) -> tuple[int, list]:
         b = self.cfg["building"]
         slab_t = float(b["slab_thickness"])
         e = elevation
@@ -160,13 +162,17 @@ class SceneBuilder:
                 children.append(n)
         for i, r in enumerate(plan.rooms):
             nm = f"{prefix}_room_{i}"
+            rtype = room_types[i] if room_types else "other"
             n = self._add(nm, extrude(r.poly.buffer(-0.01), e + 0.003, e + 0.02), "room",
-                          {"name": r.name, "area": r.area})
+                          {"name": r.name, "area": r.area, "type": rtype})
             if n is not None:
                 children.append(n)
-                c = r.poly.representative_point()
-                rooms_meta.append({"node": nm, "name": r.name, "area": r.area,
-                                   "label_pos": [round(c.x - self.cx, 3), round(e + 0.05, 3), round(-(c.y - self.cy), 3)]})
+                lf = label_frame(r.poly)
+                rooms_meta.append({"node": nm, "name": r.name, "area": r.area, "type": rtype,
+                                   "label_pos": [round(lf["x"] - self.cx, 3), round(e + 0.05, 3),
+                                                 round(-(lf["y"] - self.cy), 3)],
+                                   # text on the floor: glTF rotation about Y, wrap width, room depth
+                                   "label_angle": lf["angle"], "label_w": lf["w"], "label_d": lf["d"]})
         node = self.w.node(prefix, children=children, extras=extras)
         return node, rooms_meta
 

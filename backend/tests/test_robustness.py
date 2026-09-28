@@ -186,3 +186,28 @@ def test_api_error_hides_trace(client):
     r = c.post("/api/jobs", files={"file": ("broken.dxf", b"0\nSECTION\n2\nGARBAGE\n")})
     j = _wait(c, r.json()["id"])
     assert j["status"] == "error" and j["error"] and "trace" not in j
+
+
+def test_api_view_settings_and_detail_model(client, sample):
+    c, api = client
+    jid = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())}).json()["id"]
+    j = _wait(c, jid)
+    assert j["result"]["room_types"] and "entrances" in j["result"]
+    assert any(x["id"] == jid for x in c.get("/api/jobs").json())
+    r = c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1},
+                                            "comments": [{"id": "k1", "floor": "c1", "pos": [1, 2, 3], "text": "Трещина"}]})
+    assert r.status_code == 200 and r.json()["site"]["azimuth"] == 15
+    assert c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 120, "lon": 0}}).status_code == 400
+    assert c.put(f"/api/jobs/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
+    v = c.get(f"/api/jobs/{jid}/view").json()
+    assert v["comments"][0]["text"] == "Трещина" and v["site"]["lat"] == 55.75
+    # detail model: only GLB is accepted
+    assert c.post(f"/api/jobs/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
+    glb = (api._job_dir(jid) / "out" / "model.glb").read_bytes()
+    v = c.post(f"/api/jobs/{jid}/detail", files={"file": ("facade.glb", glb)}).json()
+    assert v["detail"]["file"] == "facade.glb" and v["detail"]["version"] == 1
+    assert c.get(f"/api/jobs/{jid}/detail.glb").content == glb
+    v = c.put(f"/api/jobs/{jid}/view", json={"detail": {"offset": [1, 0, 2], "rotation": 90}}).json()
+    assert v["detail"]["file"] == "facade.glb" and v["detail"]["rotation"] == 90
+    assert c.delete(f"/api/jobs/{jid}/detail").json().get("detail") is None
+    assert c.get(f"/api/jobs/{jid}/detail.glb").status_code == 404

@@ -461,11 +461,17 @@ def _footprint(solid, openings):
     return results[k]
 
 
-def find_rooms(footprint, solid, openings, texts, min_area) -> list[Room]:
+def room_labels(texts, ignore=()):
+    """Texts that can name a room: not elevation marks, numbers or door/window marks."""
+    pats = [re.compile(p) for p in ignore or ()]
+    return [t for t in texts if parse_mark(t.text) is None and not _RE_NUMERIC.match(t.text)
+            and not any(p.search(t.text.strip()) for p in pats)]
+
+
+def find_rooms(footprint, solid, openings, labels, min_area) -> list[Room]:
     space = footprint.difference(_mp([solid] + [o.poly for o in openings]))
     space = space.buffer(-0.02, join_style="mitre").buffer(0.02, join_style="mitre")
     rooms = []
-    labels = [t for t in texts if parse_mark(t.text) is None and not _RE_NUMERIC.match(t.text)]
     for p in sorted(_polys(space), key=lambda p: -p.area):
         if p.area < min_area:
             continue
@@ -786,14 +792,14 @@ def build_plan(shapes, texts, inserts, cfg, offset=(0.0, 0.0), edits: dict | Non
 
     # --- rooms / slab
     footprint = _footprint(solid, openings)
-    labels = [t for t in texts if parse_mark(t.text) is None and not _RE_NUMERIC.match(t.text)]
+    labels = room_labels(texts, g.get("room_label_ignore"))
     if room_polys:
         rooms = []
         for p in room_polys:
             inside = sorted([t for t in labels if p.contains(Point(t.x, t.y))], key=lambda t: -t.height)
             rooms.append(Room(p, " ".join(inside[0].text.split())[:60] if inside else "", round(p.area, 2)))
     else:
-        rooms = find_rooms(footprint, solid, openings, texts, g["min_room_area"])
+        rooms = find_rooms(footprint, solid, openings, labels, g["min_room_area"])
     for e in edits.get("rooms") or []:
         pt = Point(e["at"])
         for r in rooms:

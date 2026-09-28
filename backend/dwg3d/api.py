@@ -1,7 +1,12 @@
 """HTTP API: upload DWG/DXF -> background processing -> glTF + metadata.
 
   POST /api/jobs                 multipart: file, config (optional JSON string)
+  GET  /api/jobs                 processed jobs (building switcher)
   GET  /api/jobs/{id}            status / progress / result
+  GET/PUT /api/jobs/{id}/view    viewer settings: map binding, detail model
+                                 alignment, markers, comments (no rebuild)
+  POST/DELETE /api/jobs/{id}/detail, GET /api/jobs/{id}/detail.glb
+                                 detailed model (GLB) shown over the generated one
   POST /api/jobs/{id}/rebuild    JSON config override (floors.items, layers...)
   GET  /api/jobs/{id}/files/...  model.glb, metadata.json, debug/*.png
   GET  /api/config/default       default config
@@ -56,7 +61,7 @@ PRIVATE = ("input", "trace")
 
 app = FastAPI(title="dwg3d")
 if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"])
 
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("DWG3D_WORKERS", "2")))
 _lock = threading.RLock()
@@ -143,7 +148,8 @@ def _process(jid: str):
             meta["converter"] = job.get("result", {}).get("converter", meta.get("converter"))
         result = {k: meta[k] for k in ("source", "units", "units_source", "converter", "floors", "roof_node",
                                         "height_range", "candidates", "triangles", "warnings", "elapsed_s",
-                                        "center", "exports", "extent", "quality", "edits_unmatched")}
+                                        "center", "exports", "extent", "quality", "edits_unmatched",
+                                        "entrances", "pois", "room_types")}
         result["layers"] = meta["layers"]
         # persist the corrections re-anchored to the floors of this build
         cfg = dict(job.get("config") or {})
@@ -209,6 +215,172 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
         _save(job)
     _executor.submit(_process, jid)
     return _public(job)
+
+
+@app.get("/api/jobs")
+def list_jobs():
+    """Processed buildings (for the building switcher), newest first."""
+    with _lock:
+        jobs = list(_jobs.values())
+    out = []
+    for j in sorted(jobs, key=lambda j: -j.get("updated", 0)):
+        res = j.get("result") or {}
+        out.append({"id": j["id"], "filename": j.get("filename"), "status": j.get("status"),
+                    "updated": j.get("updated"), "floors": len(res.get("floors") or []),
+                    "name": ((j.get("view") or {}).get("name")) or Path(j.get("filename") or "").stem})
+    return out
+
+
+# ------------------------------------------------------ viewer settings ---
+# Per-job viewer state that needs no rebuild: map binding, detail-model
+# alignment, user markers and comments. Stored in job.json ("view").
+MAX_PINS = 500
+MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
+
+
+def _f(v, lo, hi, name):
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+        raise HTTPException(400, f"view.{name}: ожидается число в [{lo}, {hi}]")
+    return float(v)
+
+
+def _s(v, name, n=2000):
+    if not isinstance(v, str) or len(v) > n:
+        raise HTTPException(400, f"view.{name}: ожидается строка до {n} символов")
+    return v
+
+
+def _pins(items, name):
+    if not isinstance(items, list) or len(items) > MAX_PINS:
+        raise HTTPException(400, f"view.{name}: ожидается список до {MAX_PINS} элементов")
+    out = []
+    for it in items:
+        if not isinstance(it, dict) or not isinstance(it.get("pos"), list) or len(it["pos"]) != 3:
+            raise HTTPException(400, f"view.{name}: элемент {{id, pos: [x, y, z], text}}")
+        out.append({"id": _s(it.get("id", uuid.uuid4().hex[:8]), f"{name}.id", 40),
+                    "floor": _s(it.get("floor") or "", f"{name}.floor", 40),
+                    "pos": [_f(c, -1e5, 1e5, f"{name}.pos") for c in it["pos"]],
+                    "text": _s(it.get("text", ""), f"{name}.text"),
+                    "label": _s(it.get("label", ""), f"{name}.label", 8),
+                    "author": _s(it.get("author", ""), f"{name}.author", 80),
+                    "created": _f(it.get("created", time.time()), 0, 1e11, f"{name}.created")})
+    return out
+
+
+def validate_view(v: dict, old: dict) -> dict:
+    if not isinstance(v, dict):
+        raise HTTPException(400, "Ожидается объект")
+    out = dict(old)
+    if "name" in v:
+        out["name"] = _s(v["name"], "name", 120)
+    if "site" in v:
+        st = v["site"]
+        if st is None:
+            out.pop("site", None)
+        else:
+            if not isinstance(st, dict):
+                raise HTTPException(400, "view.site: ожидается объект")
+            out["site"] = {"lat": _f(st.get("lat"), -85, 85, "site.lat"), "lon": _f(st.get("lon"), -180, 180, "site.lon"),
+                           "azimuth": _f(st.get("azimuth", 0), -360, 360, "site.azimuth"),
+                           "scale": _f(st.get("scale", 1), 0.01, 100, "site.scale")}
+            if st.get("tiles"):
+                t = _s(st["tiles"], "site.tiles", 300)
+                if not t.startswith("https://") or not all(k in t for k in ("{z}", "{x}", "{y}")):
+                    raise HTTPException(400, "view.site.tiles: шаблон https://…/{z}/{x}/{y}.png")
+                out["site"]["tiles"] = t
+                out["site"]["attribution"] = _s(st.get("attribution", ""), "site.attribution", 200)
+    if "detail" in v:
+        dt = v["detail"] or {}
+        if not isinstance(dt, dict):
+            raise HTTPException(400, "view.detail: ожидается объект")
+        cur = dict(old.get("detail") or {})
+        if "offset" in dt:
+            if not isinstance(dt["offset"], list) or len(dt["offset"]) != 3:
+                raise HTTPException(400, "view.detail.offset: ожидается [x, y, z]")
+            cur["offset"] = [_f(c, -1e4, 1e4, "detail.offset") for c in dt["offset"]]
+        if "rotation" in dt:
+            cur["rotation"] = _f(dt["rotation"], -360, 360, "detail.rotation")
+        if "scale" in dt:
+            cur["scale"] = _f(dt["scale"], 1e-4, 1e4, "detail.scale")
+        out["detail"] = cur
+    for k in ("comments", "markers"):
+        if k in v:
+            out[k] = _pins(v[k], k)
+    return out
+
+
+@app.get("/api/jobs/{jid}/view")
+def get_view(jid: str):
+    if jid not in _jobs:
+        raise HTTPException(404, "Задача не найдена")
+    return _jobs[jid].get("view") or {}
+
+
+@app.put("/api/jobs/{jid}/view")
+def put_view(jid: str, v: dict):
+    """Merge viewer settings: top-level keys given replace the stored ones."""
+    if jid not in _jobs:
+        raise HTTPException(404, "Задача не найдена")
+    with _lock:
+        job = _jobs[jid]
+        view = validate_view(v, job.get("view") or {})
+        _update(jid, view=view)
+    return view
+
+
+@app.post("/api/jobs/{jid}/detail")
+async def upload_detail(jid: str, file: UploadFile = File(...)):
+    """Detailed model (GLB: facade, furniture...) shown over the generated one."""
+    if jid not in _jobs:
+        raise HTTPException(404, "Задача не найдена")
+    jdir = _job_dir(jid)
+    tmp = jdir / "detail.glb.part"
+    size, head = 0, b""
+    with open(tmp, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            if not head:
+                head = chunk[:12]
+            size += len(chunk)
+            if size > MAX_DETAIL:
+                f.close()
+                tmp.unlink(missing_ok=True)
+                raise HTTPException(413, "Файл слишком большой")
+            f.write(chunk)
+    if head[:4] != b"glTF" or int.from_bytes(head[4:8], "little") != 2:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "Нужен файл GLB (glTF 2.0, бинарный)")
+    tmp.replace(jdir / "detail.glb")
+    with _lock:
+        view = dict(_jobs[jid].get("view") or {})
+        d = dict(view.get("detail") or {})
+        d.update(file=Path(file.filename or "detail.glb").name[:200], size=size,
+                 version=int(d.get("version", 0)) + 1)
+        d.setdefault("offset", [0.0, 0.0, 0.0])
+        d.setdefault("rotation", 0.0)
+        d.setdefault("scale", 1.0)
+        view["detail"] = d
+        _update(jid, view=view)
+    return view
+
+
+@app.delete("/api/jobs/{jid}/detail")
+def delete_detail(jid: str):
+    if jid not in _jobs:
+        raise HTTPException(404, "Задача не найдена")
+    (_job_dir(jid) / "detail.glb").unlink(missing_ok=True)
+    with _lock:
+        view = dict(_jobs[jid].get("view") or {})
+        view.pop("detail", None)
+        _update(jid, view=view)
+    return view
+
+
+@app.get("/api/jobs/{jid}/detail.glb")
+def get_detail(jid: str):
+    p = _job_dir(jid) / "detail.glb"
+    if jid not in _jobs or not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="model/gltf-binary")
 
 
 @app.get("/api/jobs/{jid}")
