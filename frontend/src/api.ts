@@ -1,11 +1,34 @@
 export type Role = 'walls' | 'columns' | 'windows' | 'doors' | 'rooms' | 'grid' | 'ignore' | 'insulation' | 'stairs'
 
+export type V3 = [number, number, number]
+
 export interface RoomMeta {
   node: string
   name: string
   area: number
-  label_pos: [number, number, number]
+  type?: string
+  label_pos: V3
+  /** text on the floor: rotation about Y (rad), wrap width and room depth, m */
+  label_angle?: number
+  label_w?: number
+  label_d?: number
 }
+
+export interface RoomType { type: string; label: string; color: string }
+
+export interface Entrance {
+  id: string
+  label: string
+  name: string
+  main: boolean
+  floor: string
+  width: number
+  pos: V3
+  /** outward direction, glTF X / Z */
+  dir: [number, number]
+}
+
+export interface Poi { kind: 'stair' | 'lift'; floor: string; pos: V3 }
 
 export interface Candidate {
   id: string
@@ -93,6 +116,11 @@ export interface Result {
   quality?: { status: 'ok' | 'suspect'; issues: string[] }
   /** editor corrections whose floor sheet was not found in this build (kept, not applied) */
   edits_unmatched?: number
+  entrances?: Entrance[]
+  pois?: Poi[]
+  room_types?: RoomType[]
+  /** plan coordinates of the glTF origin */
+  center?: [number, number]
   elapsed_s: number
   exports?: Record<string, string>
   extent?: { x: [number, number]; z: [number, number] }
@@ -110,7 +138,28 @@ export interface Job {
   model_url?: string
   build: number
   config?: Record<string, unknown>
+  view?: ViewSettings
 }
+
+export interface Pin {
+  id: string
+  floor: string
+  pos: V3
+  text: string
+  label?: string
+  created?: number
+}
+
+/** Per-job viewer settings stored on the server (no rebuild needed). */
+export interface ViewSettings {
+  name?: string
+  site?: { lat: number; lon: number; azimuth: number; scale: number; tiles?: string; attribution?: string }
+  detail?: { file?: string; version?: number; size?: number; offset: V3; rotation: number; scale: number }
+  comments?: Pin[]
+  markers?: Pin[]
+}
+
+export interface JobSummary { id: string; filename: string; name: string; status: Job['status']; floors: number; updated: number }
 
 async function check<T>(r: Response): Promise<T> {
   if (!r.ok) {
@@ -165,4 +214,24 @@ export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<v
   a.download = name
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+export async function listJobs(): Promise<JobSummary[]> {
+  return check(await fetch('/api/jobs'))
+}
+
+export async function putView(id: string, v: Partial<ViewSettings> | Record<string, unknown>): Promise<ViewSettings> {
+  return check(await fetch(`/api/jobs/${id}/view`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v),
+  }))
+}
+
+export async function uploadDetail(id: string, file: File): Promise<ViewSettings> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return check(await fetch(`/api/jobs/${id}/detail`, { method: 'POST', body: fd }))
+}
+
+export async function deleteDetail(id: string): Promise<ViewSettings> {
+  return check(await fetch(`/api/jobs/${id}/detail`, { method: 'DELETE' }))
 }

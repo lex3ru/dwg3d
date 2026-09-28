@@ -1,27 +1,34 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { downloadDrawing, fileUrl, getJob, rebuildJob, uploadFile, type FloorEdits, type Job } from './api'
+import * as THREE from 'three'
+import {
+  downloadDrawing, getJob, getPlan, putView, rebuildJob, uploadFile,
+  type FloorEdits, type FloorMeta, type Job, type PlanData, type RoomMeta, type V3, type ViewSettings,
+} from './api'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
-import Viewer, { type FocusRoom, type MeasureMode, type Tool, type ViewMode, type ViewState } from './Viewer'
+import {
+  formatHash, loadPrefs, parseHash, savePrefs,
+  type Display, type MeasureMode, type NavMode, type Projection, type Speeds, type Tool,
+} from './state'
+import { Legend, SideControls, TopRight } from './ui/Controls'
+import DisplayMenu from './ui/DisplayMenu'
+import FloorRail from './ui/FloorRail'
+import { MenuCtx, useOutsideClose } from './ui/menuCtx'
+import NavPanel from './ui/NavPanel'
+import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
+import SiteSettings from './ui/SiteSettings'
+import TopBar from './ui/TopBar'
+import Toolbar, { type RouteState } from './ui/Toolbar'
+import { TILE_ATTRIBUTION } from './viewer/tiles'
+import { buildGrid, findPath, type Grid } from './viewer/route'
+import { SceneCtx, entrancePose } from './viewer/scene'
+import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit, type RouteView } from './viewer/Viewer'
 
 const STAGES: Record<string, string> = {
   queued: 'В очереди', start: 'Запуск', convert: 'Конвертация DWG → DXF', read: 'Чтение чертежа',
   analyze: 'Поиск этажей', geometry: 'Построение геометрии', mesh: 'Построение 3D',
   export: 'Экспорт', done: 'Готово', error: 'Ошибка',
 }
-
-const MODES: { id: ViewMode; label: string; title: string }[] = [
-  { id: 'all', label: 'Все', title: 'Показать всё здание' },
-  { id: 'isolate', label: 'Изоляция', title: 'Только выбранный этаж' },
-  { id: 'below', label: 'До этажа', title: 'Выбранный этаж и ниже (срез)' },
-  { id: 'explode', label: 'Разнос', title: 'Этажи разъезжаются по вертикали' },
-]
-
-const TOOLS: { id: Tool; label: string; title: string }[] = [
-  { id: 'orbit', label: 'Осмотр', title: 'Вращение, зум, панорама' },
-  { id: 'measure', label: 'Рулетка', title: 'Расстояние между точками или площадь контура' },
-  { id: 'walk', label: 'Прогулка', title: 'Вид от первого лица на выбранном этаже (WASD, мышь, Shift — быстрее, Esc — выход)' },
-]
 
 function useJobPolling(jobId: string | null, nonce: number) {
   const [job, setJob] = useState<Job | null>(null)
@@ -50,7 +57,7 @@ function useJobPolling(jobId: string | null, nonce: number) {
   return { job, setJob, error }
 }
 
-function Upload({ onJob }: { onJob: (id: string) => void }) {
+function Upload({ onJob, onCancel }: { onJob: (id: string) => void; onCancel?: () => void }) {
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -60,8 +67,7 @@ function Upload({ onJob }: { onJob: (id: string) => void }) {
     setBusy(true)
     setErr(null)
     try {
-      const j = await uploadFile(f)
-      onJob(j.id)
+      onJob((await uploadFile(f)).id)
     } catch (e) {
       setErr((e as Error).message)
       setBusy(false)
@@ -69,13 +75,11 @@ function Upload({ onJob }: { onJob: (id: string) => void }) {
   }
   return (
     <div className="upload-screen">
-      <div
-        className={`dropzone ${drag ? 'drag' : ''}`}
+      <div className={`dropzone ${drag ? 'drag' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
         onDragLeave={() => setDrag(false)}
         onDrop={(e) => { e.preventDefault(); setDrag(false); send(e.dataTransfer.files[0]) }}
-        onClick={() => input.current?.click()}
-      >
+        onClick={() => input.current?.click()}>
         <div className="dz-icon">⬆</div>
         <h1>Поэтажные планы → 3D</h1>
         <p>Перетащите файл <b>.dwg</b> или <b>.dxf</b> сюда или нажмите, чтобы выбрать</p>
@@ -84,6 +88,7 @@ function Upload({ onJob }: { onJob: (id: string) => void }) {
         {err && <p className="error">{err}</p>}
         <input ref={input} type="file" accept=".dwg,.dxf" hidden onChange={(e) => send(e.target.files?.[0])} />
       </div>
+      {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
     </div>
   )
 }
@@ -102,326 +107,441 @@ function Progress({ job }: { job: Job }) {
   )
 }
 
+const NO_ROUTE: RouteState = { floor: null, step: 'from', fromLabel: '', toLabel: '', length: null, error: null }
+const introKey = (id: string) => `dwg3d.intro.${id}`
+const seenIntro = (id: string | null) => {
+  try { return !id || !!sessionStorage.getItem(introKey(id)) } catch { return true }
+}
+
 export default function App() {
-  const [jobId, setJobId] = useState<string | null>(() => new URLSearchParams(location.search).get('job'))
+  const initial = useMemo(() => parseHash(), [])
+  const [jobId, setJobId] = useState<string | null>(() => initial?.job ?? new URLSearchParams(location.search).get('job'))
+  const [uploading, setUploading] = useState(false)
   const [pollNonce, setPollNonce] = useState(0)
   const { job, setJob, error } = useJobPolling(jobId, pollNonce)
-  const [view, setView] = useState<ViewState>({
-    mode: 'all', selected: null, explode: 6, showRoof: true, showRooms: true, showGlass: true, labels: true,
-    cutH: { on: false, y: 0 }, cutV: { on: false, x: 0 },
-  })
-  const [tool, setTool] = useState<Tool>('orbit')
-  const [measureMode, setMeasureMode] = useState<MeasureMode>('length')
-  const [walkActive, setWalkActive] = useState(false)
-  const exitWalk = useCallback(() => { setTool('orbit'); setWalkActive(false) }, [])
-  const [settings, setSettings] = useState(false)
-  const [editor, setEditor] = useState(false)
-  const [query, setQuery] = useState('')
-  const [focusRoom, setFocusRoom] = useState<FocusRoom | null>(null)
-  const [saving, setSaving] = useState<'dxf' | 'dwg' | null>(null)
-  const [saveErr, setSaveErr] = useState<string | null>(null)
-  // keep the last finished model on screen while a rebuild is running
   const [shown, setShown] = useState<Job | null>(null)
   useEffect(() => { if (job?.status === 'done') setShown(job) }, [job])
+
+  // ---- preferences (localStorage) and view state (URL hash)
+  const prefs = useMemo(() => loadPrefs(), [])
+  const [display, setDisplay] = useState<Display>(() => ({
+    ...prefs.display,
+    ...(initial?.explode != null ? { explode: initial.explode } : {}),
+    ...(initial?.onlyActive != null ? { onlyActive: initial.onlyActive } : {}),
+    ...(initial?.xray != null ? { xray: initial.xray } : {}),
+  }))
+  const [speeds, setSpeeds] = useState<Speeds>(prefs.speeds)
+  useEffect(() => savePrefs(display, speeds), [display, speeds])
+  const patchDisplay = useCallback((p: Partial<Display>) => setDisplay((d) => ({ ...d, ...p })), [])
+  const [floor, setFloor] = useState<string | null>(initial?.floor ?? null)
+  const [proj, setProj] = useState<Projection>(initial?.proj ?? '3d')
+  const [nav, setNav] = useState<NavMode>('orbit')
+  const [tool, setTool] = useState<Tool>('none')
+  const [measureMode, setMeasureMode] = useState<MeasureMode>('length')
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
+  useOutsideClose(setOpenMenu)
+  const [help, setHelp] = useState(false)
+  const [buildingOpen, setBuildingOpen] = useState(false)
+  const [settings, setSettings] = useState<'floors' | 'site' | null>(null)
+  const [editor, setEditor] = useState(false)
+  const [selRoom, setSelRoom] = useState<RoomHit | null>(null)
+  const [cuts, setCuts] = useState<Cuts>({ h: { on: false, y: 0 }, v: { on: false, x: 0 } })
+  const [view, setView] = useState<ViewSettings>({})
+  const [preview, setPreview] = useState<ViewSettings | null>(null)
+  const [route, setRoute] = useState<RouteState>(NO_ROUTE)
+  const [routeView, setRouteView] = useState<RouteView | null>(null)
+  const routeEnds = useRef<{ from: [number, number] | null; to: [number, number] | null }>({ from: null, to: null })
+  const grids = useRef(new Map<string, Grid | null>())
+  const [openPin, setOpenPin] = useState<string | null>(null)
+  const [pending, setPending] = useState<{ kind: 'markers' | 'comments'; pos: V3; floor: string } | null>(null)
+  const [pendingText, setPendingText] = useState('')
+  const [walkStart, setWalkStart] = useState<{ pos: THREE.Vector3; look: THREE.Vector3 } | null>(null)
+  const [walkMsg, setWalkMsg] = useState('')
+  const floorBeforeWalk = useRef<string | null>(null)
+  const [quality, setQuality] = useState<'high' | 'eco' | 'real'>('high')
+  const [detailInfo, setDetailInfo] = useState<DetailInfo | null>(null)
+  const [saving, setSaving] = useState<'dxf' | 'dwg' | null>(null)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+  const [intro, setIntro] = useState(() => !initial?.floor && !seenIntro(jobId))
+  const ctx = useMemo(() => new SceneCtx(), [])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useEffect(() => { if (import.meta.env.DEV) (window as any).__dwg3d = ctx }, [ctx])
+
+  const r = shown?.result
+  const floors = useMemo(() => [...(r?.floors ?? [])].sort((a, b) => a.elevation! - b.elevation!), [r])
+  const activeFloor = floors.find((f) => f.id === floor) ?? null
+  const entranceFloor = useMemo(() => floors.find((f) => f.id === r?.entrances?.[0]?.floor)
+    ?? floors.find((f) => f.elevation! >= -0.5) ?? floors[0] ?? null, [floors, r])
+
+  // job settings stored on the server
+  useEffect(() => { setView(shown?.view ?? {}) }, [shown?.id, shown?.view])
+  const shownView = preview ?? view
+
+  // drop a floor id that this build does not have
+  useEffect(() => {
+    if (r && floor && !r.floors.some((f) => f.id === floor)) setFloor(null)
+  }, [r, floor])
+
+  // default section positions
+  useEffect(() => {
+    if (!r) return
+    setCuts((c) => ({
+      h: { ...c.h, y: c.h.y || r.height_range[1] },
+      v: { ...c.v, x: c.v.x || ((r.extent?.x[0] ?? 0) + (r.extent?.x[1] ?? 0)) / 2 },
+    }))
+  }, [r])
+
+  // ---- URL hash <-> state
+  useEffect(() => {
+    if (!jobId) return
+    const h = formatHash({ job: jobId, floor, proj, explode: display.explode, onlyActive: display.onlyActive, xray: display.xray })
+    if (h === location.hash) return
+    const prev = parseHash()
+    const push = prev != null && (prev.job !== jobId || prev.floor !== floor || prev.proj !== proj)
+    history[push ? 'pushState' : 'replaceState'](null, '', location.pathname + h)
+  }, [jobId, floor, proj, display.explode, display.onlyActive, display.xray])
+  useEffect(() => {
+    const onPop = () => {
+      const hv = parseHash()
+      if (!hv) return
+      setJobId(hv.job)
+      setFloor(hv.floor)
+      setProj(hv.proj)
+      setDisplay((d) => ({ ...d, explode: !!hv.explode, onlyActive: !!hv.onlyActive, xray: !!hv.xray }))
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   const openJob = useCallback((id: string) => {
     setJobId(id)
     setShown(null)
-    history.replaceState(null, '', `?job=${id}`)
+    setFloor(null)
+    setSelRoom(null)
+    setRoute(NO_ROUTE)
+    setRouteView(null)
+    setNav('orbit')
+    setTool('none')
+    setUploading(false)
+    setDetailInfo(null)
+    grids.current.clear()
+    setIntro(!seenIntro(id))
   }, [])
+  const introDone = useCallback(() => {
+    try { if (jobId) sessionStorage.setItem(introKey(jobId), '1') } catch { /* private mode */ }
+    setIntro(false)
+  }, [jobId])
 
-  const r = shown?.result
-  const floorsDesc = useMemo(() => [...(r?.floors ?? [])].sort((a, b) => b.elevation! - a.elevation!), [r])
-  const selFloor = floorsDesc.find((f) => f.id === view.selected) ?? floorsDesc[floorsDesc.length - 1]
-  const [yMin, yMax] = r?.height_range ?? [0, 10]
-  const [xMin, xMax] = r?.extent?.x ?? [-60, 60]
-
-  // default section heights once a model is shown
-  useEffect(() => {
+  // ---- floors, projection, navigation
+  const exitWalk = useCallback(() => {
+    setNav('orbit')
+    setFloor(floorBeforeWalk.current)
+  }, [])
+  const selectFloor = (id: string | null) => {
+    if (nav === 'walk') setNav('orbit')
+    setFloor(id ?? (proj === '2d' ? entranceFloor?.id ?? null : null))
+    setSelRoom(null)
+  }
+  const switchProj = (p: Projection) => {
+    if (p === proj) return
+    if (p === '2d') {
+      if (nav !== 'orbit') setNav('orbit')
+      if (!floor) setFloor(entranceFloor?.id ?? null)
+    }
+    setProj(p)
+  }
+  const startWalk = () => {
     if (!r) return
-    setView((v) => ({
-      ...v,
-      cutH: { ...v.cutH, y: v.cutH.y || r.height_range[1] },
-      cutV: { ...v.cutV, x: v.cutV.x || ((r.extent?.x[0] ?? 0) + (r.extent?.x[1] ?? 0)) / 2 },
-    }))
-  }, [r])
+    const eye = speeds.eye
+    const main = r.entrances?.find((e) => e.main) ?? r.entrances?.[0]
+    floorBeforeWalk.current = floor
+    setProj('3d')
+    setTool('none')
+    setSelRoom(null)
+    if (main) {
+      setWalkStart(entrancePose(main, eye))
+      setWalkMsg('Вы у главного входа. Щёлкните по сцене, чтобы осматриваться мышью; WASD — идти, Esc — выйти')
+    } else {
+      const f = activeFloor ?? entranceFloor
+      const room = f ? [...f.rooms].sort((a, b) => b.area - a.area)[0] : null
+      const p = room ? new THREE.Vector3(...room.label_pos) : new THREE.Vector3()
+      p.y = (f?.elevation ?? 0) + eye
+      setWalkStart({ pos: p, look: p.clone().add(new THREE.Vector3(1, 0, 0)) })
+      setWalkMsg('Вход не найден — вы в самом большом помещении этажа. Щёлкните по сцене, чтобы осматриваться мышью; WASD — идти, Esc — выйти')
+    }
+    setNav('walk')
+  }
+  const changeNav = (n: NavMode) => {
+    if (n === nav) return
+    if (n === 'walk') return startWalk()
+    if (nav === 'walk') setFloor(floorBeforeWalk.current)
+    if (n === 'fly') { setProj('3d'); setTool('none') }
+    setNav(n)
+  }
+  const onWalkFloor = useCallback((id: string) => setFloor(id), [])
 
-  const hits = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q || !r) return []
-    return r.floors.flatMap((f) => f.rooms.filter((rm) => rm.name.toLowerCase().includes(q)).map((rm) => ({ f, rm }))).slice(0, 30)
-  }, [query, r])
+  // ---- rooms
+  const focusRoom = (f: FloorMeta, room: RoomMeta) => {
+    if (nav !== 'orbit') changeNav('orbit')
+    setFloor(f.id)
+    const p = new THREE.Vector3(...room.label_pos)
+    setSelRoom({ room, floor: f, point: p })
+    setTimeout(() => ctx.api?.flyToPoint(p.clone().setY(p.y + (ctx.offset.get(f.id) ?? 0)), Math.max(8, Math.sqrt(room.area) * 2.2)), 60)
+  }
 
-  const selectFloor = (id: string) =>
-    setView((v) => ({ ...v, selected: id, mode: v.mode === 'all' ? 'isolate' : v.mode }))
+  // ---- route (one floor)
+  const cx = r?.center?.[0] ?? 0, cy = r?.center?.[1] ?? 0
+  const toPlan = (v: V3 | THREE.Vector3): [number, number] => {
+    const [x, , z] = Array.isArray(v) ? v : [v.x, v.y, v.z]
+    return [x + cx, -z + cy]
+  }
+  const planToGltf = (p: [number, number], elev: number): V3 => [p[0] - cx, elev + 0.06, -(p[1] - cy)]
+  const loadGrid = async (f: FloorMeta): Promise<Grid | null> => {
+    if (!grids.current.has(f.id)) {
+      const plan: PlanData = await getPlan(shown!.id, f.plan, shown!.build)
+      grids.current.set(f.id, buildGrid(plan))
+    }
+    return grids.current.get(f.id) ?? null
+  }
+  const setRouteEnd = async (end: 'from' | 'to', f: FloorMeta, p: [number, number], label: string) => {
+    let ends = routeEnds.current
+    let st = route
+    if (st.floor && st.floor !== f.id) {
+      if (end === 'to' && ends.from) {
+        setRoute({ ...st, error: 'Маршрут строится в пределах одного этажа: выберите конец на этаже начала' })
+        return
+      }
+      ends = { from: null, to: null }
+      st = { ...NO_ROUTE }
+    }
+    ends = { ...ends, [end]: p }
+    routeEnds.current = ends
+    const next: RouteState = {
+      ...st, floor: f.id, [end === 'from' ? 'fromLabel' : 'toLabel']: label, error: null, length: null,
+      step: ends.from && ends.to ? 'done' : ends.from ? 'to' : 'from',
+    }
+    setRoute(next)
+    setFloor(f.id)
+    const elev = f.elevation!
+    setRouteView({ floor: f.id, pts: [], from: ends.from ? planToGltf(ends.from, elev) : null, to: ends.to ? planToGltf(ends.to, elev) : null, length: 0 })
+    if (!ends.from || !ends.to) return
+    const grid = await loadGrid(f)
+    const path = grid ? findPath(grid, ends.from, ends.to) : null
+    if (!path) {
+      setRoute({ ...next, error: 'Путь не найден: точки разделены стенами без проёмов' })
+      return
+    }
+    setRoute({ ...next, length: path.length })
+    setRouteView({
+      floor: f.id, pts: path.pts.map((q) => planToGltf(q, elev)), from: planToGltf(ends.from, elev),
+      to: planToGltf(ends.to, elev), length: path.length,
+    })
+  }
+  const routeRoom = (end: 'from' | 'to', f: FloorMeta, room: RoomMeta) =>
+    setRouteEnd(end, f, toPlan(room.label_pos), room.name || room.type || 'помещение')
+  const clearRoute = () => {
+    routeEnds.current = { from: null, to: null }
+    setRoute(NO_ROUTE)
+    setRouteView(null)
+  }
 
-  const rebuild = async (override: Record<string, unknown>) => {
-    setSettings(false)
+  // ---- markers & comments (stored on the server)
+  const savePins = async (kind: 'markers' | 'comments', list: ViewSettings['markers']) => {
+    if (!shown) return
+    setView((v) => ({ ...v, [kind]: list }))
     try {
-      setJob(await rebuildJob(job!.id, override))
-      setPollNonce((n) => n + 1)   // restart polling
+      setView(await putView(shown.id, { [kind]: list }))
     } catch (e) {
       alert((e as Error).message)
     }
   }
+  const commitPending = () => {
+    if (!pending) return
+    const text = pendingText.trim()
+    const list = [...(view[pending.kind] ?? []), {
+      id: Math.random().toString(36).slice(2, 10), floor: pending.floor, pos: pending.pos, text,
+      label: pending.kind === 'markers' ? text.slice(0, 8) : '', created: Date.now() / 1000,
+    }]
+    savePins(pending.kind, list)
+    setPending(null)
+    setPendingText('')
+    setTool('none')
+  }
+  const deletePin = (kind: 'markers' | 'comments', id: string) => {
+    savePins(kind, (view[kind] ?? []).filter((p) => p.id !== id))
+    setOpenPin(null)
+  }
 
-  // the editor stays open during the rebuild and reloads the plan afterwards
+  // ---- clicks in the scene
+  const onPick = (pk: Pick) => {
+    const f = floors.find((x) => x.id === pk.floor)
+    if (tool === 'route') {
+      if (!f) return
+      const end = route.step === 'to' ? 'to' : 'from'
+      setRouteEnd(end, f, toPlan(pk.local), pk.room?.room.name || (end === 'from' ? 'точка A' : 'точка B'))
+    } else if (tool === 'marker' || tool === 'comment') {
+      setPending({ kind: tool === 'marker' ? 'markers' : 'comments', pos: pk.local.toArray() as V3, floor: pk.floor ?? '' })
+      setPendingText('')
+    }
+  }
+  const onRoomClick = (h: RoomHit | null) => {
+    setSelRoom(h)
+    setOpenPin(null)
+  }
+
+  // ---- editor / rebuild / save
+  const rebuild = async (override: Record<string, unknown>) => {
+    setSettings(null)
+    try {
+      setJob(await rebuildJob(job!.id, override))
+      setPollNonce((n) => n + 1)
+    } catch (e) {
+      alert((e as Error).message)
+    }
+  }
   const applyEdits = (floorId: string, edits: FloorEdits) => rebuild({ edits: { [floorId]: edits } })
-
-  const planCut = () => {
-    if (!selFloor) return
-    setView((v) => ({
-      ...v, mode: v.mode === 'all' || v.mode === 'explode' ? 'below' : v.mode, selected: selFloor.id,
-      cutH: { on: true, y: selFloor.elevation! + 1.2 },
-    }))
-  }
-
-  const startWalk = () => {
-    if (!selFloor) return
-    setView((v) => ({ ...v, mode: 'isolate', selected: selFloor.id }))
-    setTool('walk')
-  }
-
   const editCount = Object.values((job?.config?.edits ?? {}) as Record<string, Record<string, unknown[]>>)
     .reduce((n, fe) => n + Object.values(fe ?? {}).reduce((k, l) => k + (Array.isArray(l) ? l.length : 0), 0), 0)
-
   const saveDrawing = async (fmt: 'dxf' | 'dwg') => {
     if (!job) return
     setSaving(fmt)
     setSaveErr(null)
-    try {
-      await downloadDrawing(job.id, fmt)
-    } catch (e) {
-      setSaveErr((e as Error).message)
-    } finally {
-      setSaving(null)
-    }
+    try { await downloadDrawing(job.id, fmt) } catch (e) { setSaveErr((e as Error).message) } finally { setSaving(null) }
+  }
+  const setToolSafe = (t: Tool) => {
+    if (t !== 'none' && nav === 'walk') exitWalk()
+    setTool(t)
   }
 
-  if (!jobId) return <Upload onJob={openJob} />
+  const floorCut = activeFloor ? () => setCuts((c) => ({ ...c, h: { on: true, y: activeFloor.elevation! + 1.2 } })) : null
 
-  const running = job && (job.status === 'queued' || job.status === 'running')
+  if (!jobId || uploading) return <Upload onJob={openJob} onCancel={jobId ? () => setUploading(false) : undefined} />
+
+  const running = !!job && (job.status === 'queued' || job.status === 'running')
+  const name = shownView.name || (job?.filename ?? '').replace(/\.(dwg|dxf)$/i, '')
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <span>DWG → 3D</span>
-          <button className="ghost small" onClick={() => { setJobId(null); setShown(null); history.replaceState(null, '', '/') }}>
-            Новый файл
-          </button>
-        </div>
-        {job && <div className="file-name" title={job.filename}>{job.filename}</div>}
-        {running && <Progress job={job} />}
-        {job?.status === 'error' && (
-          <div className="error-card"><b>Ошибка обработки</b><p>{job.error}</p></div>
-        )}
-        {error && <div className="error-card">{error}</div>}
-
-        {r && (
-          <>
-            <div className="seg">
-              {MODES.map((m) => (
-                <button key={m.id} title={m.title} className={view.mode === m.id ? 'on' : ''}
-                  onClick={() => setView((v) => ({
-                    ...v, mode: m.id,
-                    selected: v.selected ?? (m.id === 'isolate' || m.id === 'below' ? floorsDesc[floorsDesc.length - 1]?.id ?? null : null),
-                  }))}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {view.mode === 'explode' && (
-              <label className="slider">
-                <span>Разнос: {view.explode} м</span>
-                <input type="range" min={1} max={20} step={0.5} value={view.explode}
-                  onChange={(e) => setView((v) => ({ ...v, explode: Number(e.target.value) }))} />
-              </label>
-            )}
-
-            <div className="search">
-              <input placeholder="Поиск помещения…" value={query} onChange={(e) => setQuery(e.target.value)} />
-              {hits.length > 0 && (
-                <ul className="hits">
-                  {hits.map(({ f, rm }) => (
-                    <li key={rm.node} onClick={() => {
-                      setView((v) => ({ ...v, selected: f.id, mode: 'isolate' }))
-                      setFocusRoom({ node: rm.node, nonce: Date.now() })
-                      setQuery('')
-                    }}>
-                      <b>{rm.name}</b><span>{f.name} · {rm.area.toFixed(1)} м²</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <h3 className="list-title">Этажи <span>{r.floors.length}</span></h3>
-            <ul className="floors">
-              {floorsDesc.map((f) => (
-                <li key={f.id} className={view.selected === f.id && view.mode !== 'all' ? 'sel' : ''}
-                  onClick={() => selectFloor(f.id)}>
-                  <div className="f-name">{f.name}</div>
-                  <div className="f-meta">
-                    <span>{f.elevation! >= 0 ? '+' : ''}{f.elevation!.toFixed(2)} м</span>
-                    <span>h {f.height!.toFixed(2)} м</span>
-                    <span>{f.stats.rooms} пом.</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            <div className="toggles">
-              <label><input type="checkbox" checked={view.showRoof} onChange={(e) => setView((v) => ({ ...v, showRoof: e.target.checked }))} /> Кровля</label>
-              <label><input type="checkbox" checked={view.showRooms} onChange={(e) => setView((v) => ({ ...v, showRooms: e.target.checked }))} /> Помещения</label>
-              <label><input type="checkbox" checked={view.showGlass} onChange={(e) => setView((v) => ({ ...v, showGlass: e.target.checked }))} /> Остекление</label>
-              <label><input type="checkbox" checked={view.labels} onChange={(e) => setView((v) => ({ ...v, labels: e.target.checked }))} /> Подписи</label>
-            </div>
-
-            <h3 className="list-title">Разрезы</h3>
-            <div className="cuts">
-              <label className="cut-row">
-                <input type="checkbox" checked={view.cutH.on} onChange={(e) => setView((v) => ({ ...v, cutH: { ...v.cutH, on: e.target.checked } }))} />
-                <span>По высоте</span>
-                <input type="range" min={yMin} max={yMax} step={0.05} value={view.cutH.y} disabled={!view.cutH.on}
-                  onChange={(e) => setView((v) => ({ ...v, cutH: { ...v.cutH, y: Number(e.target.value) } }))} />
-                <span className="val">{view.cutH.y.toFixed(1)}</span>
-              </label>
-              <label className="cut-row">
-                <input type="checkbox" checked={view.cutV.on} onChange={(e) => setView((v) => ({ ...v, cutV: { ...v.cutV, on: e.target.checked } }))} />
-                <span>Вертикальный</span>
-                <input type="range" min={xMin} max={xMax} step={0.1} value={view.cutV.x} disabled={!view.cutV.on}
-                  onChange={(e) => setView((v) => ({ ...v, cutV: { ...v.cutV, x: Number(e.target.value) } }))} />
-                <span className="val">{view.cutV.x.toFixed(1)}</span>
-              </label>
-              <button className="small" onClick={planCut} title="Разрез выбранного этажа на высоте 1,2 м — как на плане">
-                План-срез этажа
-              </button>
-            </div>
-
-            <h3 className="list-title">Инструменты</h3>
-            <div className="seg seg3">
-              {TOOLS.map((t) => (
-                <button key={t.id} title={t.title} className={tool === t.id ? 'on' : ''}
-                  onClick={() => (t.id === 'walk' ? startWalk() : setTool(t.id))}>{t.label}</button>
-              ))}
-            </div>
-            {tool === 'measure' && (
-              <div className="seg seg2 sub-seg">
-                <button className={measureMode === 'length' ? 'on' : ''} onClick={() => setMeasureMode('length')}>
-                  ↔ Расстояние
-                </button>
-                <button className={measureMode === 'area' ? 'on' : ''} onClick={() => setMeasureMode('area')}>
-                  ▱ Площадь
-                </button>
-              </div>
-            )}
-
-            <div className="actions">
-              <button className="secondary" disabled={!!running || !selFloor} onClick={() => setEditor(true)}
-                title="Исправить стены, проёмы и помещения на плане выбранного этажа">
-                2D-редактор: {selFloor?.name ?? '—'}
-              </button>
-              <button className="secondary" disabled={!!running} onClick={() => setSettings(true)}>
-                Этажи и слои…
-              </button>
-            </div>
-
-            {editCount > 0 && (
-              <div className="save-drawing">
-                <div className="sd-title">Чертёж с правками <span>{editCount}</span></div>
-                <div className="sd-buttons">
-                  {(['dxf', 'dwg'] as const).map((f) => (
-                    <button key={f} className="small" disabled={!!saving || !!running} onClick={() => saveDrawing(f)}
-                      title={f === 'dxf' ? 'Исходный чертёж с внесёнными правками' : 'То же в DWG (нужен конвертер DXF→DWG)'}>
-                      {saving === f ? 'Готовлю…' : `Сохранить ${f.toUpperCase()}`}
-                    </button>
-                  ))}
-                </div>
-                {saveErr && <div className="error small-err">{saveErr}</div>}
-              </div>
-            )}
-            {r.exports && (
-              <div className="exports">
-                <span>Скачать:</span>
-                {Object.entries(r.exports).map(([k, name]) => (
-                  <a key={k} href={fileUrl(shown!.id, name, shown!.build)} download>{k.toUpperCase()}</a>
-                ))}
-              </div>
-            )}
-            {r.quality?.status === 'suspect' && (
-              <div className="quality-card">
-                <b>Результат выглядит сомнительно</b>
-                {r.quality.issues.map((w) => <p key={w}>{w}</p>)}
-                <p className="hint">Проверьте роли слоёв и единицы в «Настройках» и отладочные планы этажей.</p>
-              </div>
-            )}
-            {(r.edits_unmatched ?? 0) > 0 && (
-              <div className="warn-card">
-                <p>⚠ Правки {r.edits_unmatched} этаж(ей) не применены: их лист не найден в текущем разборе
-                  чертежа. Они сохранены и применятся, если лист снова будет распознан.</p>
-              </div>
-            )}
-            {r.warnings.length > 0 && (
-              <div className="warn-card">{r.warnings.map((w) => <p key={w}>⚠ {w}</p>)}</div>
-            )}
-            <div className="info">
-              Единицы: {r.units} ({r.units_source}) · {r.triangles.toLocaleString('ru')} треуг. · {r.elapsed_s} с
-            </div>
-          </>
-        )}
-      </aside>
-      <main className="stage">
-        {shown?.model_url && r ? (
-          <Suspense fallback={<div className="center-msg">Загрузка модели…</div>}>
-            <Viewer key={shown.model_url} url={shown.model_url} result={r} view={view} tool={tool}
-              focusRoom={focusRoom} measureMode={measureMode} onExitWalk={exitWalk} />
-          </Suspense>
-        ) : running ? (
-          <div className="center-msg"><Progress job={job!} /></div>
-        ) : null}
-        {r && tool === 'walk' && !walkActive && (
-          <div className="walk-overlay" onClick={() => {
-            setWalkActive(true)
-            // pointer lock may be refused (iframe policy, re-lock right after Esc);
-            // the walk then falls back to looking around by dragging the mouse
+    <MenuCtx.Provider value={{ open: openMenu, setOpen: setOpenMenu }}>
+      <div className={`app nav-${nav}`}>
+        <main className="stage" onClick={() => {
+          if (nav === 'walk' && !document.pointerLockElement) {
+            // pointer lock may be refused (iframe policy, right after Esc): dragging then looks around
             try {
               const req = document.querySelector('canvas')?.requestPointerLock?.() as unknown as Promise<void> | undefined
               req?.catch?.(() => {})
-            } catch { /* fallback */ }
-          }}>
-            <div>
-              <b>Прогулка: {selFloor?.name}</b>
-              <p>Нажмите, чтобы начать. WASD / стрелки — ходьба, мышь (или перетаскивание) — обзор, Shift — быстрее, Esc — выход.</p>
-            </div>
-          </div>
-        )}
-        {r && tool === 'walk' && walkActive && <div className="crosshair" />}
-        {r && tool === 'walk' && walkActive && (
-          <div className="help">WASD — ходьба · мышь — обзор · Shift — быстрее · Esc — выход</div>
-        )}
-        {r && tool !== 'walk' && (
+            } catch { /* drag to look instead */ }
+          }
+        }}>
+          {shown?.model_url && r ? (
+            <Suspense fallback={<div className="center-msg">Загрузка модели…</div>}>
+              <Viewer key={shown.model_url} jobId={shown.id} url={shown.model_url} result={r} display={display}
+                floor={floor} proj={proj} nav={nav} speeds={speeds} tool={tool} measureMode={measureMode} cuts={cuts}
+                view={shownView} selectedRoom={selRoom?.room.node ?? null} route={routeView} openPin={openPin}
+                walkStart={walkStart} intro={intro} ctx={ctx} onIntroDone={introDone}
+                onRoomClick={onRoomClick} onPick={onPick} onExitWalk={exitWalk} onWalkFloor={onWalkFloor}
+                onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo} />
+            </Suspense>
+          ) : running ? (
+            <div className="center-msg"><Progress job={job!} /></div>
+          ) : null}
+        </main>
+
+        {r && (
           <>
-            <div className="legend-3d">
-              <span><i style={{ background: '#ede8de' }} />стены</span>
-              <span><i style={{ background: '#dbe3ed' }} />перегородки</span>
-              <span><i style={{ background: '#a8805c' }} />двери</span>
-              <span><i style={{ background: '#8cbff2' }} />остекление</span>
-              <span><i style={{ background: '#c7bdad' }} />лестницы</span>
-            </div>
-            <div className="help">
-              {tool === 'measure' && measureMode === 'length' ? 'Кликните две точки на модели · Esc — сброс'
-                : tool === 'measure' ? 'Кликайте вершины контура · замкнуть: клик по первой точке, двойной клик или Enter · Backspace — убрать точку · Esc — сброс'
-                : 'ЛКМ — вращение · ПКМ — панорама · колесо — зум · наведите на помещение'}
-            </div>
+            <HelpButton onClick={() => setHelp(true)} />
+            <TopBar jobId={jobId} name={name} result={r} onOpenJob={openJob} onNewFile={() => setUploading(true)}
+              onRoom={focusRoom} />
+            {running && shown && <div className="rebuild-progress"><Progress job={job!} /></div>}
+            <TopRight
+              measuring={tool === 'measure'} measureMode={measureMode}
+              onMeasure={(on, mode) => {
+                if (mode) setMeasureMode(mode)
+                setToolSafe(on ? 'measure' : 'none')
+              }}
+              displayMenu={<DisplayMenu display={display} set={patchDisplay} resolvedQuality={quality} cuts={cuts} setCuts={setCuts}
+                yRange={r.height_range} xRange={r.extent?.x ?? [-60, 60]} floorCut={floorCut} />}
+              proj={proj} onProj={switchProj}
+              map={display.map && !!shownView.site} mapAvailable={!!shownView.site}
+              onMap={(v) => (shownView.site ? patchDisplay({ map: v }) : setSettings('site'))}
+              onSettings={setSettings}
+            />
+            {nav !== 'walk' && <FloorRail floors={r.floors} active={floor} onSelect={selectFloor} />}
+            <SideControls dayTime={display.dayTime} onDayTime={(d) => patchDisplay({ dayTime: d })}
+              onZoom={(d) => ctx.api?.zoom(d)} onFit={() => ctx.api?.fit()}
+              legend={<Legend result={r} on={display.roomColors} onToggleColors={(v) => patchDisplay({ roomColors: v })} />} />
+            <Toolbar nav={nav} onNav={changeNav} tool={tool} onTool={setToolSafe}
+              route={route} routeFloor={floors.find((f) => f.id === (route.floor ?? floor)) ?? entranceFloor}
+              onRouteRoom={(end, node) => {
+                const f = floors.find((x) => x.rooms.some((rm) => rm.node === node))
+                const room = f?.rooms.find((rm) => rm.node === node)
+                if (f && room) routeRoom(end, f, room)
+              }}
+              onClearRoute={clearRoute} buildingOpen={buildingOpen} onBuilding={() => setBuildingOpen(!buildingOpen)}
+              display={display} set={patchDisplay} markers={view.markers ?? []} comments={view.comments ?? []}
+              onFlyToPin={(pin) => {
+                if (pin.floor) setFloor(pin.floor)
+                setOpenPin(pin.id)
+                setTimeout(() => ctx.api?.flyToPoint(new THREE.Vector3(...pin.pos).setY(pin.pos[1] + (ctx.offset.get(pin.floor) ?? 0)), 10), 60)
+              }}
+              furnitureCount={detailInfo?.furniture ?? null} />
+            <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
+            {buildingOpen && job && shown && (
+              <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount} saving={saving}
+                saveErr={saveErr} onFloor={selectFloor} onEditor={() => setEditor(true)} onSave={saveDrawing}
+                onClose={() => setBuildingOpen(false)} />
+            )}
+            {selRoom && nav !== 'walk' && (
+              <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
+                onFly={() => focusRoom(selRoom.floor, selRoom.room)}
+                onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }} />
+            )}
+            {tool !== 'none' && (
+              <div className="tool-hint">
+                {tool === 'measure' ? (measureMode === 'length' ? 'Рулетка: кликните две точки · Esc — сброс'
+                  : 'Площадь: кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
+                  : tool === 'route' ? (route.step === 'to' ? 'Маршрут: щёлкните конечную точку' : 'Маршрут: щёлкните начальную точку на полу')
+                  : tool === 'marker' ? 'Щёлкните место для метки' : 'Щёлкните место для комментария'}
+                <button className="link" onClick={() => setTool('none')}>готово</button>
+              </div>
+            )}
+            {pending && (
+              <div className="pin-editor menu-root">
+                <b>{pending.kind === 'markers' ? 'Новая метка' : 'Новый комментарий'}</b>
+                <textarea autoFocus value={pendingText} rows={pending.kind === 'markers' ? 1 : 3}
+                  placeholder={pending.kind === 'markers' ? 'Подпись (например, «Вход B»)' : 'Текст комментария'}
+                  onChange={(e) => setPendingText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitPending() } }} />
+                <div className="row">
+                  <button onClick={() => setPending(null)}>Отмена</button>
+                  <button className="primary" disabled={pending.kind === 'comments' && !pendingText.trim()} onClick={commitPending}>Сохранить</button>
+                </div>
+              </div>
+            )}
+            {nav === 'walk' && (
+              <>
+                <div className="walk-hint">{walkMsg}</div>
+                <div className="crosshair-dot" />
+              </>
+            )}
+            {display.map && shownView.site && proj === '3d' && <div className="attribution">{shownView.site.tiles ? shownView.site.attribution || 'Источник карты не указан' : TILE_ATTRIBUTION}</div>}
           </>
         )}
-        {editor && job && shown && selFloor && (
-          <Editor2D key={selFloor.id} job={job.status === 'done' ? job : { ...shown, config: job.config }}
-            floor={selFloor} busy={!!running} onApply={applyEdits} onClose={() => setEditor(false)} />
+        {job?.status === 'error' && (
+          <div className="error-card floating"><b>Ошибка обработки</b><p>{job.error}</p>
+            <button className="small" onClick={() => setUploading(true)}>Загрузить другой файл</button></div>
         )}
-      </main>
-      {settings && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(false)} />}
-    </div>
+        {error && <div className="error-card floating">{error}</div>}
+        {help && <HelpOverlay onClose={() => setHelp(false)} />}
+        {editor && job && shown && activeFloor && (
+          <Editor2D key={activeFloor.id} job={job.status === 'done' ? job : { ...shown, config: job.config }}
+            floor={activeFloor} busy={running} onApply={applyEdits} onClose={() => setEditor(false)} />
+        )}
+        {settings === 'floors' && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(null)} />}
+        {settings === 'site' && shown && (
+          <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}
+            onSaved={(v) => { setView(v); setPreview(null) }} onClose={() => { setPreview(null); setSettings(null) }} />
+        )}
+      </div>
+    </MenuCtx.Provider>
   )
 }
