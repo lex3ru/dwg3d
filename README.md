@@ -80,6 +80,13 @@
   медтехники нет). Любой предмет каталога может ссылаться на GLB (`model`,
   путь от `frontend/public/catalog/`, фасад к +Z) — он масштабируется до
   габаритов предмета.
+- **Каталог хранится в PostgreSQL** (`catalog_categories`, `catalog_items`) и
+  отдаётся по `GET /api/catalog`. Пока нет экрана редактирования, источник —
+  `backend/dwg3d/catalog_seed.yaml`: при первом старте он загружается в пустую
+  базу, после правок — `uv run python -m dwg3d catalog load`. Позиции
+  обновляются по `id`, а исчезнувшие из файла не удаляются, а снимаются с
+  выбора (`active = false`): уже расставленные предметы остаются на плане.
+  Поля `article`, `supplier`, `price`, `currency` — для будущих спецификаций.
 - **Видеонаблюдение** (категория каталога): купольная, цилиндрическая
   настенная, узкоугольная для коридоров, панорамная 360° и поворотная
   камеры, видеорегистратор, пост охраны. У камеры в карточке — угол обзора,
@@ -149,6 +156,7 @@ uv run python -m dwg3d analyze plan.dwg              # слои, найденн�
 uv run python -m dwg3d build plan.dwg -o out/        # model.glb + metadata.json + debug/*.png
 uv run python -m dwg3d build plan.dwg -o out/ -c my.yaml
 uv run python -m dwg3d db upgrade                     # схема БД до последней версии
+uv run python -m dwg3d catalog load                  # каталог из catalog_seed.yaml в БД
 uv run pytest                                        # тесты на синтетическом чертеже
 ```
 
@@ -271,6 +279,7 @@ Id этажа (`c3`, `l0`, `b2`) — это порядковый номер пр
 |---|---|
 | `POST /api/jobs` | multipart `file` (+ `config` JSON) → задача |
 | `GET /api/jobs` | список задач (переключатель зданий) |
+| `GET /api/catalog` | каталог мебели и оборудования: `{categories, items}` |
 | `GET /api/jobs/{id}` | статус, прогресс, результат (этажи, помещения с типами, входы, метки) |
 | `GET/PUT /api/jobs/{id}/view` | настройки просмотра без перестроения: привязка к карте, выравнивание детальной модели, метки, комментарии |
 | `POST/DELETE /api/jobs/{id}/detail`, `GET …/detail.glb` | детальная модель (только GLB) |

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FloorMeta, PlacedItem } from '../api'
-import { CATALOG, CATEGORIES, catalogItem, type CatalogItem } from '../furniture/catalog'
+import { CATALOG, CATEGORIES, catalogError, catalogItem, type CatalogItem } from '../furniture/catalog'
 import { ISSUE_LABEL, camParams, itemElev, itemSize, roomAt, type Issue, type PlanIndex, type RoomCover } from '../furniture/geom'
 import { Icon } from './icons'
 
@@ -204,6 +204,7 @@ export default function FurniturePanel(p: Props) {
       {selCard}
 
       <section className="fp-catalog">
+        {catalogError && <p className="hint">⚠ {catalogError}. Обновите страницу, когда сервер будет доступен.</p>}
         <div className="fp-search">
           <Icon name="search" size={15} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск в каталоге" />

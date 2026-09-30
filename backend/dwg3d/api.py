@@ -11,6 +11,7 @@
   POST /api/jobs/{id}/rebuild    JSON config override (floors.items, layers...)
   GET  /api/jobs/{id}/files/...  model.glb, metadata.json, debug/*.png
   GET  /api/config/default       default config
+  GET  /api/catalog              furniture / equipment catalog (PostgreSQL)
   GET  /api/health               converter availability
 
 Run:  uvicorn dwg3d.api:app --port 8765
@@ -48,7 +49,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import catalog, db
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of, remap_view
@@ -120,6 +121,7 @@ def _cleanup():
 def _init_db():
     try:
         db.migrate()
+        catalog.ensure_seeded()
     except Exception as ex:
         raise RuntimeError(f"PostgreSQL недоступен ({db.database_url().rsplit('@', 1)[-1]}): {ex}. "
                            "Запустите `docker compose up -d db` или задайте DWG3D_DATABASE_URL") from ex
@@ -188,6 +190,11 @@ def _process(jid: str):
 @app.get("/api/health")
 def health():
     return {"ok": True, "converters": available_converters(), "db": db.ping()}
+
+
+@app.get("/api/catalog")
+def get_catalog():
+    return catalog.as_json()
 
 
 @app.get("/api/config/default")

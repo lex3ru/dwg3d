@@ -3,6 +3,7 @@
   python -m dwg3d build plan.dwg -o out/ [-c my_config.yaml]
   python -m dwg3d analyze plan.dwg        # layers + detected floors, no 3D
   python -m dwg3d db upgrade              # migrate PostgreSQL to the latest schema
+  python -m dwg3d catalog load [file]     # upsert the catalog from YAML (catalog_seed.yaml)
 """
 from __future__ import annotations
 
@@ -30,6 +31,9 @@ def main(argv=None):
     a.add_argument("-c", "--config")
     d = sub.add_parser("db", help="database schema (DWG3D_DATABASE_URL)")
     d.add_argument("action", choices=["upgrade", "current"])
+    k = sub.add_parser("catalog", help="equipment catalog in the database")
+    k.add_argument("action", choices=["load"])
+    k.add_argument("file", nargs="?", help="YAML (default: dwg3d/catalog_seed.yaml)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose or args.cmd == "build" else logging.WARNING,
@@ -42,6 +46,15 @@ def main(argv=None):
         if args.action == "upgrade":
             db.migrate()
         command.current(db.alembic_config())
+        return 0
+    if args.cmd == "catalog":
+        from . import catalog, db
+        db.migrate()
+        try:
+            print(json.dumps(catalog.load(Path(args.file) if args.file else catalog.SEED), ensure_ascii=False))
+        except catalog.CatalogError as ex:
+            print(f"Ошибка в каталоге: {ex}", file=sys.stderr)
+            return 1
         return 0
     if args.cmd == "build":
         meta = run(args.input, args.out, args.config, debug_png=not args.no_debug)

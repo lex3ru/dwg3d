@@ -155,6 +155,14 @@ def _wait(c, jid, timeout=120):
     raise TimeoutError
 
 
+def test_api_catalog_and_health(client):
+    c, _ = client
+    assert c.get("/api/health").json()["db"] is True
+    data = c.get("/api/catalog").json()
+    assert len(data["items"]) >= 70 and data["categories"]
+    assert all({"id", "name", "cat", "w", "d", "h", "kind"} <= set(i) for i in data["items"])
+
+
 def test_api_flow(client, sample):
     c, api = client
     r = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())},

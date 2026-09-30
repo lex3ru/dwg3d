@@ -1,0 +1,683 @@
+# Catalog of furniture and equipment (seed for the catalog_* tables).
+#
+# Loaded into PostgreSQL on first start (empty catalog) and by
+#   uv run python -m dwg3d catalog load [file]
+# which updates items by id; items missing from the file are marked inactive
+# (still shown where already placed, hidden from the picker) — never delete ids.
+#
+# Sizes in meters: w — width (local X), d — depth (local Z, the front faces +Z,
+# away from the wall), h — height. clear — service zone in front of the item,
+# wall — normally placed back to a wall, elev — mounting height of the bottom.
+# kind — procedural model used when there is no GLB model (or while it loads);
+# model — GLB under frontend/public/catalog/, scaled to w×d×h, model_rot turns it
+# (deg) so its front faces +Z. cam — CCTV: fov (deg, 360 = panoramic), range and
+# face identification distance (m). Optional: article, supplier, price, currency.
+#
+# GLB models under kenney/ — Kenney Furniture Kit 2.0, CC0 (www.kenney.nl).
+
+categories:
+- id: reception
+  name: Регистратура и ожидание
+  color: '#1c7ed6'
+  items:
+  - id: rec.desk
+    name: Стойка регистратуры
+    w: 2
+    d: 0.8
+    h: 1.1
+    kind: reception
+    color: '#d2b48c'
+    clear: 1
+    tags: ресепшн администратор
+  - id: rec.seats3
+    name: Секция кресел ожидания, 3 места
+    w: 1.7
+    d: 0.6
+    h: 0.8
+    kind: seats
+    color: '#20c997'
+    clear: 0.6
+    wall: true
+    tags: стулья ряд
+  - id: rec.seats4
+    name: Секция кресел ожидания, 4 места
+    w: 2.25
+    d: 0.6
+    h: 0.8
+    kind: seats
+    color: '#20c997'
+    clear: 0.6
+    wall: true
+    tags: стулья ряд
+  - id: rec.sofa
+    name: Диван, 2 места
+    w: 1.4
+    d: 0.75
+    h: 0.8
+    kind: sofa
+    color: '#339af0'
+    clear: 0.6
+    wall: true
+    model: kenney/loungeSofa.glb
+  - id: rec.table
+    name: Журнальный столик
+    w: 0.8
+    d: 0.5
+    h: 0.45
+    kind: table
+    color: '#d2b48c'
+    model: kenney/tableCoffee.glb
+  - id: rec.cooler
+    name: Кулер для воды
+    w: 0.33
+    d: 0.33
+    h: 1.1
+    kind: cooler
+    clear: 0.5
+    wall: true
+  - id: rec.kiosk
+    name: Инфокиоск / терминал очереди
+    w: 0.5
+    d: 0.45
+    h: 1.5
+    kind: kiosk
+    clear: 0.7
+    tags: электронная очередь
+  - id: rec.wardrobe
+    name: Гардеробная стойка
+    w: 1.5
+    d: 0.6
+    h: 1.8
+    kind: rack
+    color: '#adb5bd'
+    clear: 0.8
+    wall: true
+    tags: вешалка
+  - id: rec.armchair
+    name: Кресло мягкое
+    w: 0.75
+    d: 0.75
+    h: 0.8
+    kind: sofa
+    color: '#339af0'
+    clear: 0.5
+    wall: true
+    model: kenney/loungeChair.glb
+  - id: rec.coatrack
+    name: Вешалка напольная
+    w: 0.5
+    d: 0.5
+    h: 1.8
+    kind: iv
+    color: '#8d6e63'
+    model: kenney/coatRackStanding.glb
+    tags: гардероб
+  - id: rec.plant
+    name: Растение в кашпо
+    w: 0.5
+    d: 0.5
+    h: 1.2
+    kind: plant
+    model: kenney/pottedPlant.glb
+  - id: rec.tv
+    name: Телевизор / инфоэкран на стене
+    w: 1.1
+    d: 0.08
+    h: 0.65
+    kind: screen_tv
+    wall: true
+    elev: 1.6
+- id: doctor
+  name: Кабинет врача
+  color: '#0ca678'
+  items:
+  - id: doc.desk
+    name: Стол врача с компьютером
+    w: 1.4
+    d: 0.7
+    h: 0.75
+    kind: desk_pc
+    color: '#d2b48c'
+    clear: 0.8
+    wall: true
+  - id: doc.desk_corner
+    name: Стол письменный
+    w: 1.2
+    d: 0.6
+    h: 0.75
+    kind: desk
+    color: '#d2b48c'
+    clear: 0.8
+    wall: true
+    model: kenney/desk.glb
+  - id: doc.chair
+    name: Кресло врача
+    w: 0.6
+    d: 0.6
+    h: 1.05
+    kind: chair_office
+    color: '#343a40'
+    model: kenney/chairDesk.glb
+  - id: doc.visitor
+    name: Стул посетителя
+    w: 0.5
+    d: 0.52
+    h: 0.85
+    kind: chair
+    color: '#20c997'
+    model: kenney/chairCushion.glb
+  - id: doc.couch
+    name: Кушетка смотровая
+    w: 1.9
+    d: 0.65
+    h: 0.7
+    kind: couch
+    color: '#20c997'
+    clear: 0.8
+    wall: true
+  - id: doc.screen
+    name: Ширма медицинская, 3 секции
+    w: 1.6
+    d: 0.45
+    h: 1.7
+    kind: folding
+    color: '#e3fafc'
+  - id: doc.cab_med
+    name: Шкаф медицинский, стеклянный
+    w: 0.6
+    d: 0.4
+    h: 1.75
+    kind: cabinet_glass
+    clear: 0.7
+    wall: true
+  - id: doc.sink
+    name: Раковина для мытья рук
+    w: 0.55
+    d: 0.45
+    h: 0.85
+    kind: sink
+    clear: 0.6
+    wall: true
+    model: kenney/bathroomSink.glb
+    tags: умывальник
+  - id: doc.recirc
+    name: Рециркулятор бактерицидный (настенный)
+    w: 0.3
+    d: 0.15
+    h: 0.9
+    kind: device_wall
+    wall: true
+    elev: 1
+    tags: облучатель уф
+  - id: doc.stadiometer
+    name: Ростомер с весами
+    w: 0.45
+    d: 0.5
+    h: 2.05
+    kind: stadiometer
+    clear: 0.5
+    wall: true
+    tags: весы
+  - id: doc.bin
+    name: Контейнер для медотходов
+    w: 0.35
+    d: 0.35
+    h: 0.5
+    kind: bin
+    color: '#fab005'
+    tags: мусор отходы
+- id: procedure
+  name: Процедурная
+  color: '#f08c00'
+  items:
+  - id: proc.table
+    name: Стол манипуляционный
+    w: 0.7
+    d: 0.5
+    h: 0.85
+    kind: cart
+    clear: 0.6
+    tags: инструментальный
+  - id: proc.cart
+    name: Тележка медицинская
+    w: 0.6
+    d: 0.45
+    h: 0.9
+    kind: cart
+    color: '#a5d8ff'
+  - id: proc.iv
+    name: Штатив для капельниц
+    w: 0.5
+    d: 0.5
+    h: 1.9
+    kind: iv
+    tags: инфузия
+  - id: proc.chair
+    name: Кресло процедурное (забор крови)
+    w: 0.7
+    d: 0.8
+    h: 1.1
+    kind: armchair_med
+    color: '#20c997'
+    clear: 0.8
+  - id: proc.fridge
+    name: Холодильник фармацевтический
+    w: 0.6
+    d: 0.6
+    h: 1.5
+    kind: fridge
+    clear: 0.7
+    wall: true
+  - id: proc.autoclave
+    name: Стерилизатор / автоклав на тумбе
+    w: 0.6
+    d: 0.55
+    h: 0.95
+    kind: device
+    clear: 0.7
+    wall: true
+  - id: proc.gyn
+    name: Кресло гинекологическое
+    w: 0.7
+    d: 1.4
+    h: 1.2
+    kind: exam_chair
+    color: '#20c997'
+    clear: 0.9
+- id: dental
+  name: Стоматология
+  color: '#7048e8'
+  items:
+  - id: den.unit
+    name: Стоматологическая установка
+    w: 1.6
+    d: 2
+    h: 1.6
+    kind: dental
+    color: '#63e6be'
+    clear: 0.9
+  - id: den.stool
+    name: Стул стоматолога
+    w: 0.5
+    d: 0.5
+    h: 0.6
+    kind: stool
+    color: '#343a40'
+  - id: den.cabinet
+    name: Тумба с мойкой
+    w: 1.2
+    d: 0.5
+    h: 0.9
+    kind: counter_sink
+    clear: 0.7
+    wall: true
+  - id: den.cabinet2
+    name: Тумба медицинская
+    w: 0.8
+    d: 0.5
+    h: 0.9
+    kind: counter
+    clear: 0.7
+    wall: true
+  - id: den.xray
+    name: Рентген дентальный (настенный)
+    w: 0.4
+    d: 0.5
+    h: 0.35
+    kind: device_wall
+    color: '#e9ecef'
+    wall: true
+    elev: 1.4
+- id: diagnostics
+  name: Диагностика и лаборатория
+  color: '#d6336c'
+  items:
+  - id: diag.us
+    name: Аппарат УЗИ
+    w: 0.6
+    d: 0.85
+    h: 1.45
+    kind: ultrasound
+    clear: 0.6
+  - id: diag.ecg
+    name: Электрокардиограф на тележке
+    w: 0.5
+    d: 0.45
+    h: 1
+    kind: cart
+    color: '#e9ecef'
+    tags: экг
+  - id: diag.xray
+    name: Рентгеновский стол со штативом
+    w: 2.4
+    d: 1
+    h: 1.9
+    kind: xray
+    clear: 1
+  - id: diag.ct
+    name: Компьютерный томограф (КТ)
+    w: 2.2
+    d: 4.4
+    h: 1.95
+    kind: ct
+    color: '#4dabf7'
+    clear: 1
+    tags: кт томограф рентген ct
+  - id: diag.mri
+    name: Магнитно-резонансный томограф (МРТ) 1,5 Тл
+    w: 2.3
+    d: 4.6
+    h: 2.3
+    kind: mri
+    color: '#7048e8'
+    clear: 1
+    tags: мрт томограф mri магнит
+  - id: diag.mri_cab
+    name: Шкафы электроники МРТ (техпомещение)
+    w: 2.4
+    d: 0.8
+    h: 2.1
+    kind: server
+    clear: 1
+    wall: true
+    tags: мрт стойка градиентный усилитель
+  - id: diag.console
+    name: Пульт оператора КТ / МРТ
+    w: 1.6
+    d: 0.8
+    h: 0.75
+    kind: desk_pc
+    color: '#dee2e6'
+    clear: 0.9
+    wall: true
+    tags: кт мрт рабочее место лаборанта
+  - id: diag.injector
+    name: Инжектор контрастного вещества
+    w: 0.6
+    d: 0.6
+    h: 1.5
+    kind: iv
+    color: '#e9ecef'
+    tags: кт мрт контраст
+  - id: diag.lab
+    name: Стол лабораторный
+    w: 1.5
+    d: 0.75
+    h: 0.9
+    kind: counter
+    clear: 0.9
+    wall: true
+  - id: diag.hood
+    name: Бокс биологической безопасности
+    w: 1.3
+    d: 0.8
+    h: 2
+    kind: hood
+    clear: 1
+    wall: true
+    tags: ламинар шкаф вытяжной
+  - id: diag.centrifuge
+    name: Центрифуга настольная
+    w: 0.4
+    d: 0.5
+    h: 0.3
+    kind: device
+    wall: true
+    elev: 0.9
+- id: ward
+  name: Палата и перемещение
+  color: '#1098ad'
+  items:
+  - id: ward.bed
+    name: Кровать функциональная
+    w: 1
+    d: 2.15
+    h: 0.9
+    kind: bed
+    clear: 0.9
+    wall: true
+    tags: койка
+  - id: ward.night
+    name: Тумба прикроватная
+    w: 0.45
+    d: 0.45
+    h: 0.8
+    kind: nightstand
+    model: kenney/sideTableDrawers.glb
+  - id: ward.wheelchair
+    name: Кресло-коляска
+    w: 0.65
+    d: 1.05
+    h: 0.95
+    kind: wheelchair
+    color: '#343a40'
+    tags: инвалидная мгн
+  - id: ward.gurney
+    name: Каталка
+    w: 0.7
+    d: 2
+    h: 0.9
+    kind: gurney
+    tags: носилки
+- id: sanitary
+  name: Санузел
+  color: '#74b816'
+  items:
+  - id: san.toilet
+    name: Унитаз
+    w: 0.4
+    d: 0.7
+    h: 0.8
+    kind: toilet
+    clear: 0.6
+    wall: true
+    model: kenney/toilet.glb
+  - id: san.sink
+    name: Раковина
+    w: 0.55
+    d: 0.45
+    h: 0.85
+    kind: sink
+    clear: 0.6
+    wall: true
+    model: kenney/bathroomSink.glb
+  - id: san.accessible
+    name: Кабина для МГН (зона разворота Ø1,5 м)
+    w: 1.65
+    d: 1.8
+    h: 0.05
+    kind: zone
+    color: '#74c0fc'
+    tags: инвалид колясочник
+- id: storage
+  name: Хранение и офис
+  color: '#868e96'
+  items:
+  - id: st.cabinet
+    name: Шкаф для документов
+    w: 0.8
+    d: 0.4
+    h: 1.9
+    kind: cabinet
+    color: '#d2b48c'
+    clear: 0.7
+    wall: true
+    model: kenney/bookcaseClosedWide.glb
+  - id: st.wardrobe
+    name: Шкаф для одежды
+    w: 0.8
+    d: 0.55
+    h: 1.9
+    kind: cabinet
+    color: '#f1f3f5'
+    clear: 0.7
+    wall: true
+    model: kenney/bookcaseClosedWide.glb
+  - id: st.bookcase
+    name: Стеллаж открытый
+    w: 0.9
+    d: 0.35
+    h: 1.9
+    kind: rack
+    color: '#d2b48c'
+    clear: 0.7
+    wall: true
+    model: kenney/bookcaseOpen.glb
+    tags: полки
+  - id: st.shelf
+    name: Стеллаж металлический
+    w: 1
+    d: 0.5
+    h: 2
+    kind: rack
+    color: '#adb5bd'
+    clear: 0.7
+    wall: true
+  - id: st.lockers
+    name: Шкаф для персонала (4 ячейки)
+    w: 0.8
+    d: 0.5
+    h: 1.8
+    kind: lockers
+    color: '#a5d8ff'
+    clear: 0.7
+    wall: true
+  - id: st.meeting
+    name: Стол для совещаний
+    w: 2.4
+    d: 1
+    h: 0.75
+    kind: table
+    color: '#d2b48c'
+    model: kenney/table.glb
+  - id: st.printer
+    name: МФУ на тумбе
+    w: 0.55
+    d: 0.5
+    h: 1
+    kind: device
+    color: '#dee2e6'
+    clear: 0.6
+- id: engineering
+  name: Инженерное оборудование
+  color: '#495057'
+  items:
+  - id: eng.panel
+    name: Электрощит
+    w: 0.6
+    d: 0.2
+    h: 0.9
+    kind: panel
+    clear: 0.8
+    wall: true
+    elev: 1
+    tags: щиток
+  - id: eng.rack
+    name: Серверный шкаф
+    w: 0.6
+    d: 1
+    h: 2
+    kind: server
+    clear: 1
+    tags: стойка сеть
+  - id: eng.ac
+    name: Кондиционер (внутренний блок)
+    w: 0.9
+    d: 0.25
+    h: 0.3
+    kind: ac
+    wall: true
+    elev: 2.3
+    tags: сплит
+  - id: eng.radiator
+    name: Радиатор отопления
+    w: 1
+    d: 0.1
+    h: 0.5
+    kind: radiator
+    wall: true
+    elev: 0.12
+  - id: eng.fire
+    name: Огнетушитель
+    w: 0.2
+    d: 0.2
+    h: 0.6
+    kind: extinguisher
+    wall: true
+  - id: eng.o2
+    name: Кислородный концентратор
+    w: 0.4
+    d: 0.4
+    h: 0.7
+    kind: device
+    color: '#e9ecef'
+- id: security
+  name: Видеонаблюдение
+  color: '#7048e8'
+  items:
+  - id: sec.dome
+    name: Камера купольная (потолок)
+    w: 0.14
+    d: 0.14
+    h: 0.1
+    kind: cam_dome
+    elev: 2.6
+    cam: {fov: 100, range: 12, ident: 4}
+    tags: видеокамера cctv
+  - id: sec.bullet
+    name: Камера цилиндрическая (настенная)
+    w: 0.12
+    d: 0.3
+    h: 0.14
+    kind: cam_bullet
+    wall: true
+    elev: 2.5
+    cam: {fov: 90, range: 20, ident: 6}
+    tags: видеокамера cctv
+  - id: sec.tele
+    name: Камера с узким углом (коридор)
+    w: 0.12
+    d: 0.35
+    h: 0.14
+    kind: cam_bullet
+    wall: true
+    elev: 2.5
+    cam: {fov: 35, range: 40, ident: 15}
+    tags: видеокамера вариофокальная cctv
+  - id: sec.fisheye
+    name: Камера панорамная 360°
+    w: 0.16
+    d: 0.16
+    h: 0.06
+    kind: cam_fisheye
+    elev: 2.6
+    cam: {fov: 360, range: 8, ident: 2.5}
+    tags: видеокамера fisheye рыбий глаз cctv
+  - id: sec.ptz
+    name: Камера поворотная (PTZ)
+    w: 0.22
+    d: 0.22
+    h: 0.3
+    kind: cam_ptz
+    elev: 2.4
+    cam: {fov: 60, range: 50, ident: 20}
+    tags: видеокамера поворотная cctv
+  - id: sec.nvr
+    name: Видеорегистратор в шкафу
+    w: 0.6
+    d: 0.6
+    h: 1.2
+    kind: server
+    clear: 0.8
+    wall: true
+    tags: nvr
+  - id: sec.monitor
+    name: Пост видеонаблюдения (стол с мониторами)
+    w: 1.4
+    d: 0.7
+    h: 0.75
+    kind: desk_pc
+    color: '#adb5bd'
+    clear: 0.8
+    wall: true
+    tags: охрана
