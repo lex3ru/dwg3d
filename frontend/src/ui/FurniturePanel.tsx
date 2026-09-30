@@ -28,6 +28,8 @@ interface Props {
   onClose: () => void
   /** the model is being rebuilt: changes are not accepted */
   locked: boolean
+  /** viewer role: the list and checks only, no catalog, no changes */
+  readOnly?: boolean
   unplaced: NonNullable<import('../api').ViewSettings['furniture_unplaced']>
   onUnplaced: (ids: string[], toFloor: string | null) => void
 }
@@ -188,6 +190,7 @@ export default function FurniturePanel(p: Props) {
         </div>
       </header>
 
+      {p.readOnly && <p className="fp-banner">Только просмотр: менять расстановку может роль «редактор».</p>}
       {p.locked && <p className="fp-banner">Идёт перестроение модели — расстановку можно будет менять после него.</p>}
       {p.unplaced.length > 0 && (
         <section className="fp-unplaced">
@@ -195,35 +198,37 @@ export default function FurniturePanel(p: Props) {
           <small>Этаж {[...new Set(p.unplaced.map((u) => `«${u._anchor?.name || u.floor}»`))].join(', ')} не найден в новой сборке.
             Координаты сохранены — предметы можно перенести на текущий этаж ({p.floor.name}).</small>
           <div className="fp-actions">
-            <button className="small primary" disabled={p.locked} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), p.floor!.id)}>Перенести на этот этаж</button>
-            <button className="small danger" disabled={p.locked} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), null)}>Удалить</button>
+            <button className="small primary" disabled={p.locked || p.readOnly} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), p.floor!.id)}>Перенести на этот этаж</button>
+            <button className="small danger" disabled={p.locked || p.readOnly} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), null)}>Удалить</button>
           </div>
         </section>
       )}
 
       {selCard}
 
-      <section className="fp-catalog">
-        {catalogError && <p className="hint">⚠ {catalogError}. Обновите страницу, когда сервер будет доступен.</p>}
-        <div className="fp-search">
-          <Icon name="search" size={15} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск в каталоге" />
-        </div>
-        <select value={cat} onChange={(e) => setCat(e.target.value)}>
-          <option value="all">Все категории ({CATALOG.length})</option>
-          {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name} ({CATALOG.filter((x) => x.cat === c.id).length})</option>)}
-        </select>
-        <ul className="fp-items">
-          {found.map((c) => (
-            <li key={c.id} className={p.placing?.id === c.id ? 'on' : ''} title="Перетащите на план или щёлкните, затем щёлкните на плане"
-              onPointerDown={(e) => { if (e.button === 0) { e.preventDefault(); p.onPick(c, true) } }}>
-              <Symbol c={c} />
-              <div><span>{c.name}</span><small>{cm(c.w)}×{cm(c.d)}×{cm(c.h)} см{c.elev ? ` · на высоте ${cm(c.elev)}` : ''}</small></div>
-            </li>
-          ))}
-          {!found.length && <li className="empty">Ничего не найдено</li>}
-        </ul>
-      </section>
+      {!p.readOnly && (
+        <section className="fp-catalog">
+          {catalogError && <p className="hint">⚠ {catalogError}. Обновите страницу, когда сервер будет доступен.</p>}
+          <div className="fp-search">
+            <Icon name="search" size={15} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск в каталоге" />
+          </div>
+          <select value={cat} onChange={(e) => setCat(e.target.value)}>
+            <option value="all">Все категории ({CATALOG.length})</option>
+            {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name} ({CATALOG.filter((x) => x.cat === c.id).length})</option>)}
+          </select>
+          <ul className="fp-items">
+            {found.map((c) => (
+              <li key={c.id} className={p.placing?.id === c.id ? 'on' : ''} title="Перетащите на план или щёлкните, затем щёлкните на плане"
+                onPointerDown={(e) => { if (e.button === 0) { e.preventDefault(); p.onPick(c, true) } }}>
+                <Symbol c={c} />
+                <div><span>{c.name}</span><small>{cm(c.w)}×{cm(c.d)}×{cm(c.h)} см{c.elev ? ` · на высоте ${cm(c.elev)}` : ''}</small></div>
+              </li>
+            ))}
+            {!found.length && <li className="empty">Ничего не найдено</li>}
+          </ul>
+        </section>
+      )}
 
       <section className="fp-placed">
         <div className="fp-placed-head">

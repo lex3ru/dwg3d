@@ -1,7 +1,7 @@
 """Build queue, floors across builds and the job.json import (PostgreSQL).
 
-Runs before test_robustness starts the API's own worker threads; if they are
-already running, the queue tests would race them and are skipped."""
+The API's own worker threads (if another test started them) are paused, so
+the tests take jobs from the queue themselves."""
 import json
 import shutil
 import threading
@@ -21,8 +21,8 @@ NO_EXPORT = {"export": {"ifc": False, "obj": False}}
 
 @pytest.fixture(autouse=True)
 def _no_background_workers():
-    if worker._started:
-        pytest.skip("фоновые воркеры API уже запущены в этом процессе")
+    with worker.paused():
+        yield
 
 
 @pytest.fixture

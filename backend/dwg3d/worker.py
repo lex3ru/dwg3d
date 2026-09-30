@@ -13,6 +13,7 @@ import socket
 import threading
 import time
 import traceback
+from contextlib import contextmanager
 
 from sqlalchemy import func, select, text, update
 
@@ -33,6 +34,8 @@ _running: set[int] = set()
 _running_lock = threading.Lock()
 _started = False
 _start_lock = threading.Lock()
+# held while claiming; `paused()` holds it to keep this process's workers off the queue
+_gate = threading.Lock()
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
 
@@ -129,7 +132,8 @@ def _loop():
                 with db.session() as s:
                     if n := store.fail_stale_jobs(s, STALE_S):
                         log.warning("%d job(s) marked failed: no heartbeat for %d s", n, STALE_S)
-            job = claim()
+            with _gate:
+                job = claim()
         except Exception:
             log.exception("job queue unavailable")
             time.sleep(5)
@@ -159,6 +163,13 @@ def _heartbeat():
                 s.execute(update(Job).where(Job.id.in_(ids), Job.status == "running").values(heartbeat_at=func.now()))
         except Exception:
             log.exception("heartbeat failed")
+
+
+@contextmanager
+def paused():
+    """Keep this process's worker threads from taking jobs (tests drive the queue by hand)."""
+    with _gate:
+        yield
 
 
 def start(n: int):

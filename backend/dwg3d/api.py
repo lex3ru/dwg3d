@@ -18,6 +18,8 @@
                                  placed furniture row by row, with versions (409
                                  on concurrent changes); the same for /pins
   GET  /api/projects/{id}/audit  who changed what
+  POST /api/auth/login, /api/auth/logout, GET /api/auth/me
+                                 sign-in (session cookie), see auth.py
 
 "Job" in the URLs is a project (a building): its id is the project id.
 
@@ -34,8 +36,10 @@ Environment:
                           the built UI and the Vite dev proxy are same-origin)
   DWG3D_RETENTION_DAYS    delete projects not touched for N days (0 = keep forever)
 
-There is no authentication: bind to 127.0.0.1 or put it behind a reverse
-proxy that authenticates. All state is in PostgreSQL and <DWG3D_DATA>, so
+Every /api request except health and sign-in needs a session (DWG3D_AUTH=off
+disables this): reading needs any role, changes need "editor", catalog
+changes "catalog_admin". Serve it over HTTPS (the session cookie is marked
+Secure when the request came over HTTPS, X-Forwarded-Proto included). All state is in PostgreSQL and <DWG3D_DATA>, so
 several uvicorn processes (and hosts sharing the data directory) can serve
 the same projects.
 """
@@ -50,17 +54,18 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 
-from . import catalog, db, store, viewdata, worker
+from . import auth, catalog, db, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import AuditLog, Project
+from .models import Project
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -70,7 +75,83 @@ RETENTION_DAYS = float(os.environ.get("DWG3D_RETENTION_DAYS", "0"))
 
 app = FastAPI(title="dwg3d")
 if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
+                       allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
+
+PUBLIC = {"/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+
+
+def required_role(method: str, path: str) -> str:
+    if method in ("GET", "HEAD", "OPTIONS"):
+        return "viewer"
+    return "catalog_admin" if path.startswith("/api/catalog") else "editor"
+
+
+@app.middleware("http")
+async def _authenticate(request: Request, call_next):
+    """Resolve the session cookie; refuse /api requests without the role they need."""
+    path = request.url.path
+    if not path.startswith("/api/") or path in PUBLIC:
+        return await call_next(request)
+    if not auth.enabled():
+        me = auth.ANONYMOUS_ADMIN
+    else:
+        me = await run_in_threadpool(auth.resolve, request.cookies.get(auth.COOKIE))
+        if me is None:
+            return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
+    need = required_role(request.method, path)
+    if not me.can(need):
+        return JSONResponse({"detail": f"Недостаточно прав: нужна роль «{auth.ROLE_NAMES[need]}»"}, status_code=403)
+    token = auth.current.set(me)
+    try:
+        return await call_next(request)
+    finally:
+        auth.current.reset(token)
+
+
+# ------------------------------------------------------------- sign-in ---
+_FAILS: dict[str, list[float]] = {}          # login attempts per client (this process)
+FAIL_LIMIT, FAIL_WINDOW = 10, 600
+
+
+@app.post("/api/auth/login")
+def auth_login(v: dict, request: Request, response: Response):
+    login_, password = v.get("login") if isinstance(v, dict) else None, v.get("password") if isinstance(v, dict) else None
+    if not isinstance(login_, str) or not isinstance(password, str) or len(login_) > 80 or len(password) > 200:
+        raise HTTPException(400, "Нужны логин и пароль")
+    key = f"{request.client.host if request.client else ''}|{login_.strip().lower()}"
+    now = time.time()
+    recent = [t for t in _FAILS.get(key, []) if now - t < FAIL_WINDOW]
+    if len(recent) >= FAIL_LIMIT:
+        raise HTTPException(429, "Слишком много неудачных попыток. Попробуйте через несколько минут")
+    res = auth.login(login_, password, request.headers.get("user-agent", ""))
+    if res is None:
+        _FAILS[key] = [*recent, now]
+        raise HTTPException(401, "Неверный логин или пароль")
+    _FAILS.pop(key, None)
+    auth.purge_sessions()
+    token, me = res
+    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    response.set_cookie(auth.COOKIE, token, max_age=int(auth.session_days() * 86400), httponly=True,
+                        samesite="lax", secure=secure, path="/")
+    return me.json()
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response):
+    auth.logout(request.cookies.get(auth.COOKIE))
+    response.delete_cookie(auth.COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    if not auth.enabled():
+        return auth.ANONYMOUS_ADMIN.json()
+    me = auth.resolve(request.cookies.get(auth.COOKIE))
+    if me is None:
+        return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
+    return me.json()
 
 _last_cleanup = 0.0
 
@@ -98,6 +179,9 @@ def _init_db():
 
 
 _init_db()
+if auth.enabled() and not auth.has_users():
+    log.warning("Нет ни одного пользователя: создайте его — python -m dwg3d user add LOGIN --role catalog_admin "
+                "(или DWG3D_AUTH=off для сервера во внутренней сети)")
 store.data_dir().mkdir(parents=True, exist_ok=True)
 worker.start(int(os.environ.get("DWG3D_WORKERS", "2")))
 _cleanup()
@@ -157,7 +241,9 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
             f.write(chunk)
     try:
         with db.session() as s:
-            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override)
+            me = auth.current.get()
+            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override,
+                        created_by=me.id if me else None)
             s.add(p)
             s.flush()
             job = store.enqueue(s, p)
@@ -274,8 +360,7 @@ def put_view(jid: str, v: dict):
 def _audit_settings(s, p: Project, cols: dict):
     before = {k: getattr(p, k) for k in cols}
     if before != cols:
-        s.add(AuditLog(project_id=p.id, entity="project", entity_id=p.id, action="update",
-                       before=before, after=cols))
+        viewdata.audit_entry(s, p.id, "project", p.id, "update", before, cols)
 
 
 # ------------------------------------------- furniture and pins, row by row ---

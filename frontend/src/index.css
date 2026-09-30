@@ -30,6 +30,15 @@ input, select { font: inherit; border: 1px solid #dee2e6; border-radius: 5px; pa
 .dropzone.drag, .dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
 .dropzone h1 { font-size: 22px; margin: 8px 0 12px; }
 .dz-icon { font-size: 34px; color: var(--accent); }
+.login-card { width: min(360px, 100%); padding: 32px 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
+.login-card h1 { font-size: 20px; margin: 0; }
+.login-card .hint { margin: 0 0 4px; }
+.login-card label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.login-card input { padding: 8px 10px; font-size: 14px; }
+.login-card .error { margin: 0; }
+.login-card button.primary { padding: 9px 12px; }
+.menu-user { padding: 8px 12px 4px; border-top: 1px solid var(--line); margin-top: 4px; font-size: 12.5px; }
+.menu-user small { color: var(--muted); display: block; }
 
 .app { position: relative; height: 100%; overflow: hidden; }
 .sidebar { width: 300px; flex: none; overflow-x: hidden; background: var(--panel); border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }

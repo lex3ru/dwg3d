@@ -20,6 +20,8 @@ BASE_URL = make_url(os.environ.get("DWG3D_TEST_DATABASE_URL") or db.DEFAULT_URL)
 TEST_URL = BASE_URL.set(database=f"dwg3d_test_{uuid.uuid4().hex[:8]}")
 # every module that imports dwg3d.api must see the scratch database, never the real one
 os.environ["DWG3D_DATABASE_URL"] = TEST_URL.render_as_string(hide_password=False)
+# API tests run without sign-in; test_auth.py turns it on
+os.environ["DWG3D_AUTH"] = "off"
 
 
 def _admin():

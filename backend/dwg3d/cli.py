@@ -6,6 +6,8 @@
   python -m dwg3d catalog load [file]     # upsert the catalog from YAML (catalog_seed.yaml)
   python -m dwg3d migrate-files [--dry-run]  # import data/jobs/*/job.json into PostgreSQL
   python -m dwg3d worker [-n 2]           # build-only process sharing the queue with the API
+  python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
+  python -m dwg3d user passwd LOGIN | role LOGIN ROLE | disable LOGIN | enable LOGIN | list
 """
 from __future__ import annotations
 
@@ -41,6 +43,13 @@ def main(argv=None):
     m.add_argument("--data", help="data directory (default: DWG3D_DATA or <project>/data)")
     w = sub.add_parser("worker", help="run build workers only (no HTTP)")
     w.add_argument("-n", type=int, default=2, help="worker threads")
+    u = sub.add_parser("user", help="users and roles (viewer, editor, catalog_admin)")
+    u.add_argument("action", choices=["add", "passwd", "role", "disable", "enable", "list"])
+    u.add_argument("login", nargs="?")
+    u.add_argument("new_role", nargs="?", help="for `role`")
+    u.add_argument("--role", default="viewer", help="for `add`")
+    u.add_argument("--name", default="", help="for `add`: name shown in the journal")
+    u.add_argument("--password-stdin", action="store_true", help="read the password from stdin (scripts)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose or args.cmd == "build" else logging.WARNING,
@@ -77,6 +86,8 @@ def main(argv=None):
             print("  ! " + x)
         print("Сверка с файлами: " + ("расхождений нет" if not problems else f"расхождений {len(problems)}"))
         return 1 if problems else 0
+    if args.cmd == "user":
+        return _user_cmd(args)
     if args.cmd == "worker":
         from . import worker
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -103,6 +114,43 @@ def main(argv=None):
         for c in cands:
             print(f"  {c.id:>4} {c.source:8} level={c.level} kind={c.kind} include={c.include} "
                   f"mark={c.mark} name={c.name!r}")
+
+
+def _user_cmd(args) -> int:
+    import getpass
+
+    from . import auth, db
+    db.migrate()
+
+    def password() -> str:
+        if args.password_stdin:
+            return sys.stdin.readline().rstrip("\n")
+        p1 = getpass.getpass("Пароль: ")
+        if p1 != getpass.getpass("Ещё раз: "):
+            raise auth.UserError("пароли не совпадают")
+        return p1
+
+    try:
+        if args.action == "list":
+            for x in auth.list_users():
+                print(f"  {x['login']:<20} {x['role']:<14} {'' if x['active'] else 'отключён':<9} "
+                      f"{x['name']:<30} вход: {x['last_login'] or '—'}")
+            return 0
+        if not args.login:
+            raise auth.UserError("нужен логин")
+        if args.action == "add":
+            auth.add_user(args.login, password(), role=args.role, name=args.name)
+        elif args.action == "passwd":
+            auth.set_password(args.login, password())
+        elif args.action == "role":
+            auth.set_role(args.login, args.new_role or "")
+        else:
+            auth.set_active(args.login, args.action == "enable")
+        print("Готово")
+        return 0
+    except auth.UserError as ex:
+        print(f"Ошибка: {ex}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

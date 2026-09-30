@@ -8,6 +8,7 @@ import {
 import type { CatalogItem } from './furniture/catalog'
 import { catalogItem } from './furniture/catalog'
 import { conflictText, furnitureOps } from './furniture/sync'
+import { canEdit, READ_ONLY } from './session'
 import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
@@ -66,6 +67,17 @@ function useJobPolling(jobId: string | null, nonce: number) {
 
 function Upload({ onJob, onCancel }: { onJob: (id: string) => void; onCancel?: () => void }) {
   const [drag, setDrag] = useState(false)
+  if (!canEdit()) {
+    return (
+      <div className="upload-screen">
+        <div className="dropzone">
+          <h1>Поэтажные планы → 3D</h1>
+          <p>Загружать чертежи может роль «редактор». Откройте здание по ссылке или попросите администратора дать доступ.</p>
+        </div>
+        {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
+      </div>
+    )
+  }
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -392,6 +404,10 @@ export default function App() {
   // ---- markers & comments (stored on the server, one row each)
   const savePin = async (kind: 'markers' | 'comments', op: RowOp, local: Pin[]) => {
     if (!shown) return
+    if (!canEdit()) {
+      alert(READ_ONLY)
+      return
+    }
     if (rebuilding) {
       alert('Идёт перестроение модели: метки и комментарии можно менять после него')
       return
@@ -475,6 +491,10 @@ export default function App() {
   /** Replace the list: locally at once, on the server after a short pause. */
   const setFurniture = (list: PlacedItem[], record = true) => {
     if (!shown) return
+    if (!canEdit()) {
+      alert(READ_ONLY)
+      return
+    }
     if (rebuilding) {
       alert('Идёт перестроение модели: расстановку можно менять после него')
       return
@@ -558,6 +578,7 @@ export default function App() {
     if (furnSel === id) setFurnSel(null)
   }
   const moveItem = (id: string, pose: Pose, done: boolean) => {
+    if (!canEdit()) return
     if (done) {
       if (dragSnap.current) {
         furnHistory.current = [...furnHistory.current.slice(-99), dragSnap.current]
@@ -658,6 +679,10 @@ export default function App() {
     try { await downloadDrawing(job.id, fmt) } catch (e) { setSaveErr((e as Error).message) } finally { setSaving(null) }
   }
   const setToolSafe = (t: Tool) => {
+    if ((t === 'marker' || t === 'comment') && !canEdit()) {
+      alert(READ_ONLY)
+      return
+    }
     if (t !== 'none' && nav === 'walk') exitWalk()
     setTool(t)
   }
@@ -743,7 +768,7 @@ export default function App() {
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {buildingOpen && job && shown && (
               <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount} saving={saving}
-                saveErr={saveErr} onFloor={selectFloor} onEditor={() => setEditor(true)} onSave={saveDrawing}
+                saveErr={saveErr} onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
                 onClose={() => setBuildingOpen(false)} />
             )}
             {tool === 'furniture' && (
@@ -752,7 +777,7 @@ export default function App() {
                 onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
                 onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
                 onDelete={deleteItem} onUndo={undoFurniture} onClose={() => setTool('none')}
-                locked={rebuilding} unplaced={unplaced} onUnplaced={resolveUnplaced} />
+                locked={rebuilding} readOnly={!canEdit()} unplaced={unplaced} onUnplaced={resolveUnplaced} />
             )}
             {selRoom && nav !== 'walk' && (
               <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}

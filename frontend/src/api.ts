@@ -207,6 +207,8 @@ async function check<T>(r: Response): Promise<T> {
       const d = body?.detail
       if (d) msg = typeof d === 'string' ? d : JSON.stringify(d)
     } catch { /* not json */ }
+    // the session expired or was ended elsewhere: back to the sign-in screen
+    if (r.status === 401 && body?.login) location.reload()
     throw new ApiError(msg, r.status, body)
   }
   return (r.status === 204 ? null : r.json()) as Promise<T>

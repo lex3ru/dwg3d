@@ -65,6 +65,32 @@ class CatalogItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (CheckConstraint("role IN ('viewer', 'editor', 'catalog_admin')", name="users_role"),
+                      Index("users_login", func.lower(text("login")), unique=True))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    login: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, server_default="")
+    role: Mapped[str] = mapped_column(Text, server_default="viewer")
+    password_hash: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthSession(Base):
+    """A signed-in browser: the cookie holds the token, the row its SHA-256."""
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_agent: Mapped[str] = mapped_column(Text, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Project(Base):
     """A building: the uploaded drawing and everything the user set on it.
     Model files live on disk in <DWG3D_DATA>/jobs/<id>/ (see Build.out_dir)."""
@@ -79,6 +105,7 @@ class Project(Base):
     site: Mapped[dict | None] = mapped_column(JSONB)                # map binding
     detail: Mapped[dict | None] = mapped_column(JSONB)              # detailed model alignment
     current_build: Mapped[int] = mapped_column(Integer, server_default="0")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -162,6 +189,7 @@ class Placement(Base):
     range: Mapped[float | None] = mapped_column(Float)
     note: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, server_default="1")          # optimistic locking
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -183,6 +211,7 @@ class Pin(Base):
     label: Mapped[str] = mapped_column(Text, server_default="")
     author: Mapped[str] = mapped_column(Text, server_default="")
     version: Mapped[int] = mapped_column(Integer, server_default="1")
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -198,6 +227,7 @@ class AuditLog(Base):
     entity: Mapped[str] = mapped_column(Text)            # placement, pin, project
     entity_id: Mapped[str] = mapped_column(Text)
     action: Mapped[str] = mapped_column(Text)            # create, update, delete
-    actor: Mapped[str | None] = mapped_column(Text)      # user, once there are users
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    actor: Mapped[str | None] = mapped_column(Text)      # login at the time (kept if the user is removed)
     before: Mapped[dict | None] = mapped_column(JSONB)
     after: Mapped[dict | None] = mapped_column(JSONB)

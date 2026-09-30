@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listJobs, type FloorMeta, type JobSummary, type Result, type RoomMeta } from '../api'
+import { canEdit, me, signOut } from '../session'
 import { jobColor } from '../state'
 import { Icon } from './icons'
 import { useMenu } from './menuCtx'
@@ -51,9 +52,17 @@ export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRo
                 <small>{j.floors} эт.</small>
               </button>
             ))}
-            <button className="menu-item accent" onClick={() => { chip.close(); onNewFile() }}>
-              <Icon name="upload" size={15} /> Загрузить новый чертёж…
-            </button>
+            {canEdit() && (
+              <button className="menu-item accent" onClick={() => { chip.close(); onNewFile() }}>
+                <Icon name="upload" size={15} /> Загрузить новый чертёж…
+              </button>
+            )}
+            {me?.auth && (
+              <div className="menu-user">
+                <b>{me.name}</b> <small>{me.login} · {me.role_name}</small>
+                <button className="menu-item" onClick={() => { chip.close(); signOut() }}>Выйти</button>
+              </div>
+            )}
           </div>
         )}
       </div>

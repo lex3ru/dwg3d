@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from . import auth
 from .models import AuditLog, CatalogItem, Floor, Pin, Placement, Project
 
 MAX_PINS = 500
@@ -142,8 +143,16 @@ def _strip(o: dict | None) -> dict | None:
 
 
 # ---------------------------------------------------------------- writes ---
-def _audit(s, pid, entity, eid, action, before, after, actor):
-    s.add(AuditLog(project_id=pid, entity=entity, entity_id=eid, action=action, actor=actor,
+def _me_id() -> int | None:
+    me = auth.current.get()
+    return me.id if me else None
+
+
+def audit_entry(s, pid, entity, eid, action, before, after):
+    """Record a change by the user of the current request."""
+    me = auth.current.get()
+    s.add(AuditLog(project_id=pid, entity=entity, entity_id=eid, action=action,
+                   user_id=me.id if me else None, actor=(me.login or None) if me else None,
                    before=_strip(before), after=_strip(after)))
 
 
@@ -158,8 +167,7 @@ def lock_project(s: Session, pid: str, build: int | None) -> Project:
     return p
 
 
-def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None,
-          force: bool = False, actor: str | None = None) -> dict:
+def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None, force: bool = False) -> dict:
     """Create / update / delete placements (entity 'placement') or pins ('pin').
 
     ops: [{"op": "create" | "update" | "delete", "id", "version", ...fields}]
@@ -202,7 +210,7 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
             continue
         if op == "delete":
             if row is not None:
-                _audit(s, pid, entity, row.id, "delete", to_json(row, floors), None, actor)
+                audit_entry(s, pid, entity, row.id, "delete", to_json(row, floors), None)
                 s.delete(row)
                 rows.pop(row.id)
                 deleted.append(row.id)
@@ -228,6 +236,8 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
                 kind += "s"
             if kind not in PIN_KINDS:
                 raise Invalid("pins: kind — marker или comment")
+            if row is None and not fields.get("author") and (me := auth.current.get()) and me.id:
+                fields["author"] = me.name
             v = pin_item({**(_strip(before) or {}), **fields}, kind)
             fid = floor_id(v["floor"], True) if (row is None or "floor" in fields) else row.floor_id
             vals = {"kind": PIN_KINDS[kind], "floor_id": fid, "x": v["pos"][0], "y": v["pos"][1], "z": v["pos"][2],
@@ -237,7 +247,7 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
         if row is None:
             if count >= limit:
                 raise Invalid(f"не больше {limit} объектов в проекте")
-            row = Model(project_id=pid, id=v["id"], version=1, **vals)
+            row = Model(project_id=pid, id=v["id"], version=1, updated_by=_me_id(), **vals)
             s.add(row)
             rows[row.id] = row
             count += 1
@@ -247,11 +257,12 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
                 continue
             for k, x in vals.items():
                 setattr(row, k, x)
+            row.updated_by = _me_id()
             row.version += 1
             row.updated_at = func.now()
         s.flush()
         after = to_json(row, floors)
-        _audit(s, pid, entity, row.id, "create" if before is None else "update", before, after, actor)
+        audit_entry(s, pid, entity, row.id, "create" if before is None else "update", before, after)
         changed[row.id] = row
     if conflicts:
         raise Conflict("Изменено другим пользователем: обновите данные и повторите", conflicts)
@@ -261,7 +272,7 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
     return {"items": [to_json(r, floors) for r in changed.values()], "deleted": deleted}
 
 
-def replace(s: Session, pid: str, key: str, value, actor: str | None = None):
+def replace(s: Session, pid: str, key: str, value):
     """Legacy PUT /view: a whole list replaces the stored one (no versions)."""
     if key == "furniture":
         items = furniture(value)
@@ -271,7 +282,7 @@ def replace(s: Session, pid: str, key: str, value, actor: str | None = None):
         current = set(s.scalars(select(Placement.id).where(Placement.project_id == pid))) - keep
         ops = [{"op": "update", **it} for it in items]
         ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, pid, "placement", ops, force=True, actor=actor)
+        apply(s, pid, "placement", ops, force=True)
     elif key == "furniture_unplaced":
         # only removal (after the items were put back on a floor or deleted): ids to keep
         if not isinstance(value, list):
@@ -279,16 +290,16 @@ def replace(s: Session, pid: str, key: str, value, actor: str | None = None):
         ids = {it.get("id") if isinstance(it, dict) else it for it in value}
         unplaced = view_data(s, pid).get("furniture_unplaced") or []
         apply(s, pid, "placement", [{"op": "delete", "id": u["id"]} for u in unplaced if u["id"] not in ids],
-              force=True, actor=actor)
+              force=True)
     else:
         items = pins(value, key)
         current = set(s.scalars(select(Pin.id).where(Pin.project_id == pid, Pin.kind == PIN_KINDS[key])))
         ops = [{"op": "update", "kind": key, **it} for it in items]
         ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, pid, "pin", ops, force=True, actor=actor)
+        apply(s, pid, "pin", ops, force=True)
 
 
 def audit(s: Session, pid: str, limit: int = 100) -> list[dict]:
     q = (select(AuditLog).where(AuditLog.project_id == pid).order_by(AuditLog.id.desc()).limit(min(max(limit, 1), 1000)))
     return [{"id": a.id, "at": a.at.timestamp(), "entity": a.entity, "entity_id": a.entity_id, "action": a.action,
-             "actor": a.actor, "before": a.before, "after": a.after} for a in s.scalars(q)]
+             "user_id": a.user_id, "actor": a.actor, "before": a.before, "after": a.after} for a in s.scalars(q)]
