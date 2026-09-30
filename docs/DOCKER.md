@@ -66,12 +66,21 @@ docker compose run --rm --no-deps -e DWG3D_DATA=/import -v "$PWD/data":/import:r
   `DWG3D_BACKUP_KEEP`);
 - `files/` — зеркало хранилища файлов.
 
-Восстановление:
+Восстановление (дампы делает `pg_dump` образа приложения — им же и
+восстанавливаем):
 
 ```bash
-docker compose exec -T db pg_restore -c -U dwg3d -d dwg3d < backups/db/dwg3d-<дата>.dump
+docker compose stop web api worker keycloak backup
+docker compose run --rm --no-deps -v "$PWD/backups/db":/dump:ro backup \
+  sh -c 'pg_restore --clean --if-exists --no-owner --dbname "$(echo "$DWG3D_DATABASE_URL" | sed s/+psycopg//)" /dump/dwg3d-<дата>.dump'
 docker compose run --rm --no-deps -v "$PWD/backups/files":/restore:ro api python -m dwg3d files restore /restore
+docker compose up -d
 ```
+
+Предупреждение `transaction_timeout` при восстановлении в PostgreSQL 16 —
+безвредно (параметр появился в 17).
+
+Для развёртывания на сервере — папка `_deploy/` (свой `README.md`).
 
 ## HTTPS
 

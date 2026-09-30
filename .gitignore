@@ -11,3 +11,7 @@ frontend/dist/
 backend/dev_users.local.txt
 .env
 backups/
+_deploy/.env
+_deploy/backups/
+_deploy/images/
+_deploy/src/

@@ -1,5 +1,14 @@
 # DWG3D_SITE: ":80" (plain HTTP, default) or a domain name — then Caddy
 # obtains a certificate and serves HTTPS on 443 by itself.
+#
+# Behind another TLS proxy on a private network, its X-Forwarded-Proto /
+# X-Forwarded-For are passed on (trusted_proxies), so cookies get Secure.
+{
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
 {$DWG3D_SITE::80} {
 	encode zstd gzip
 	request_body /api/* {
