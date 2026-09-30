@@ -1,12 +1,72 @@
-# PostgreSQL for dwg3d. Start:  docker compose up -d db
-# The API connects via DWG3D_DATABASE_URL (default matches this service).
+# dwg3d: the whole stack in containers.
+#
+#   cp .env.example .env        # passwords, site name
+#   docker compose up -d --build
+#   open http://localhost:${DWG3D_HTTP_PORT:-8088}
+#
+# Local development without containers for the app itself:
+#   docker compose up -d db     # then `uv run uvicorn dwg3d.api:app` and `npm run dev`
+#
+# Services:
+#   web     Caddy: the built UI and the single entry point (/api, /auth)
+#   api     FastAPI (dwg3d.api)
+#   worker  build queue: DWG -> 3D model (scale with --scale worker=N)
+#   db      PostgreSQL
+name: 3drender
+
+x-app: &app
+  build: ./backend
+  image: dwg3d-api:${DWG3D_TAG:-dev}
+  restart: unless-stopped
+  user: "${DWG3D_UID:-10001}:${DWG3D_GID:-10001}"
+  environment: &app-env
+    DWG3D_DATABASE_URL: postgresql+psycopg://dwg3d:${POSTGRES_PASSWORD:-dwg3d}@db:5432/dwg3d
+    DWG3D_DATA: /data
+    DWG3D_AUTH: ${DWG3D_AUTH:-on}
+    DWG3D_ODA: ${DWG3D_ODA:-}
+  volumes:
+    - ${DWG3D_DATA_DIR:-./data}:/data
+  depends_on:
+    db:
+      condition: service_healthy
+
 services:
+  web:
+    build: ./frontend
+    image: dwg3d-web:${DWG3D_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      DWG3D_SITE: ${DWG3D_SITE:-:80}
+    ports:
+      - "${DWG3D_HTTP_PORT:-8088}:80"
+      - "${DWG3D_HTTPS_PORT:-8443}:443"
+    volumes:
+      - caddy-data:/data
+    depends_on:
+      - api
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      DWG3D_WORKERS: "0"          # builds run in the worker service
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "dwg3d", "worker", "-n", "${DWG3D_WORKER_THREADS:-2}"]
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: dwg3d
-      POSTGRES_PASSWORD: dwg3d
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dwg3d}
       POSTGRES_DB: dwg3d
     ports:
       - "127.0.0.1:${DWG3D_DB_PORT:-5432}:5432"
@@ -20,3 +80,4 @@ services:
 
 volumes:
   pgdata:
+  caddy-data:

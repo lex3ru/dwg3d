@@ -9,3 +9,4 @@ frontend/dist/
 *.dwg
 !backend/tests/**/*.dwg
 backend/dev_users.local.txt
+.env

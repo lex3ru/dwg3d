@@ -1,0 +1,26 @@
+# DWG3D_SITE: ":80" (plain HTTP, default) or a domain name — then Caddy
+# obtains a certificate and serves HTTPS on 443 by itself.
+{$DWG3D_SITE::80} {
+	encode zstd gzip
+	request_body /api/* {
+		max_size 1GB
+	}
+
+	handle /api/* {
+		reverse_proxy {$DWG3D_API_UPSTREAM:api:8000} {
+			flush_interval -1
+		}
+	}
+	handle /auth/* {
+		reverse_proxy {$DWG3D_KEYCLOAK_UPSTREAM:keycloak:8080}
+	}
+	handle {
+		root * /srv
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
