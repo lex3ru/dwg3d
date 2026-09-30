@@ -52,8 +52,7 @@ docker compose run --rm --no-deps -e DWG3D_DATA=/import -v "$PWD/data":/import:r
 
 ```bash
 docker compose exec -T db pg_restore -c -U dwg3d -d dwg3d < backups/db/dwg3d-<дата>.dump
-docker compose run --rm --no-deps -e DWG3D_DATA=/import -v "$PWD/backups/files":/import/jobs-src:ro \
-  api sh -c 'mkdir -p /import && ln -s /import/jobs-src/drawings /import/jobs && ln -s /import/jobs-src/catalog /import/catalog && python -m dwg3d files upload'
+docker compose run --rm --no-deps -v "$PWD/backups/files":/restore:ro api python -m dwg3d files restore /restore
 ```
 
 ## HTTPS

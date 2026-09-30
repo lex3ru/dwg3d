@@ -358,3 +358,19 @@ def copy_local_to(dst: LocalStore | S3Store, src: LocalStore | None = None, log=
         st["files"] += 1
         st["bytes"] += p.stat().st_size
     return st
+
+
+def restore_from(dst: LocalStore | S3Store, src_dir: Path) -> dict:
+    """Upload a backup mirror (a directory laid out by keys: drawings/..., catalog/...)."""
+    st = {"files": 0, "skipped": 0, "bytes": 0}
+    have = dst.list("")
+    for key, p in _tree(src_dir).items():
+        if not key.startswith(("drawings/", "catalog/")):
+            continue
+        if have.get(key) == p.stat().st_size:
+            st["skipped"] += 1
+            continue
+        dst.put_file(key, p)
+        st["files"] += 1
+        st["bytes"] += p.stat().st_size
+    return st

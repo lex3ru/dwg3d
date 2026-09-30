@@ -148,3 +148,13 @@ def test_local_list(tmp_path, monkeypatch):
     assert st.list("") == {"drawings/d/out/model.glb": 1, "catalog/m.glb": 2}
     assert st.list("drawings/d/") == {"drawings/d/out/model.glb": 1}
     assert (tmp_path / "jobs" / "d" / "out" / "model.glb").exists()
+
+
+def test_restore_from_backup(s3, tmp_path):
+    src = tmp_path / "files"
+    (src / "drawings" / "d").mkdir(parents=True)
+    (src / "drawings" / "d" / "input.dxf").write_bytes(b"abc")
+    (src / "junk.txt").write_text("x")
+    assert files.restore_from(s3, src)["files"] == 1
+    assert s3.list("") == {"drawings/d/input.dxf": 3}
+    assert files.restore_from(s3, src) == {"files": 0, "skipped": 1, "bytes": 0}

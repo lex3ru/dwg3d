@@ -7,6 +7,7 @@
   python -m dwg3d catalog dump FILE       # export the database catalog as YAML
   python -m dwg3d worker [-n 2]           # build-only process sharing the queue with the API
   python -m dwg3d files upload            # copy the local data directory into S3 (DWG3D_S3_*)
+  python -m dwg3d files restore DIR       # upload a backup mirror (DIR/drawings, DIR/catalog)
   python -m dwg3d backup DIR [--keep 14]  # database dump + mirror of the file store
   python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
   python -m dwg3d user passwd LOGIN | role LOGIN ROLE | disable LOGIN | enable LOGIN | list
@@ -42,7 +43,9 @@ def main(argv=None):
     k.add_argument("file", nargs="?", help="YAML (load: default dwg3d/catalog_seed.yaml; dump: required)")
     k.add_argument("--prune", action="store_true", help="load: deactivate items missing from the file")
     f = sub.add_parser("files", help="file store (see dwg3d/files.py)")
-    f.add_argument("action", choices=["upload"], help="upload: copy DWG3D_DATA (jobs/, catalog/) into S3")
+    f.add_argument("action", choices=["upload", "restore"],
+                   help="upload: copy DWG3D_DATA (jobs/, catalog/) into S3; restore DIR: upload a backup mirror")
+    f.add_argument("dir", nargs="?", help="restore: the files/ directory of a backup")
     bk = sub.add_parser("backup", help="database dump and a mirror of the file store")
     bk.add_argument("dir")
     bk.add_argument("--keep", type=int, default=14, help="database dumps to keep")
@@ -94,10 +97,16 @@ def main(argv=None):
     if args.cmd == "files":
         from . import files
         st = files.store()
-        if not st.s3:
+        if args.action == "restore":
+            if not args.dir:
+                print("Ошибка: укажите каталог: files restore backups/files", file=sys.stderr)
+                return 1
+            res = files.restore_from(st, Path(args.dir))
+        elif not st.s3:
             print("Ошибка: хранилище S3 не настроено (DWG3D_S3_ENDPOINT)", file=sys.stderr)
             return 1
-        res = files.copy_local_to(st)
+        else:
+            res = files.copy_local_to(st)
         print(f"Загружено файлов: {res['files']} ({res['bytes'] / 1e6:.1f} МБ), уже были: {res['skipped']}")
         return 0
     if args.cmd == "worker":
