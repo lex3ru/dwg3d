@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from dwg3d import auth, db, store
 from conftest import add_drawing
-from dwg3d.models import Build, Placement
+from dwg3d.models import Build, LayerObject
 
 PASSWORD = "test-" + uuid.uuid4().hex[:12]     # generated per run, never a real password
 
@@ -55,7 +55,7 @@ def test_nothing_opens_without_sign_in(on):
     assert c.get("/api/health").status_code == 200
     pid = _project()
     for url in ("/api/projects", f"/api/drawings/{pid}", f"/api/drawings/{pid}/files/model.glb", "/api/catalog",
-                f"/api/drawings/{pid}/placements", f"/api/projects/{pid}/audit"):
+                f"/api/drawings/{pid}/objects", f"/api/projects/{pid}/audit"):
         r = c.get(url)
         assert r.status_code == 401 and r.json()["login"] is True, url
     assert c.post(f"/api/projects/{pid}/drawings", files={"file": ("a.dxf", b"0")}).status_code == 401
@@ -96,32 +96,32 @@ def test_roles(on):
     pid = _project()
     viewer, editor, admin = _client(on, _user("viewer")), _client(on, _user("editor")), _client(on, _user("catalog_admin"))
     item = {"floor": "c0", "item": "doc.couch", "at": [1, 2], "build": 1}
-    assert viewer.get(f"/api/drawings/{pid}/placements").status_code == 200
-    r = viewer.post(f"/api/drawings/{pid}/placements", json=item)
+    assert viewer.get(f"/api/drawings/{pid}/objects").status_code == 200
+    r = viewer.post(f"/api/drawings/{pid}/objects", json=item)
     assert r.status_code == 403 and "редактор" in r.json()["detail"]
     assert viewer.put(f"/api/drawings/{pid}/view", json={"name": "x"}).status_code == 403
     assert viewer.post(f"/api/drawings/{pid}/rebuild", json={}).status_code == 403
-    assert editor.post(f"/api/drawings/{pid}/placements", json=item).status_code == 201
+    assert editor.post(f"/api/drawings/{pid}/objects", json=item).status_code == 201
     # catalog changes: only the catalog administrator gets past the check (405: no such method yet)
     assert editor.post("/api/catalog", json={}).status_code == 403
     assert admin.post("/api/catalog", json={}).status_code == 405
-    assert admin.post(f"/api/drawings/{pid}/placements", json=item).status_code == 201
+    assert admin.post(f"/api/drawings/{pid}/objects", json=item).status_code == 201
 
 
 def test_author_is_recorded(on):
     pid = _project()
     login = _user("editor")
     c = _client(on, login)
-    r = c.post(f"/api/drawings/{pid}/placements", json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2]})
+    r = c.post(f"/api/drawings/{pid}/objects", json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2]})
     assert r.status_code == 201
     r = c.post(f"/api/drawings/{pid}/pins", json={"id": "k", "kind": "comment", "floor": "c0", "pos": [0, 0, 0], "text": "!"})
     assert r.json()["author"] == "Имя editor"
     assert c.put(f"/api/drawings/{pid}/view", json={"name": "Корпус Б"}).status_code == 200
     log = c.get(f"/api/projects/{pid}/audit").json()
     assert {a["actor"] for a in log} == {login}
-    assert {(a["entity"], a["action"]) for a in log} == {("placement", "create"), ("pin", "create"), ("drawing", "update")}
+    assert {(a["entity"], a["action"]) for a in log} == {("object", "create"), ("pin", "create"), ("drawing", "update")}
     with db.session() as s:
-        uid = s.get(Placement, (pid, "a")).updated_by
+        uid = s.get(LayerObject, (pid, "a")).updated_by
     assert uid is not None and {a["user_id"] for a in log} == {uid}
 
 

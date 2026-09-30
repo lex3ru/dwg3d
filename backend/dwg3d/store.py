@@ -15,9 +15,9 @@ from pathlib import Path
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from . import viewdata
+from . import layers, viewdata
 from .edits import _floor_ns, anchor_of, match
-from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, Pin, Placement, Project
+from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, LayerObject, Pin, Project
 
 # viewer settings stored in drawing columns; furniture and pins are rows (viewdata.py)
 VIEW_COLUMNS = ("name", "site", "detail")
@@ -90,6 +90,7 @@ def public(s: Session, d: Drawing, job: Job | None = None, build: Build | None =
     view = view_of(s, d)
     if view:
         out["view"] = view
+    out["layers"] = layers.list_layers(s, d.project_id)
     if out["status"] == "done":
         out["model_url"] = f"/api/drawings/{d.id}/files/model.glb?v={d.current_build}"
         out["metadata_url"] = f"/api/drawings/{d.id}/files/metadata.json?v={d.current_build}"
@@ -146,14 +147,17 @@ def has_active(s: Session, did: str) -> bool:
                     .where(Job.drawing_id == did, Job.status.in_(JOB_ACTIVE))) > 0
 
 
-def sync_floors(s: Session, did: str, result: dict, old: dict | None = None) -> list[str]:
+def sync_floors(s: Session, did: str, result: dict, old: dict | None = None,
+                moves_out: dict | None = None) -> list[str]:
     """Match the drawing's floors to the floors of a new build by their sheet
     anchor (like the edits, see edits.py), so a floor keeps its row while its
-    candidate id (c0, c3...) changes between builds, and move its furniture
-    and pins with it: by the change of the alignment offset and elevation, and
-    pins (glTF coordinates) also by the change of the model centre `old` -> `result`.
-    A floor whose sheet is not found keeps its row (candidate NULL) and its
-    rows stay where they were until the sheet is back. Returns warnings."""
+    candidate id (c0, c3...) changes between builds, and move its layer
+    objects and pins with it: by the change of the alignment offset and
+    elevation, and pins (glTF coordinates) also by the change of the model
+    centre `old` -> `result`. A floor whose sheet is not found keeps its row
+    (candidate NULL) and its rows stay where they were until the sheet is
+    back. Returns warnings; the moves (floor row id -> dx, dy, dz) go to
+    `moves_out` (for the rooms, see rooms.sync)."""
     rows = s.scalars(select(Floor).where(Floor.drawing_id == did)
                      .order_by(Floor.candidate.is_(None), Floor.id)).all()
     new = [f for f in result.get("floors") or [] if f.get("bbox")]
@@ -190,10 +194,15 @@ def sync_floors(s: Session, did: str, result: dict, old: dict | None = None) -> 
     ocx, ocy = ((old or {}).get("center") or (0.0, 0.0)) if old else (result.get("center") or (0.0, 0.0))
     ncx, ncy = result.get("center") or (0.0, 0.0)
     cdx, cdz = ocx - ncx, ncy - ocy
+    if moves_out is not None:
+        moves_out.update(moves)
     for fid, (dx, dy, dz) in moves.items():
         if dx or dy:
-            s.execute(update(Placement).where(Placement.drawing_id == did, Placement.floor_id == fid)
-                      .values(x=Placement.x + dx, y=Placement.y + dy))
+            s.execute(update(LayerObject).where(LayerObject.drawing_id == did, LayerObject.floor_id == fid)
+                      .values(x=LayerObject.x + dx, y=LayerObject.y + dy))
+            for o in s.scalars(select(LayerObject).where(LayerObject.drawing_id == did, LayerObject.floor_id == fid,
+                                                         LayerObject.points.is_not(None))):
+                o.points = [[px + dx, py + dy] for px, py in o.points]
         if dx or dy or dz or cdx or cdz:
             s.execute(update(Pin).where(Pin.drawing_id == did, Pin.floor_id == fid)
                       .values(x=Pin.x + (cdx + dx), y=Pin.y + dz, z=Pin.z + (cdz - dy)))
@@ -202,14 +211,14 @@ def sync_floors(s: Session, did: str, result: dict, old: dict | None = None) -> 
                                     Pin.floor_id.is_(None) | Pin.floor_id.not_in(list(moves) or [-1]))
                   .values(x=Pin.x + cdx, z=Pin.z + cdz))
 
-    lost = s.execute(select(Floor.name, func.count()).join(Placement, Placement.floor_id == Floor.id)
+    lost = s.execute(select(Floor.name, func.count()).join(LayerObject, LayerObject.floor_id == Floor.id)
                      .where(Floor.drawing_id == did, Floor.candidate.is_(None)).group_by(Floor.name)).all()
     n = sum(c for _, c in lost)
     if not n:
         return []
     names = ", ".join(sorted(name or "?" for name, _ in lost))
-    return [f"Оборудование ({n} шт.) не привязано: этаж «{names}» не найден в новой сборке. "
-            f"Оно сохранено — перенесите его на этаж в панели «Мебель и оборудование»"]
+    return [f"Объекты слоёв ({n} шт.) не привязаны: этаж «{names}» не найден в новой сборке. "
+            f"Они сохранены — перенесите их на этаж в панели слоя"]
 
 
 def delete_stale(s: Session, days: float) -> list[str]:

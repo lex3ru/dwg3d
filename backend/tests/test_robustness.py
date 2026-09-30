@@ -210,32 +210,35 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert j["result"]["room_types"] and "entrances" in j["result"]
     assert any(x["id"] == jid for x in c.get("/api/drawings").json())
     fid = j["result"]["floors"][0]["id"]
-    r = c.put(f"/api/drawings/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1},
-                                            "comments": [{"id": "k1", "floor": fid, "pos": [1, 2, 3], "text": "Трещина"}]})
+    r = c.put(f"/api/drawings/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1}})
     assert r.status_code == 200 and r.json()["site"]["azimuth"] == 15
+    assert c.post(f"/api/drawings/{jid}/pins", json={"id": "k1", "kind": "comment", "floor": fid, "pos": [1, 2, 3],
+                                                     "text": "Трещина"}).status_code == 201
     assert c.put(f"/api/drawings/{jid}/view", json={"site": {"lat": 120, "lon": 0}}).status_code == 400
-    assert c.put(f"/api/drawings/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
+    # objects and pins change row by row only
+    assert c.put(f"/api/drawings/{jid}/view", json={"comments": []}).status_code == 400
     v = c.get(f"/api/drawings/{jid}/view").json()
     assert v["comments"][0]["text"] == "Трещина" and v["site"]["lat"] == 55.75
-    # furniture: plan position, angle normalised, other view keys kept
-    v = c.put(f"/api/drawings/{jid}/view", json={"furniture": [
-        {"id": "a1", "floor": fid, "item": "doc.couch", "at": [2.5, 3], "angle": -90, "size": [0.7, 1.9, 0.75]}]}).json()
-    assert v["furniture"][0]["angle"] == 270 and v["furniture"][0]["size"] == [0.7, 1.9, 0.75]
-    assert v["comments"][0]["text"] == "Трещина"
-    v = c.put(f"/api/drawings/{jid}/view", json={"furniture": [
-        {"id": "k1", "floor": fid, "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110, "range": 12}]}).json()
-    assert v["furniture"][0]["fov"] == 110 and v["furniture"][0]["elev"] == 2.8 and len(v["furniture"]) == 1
+    # objects: plan position, angle normalised; cameras go to the CCTV layer
+    base = f"/api/drawings/{jid}/objects"
+    r = c.post(base, json={"id": "a1", "floor": fid, "item": "doc.couch", "at": [2.5, 3], "angle": -90,
+                           "size": [0.7, 1.9, 0.75], "build": j["build"]})
+    assert r.status_code == 201 and r.json()["angle"] == 270 and r.json()["size"] == [0.7, 1.9, 0.75]
+    cam = c.post(base, json={"id": "k1", "floor": fid, "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110,
+                             "range": 12}).json()
+    assert cam["fov"] == 110 and cam["elev"] == 2.8 and cam["layer"] != r.json()["layer"]
+    layers = {x["id"]: x for x in c.get(f"/api/drawings/{jid}").json()["layers"]}
+    assert layers[cam["layer"]]["kind"] == "cctv" and layers[r.json()["layer"]]["kind"] == "furniture"
     # a floor or catalog item the server does not know is refused
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"floor": "c99", "item": "sec.dome", "at": [1, 2]}]}).status_code == 400
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"floor": fid, "item": "nope", "at": [1, 2]}]}).status_code == 400
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "fov": 400}]}).status_code == 400
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1]}]}).status_code == 400
+    assert c.post(base, json={"floor": "c99", "item": "sec.dome", "at": [1, 2]}).status_code == 400
+    assert c.post(base, json={"floor": fid, "item": "nope", "at": [1, 2]}).status_code == 400
+    assert c.post(base, json={"floor": fid, "item": "sec.dome", "at": [1, 2], "fov": 400}).status_code == 400
+    assert c.post(base, json={"floor": fid, "item": "sec.dome", "at": [1]}).status_code == 400
+    assert c.post(base, json={"floor": fid, "item": "doc.couch", "at": [1, 2], "size": [0, 1, 1]}).status_code == 400
     # written against another build: refused, nothing lost silently
-    r = c.put(f"/api/drawings/{jid}/view", json={"furniture": [], "_build": j["build"] + 5})
+    r = c.post(base + ":batch", json={"build": j["build"] + 5, "ops": [{"op": "delete", "id": "k1", "version": 1}]})
     assert r.status_code == 409
-    assert c.get(f"/api/drawings/{jid}/view").json()["furniture"][0]["id"] == "k1"
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [], "_build": j["build"]}).status_code == 200
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "size": [0, 1, 1]}]}).status_code == 400
+    assert [x["id"] for x in c.get(f"/api/drawings/{jid}/view").json()["furniture"]] == ["a1", "k1"]
     # detail model: only GLB is accepted
     assert c.post(f"/api/drawings/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
     glb = (api.files.store().workdir(jid) / "out" / "model.glb").read_bytes()
@@ -253,16 +256,15 @@ def test_api_furniture_survives_rebuild(client, sample):
     jid = _upload(c, "plan.dxf", sample.read_bytes()).json()["id"]
     j = _wait(c, jid)
     fids = [f["id"] for f in j["result"]["floors"]]
-    items = [{"id": f"i{k}", "floor": fid, "item": "doc.couch", "at": [1.0 + k, 2.0], "angle": 0} for k, fid in enumerate(fids)]
-    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": items, "_build": j["build"]}).status_code == 200
+    ops = [{"op": "create", "id": f"i{k}", "floor": fid, "item": "doc.couch", "at": [1.0 + k, 2.0]}
+           for k, fid in enumerate(fids)]
+    assert c.post(f"/api/drawings/{jid}/objects:batch", json={"build": j["build"], "ops": ops}).status_code == 200
     assert c.post(f"/api/drawings/{jid}/rebuild", json={"geometry": {"snap_tolerance": 0.011}}).status_code == 200
-    # while the model is rebuilt, floor-bound data is not accepted
-    r = c.put(f"/api/drawings/{jid}/view", json={"furniture": []})
-    assert r.status_code in (200, 409)
+    # while the model is rebuilt, changes made against the old build are refused once it is done
     j2 = _wait(c, jid)
+    r = c.post(f"/api/drawings/{jid}/objects:batch", json={"build": j["build"], "ops": []})
+    assert r.status_code == 409
     v = c.get(f"/api/drawings/{jid}/view").json()
     new_ids = {f["id"] for f in j2["result"]["floors"]}
-    if r.status_code == 409:
-        assert len(v["furniture"]) == len(items)
-    assert all(it["floor"] in new_ids for it in v.get("furniture") or [])
+    assert len(v["furniture"]) == len(ops) and all(it["floor"] in new_ids for it in v["furniture"])
     assert "furniture_unplaced" not in v

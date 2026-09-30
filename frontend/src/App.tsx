@@ -513,7 +513,7 @@ export default function App() {
     const ops = furnitureOps(furnSaved.current, list)
     if (!ops.length) return
     try {
-      const res = await batchRows(id, 'placements', build, ops)
+      const res = await batchRows(id, 'objects', build, ops)
       for (const it of res.items) furnSaved.current.set(it.id, it)
       for (const d of res.deleted) furnSaved.current.delete(d)
     } catch (e) {
@@ -557,7 +557,7 @@ export default function App() {
     const id = shown.id, build = shown.build
     furnQueue.current = furnQueue.current.then(async () => {
       try {
-        const res = await batchRows(id, 'placements', build, ops)
+        const res = await batchRows(id, 'objects', build, ops)
         for (const it of res.items) furnSaved.current.set(it.id, it)
         setView((v) => ({
           ...v,

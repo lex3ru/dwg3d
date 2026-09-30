@@ -184,26 +184,69 @@ class Floor(Base):
     height: Mapped[float | None] = mapped_column(Float)
 
 
-class Placement(Base):
-    """A placed piece of furniture / equipment. `x, y` are plan coordinates (m)
-    of the current build: when a rebuild moves the floor (alignment offset),
-    the rows are shifted with it. floor_id NULL, or a floor whose sheet is gone
-    (candidate NULL), means "not on a floor" until it is put back."""
-    __tablename__ = "placements"
+class Layer(Base):
+    """A layer of a project: furniture, CCTV, routes, zones... (`kind`, see layers.py).
+    Its objects may stand on any drawing of the project."""
+    __tablename__ = "layers"
 
-    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    visible: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    locked: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    sort: Mapped[int] = mapped_column(Integer, server_default="0")
+    props: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Room(Base):
+    """A room that keeps its id across builds (matched by name and outline,
+    see rooms.py). `idx` is its index in the current build's plan of the floor
+    (node floor_<candidate>_room_<idx>), NULL when the room is gone; `poly` is
+    its outline in plan coordinates of the current (or its last) build."""
+    __tablename__ = "rooms"
+    __table_args__ = (UniqueConstraint("floor_id", "idx"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), index=True)
+    floor_id: Mapped[int] = mapped_column(ForeignKey("floors.id", ondelete="CASCADE"))
+    idx: Mapped[int | None] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(Text, server_default="")
+    type: Mapped[str | None] = mapped_column(Text)
+    area: Mapped[float] = mapped_column(Float, server_default="0")
+    poly: Mapped[list] = mapped_column(JSONB)
+
+
+class LayerObject(Base):
+    """An object of a layer on a floor of one of the project's drawings.
+    `x, y` are plan coordinates (m) of the current build (the anchor: the
+    position of a point, the first point of a line); `points` the vertices of
+    lines and polygons. When a rebuild moves the floor, the rows move with
+    it. floor_id NULL, or a floor whose sheet is gone (candidate NULL), means
+    "not on a floor" until it is put back. room_id is the room it stands in."""
+    __tablename__ = "layer_objects"
+    __table_args__ = (CheckConstraint("geom IN ('point', 'polyline', 'polygon', 'route')", name="layer_objects_geom"),)
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     id: Mapped[str] = mapped_column(Text, primary_key=True)                     # client-made, per project
+    layer_id: Mapped[str] = mapped_column(ForeignKey("layers.id", ondelete="CASCADE"), index=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), index=True)
     floor_id: Mapped[int | None] = mapped_column(ForeignKey("floors.id", ondelete="SET NULL"), index=True)
+    room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"))
     # no FK: catalog ids are never deleted, and old data must import even before the catalog is loaded
-    item_id: Mapped[str] = mapped_column(Text, index=True)
+    item_id: Mapped[str | None] = mapped_column(Text, index=True)
+    geom: Mapped[str] = mapped_column(Text, server_default="point")
     x: Mapped[float] = mapped_column(Float(53))
     y: Mapped[float] = mapped_column(Float(53))
     angle: Mapped[float] = mapped_column(Float, server_default="0")
+    points: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     size: Mapped[list[float] | None] = mapped_column(ARRAY(Float))              # [w, d, h] override
     elev: Mapped[float | None] = mapped_column(Float)
-    fov: Mapped[float | None] = mapped_column(Float)
-    range: Mapped[float | None] = mapped_column(Float)
     note: Mapped[str | None] = mapped_column(Text)
+    props: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))   # kind-specific: fov, range...
     version: Mapped[int] = mapped_column(Integer, server_default="1")          # optimistic locking
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -241,7 +284,7 @@ class AuditLog(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     project_id: Mapped[str | None] = mapped_column(Text)
     drawing_id: Mapped[str | None] = mapped_column(Text)
-    entity: Mapped[str] = mapped_column(Text)            # placement, pin, drawing, project
+    entity: Mapped[str] = mapped_column(Text)            # object, pin, layer, drawing, project
     entity_id: Mapped[str] = mapped_column(Text)
     action: Mapped[str] = mapped_column(Text)            # create, update, delete
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

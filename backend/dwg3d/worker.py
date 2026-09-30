@@ -7,6 +7,7 @@ failed by whichever worker notices it first.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -17,7 +18,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import func, select, text, update
 
-from . import db, files, store
+from . import db, files, rooms, store
 from .models import Build, Job
 from .pipeline import run
 
@@ -116,9 +117,13 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
             if d is None:
                 raise RuntimeError("Чертёж удалён во время обработки")
             old = store.current_build(s, d)
-            # floors keep their rows; furniture and pins move with them (ids / alignment may change)
-            warns = store.sync_floors(s, did, result, old.result if old else None)
+            # floors keep their rows; layer objects and pins move with them (ids / alignment may change)
+            moves: dict = {}
+            warns = store.sync_floors(s, did, result, old.result if old else None, moves)
             result["warnings"] = list(result.get("warnings") or []) + warns
+            # rooms keep their ids too; objects learn which room they stand in
+            rooms.sync(s, did, result, _plans(ddir / "out", result), moves)
+            rooms.relocate(s, did)
             n = d.current_build + 1
             s.add(Build(drawing_id=did, n=n, result=result, config=cfg, out_dir="out"))
             s.flush()
@@ -132,6 +137,16 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
         msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
         _set(jid, status="error", stage="error", error=msg[:1000], trace=traceback.format_exc()[-3000:],
              finished_at=func.now())
+
+
+def _plans(out, result: dict) -> dict[str, dict]:
+    """The plan JSON of each floor of a build (rooms with outlines), by floor id."""
+    plans = {}
+    for f in result.get("floors") or []:
+        p = out / (f.get("plan") or "")
+        if f.get("plan") and p.is_file():
+            plans[f["id"]] = json.loads(p.read_text(encoding="utf-8"))
+    return plans
 
 
 def _loop():

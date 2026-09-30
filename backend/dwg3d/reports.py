@@ -2,6 +2,8 @@
 
   equipment(project_id)  one project, with the count per floor (of each drawing)
   equipment(None)        all projects, with the count per project
+  by_room(project_id)    one project, room by room (for fitting out and procurement)
+  (optionally of one layer)
 
 Items whose floor is not in the current build count under "без этажа".
 When a project has several drawings, floor columns carry the drawing name.
@@ -18,7 +20,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import CatalogCategory, CatalogItem, Drawing, Floor, Placement, Project
+from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Room
 
 NO_FLOOR = "без этажа"
 
@@ -27,16 +29,34 @@ def _project_name(p: Project) -> str:
     return p.name
 
 
-def equipment(s: Session, project_id: str | None = None) -> dict:
-    q = (select(Drawing.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level,
-                Drawing.id, func.count())
-         .join(Drawing, Drawing.id == Placement.drawing_id)
+def _item_row(it: CatalogItem | None, iid: str, cats: dict) -> dict:
+    cat = cats.get(it.category_id) if it else None
+    return {"item": iid, "name": it.name if it else f"Неизвестный предмет ({iid})",
+            "category": cat.name if cat else "", "category_sort": cat.sort if cat else 1e9,
+            "sort": it.sort if it else 1e9, "article": (it.article if it else None) or "",
+            "supplier": (it.supplier if it else None) or "",
+            "price": float(it.price) if it and it.price is not None else None,
+            "currency": it.currency if it and it.price is not None else None, "qty": 0}
+
+
+def _placed(q, project_id: str | None, layer_id: str | None):
+    """Catalog objects of live projects and drawings (one project / layer)."""
+    q = (q.join(Drawing, Drawing.id == LayerObject.drawing_id)
          .join(Project, Project.id == Drawing.project_id)
-         .outerjoin(Floor, Floor.id == Placement.floor_id)
-         .where(Project.deleted_at.is_(None), Drawing.deleted_at.is_(None))
-         .group_by(Drawing.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level, Drawing.id))
+         .where(Project.deleted_at.is_(None), Drawing.deleted_at.is_(None), LayerObject.item_id.is_not(None)))
     if project_id is not None:
         q = q.where(Drawing.project_id == project_id)
+    if layer_id is not None:
+        q = q.where(LayerObject.layer_id == layer_id)
+    return q
+
+
+def equipment(s: Session, project_id: str | None = None, layer_id: str | None = None) -> dict:
+    q = _placed(select(Drawing.project_id, LayerObject.item_id, Floor.name, Floor.candidate, Floor.level,
+                       Drawing.id, func.count())
+                .select_from(LayerObject)
+                .outerjoin(Floor, Floor.id == LayerObject.floor_id), project_id, layer_id)
+    q = q.group_by(Drawing.project_id, LayerObject.item_id, Floor.name, Floor.candidate, Floor.level, Drawing.id)
     counts = s.execute(q).all()
     drawings = {d.id: d for d in s.scalars(select(Drawing).where(Drawing.id.in_({c[5] for c in counts})))}
     many = len(drawings) > 1
@@ -48,18 +68,9 @@ def equipment(s: Session, project_id: str | None = None) -> dict:
     rows: dict[str, dict] = {}
     floor_order: dict[str, tuple] = {}
     for pid, iid, fname, cand, level, did, n in counts:
-        it, key = items.get(iid), iid
-        r = rows.get(key)
+        r = rows.get(iid)
         if r is None:
-            cat = cats.get(it.category_id) if it else None
-            r = rows[key] = {
-                "item": iid, "name": it.name if it else f"Неизвестный предмет ({iid})",
-                "category": cat.name if cat else "", "category_sort": cat.sort if cat else 1e9,
-                "sort": it.sort if it else 1e9, "article": (it.article if it else None) or "",
-                "supplier": (it.supplier if it else None) or "",
-                "price": float(it.price) if it and it.price is not None else None,
-                "currency": it.currency if it and it.price is not None else None,
-                "qty": 0, "by": defaultdict(int)}
+            r = rows[iid] = {**_item_row(items.get(iid), iid, cats), "by": defaultdict(int)}
         r["qty"] += n
         if project_id is not None:
             label = (fname or cand) if cand else NO_FLOOR
@@ -84,6 +95,9 @@ def equipment(s: Session, project_id: str | None = None) -> dict:
         p = projects.get(project_id)
         columns = [label for label in sorted(floor_order, key=lambda k: floor_order[k])]
         head = {"project": {"id": project_id, "name": _project_name(p) if p else project_id}}
+        if layer_id is not None:
+            layer = s.get(Layer, layer_id)
+            head["layer"] = {"id": layer_id, "name": layer.name if layer else layer_id}
     else:
         # projects with most items first
         per = defaultdict(int)
@@ -101,6 +115,118 @@ def equipment(s: Session, project_id: str | None = None) -> dict:
             "qty": sum(r["qty"] for r in out_rows),
             "unpriced": sum(1 for r in out_rows if r["price"] is None),
             "generated": datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+NO_ROOM = "вне помещений"
+
+
+def by_room(s: Session, project_id: str, layer_id: str | None = None) -> dict:
+    """Catalog objects of a project room by room: [{drawing, floor, room, area, items, totals}]."""
+    q = _placed(select(Drawing.id, Floor.name, Floor.candidate, Floor.level, Room.id, Room.name, Room.area,
+                       LayerObject.item_id, func.count())
+                .select_from(LayerObject)
+                .outerjoin(Floor, Floor.id == LayerObject.floor_id)
+                .outerjoin(Room, Room.id == LayerObject.room_id), project_id, layer_id)
+    q = q.group_by(Drawing.id, Floor.name, Floor.candidate, Floor.level, Room.id, Room.name, Room.area,
+                   LayerObject.item_id)
+    counts = s.execute(q).all()
+    items = {i.id: i for i in s.scalars(select(CatalogItem).where(CatalogItem.id.in_({c[7] for c in counts})))}
+    cats = {c.id: c for c in s.scalars(select(CatalogCategory))}
+    drawings = {d.id: d for d in s.scalars(select(Drawing).where(Drawing.project_id == project_id))}
+    many = len({c[0] for c in counts}) > 1
+    groups: dict[tuple, dict] = {}
+    for did, fname, cand, level, rid, rname, area, iid, n in counts:
+        d = drawings.get(did)
+        dname = (d.name or d.filename.rsplit(".", 1)[0]) if d else did
+        floor = (fname or cand) if cand else NO_FLOOR
+        key = (dname if many else "", 0 if cand else 1, level if level is not None else 0, floor,
+               rid is None, rname or "", rid or 0)
+        g = groups.get(key)
+        if g is None:
+            g = groups[key] = {"drawing": dname, "floor": floor, "room_id": rid,
+                               "room": (rname or "без названия") if rid else NO_ROOM,
+                               "area": round(area, 2) if rid and area else None, "items": {}}
+        r = g["items"].get(iid)
+        if r is None:
+            r = g["items"][iid] = _item_row(items.get(iid), iid, cats)
+        r["qty"] += n
+    out, totals = [], defaultdict(float)
+    for key in sorted(groups):
+        g = groups[key]
+        rows = sorted(g["items"].values(), key=lambda r: (r["category_sort"], r["sort"], r["name"]))
+        sums = defaultdict(float)
+        for r in rows:
+            r["sum"] = round(r["price"] * r["qty"], 2) if r["price"] is not None else None
+            if r["sum"] is not None:
+                sums[r["currency"]] += r["sum"]
+                totals[r["currency"]] += r["sum"]
+            del r["category_sort"], r["sort"]
+        out.append({**g, "items": rows, "qty": sum(r["qty"] for r in rows),
+                    "totals": {k: round(v, 2) for k, v in sums.items()}})
+    p = s.get(Project, project_id)
+    head = {"project": {"id": project_id, "name": p.name if p else project_id}}
+    if layer_id is not None:
+        layer = s.get(Layer, layer_id)
+        head["layer"] = {"id": layer_id, "name": layer.name if layer else layer_id}
+    return {**head, "many_drawings": many, "rooms": out, "qty": sum(g["qty"] for g in out),
+            "totals": {k: round(v, 2) for k, v in totals.items()},
+            "generated": datetime.now().astimezone().isoformat(timespec="minutes")}
+
+
+def rooms_to_xlsx(rep: dict) -> bytes:
+    """The room-by-room specification: a block per room with a subtotal."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "По помещениям"
+    title = f"Спецификация по помещениям: {rep['project']['name']}"
+    if rep.get("layer"):
+        title += f" — {rep['layer']['name']}"
+    ws.append([title])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([f"Сформирована {rep['generated'][:16].replace('T', ' ')}"])
+    ws.append([])
+    ws.append(["№", "Наименование", "Категория", "Артикул", "Кол-во", "Цена", "Сумма", "Валюта"])
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True)
+        c.fill = PatternFill("solid", fgColor="E9ECEF")
+    sum_cells = []
+    for g in rep["rooms"]:
+        where = " · ".join(x for x in ((g["drawing"] if rep.get("many_drawings") else ""), g["floor"], g["room"]) if x)
+        if g.get("area"):
+            where += f" ({g['area']:.1f} м²)"
+        ws.append([where])
+        ws.cell(ws.max_row, 1).font = Font(bold=True)
+        first = ws.max_row + 1
+        for k, r in enumerate(g["items"], start=1):
+            row = ws.max_row + 1
+            total = f"=E{row}*F{row}" if r["price"] is not None else None
+            ws.append([k, r["name"], r["category"], r["article"], r["qty"], r["price"], total, r["currency"] or ""])
+        last = ws.max_row
+        ws.append(["", "Итого по помещению", "", "", f"=SUM(E{first}:E{last})", None,
+                   f"=SUM(G{first}:G{last})" if len(g["totals"]) <= 1 else None, next(iter(g["totals"]), "")])
+        ws.cell(ws.max_row, 2).font = Font(italic=True)
+        sum_cells.append(ws.max_row)
+        ws.append([])
+    if sum_cells:
+        ws.append(["", "Итого по проекту", "", "", "=" + "+".join(f"E{r}" for r in sum_cells), None,
+                   ("=" + "+".join(f"G{r}" for r in sum_cells)) if len(rep["totals"]) <= 1 else None,
+                   next(iter(rep["totals"]), "")])
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True)
+    for col, w in zip("ABCDEFGH", (5, 44, 24, 16, 9, 12, 14, 8), strict=True):
+        ws.column_dimensions[col].width = w
+    for row in ws.iter_rows(min_row=5, max_row=ws.max_row):
+        for c in row:
+            if c.column in (6, 7):
+                c.number_format = "#,##0.00"
+            if c.column == 2:
+                c.alignment = Alignment(wrap_text=True)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def to_xlsx(rep: dict) -> bytes:

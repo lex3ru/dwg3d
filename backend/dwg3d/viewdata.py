@@ -1,9 +1,11 @@
-"""Placed furniture and pins (markers, comments): one row per object.
+"""Layer objects (furniture, cameras, lines, zones...) and pins (markers,
+comments) on the floors of a drawing: one row per object.
 
 Clients refer to floors by the candidate id of the build they show (c0,
 c3...) and send the `version` of the row they changed; a row changed or
 deleted by someone else in the meantime is a conflict (HTTP 409) and nothing
-of the request is written. Every change is recorded in audit_log.
+of the request is written. Objects of a locked layer cannot be changed.
+Every change is recorded in audit_log.
 """
 from __future__ import annotations
 
@@ -14,12 +16,17 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth
-from .models import AuditLog, CatalogItem, Drawing, Floor, Pin, Placement, Project
+from . import auth, layers
+from .models import AuditLog, CatalogItem, Drawing, Floor, Layer, LayerObject, Pin, Project
+from .rooms import Locator
 
 MAX_PINS = 500
-MAX_FURNITURE = 5000
+MAX_OBJECTS = 5000          # per drawing
+MAX_POINTS = 5000           # vertices of one line / polygon
 MAX_OPS = 5000
+GEOMS = ("point", "polyline", "polygon", "route")
+# props shown as top-level fields of an object (CCTV camera: view angle, range)
+FLAT_PROPS = {"fov": (1, 360), "range": (0.5, 300)}
 PIN_KINDS = {"markers": "marker", "comments": "comment"}
 
 
@@ -60,43 +67,59 @@ def pin_item(it, name: str) -> dict:
             "created": num(it.get("created") or time.time(), 0, 1e11, f"{name}.created")}
 
 
-def pins(items, name: str) -> list[dict]:
-    if not isinstance(items, list) or len(items) > MAX_PINS:
-        raise Invalid(f"view.{name}: ожидается список до {MAX_PINS} элементов")
-    return [pin_item(it, name) for it in items]
+def _xy(v, name) -> list[float]:
+    if not isinstance(v, list) or len(v) != 2:
+        raise Invalid(f"{name}: ожидается [x, y]")
+    return [num(c, -1e5, 1e5, name) for c in v]
 
 
-def furniture_item(it) -> dict:
-    """Placed furniture / equipment: catalog item id, plan position (m), turn
-    (degrees, counter-clockwise), optional size override [w, d, h] (m),
-    mounting height; for CCTV cameras the view angle (deg) and range (m)."""
-    if (not isinstance(it, dict) or not isinstance(it.get("at"), list) or len(it["at"]) != 2
-            or not isinstance(it.get("item"), str)):
-        raise Invalid("view.furniture: элемент {id, floor, item, at: [x, y], angle}")
-    f = {"id": string(it.get("id") or uuid.uuid4().hex[:8], "furniture.id", 40),
-         "floor": string(it.get("floor") or "", "furniture.floor", 40),
-         "item": string(it["item"], "furniture.item", 80),
-         "at": [num(c, -1e5, 1e5, "furniture.at") for c in it["at"]],
-         "angle": num(it.get("angle", 0), -3600, 3600, "furniture.angle") % 360}
+def object_item(it) -> dict:
+    """A layer object: geometry (a point of a catalog item — position,
+    turn in degrees counter-clockwise, optional size override [w, d, h] and
+    mounting height; or a polyline / polygon — its vertices), the layer, the
+    floor, and kind-specific props (for CCTV cameras the view angle `fov`,
+    deg, and `range`, m, also given as top-level fields)."""
+    if not isinstance(it, dict):
+        raise Invalid("объект: {id, layer, floor, item, at: [x, y], angle} или {geom, points}")
+    geom = it.get("geom") or "point"
+    if geom not in GEOMS:
+        raise Invalid(f"geom: {', '.join(GEOMS)}")
+    f = {"id": string(it.get("id") or uuid.uuid4().hex[:8], "object.id", 40),
+         "floor": string(it.get("floor") or "", "object.floor", 40), "geom": geom,
+         "angle": num(it.get("angle", 0), -3600, 3600, "object.angle") % 360}
+    if it.get("layer") is not None:
+        f["layer"] = string(it["layer"], "object.layer", 40)
+    if geom == "point":
+        if not isinstance(it.get("item"), str):
+            raise Invalid("объект: элемент {id, floor, item, at: [x, y], angle}")
+        f["item"] = string(it["item"], "object.item", 80)
+        f["at"] = _xy(it.get("at"), "object.at")
+    else:
+        pts = it.get("points")
+        least = 3 if geom == "polygon" else 2
+        if not isinstance(pts, list) or not least <= len(pts) <= MAX_POINTS:
+            raise Invalid(f"object.points: от {least} до {MAX_POINTS} точек [x, y]")
+        f["points"] = [_xy(p, "object.points") for p in pts]
+        f["at"] = _xy(it["at"], "object.at") if it.get("at") is not None else list(f["points"][0])
+        if it.get("item") is not None:
+            f["item"] = string(it["item"], "object.item", 80)
     if it.get("size") is not None:
         if not isinstance(it["size"], list) or len(it["size"]) != 3:
-            raise Invalid("view.furniture.size: ожидается [ширина, глубина, высота]")
-        f["size"] = [num(c, 0.01, 50, "furniture.size") for c in it["size"]]
+            raise Invalid("object.size: ожидается [ширина, глубина, высота]")
+        f["size"] = [num(c, 0.01, 50, "object.size") for c in it["size"]]
     if it.get("note"):
-        f["note"] = string(it["note"], "furniture.note", 500)
+        f["note"] = string(it["note"], "object.note", 500)
     if it.get("elev") is not None:                  # mounting height override
-        f["elev"] = num(it["elev"], 0, 20, "furniture.elev")
-    if it.get("fov") is not None:                   # CCTV camera: view angle, range
-        f["fov"] = num(it["fov"], 1, 360, "furniture.fov")
-    if it.get("range") is not None:
-        f["range"] = num(it["range"], 0.5, 300, "furniture.range")
+        f["elev"] = num(it["elev"], 0, 20, "object.elev")
+    props = it.get("props") or {}
+    if not isinstance(props, dict) or len(repr(props)) > 20000:
+        raise Invalid("object.props: объект")
+    props = {k: v for k, v in props.items() if k not in FLAT_PROPS}
+    for k, (lo, hi) in FLAT_PROPS.items():
+        if it.get(k) is not None:
+            props[k] = num(it[k], lo, hi, f"object.{k}")
+    f["props"] = props
     return f
-
-
-def furniture(items) -> list[dict]:
-    if not isinstance(items, list) or len(items) > MAX_FURNITURE:
-        raise Invalid(f"view.furniture: ожидается список до {MAX_FURNITURE} элементов")
-    return [furniture_item(it) for it in items]
 
 
 # ------------------------------------------------------------------ JSON ---
@@ -109,11 +132,22 @@ def _cand(floors: dict[int, Floor], fid: int | None) -> str:
     return (f.candidate or "") if f else ""
 
 
-def placement_json(r: Placement, floors: dict[int, Floor]) -> dict:
-    o = {"id": r.id, "floor": _cand(floors, r.floor_id), "item": r.item_id, "at": [r.x, r.y], "angle": r.angle}
-    for k in ("size", "note", "elev", "fov", "range"):
+def object_json(r: LayerObject, floors: dict[int, Floor]) -> dict:
+    o = {"id": r.id, "layer": r.layer_id, "floor": _cand(floors, r.floor_id), "room": r.room_id, "geom": r.geom,
+         "at": [r.x, r.y], "angle": r.angle}
+    if r.item_id is not None:
+        o["item"] = r.item_id
+    if r.points is not None:
+        o["points"] = r.points
+    for k in ("size", "note", "elev"):
         if (v := getattr(r, k)) is not None:
             o[k] = list(v) if k == "size" else v
+    props = dict(r.props or {})
+    for k in FLAT_PROPS:
+        if k in props:
+            o[k] = props.pop(k)
+    if props:
+        o["props"] = props
     o["version"] = r.version
     if not o["floor"]:                              # its sheet is gone (or it never had a floor)
         f = floors.get(r.floor_id) if r.floor_id is not None else None
@@ -127,19 +161,26 @@ def pin_json(r: Pin, floors: dict[int, Floor]) -> dict:
 
 
 def view_data(s: Session, did: str) -> dict:
-    """furniture, furniture_unplaced, markers, comments of a drawing (only non-empty lists)."""
+    """Objects and pins of a drawing: furniture (catalog items on a floor),
+    furniture_unplaced (their floor is gone), shapes (lines, polygons, routes),
+    markers, comments — only non-empty lists."""
     floors = _floors(s, did)
-    out: dict[str, list] = {"furniture": [], "furniture_unplaced": [], "markers": [], "comments": []}
-    for r in s.scalars(select(Placement).where(Placement.drawing_id == did).order_by(Placement.created_at, Placement.id)):
-        o = placement_json(r, floors)
-        out["furniture" if o["floor"] else "furniture_unplaced"].append(o)
+    out: dict[str, list] = {"furniture": [], "furniture_unplaced": [], "shapes": [], "markers": [], "comments": []}
+    q = select(LayerObject).where(LayerObject.drawing_id == did).order_by(LayerObject.created_at, LayerObject.id)
+    for r in s.scalars(q):
+        o = object_json(r, floors)
+        if r.geom != "point":
+            out["shapes"].append(o)
+        else:
+            out["furniture" if o["floor"] else "furniture_unplaced"].append(o)
     for r in s.scalars(select(Pin).where(Pin.drawing_id == did).order_by(Pin.created_at, Pin.id)):
         out[r.kind + "s"].append(pin_json(r, floors))
     return {k: v for k, v in out.items() if v}
 
 
 def _strip(o: dict | None) -> dict | None:
-    return None if o is None else {k: v for k, v in o.items() if k not in ("version", "_anchor")}
+    """A row's JSON as input for the next change (without derived fields)."""
+    return None if o is None else {k: v for k, v in o.items() if k not in ("version", "_anchor", "room")}
 
 
 # ---------------------------------------------------------------- writes ---
@@ -168,27 +209,33 @@ def lock_drawing(s: Session, did: str, build: int | None) -> Drawing:
     return d
 
 
-def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None, force: bool = False) -> dict:
-    """Create / update / delete placements (entity 'placement') or pins ('pin').
+def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None) -> dict:
+    """Create / update / delete layer objects (entity 'object') or pins ('pin')
+    on a drawing.
 
     ops: [{"op": "create" | "update" | "delete", "id", "version", ...fields}]
-    Updates and deletes must carry the version they were made against
-    (unless `force`: the legacy whole-list PUT /view). All or nothing.
-    Returns {"items": [changed rows as JSON], "deleted": [ids]}.
+    Updates and deletes must carry the version they were made against. All
+    or nothing. Returns {"items": [changed rows as JSON], "deleted": [ids]}.
     """
     if not isinstance(ops, list) or len(ops) > MAX_OPS:
         raise Invalid(f"ops: ожидается список до {MAX_OPS} операций")
-    Model = Placement if entity == "placement" else Pin
     d = lock_drawing(s, did, build)
     pid = d.project_id
     floors = _floors(s, did)
     by_cand = {f.candidate: f.id for f in floors.values() if f.candidate}
     ids = [o.get("id") for o in ops if isinstance(o, dict) and isinstance(o.get("id"), str)]
-    rows = {r.id: r for r in s.scalars(select(Model).where(Model.drawing_id == did, Model.id.in_(ids)).with_for_update())}
-    to_json = placement_json if Model is Placement else pin_json
+    if entity == "object":
+        Model, to_json, limit = LayerObject, object_json, MAX_OBJECTS
+        rows = {r.id: r for r in s.scalars(select(LayerObject).where(LayerObject.project_id == pid,
+                                                                     LayerObject.id.in_(ids)).with_for_update())}
+        count = s.scalar(select(func.count()).select_from(LayerObject).where(LayerObject.drawing_id == did))
+        project_layers = {x.id: x for x in s.scalars(select(Layer).where(Layer.project_id == pid))}
+        loc = Locator(s)
+    else:
+        Model, to_json, limit = Pin, pin_json, MAX_PINS * 2
+        rows = {r.id: r for r in s.scalars(select(Pin).where(Pin.drawing_id == did, Pin.id.in_(ids)).with_for_update())}
+        count = s.scalar(select(func.count()).select_from(Pin).where(Pin.drawing_id == did))
     conflicts, changed, deleted = [], {}, []
-    count = s.scalar(select(func.count()).select_from(Model).where(Model.drawing_id == did))
-    limit = MAX_FURNITURE if Model is Placement else MAX_PINS * 2
 
     def floor_id(cand: str, allow_none: bool):
         if not cand and allow_none:
@@ -197,6 +244,11 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
             raise Invalid(f"этаж «{cand}» не найден в текущей сборке")
         return by_cand[cand]
 
+    def unlocked(layer: Layer):
+        if layer.locked:
+            raise Invalid(f"слой «{layer.name}» заблокирован")
+        return layer
+
     for o in ops:
         if not isinstance(o, dict) or o.get("op") not in ("create", "update", "delete"):
             raise Invalid("ops: элемент {op: create | update | delete, id, version, ...}")
@@ -204,14 +256,20 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
         fields = {k: v for k, v in o.items() if k not in ("op", "version")}
         if op != "create" and not isinstance(o.get("id"), str):
             raise Invalid(f"ops: для {op} нужен id")
-        if op == "create" and row is not None and not force:
+        if row is not None and entity == "object" and row.drawing_id != did:
+            if op == "create":
+                raise Invalid(f"объект «{row.id}» уже есть на другом чертеже проекта")
+            raise Invalid(f"объект «{row.id}» — на другом чертеже проекта")
+        if op == "create" and row is not None:
             conflicts.append({"id": row.id, "current": to_json(row, floors)})
             continue
-        if op != "create" and row is not None and not force and o.get("version") != row.version:
+        if op != "create" and row is not None and o.get("version") != row.version:
             conflicts.append({"id": row.id, "current": to_json(row, floors)})
             continue
         if op == "delete":
             if row is not None:
+                if entity == "object":
+                    unlocked(project_layers[row.layer_id])
                 audit_entry(s, pid, entity, row.id, "delete", to_json(row, floors), None, did)
                 s.delete(row)
                 rows.pop(row.id)
@@ -219,19 +277,46 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
                 count -= 1
             continue
         if op == "update" and row is None:
-            if not force:
-                conflicts.append({"id": o["id"], "current": None})
-                continue
-            op = "create"
+            conflicts.append({"id": o["id"], "current": None})
+            continue
         before = to_json(row, floors) if row is not None else None
-        if Model is Placement:
-            v = furniture_item({**(_strip(before) or {}), **fields})
+        if entity == "object":
+            base = _strip(before) or {}
+            if "geom" in fields and row is not None and fields["geom"] != row.geom:
+                raise Invalid("тип геометрии объекта не меняется")
+            v = object_item({**base, **fields})
             fid = floor_id(v["floor"], False) if (row is None or "floor" in fields) else row.floor_id
-            if (row is None or v["item"] != row.item_id) and s.get(CatalogItem, v["item"]) is None:
-                raise Invalid(f"предмета «{v['item']}» нет в каталоге")
-            vals = {"floor_id": fid, "item_id": v["item"], "x": v["at"][0], "y": v["at"][1], "angle": v["angle"],
-                    "size": v.get("size"), "note": v.get("note"), "elev": v.get("elev"), "fov": v.get("fov"),
-                    "range": v.get("range")}
+            item = v.get("item")
+            cat = None
+            if item is not None:
+                ci = s.get(CatalogItem, item)
+                if ci is None and (row is None or item != row.item_id):
+                    raise Invalid(f"предмета «{item}» нет в каталоге")
+                cat = ci.category_id if ci else None
+            if row is not None:
+                unlocked(project_layers[row.layer_id])
+            if "layer" in fields or row is None:
+                if v.get("layer"):
+                    layer = project_layers.get(v["layer"])
+                    if layer is None:
+                        raise Invalid(f"слоя «{v['layer']}» нет в проекте")
+                else:
+                    layer = layers.default_layer(s, pid, item)
+                    project_layers[layer.id] = layer
+                if (why := layers.accepts(unlocked(layer), v["geom"], cat)) is not None:
+                    raise Invalid(why)
+                layer_id = layer.id
+            else:
+                layer_id = row.layer_id
+            x, y = v["at"]
+            if row is not None and fid == row.floor_id and x == row.x and y == row.y:
+                room = row.room_id
+            else:
+                room = loc.room(fid, x, y)
+            vals = {"layer_id": layer_id, "floor_id": fid, "room_id": room, "item_id": item, "geom": v["geom"],
+                    "x": x, "y": y, "angle": v["angle"], "points": v.get("points"), "size": v.get("size"),
+                    "note": v.get("note"), "elev": v.get("elev"), "props": v["props"]}
+            new_row = dict(project_id=pid, drawing_id=did)
         else:
             kind = (row.kind + "s") if row is not None else o.get("kind")
             if kind in PIN_KINDS.values():
@@ -246,10 +331,11 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
                     "text": v["text"], "label": v["label"], "author": v["author"]}
             if row is None:
                 vals["created_at"] = datetime.fromtimestamp(v["created"], tz=timezone.utc)
+            new_row = dict(drawing_id=did)
         if row is None:
             if count >= limit:
                 raise Invalid(f"не больше {limit} объектов на чертеже")
-            row = Model(drawing_id=did, id=v["id"], version=1, updated_by=_me_id(), **vals)
+            row = Model(**new_row, id=v["id"], version=1, updated_by=_me_id(), **vals)
             s.add(row)
             rows[row.id] = row
             count += 1
@@ -273,33 +359,6 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
         s.execute(Project.__table__.update().where(Project.id == pid).values(updated_at=func.now()))
     s.flush()
     return {"items": [to_json(r, floors) for r in changed.values()], "deleted": deleted}
-
-
-def replace(s: Session, did: str, key: str, value):
-    """Legacy PUT /view: a whole list replaces the stored one (no versions)."""
-    if key == "furniture":
-        items = furniture(value)
-        keep = {r.id for r in s.scalars(select(Placement).join(Floor, Placement.floor_id == Floor.id, isouter=True)
-                                        .where(Placement.drawing_id == did,
-                                               (Floor.candidate.is_(None)) | (Placement.floor_id.is_(None))))}
-        current = set(s.scalars(select(Placement.id).where(Placement.drawing_id == did))) - keep
-        ops = [{"op": "update", **it} for it in items]
-        ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, did, "placement", ops, force=True)
-    elif key == "furniture_unplaced":
-        # only removal (after the items were put back on a floor or deleted): ids to keep
-        if not isinstance(value, list):
-            raise Invalid("view.furniture_unplaced: ожидается список")
-        ids = {it.get("id") if isinstance(it, dict) else it for it in value}
-        unplaced = view_data(s, did).get("furniture_unplaced") or []
-        apply(s, did, "placement", [{"op": "delete", "id": u["id"]} for u in unplaced if u["id"] not in ids],
-              force=True)
-    else:
-        items = pins(value, key)
-        current = set(s.scalars(select(Pin.id).where(Pin.drawing_id == did, Pin.kind == PIN_KINDS[key])))
-        ops = [{"op": "update", "kind": key, **it} for it in items]
-        ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, did, "pin", ops, force=True)
 
 
 def audit(s: Session, pid: str, limit: int = 100, drawing_id: str | None = None) -> list[dict]:

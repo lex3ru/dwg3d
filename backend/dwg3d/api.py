@@ -12,16 +12,18 @@ build queue into a 3D model.
   POST /api/drawings/{id}/revision       multipart: a new revision of the DWG; floors,
                                          editor corrections, furniture and pins follow it
   GET/PUT /api/drawings/{id}/view        viewer settings: name, map binding, detail model
-                                         alignment (no rebuild)
+                                         alignment (no rebuild); GET also the objects and pins
   POST/DELETE /api/drawings/{id}/detail, GET /api/drawings/{id}/detail.glb
                                          detailed model (GLB) shown over the generated one
   POST /api/drawings/{id}/rebuild        JSON config override (floors.items, layers...)
   GET  /api/drawings/{id}/files/...      model.glb, metadata.json, debug/*.png
   GET  /api/drawings/{id}/drawing.dxf|dwg  source drawing with the editor corrections
-  GET/POST /api/drawings/{id}/placements, PATCH/DELETE .../placements/{rid},
-  POST /api/drawings/{id}/placements:batch
-                                         placed furniture row by row, with versions (409
-                                         on concurrent changes); the same for /pins
+  GET/POST /api/projects/{id}/layers, PATCH/DELETE .../layers/{lid}
+                                         layers of a project (GET /api/layer-kinds: kinds)
+  GET/POST /api/drawings/{id}/objects, PATCH/DELETE .../objects/{rid},
+  POST /api/drawings/{id}/objects:batch  layer objects on the drawing's floors row by row, with
+                                         versions (409 on concurrent changes); the same for /pins
+  GET  /api/drawings/{id}/rooms          rooms (ids kept across builds)
   GET  /api/config/default               default config
   GET  /api/catalog                      furniture / equipment catalog (PostgreSQL)
   POST /api/catalog/items, PATCH /api/catalog/items/{id}, POST .../{id}/model (GLB),
@@ -71,13 +73,13 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func
+from sqlalchemy import func, select
 
-from . import auth, catalog, db, files, reports, store, viewdata, worker
+from . import auth, catalog, db, files, layers, reports, rooms, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Drawing, Project
+from .models import Drawing, Layer, Project
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -292,22 +294,39 @@ def update_catalog_category(cid: str, v: dict):
 
 
 # ------------------------------------------------------------- reports ---
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx(data: bytes, name: str) -> Response:
+    quoted = urllib.parse.quote(name + ".xlsx")
+    return Response(data, media_type=XLSX, headers={
+        "Content-Disposition": f"attachment; filename=\"specification.xlsx\"; filename*=UTF-8''{quoted}"})
+
+
 @app.get("/api/reports/equipment")
-def equipment_report(project: str | None = None, format: str = "json"):
-    """Specification of one project (per floor) or of all projects (per project); format=xlsx for Excel."""
+def equipment_report(project: str | None = None, layer: str | None = None, by: str = "floor",
+                     format: str = "json"):
+    """Specification of one project (per floor, or room by room with by=room) or
+    of all projects (per project); of one layer with `layer`; format=xlsx for Excel."""
     if format not in ("json", "xlsx"):
         raise HTTPException(400, "format: json или xlsx")
+    if by not in ("floor", "room") or (by == "room" and project is None):
+        raise HTTPException(400, "by: floor или room (room — только для проекта)")
     with db.session() as s:
         if project is not None:
             _project(s, project)
-        rep = reports.equipment(s, project)
+        if layer is not None and (project is None or _layer_of(s, project, layer) is None):
+            raise HTTPException(404, "Слой не найден")
+        rep = reports.by_room(s, project, layer) if by == "room" else reports.equipment(s, project, layer)
     if format == "json":
         return rep
-    name = (f"Спецификация — {rep['project']['name']}" if project else "Сводная спецификация") + ".xlsx"
-    quoted = urllib.parse.quote(name)
-    return Response(reports.to_xlsx(rep),
-                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f"attachment; filename=\"specification.xlsx\"; filename*=UTF-8''{quoted}"})
+    if by == "room":
+        return _xlsx(reports.rooms_to_xlsx(rep), f"Спецификация по помещениям — {rep['project']['name']}")
+    return _xlsx(reports.to_xlsx(rep), f"Спецификация — {rep['project']['name']}" if project else "Сводная спецификация")
+
+
+def _layer_of(s, pid: str, lid: str) -> Layer | None:
+    return s.scalar(select(Layer).where(Layer.id == lid, Layer.project_id == pid))
 
 
 @app.get("/api/config/default")
@@ -512,13 +531,13 @@ def delete_drawing(did: str):
 # ------------------------------------------------------ viewer settings ---
 # Per-drawing viewer state that needs no rebuild. Map binding, detail-model
 # alignment and the name are drawing columns; placed furniture, markers and
-# comments are rows (viewdata.py), edited one by one through /api/drawings/{id}/placements
-# and /pins or, for whole-list clients, through PUT /api/drawings/{id}/view.
+# comments are rows (viewdata.py), edited one by one through /api/drawings/{id}/objects
+# and /pins.
 MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
 _f, _s = viewdata.num, viewdata.string
 
-# viewer data tied to the floors of the build it was made on
-FLOOR_BOUND = ("furniture", "furniture_unplaced", "markers", "comments")
+# viewer data changed row by row, not through PUT /view
+FLOOR_BOUND = ("furniture", "furniture_unplaced", "shapes", "markers", "comments")
 
 
 @app.exception_handler(viewdata.Invalid)
@@ -582,24 +601,16 @@ def get_view(did: str):
 
 @app.put("/api/drawings/{did}/view")
 def put_view(did: str, v: dict):
-    """Merge viewer settings: top-level keys given replace the stored ones.
-    Whole furniture / pin lists are turned into row changes (last writer
-    wins); the viewer edits rows through /api/drawings/{id}/placements instead."""
+    """Merge viewer settings (name, site, detail): the keys given replace the
+    stored ones. Objects and pins change row by row (/objects, /pins)."""
+    if any(k in v for k in FLOOR_BOUND):
+        raise HTTPException(400, "Расстановка и метки меняются построчно: /objects и /pins")
     with db.session() as s:
         d = _drawing(s, did, lock=True)
-        if any(k in v for k in FLOOR_BOUND):
-            # these refer to floors of a particular build: never write them across a rebuild
-            if store.has_active(s, did):
-                raise HTTPException(409, "Идёт перестроение модели: расстановка и метки сохранятся после него")
-            if "_build" in v and v["_build"] != d.current_build:
-                raise HTTPException(409, "Модель была перестроена: обновите страницу, чтобы не потерять изменения")
         cols = validate_settings(v, store.view_of(s, d))
         if cols:
             _audit_settings(s, d, cols)
             store.set_settings(d, cols)
-        for k in ("furniture", "markers", "comments", "furniture_unplaced"):
-            if k in v:
-                viewdata.replace(s, did, k, v[k])
         s.flush()
         return store.view_of(s, d)
 
@@ -610,11 +621,11 @@ def _audit_settings(s, d: Drawing, cols: dict):
         viewdata.audit_entry(s, d.project_id, "drawing", d.id, "update", before, cols, d.id)
 
 
-# ----------------------------------------- furniture and pins, row by row ---
+# ------------------------------------------- objects and pins, row by row ---
 # Floors are the candidate ids of the build given in `build` (409 if the model
 # was rebuilt since); updates and deletes carry the row `version` they were
 # made against (409 with the current rows if someone changed them meanwhile).
-ROW_KINDS = {"placements": "placement", "pins": "pin"}
+ROW_KINDS = {"objects": "object", "pins": "pin"}
 
 
 def _body(v) -> dict:
@@ -630,13 +641,15 @@ def _one(res: dict):
 def _row_routes(kind: str):
     entity = ROW_KINDS[kind]
 
-    def list_rows(did: str, floor: str | None = None):
+    def list_rows(did: str, floor: str | None = None, layer: str | None = None):
         with db.session() as s:
             d = _drawing(s, did)
             data = viewdata.view_data(s, did)
-        pick = lambda k: [it for it in data.get(k) or [] if floor is None or it["floor"] == floor]  # noqa: E731
-        if kind == "placements":
-            return {"build": d.current_build, "items": pick("furniture"), "unplaced": data.get("furniture_unplaced") or []}
+        pick = lambda k: [it for it in data.get(k) or []  # noqa: E731
+                          if (floor is None or it["floor"] == floor) and (layer is None or it.get("layer") == layer)]
+        if kind == "objects":
+            return {"build": d.current_build, "items": pick("furniture") + pick("shapes"),
+                    "unplaced": [it for it in data.get("furniture_unplaced") or [] if layer is None or it["layer"] == layer]}
         return {"build": d.current_build, "markers": pick("markers"), "comments": pick("comments")}
 
     def batch_rows(did: str, v: dict):
@@ -669,6 +682,77 @@ def _row_routes(kind: str):
 
 for _kind in ROW_KINDS:
     _row_routes(_kind)
+
+
+@app.get("/api/drawings/{did}/rooms")
+def list_rooms(did: str):
+    with db.session() as s:
+        _drawing(s, did)
+        return rooms.rooms_json(s, did)
+
+
+# ---------------------------------------------------------------- layers ---
+@app.exception_handler(layers.LayerError)
+def _layer_invalid(_, ex: layers.LayerError):
+    return JSONResponse({"detail": str(ex)}, status_code=400)
+
+
+@app.get("/api/layer-kinds")
+def layer_kinds():
+    return layers.kinds_json()
+
+
+def _layer(s, pid: str, lid: str) -> Layer:
+    layer = s.scalar(select(Layer).where(Layer.id == lid, Layer.project_id == pid).with_for_update())
+    if layer is None:
+        raise HTTPException(404, "Слой не найден")
+    return layer
+
+
+@app.get("/api/projects/{pid}/layers")
+def list_layers(pid: str):
+    with db.session() as s:
+        _project(s, pid)
+        return layers.list_layers(s, pid)
+
+
+@app.post("/api/projects/{pid}/layers", status_code=201)
+def create_layer(pid: str, v: dict):
+    with db.session() as s:
+        _project(s, pid, lock=True)
+        layer = layers.create(s, pid, v)
+        viewdata.audit_entry(s, pid, "layer", layer.id, "create", None, layers.layer_json(layer))
+        store.touch_project(s, pid)
+        return layers.layer_json(layer, 0)
+
+
+@app.patch("/api/projects/{pid}/layers/{lid}")
+def update_layer(pid: str, lid: str, v: dict):
+    with db.session() as s:
+        _project(s, pid)
+        layer = _layer(s, pid, lid)
+        if "version" in v and v["version"] != layer.version:
+            raise viewdata.Conflict("Слой изменён другим пользователем: обновите данные и повторите",
+                                    [{"id": lid, "current": layers.layer_json(layer)}])
+        changes = layers.update(layer, v)
+        if changes:
+            viewdata.audit_entry(s, pid, "layer", lid, "update", {k: b for k, (b, _) in changes.items()},
+                                 {k: a for k, (_, a) in changes.items()})
+            store.touch_project(s, pid)
+        return layers.layer_json(layer)
+
+
+@app.delete("/api/projects/{pid}/layers/{lid}", status_code=204)
+def delete_layer(pid: str, lid: str):
+    """The layer and all its objects."""
+    with db.session() as s:
+        _project(s, pid)
+        layer = _layer(s, pid, lid)
+        if layer.locked:
+            raise HTTPException(409, f"Слой «{layer.name}» заблокирован")
+        viewdata.audit_entry(s, pid, "layer", lid, "delete", layers.layer_json(layer), None)
+        s.delete(layer)
+        store.touch_project(s, pid)
 
 
 @app.post("/api/drawings/{did}/detail")

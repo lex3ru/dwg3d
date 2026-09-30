@@ -100,7 +100,7 @@ def _project_with(items) -> str:
         add_drawing(s, pid, project_name=f"Клиника {pid[:4]}", current_build=1)
         s.add(Build(drawing_id=pid, n=1, result={"floors": floors}, config={}, out_dir="out"))
         store.sync_floors(s, pid, {"floors": floors})
-        viewdata.apply(s, pid, "placement", [{"op": "create", "floor": f, "item": it, "at": [1, 1]} for f, it in items])
+        viewdata.apply(s, pid, "object", [{"op": "create", "floor": f, "item": it, "at": [1, 1]} for f, it in items])
     return pid
 
 

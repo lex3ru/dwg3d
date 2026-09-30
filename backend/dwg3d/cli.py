@@ -9,6 +9,7 @@
   python -m dwg3d files upload            # copy the local data directory into S3 (DWG3D_S3_*)
   python -m dwg3d files restore DIR       # upload a backup mirror (DIR/drawings, DIR/catalog)
   python -m dwg3d backup DIR [--keep 14]  # database dump + mirror of the file store
+  python -m dwg3d rooms backfill          # room rows for drawings built before they existed
   python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
   python -m dwg3d user passwd LOGIN | role LOGIN ROLE | disable LOGIN | enable LOGIN | list
 """
@@ -46,6 +47,8 @@ def main(argv=None):
     f.add_argument("action", choices=["upload", "restore"],
                    help="upload: copy DWG3D_DATA (jobs/, catalog/) into S3; restore DIR: upload a backup mirror")
     f.add_argument("dir", nargs="?", help="restore: the files/ directory of a backup")
+    rm = sub.add_parser("rooms", help="room rows (ids kept across builds)")
+    rm.add_argument("action", choices=["backfill"], help="rooms for current builds that have none yet")
     bk = sub.add_parser("backup", help="database dump and a mirror of the file store")
     bk.add_argument("dir")
     bk.add_argument("--keep", type=int, default=14, help="database dumps to keep")
@@ -88,6 +91,20 @@ def main(argv=None):
         return 0
     if args.cmd == "user":
         return _user_cmd(args)
+    if args.cmd == "rooms":
+        from sqlalchemy import select
+
+        from . import db, rooms
+        from .models import Drawing, Room
+        db.migrate()
+        with db.session() as s:
+            ids = list(s.scalars(select(Drawing.id).where(Drawing.current_build > 0, Drawing.deleted_at.is_(None),
+                                                          Drawing.id.not_in(select(Room.drawing_id)))))
+        for did in ids:
+            with db.session() as s:
+                print(f"  {did}: помещений {rooms.backfill(s, did)}")
+        print(f"Готово: чертежей {len(ids)}")
+        return 0
     if args.cmd == "backup":
         from . import backup
         res = backup.run(Path(args.dir), args.keep)

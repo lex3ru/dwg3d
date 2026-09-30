@@ -363,12 +363,16 @@ uv run python -m dwg3d user disable ivanov     # вход запрещён, се
 | `GET /api/drawings/{id}` | статус, прогресс, результат (этажи, помещения с типами, входы, метки) |
 | `DELETE /api/drawings/{id}` | удаление чертежа |
 | `POST /api/drawings/{id}/revision` | multipart `file` — новая ревизия DWG: этажи сопоставляются по листам, правки, мебель и метки остаются на них |
-| `GET/PUT /api/drawings/{id}/view` | настройки просмотра без перестроения: название, привязка к карте, выравнивание детальной модели; списки `furniture`/`markers`/`comments` в `PUT` целиком заменяют сохранённые (без проверки версий) |
-| `GET /api/drawings/{id}/placements?floor=c1` | расставленные предметы (`items`, с `version`) и предметы без этажа (`unplaced`) |
-| `POST /api/drawings/{id}/placements` | новый предмет `{id?, floor, item, at, angle, …, build}` → `201` |
-| `PATCH /api/drawings/{id}/placements/{rid}` | `{version, build, …изменённые поля}`; `null` снимает переопределение |
-| `DELETE /api/drawings/{id}/placements/{rid}?version=&build=` | `204`; уже удалённый — тоже `204` |
-| `POST /api/drawings/{id}/placements:batch` | `{build, ops: [{op: create/update/delete, id, version, …}]}` — всё или ничего |
+| `GET/PUT /api/drawings/{id}/view` | настройки просмотра без перестроения: название, привязка к карте, выравнивание детальной модели (`GET` — вместе с объектами и метками) |
+| `GET /api/layer-kinds` | типы слоёв: какие объекты и категории каталога они принимают |
+| `GET/POST /api/projects/{id}/layers` | слои проекта (с числом объектов) / новый слой `{kind, name?}` |
+| `PATCH/DELETE /api/projects/{id}/layers/{lid}` | `{name, visible, locked, sort, props, version?}`; удаление — вместе с объектами (заблокированный — `409`) |
+| `GET /api/drawings/{id}/objects?floor=c1&layer=` | объекты слоёв на чертеже (`items`, с `version`, `layer`, `room`) и объекты без этажа (`unplaced`) |
+| `POST /api/drawings/{id}/objects` | новый объект `{id?, layer?, floor, item, at, angle, …, build}` → `201`; без `layer` — слой по категории предмета (камеры — «Видеонаблюдение») |
+| `PATCH /api/drawings/{id}/objects/{rid}` | `{version, build, …изменённые поля}`; `layer` переносит в другой слой; `null` снимает переопределение |
+| `DELETE /api/drawings/{id}/objects/{rid}?version=&build=` | `204`; уже удалённый — тоже `204` |
+| `POST /api/drawings/{id}/objects:batch` | `{build, ops: [{op: create/update/delete, id, version, …}]}` — всё или ничего |
+| `GET /api/drawings/{id}/rooms` | помещения: `id` сохраняется между сборками и ревизиями |
 | `…/pins`, `…/pins/{rid}`, `…/pins:batch` | то же для меток и комментариев (`kind`: `marker` / `comment`) |
 | `POST/DELETE /api/drawings/{id}/detail`, `GET …/detail.glb` | детальная модель (только GLB) |
 | `POST /api/drawings/{id}/rebuild` | JSON-переопределение конфига → перестроение |
@@ -378,7 +382,7 @@ uv run python -m dwg3d user disable ivanov     # вход запрещён, се
 | `POST /api/catalog/items`, `PATCH /api/catalog/items/{id}` | новая позиция / изменение полей (`null` очищает необязательное) — `catalog_admin` |
 | `POST /api/catalog/items/{id}/model` | загрузка GLB (до `DWG3D_MAX_CATALOG_GLB_MB`, 50 МБ); отдаётся по `GET /api/catalog/models/{file}` |
 | `POST /api/catalog/categories`, `PATCH /api/catalog/categories/{id}` | категории: `{id, name, color}` |
-| `GET /api/reports/equipment?project=&format=json\|xlsx` | спецификация проекта (по этажам всех его чертежей) или сводная по всем проектам |
+| `GET /api/reports/equipment?project=&layer=&by=floor\|room&format=json\|xlsx` | спецификация проекта (по этажам всех его чертежей или `by=room` — по помещениям), одного слоя, или сводная по всем проектам |
 | `POST /api/auth/login` | `{login, password}` → пользователь, cookie сессии; `401` — неверно, `429` — слишком много попыток |
 | `POST /api/auth/logout`, `GET /api/auth/me` | выход; текущий пользователь (`401` — нужно войти) |
 

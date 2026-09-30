@@ -68,8 +68,10 @@ def test_drawings_revisions_and_report(c, sample):
 
     fa, fb = a["result"]["floors"][0]["id"], b["result"]["floors"][0]["id"]
     item = {"item": "doc.couch", "at": [2, 2]}
-    assert c.post(f"/api/drawings/{a['id']}/placements", json={**item, "id": "x", "floor": fa}).status_code == 201
-    assert c.post(f"/api/drawings/{b['id']}/placements", json={**item, "id": "x", "floor": fb}).status_code == 201
+    assert c.post(f"/api/drawings/{a['id']}/objects", json={**item, "id": "x", "floor": fa}).status_code == 201
+    # object ids are unique in the project
+    assert c.post(f"/api/drawings/{b['id']}/objects", json={**item, "id": "x", "floor": fb}).status_code == 400
+    assert c.post(f"/api/drawings/{b['id']}/objects", json={**item, "id": "y", "floor": fb}).status_code == 201
 
     rep = c.get(f"/api/reports/equipment?project={pid}").json()
     assert rep["project"]["name"] == "Медцентр" and rep["qty"] == 2
@@ -85,7 +87,7 @@ def test_drawings_revisions_and_report(c, sample):
 
     log = c.get(f"/api/projects/{pid}/audit").json()
     assert {(x["entity"], x["action"]) for x in log} >= {("drawing", "create"), ("drawing", "revision"),
-                                                         ("placement", "create")}
+                                                         ("object", "create")}
     assert {x["drawing_id"] for x in c.get(f"/api/projects/{pid}/audit?drawing={b['id']}").json()} == {b["id"]}
 
     assert c.delete(f"/api/drawings/{b['id']}").status_code == 204

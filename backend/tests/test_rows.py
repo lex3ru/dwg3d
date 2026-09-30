@@ -56,7 +56,7 @@ def _apply(pid, entity, ops, **kw):
 # ------------------------------------------------------- rebuild moves ---
 def test_rows_follow_swapped_ids_and_changed_offset(pg):
     pid = _project([_floor("c0", A, name="1 этаж"), _floor("c1", B, elevation=3.0, name="2 этаж")], center=(10.0, 5.0))
-    _apply(pid, "placement", [{"op": "create", "id": "f1", "floor": "c0", "item": "doc.couch", "at": [5, 5]},
+    _apply(pid, "object", [{"op": "create", "id": "f1", "floor": "c0", "item": "doc.couch", "at": [5, 5]},
                               {"op": "create", "id": "f2", "floor": "c1", "item": "diag.mri", "at": [8, 2], "angle": 90}])
     _apply(pid, "pin", [{"op": "create", "id": "m1", "kind": "marker", "floor": "c1", "pos": [1.0, 3.1, -2.0]},
                         {"op": "create", "id": "m2", "kind": "comment", "floor": "", "pos": [0.0, 0.0, 0.0], "text": "x"}])
@@ -75,7 +75,7 @@ def test_rows_follow_swapped_ids_and_changed_offset(pg):
 
 def test_lost_floor_is_kept_aside_and_restored_later(pg):
     pid = _project([_floor("c0", A), _floor("c1", B, name="Подвал")])
-    _apply(pid, "placement", [{"op": "create", "id": "f1", "floor": "c1", "item": "st.cabinet", "at": [101, 1]}])
+    _apply(pid, "object", [{"op": "create", "id": "f1", "floor": "c1", "item": "st.cabinet", "at": [101, 1]}])
     warns = _rebuild(pid, [_floor("c0", A)])
     v = _view(pid)
     assert "furniture" not in v and v["furniture_unplaced"][0]["id"] == "f1"
@@ -90,10 +90,10 @@ def test_lost_floor_is_kept_aside_and_restored_later(pg):
 
 def test_unplaced_item_put_back_on_a_floor(pg):
     pid = _project([_floor("c0", A), _floor("c1", B, name="Подвал")])
-    _apply(pid, "placement", [{"op": "create", "id": "f1", "floor": "c1", "item": "st.cabinet", "at": [101, 1]}])
+    _apply(pid, "object", [{"op": "create", "id": "f1", "floor": "c1", "item": "st.cabinet", "at": [101, 1]}])
     _rebuild(pid, [_floor("c0", A)])
     u = _view(pid)["furniture_unplaced"][0]
-    r = _apply(pid, "placement", [{"op": "update", "id": "f1", "version": u["version"], "floor": "c0"}], build=2)
+    r = _apply(pid, "object", [{"op": "update", "id": "f1", "version": u["version"], "floor": "c0"}], build=2)
     assert r["items"][0]["floor"] == "c0" and "_anchor" not in r["items"][0]
 
 
@@ -106,7 +106,7 @@ def api(pg):
 
 def test_row_api_versions_conflicts_batch_audit(pg, api):
     pid = _project([_floor("c0", A), _floor("c1", B)])
-    base = f"/api/drawings/{pid}/placements"
+    base = f"/api/drawings/{pid}/objects"
     r = api.post(base, json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2], "build": 1})
     assert r.status_code == 201 and r.json()["version"] == 1
     assert api.post(base, json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2]}).status_code == 409
@@ -157,27 +157,18 @@ def test_row_api_versions_conflicts_batch_audit(pg, api):
 
     log = api.get(f"/api/projects/{pid}/audit").json()
     acts = [(a["entity"], a["entity_id"], a["action"]) for a in reversed(log)]
-    assert acts[:4] == [("placement", "a", "create"), ("placement", "a", "update"),
-                        ("placement", "a", "update"), ("placement", "b", "create")]
-    assert ("placement", "b", "delete") in acts and ("pin", "k", "update") in acts
+    assert acts[:4] == [("object", "a", "create"), ("object", "a", "update"),
+                        ("object", "a", "update"), ("object", "b", "create")]
+    assert ("object", "b", "delete") in acts and ("pin", "k", "update") in acts
     upd = next(a for a in log if a["entity_id"] == "a" and a["action"] == "update" and a["after"]["angle"] == 90)
     assert upd["before"]["angle"] == 0 and "version" not in upd["after"]
-    assert api.get("/api/drawings/nope/placements").status_code == 404
+    assert api.get("/api/drawings/nope/objects").status_code == 404
 
 
-def test_legacy_put_view_keeps_unplaced_and_other_kinds(pg, api):
-    pid = _project([_floor("c0", A), _floor("c1", B, name="Подвал")])
-    _apply(pid, "placement", [{"op": "create", "id": "u", "floor": "c1", "item": "st.cabinet", "at": [101, 1]}])
-    _rebuild(pid, [_floor("c0", A)])
-    _apply(pid, "pin", [{"op": "create", "id": "m", "kind": "marker", "pos": [0, 0, 0]}])
-    with db.session() as s:
-        s.execute(text("UPDATE jobs SET status = 'done' WHERE drawing_id = :p"), {"p": pid})
-    v = api.put(f"/api/drawings/{pid}/view", json={"furniture": [{"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 1]}],
-                                               "comments": []}).json()
-    assert [it["id"] for it in v["furniture"]] == ["a"] and v["furniture_unplaced"][0]["id"] == "u"
-    assert v["markers"][0]["id"] == "m"
-    v = api.put(f"/api/drawings/{pid}/view", json={"furniture_unplaced": []}).json()
-    assert "furniture_unplaced" not in v and v["furniture"][0]["id"] == "a"
+def test_put_view_refuses_lists(pg, api):
+    pid = _project([_floor("c0", A)])
+    r = api.put(f"/api/drawings/{pid}/view", json={"furniture": [{"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 1]}]})
+    assert r.status_code == 400
 
 
 # ------------------------------------------------ migration 0003 (data) ---
@@ -208,15 +199,19 @@ def test_migration_moves_view_json_to_rows(pg):
             command.upgrade(cfg, "head")
             conn.commit()
         with eng.connect() as conn:
-            rows = conn.execute(text("SELECT p.id, f.candidate, f.name, p.size, p.angle FROM placements p "
-                                     "LEFT JOIN floors f ON f.id = p.floor_id ORDER BY p.id")).all()
-            assert rows == [("a", "c0", "1 этаж", [1.0, 2.0, 3.0], 90.0), ("b", None, "Подвал", None, 0.0)]
+            # 0003: view JSON -> rows; 0005: the project became a drawing of a project; 0006: rows -> layer objects
+            rows = conn.execute(text("SELECT o.id, f.candidate, f.name, o.size, o.angle, o.project_id, o.drawing_id, "
+                                     "l.kind, o.geom FROM layer_objects o JOIN layers l ON l.id = o.layer_id "
+                                     "LEFT JOIN floors f ON f.id = o.floor_id ORDER BY o.id")).all()
+            assert rows == [("a", "c0", "1 этаж", [1.0, 2.0, 3.0], 90.0, "p1", "p1", "furniture", "point"),
+                            ("b", None, "Подвал", None, 0.0, "p1", "p1", "furniture", "point")]
+            assert conn.execute(text("SELECT id, name FROM projects")).all() == [("p1", "p")]      # named after the file
             pins = conn.execute(text("SELECT id, kind, floor_id IS NULL, label, extract(epoch FROM created_at) > 1e9 "
                                      "FROM pins ORDER BY id")).all()
             assert pins == [("k", "comment", True, "", True), ("m", "marker", False, "A", True)]
             cols = {r[0] for r in conn.execute(text("SELECT column_name FROM information_schema.columns "
-                                                    "WHERE table_name = 'projects'"))}
-            assert "view" not in cols
+                                                    "WHERE table_name = 'drawings'"))}
+            assert "view" not in cols and "project_id" in cols
     finally:
         eng.dispose()
         with admin.connect() as c:

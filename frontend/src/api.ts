@@ -5,6 +5,8 @@ export type Role = 'walls' | 'columns' | 'windows' | 'doors' | 'rooms' | 'grid' 
 export type V3 = [number, number, number]
 
 export interface RoomMeta {
+  /** room id kept across builds (see GET /api/drawings/{id}/rooms) */
+  id?: number
   node: string
   name: string
   area: number
@@ -128,6 +130,24 @@ export interface Result {
   extent?: { x: [number, number]; z: [number, number] }
 }
 
+export type LayerKind = 'furniture' | 'cctv' | string
+
+/** A layer of a project (its objects may stand on any of the project's drawings). */
+export interface Layer {
+  id: string
+  kind: LayerKind
+  name: string
+  visible: boolean
+  locked: boolean
+  sort: number
+  props: Record<string, unknown>
+  version: number
+  /** objects in the layer (all drawings) */
+  count?: number
+}
+
+export interface LayerKindInfo { kind: LayerKind; name: string; geoms: string[]; categories: string[] | null }
+
 /** A drawing (one uploaded DWG/DXF) with the state of its latest build. */
 export interface Job {
   id: string
@@ -144,6 +164,8 @@ export interface Job {
   build: number
   config?: Record<string, unknown>
   view?: ViewSettings
+  /** layers of the drawing's project */
+  layers?: Layer[]
 }
 
 export interface Pin {
@@ -157,11 +179,16 @@ export interface Pin {
   created?: number
 }
 
-/** Furniture / equipment placed on a floor (plan coordinates, meters). */
+/** Furniture / equipment placed on a floor (plan coordinates, meters): a point object of a layer. */
 export interface PlacedItem {
   id: string
   /** row version on the server (sent back with changes) */
   version?: number
+  /** layer id (the server picks a default layer for new items when absent) */
+  layer?: string
+  /** id of the room it stands in (kept across builds), null outside rooms */
+  room?: number | null
+  geom?: 'point'
   floor: string
   /** catalog item id */
   item: string
@@ -321,6 +348,27 @@ export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<v
 }
 
 /** Drawings of one project (or all), newest first. */
+export async function listLayers(projectId: string): Promise<Layer[]> {
+  return check(await fetch(`/api/projects/${projectId}/layers`))
+}
+
+export async function layerKinds(): Promise<LayerKindInfo[]> {
+  return check(await fetch('/api/layer-kinds'))
+}
+
+export async function createLayer(projectId: string, kind: LayerKind, name?: string): Promise<Layer> {
+  return check(await fetch(`/api/projects/${projectId}/layers`, jsonBody('POST', { kind, name })))
+}
+
+/** name / visible / locked / sort; `version` makes it fail (409) when someone changed the layer meanwhile. */
+export async function updateLayer(projectId: string, id: string, patch: Partial<Pick<Layer, 'name' | 'visible' | 'locked' | 'sort' | 'props' | 'version'>>): Promise<Layer> {
+  return check(await fetch(`/api/projects/${projectId}/layers/${id}`, jsonBody('PATCH', patch)))
+}
+
+export async function deleteLayer(projectId: string, id: string): Promise<void> {
+  return check(await fetch(`/api/projects/${projectId}/layers/${id}`, { method: 'DELETE' }))
+}
+
 export async function listJobs(projectId?: string): Promise<JobSummary[]> {
   return check(await fetch(projectId ? `/api/drawings?project=${projectId}` : '/api/drawings'))
 }
@@ -346,10 +394,10 @@ export type RowOp = { op: 'create' | 'update' | 'delete'; id: string; version?: 
 export interface RowConflict { id: string; current: (PlacedItem & Pin) | null }
 export interface BatchResult<T> { items: T[]; deleted: string[] }
 
-/** Apply changes to furniture ('placements') or pins as one transaction: all or none.
+/** Apply changes to layer objects (furniture, cameras, lines...) or pins as one transaction: all or none.
  * Throws ApiError 409 with body.conflicts when rows were changed by someone else,
  * or when the model was rebuilt since `build`. */
-export async function batchRows<T = PlacedItem>(id: string, kind: 'placements' | 'pins', build: number, ops: RowOp[]): Promise<BatchResult<T>> {
+export async function batchRows<T = PlacedItem>(id: string, kind: 'objects' | 'pins', build: number, ops: RowOp[]): Promise<BatchResult<T>> {
   return check(await fetch(`/api/drawings/${id}/${kind}:batch`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build, ops }),
   }))
@@ -406,9 +454,34 @@ export interface EquipmentReport {
   generated: string
 }
 
-export async function equipmentReport(project: string | null): Promise<EquipmentReport> {
-  return check(await fetch(`/api/reports/equipment${project ? `?project=${project}` : ''}`))
+export async function equipmentReport(project: string | null, layer?: string | null): Promise<EquipmentReport> {
+  const q = new URLSearchParams()
+  if (project) q.set('project', project)
+  if (layer) q.set('layer', layer)
+  return check(await fetch(`/api/reports/equipment?${q}`))
 }
 
-export const equipmentReportXlsx = (project: string | null) =>
-  `/api/reports/equipment?format=xlsx${project ? `&project=${project}` : ''}`
+export interface RoomReport {
+  project: { id: string; name: string }
+  layer?: { id: string; name: string }
+  many_drawings: boolean
+  rooms: { drawing: string; floor: string; room: string; room_id: number | null; area: number | null; qty: number;
+    totals: Record<string, number>; items: Omit<ReportRow, 'by'>[] }[]
+  qty: number
+  totals: Record<string, number>
+  generated: string
+}
+
+export async function roomReport(project: string, layer?: string | null): Promise<RoomReport> {
+  const q = new URLSearchParams({ project, by: 'room' })
+  if (layer) q.set('layer', layer)
+  return check(await fetch(`/api/reports/equipment?${q}`))
+}
+
+export const equipmentReportXlsx = (project: string | null, by: 'floor' | 'room' = 'floor', layer?: string | null) => {
+  const q = new URLSearchParams({ format: 'xlsx' })
+  if (project) q.set('project', project)
+  if (by === 'room') q.set('by', 'room')
+  if (layer) q.set('layer', layer)
+  return `/api/reports/equipment?${q}`
+}
