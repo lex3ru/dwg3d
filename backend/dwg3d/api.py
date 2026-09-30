@@ -36,7 +36,9 @@ build queue into a 3D model.
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
 Environment:
-  DWG3D_DATA              data directory (default <project>/data)
+  DWG3D_DATA              data directory (default <project>/data): the files
+                          themselves, or only working copies with S3 (files.py)
+  DWG3D_S3_*              S3-compatible storage for the files (see files.py)
   DWG3D_DATABASE_URL      PostgreSQL (default: the docker compose service, see
                           dwg3d/db.py); migrated to the latest schema on start
   DWG3D_MAX_UPLOAD_MB     upload limit (200)
@@ -49,9 +51,9 @@ Environment:
 Every /api request except health and sign-in needs a session (DWG3D_AUTH=off
 disables this): reading needs any role, changes need "editor", catalog
 changes "catalog_admin". Serve it over HTTPS (the session cookie is marked
-Secure when the request came over HTTPS, X-Forwarded-Proto included). All state is in PostgreSQL and <DWG3D_DATA>, so
-several uvicorn processes (and hosts sharing the data directory) can serve
-the same projects.
+Secure when the request came over HTTPS, X-Forwarded-Proto included). All
+state is in PostgreSQL and the file store (a data directory or S3), so
+several uvicorn processes and hosts can serve the same projects.
 """
 from __future__ import annotations
 
@@ -59,20 +61,19 @@ import hashlib
 import json
 import logging
 import os
-import shutil
 import time
 import urllib.parse
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 
-from . import auth, catalog, db, reports, store, viewdata, worker
+from . import auth, catalog, db, files, reports, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -176,7 +177,7 @@ def _cleanup():
     with db.session() as s:
         gone = store.delete_stale(s, RETENTION_DAYS)
     for did in gone:
-        shutil.rmtree(store.drawing_dir(did), ignore_errors=True)
+        files.store().delete_prefix(files.drawing_key(did))
     if gone:
         log.info("%d drawing(s) of stale projects removed (retention %s days)", len(gone), RETENTION_DAYS)
 
@@ -194,9 +195,29 @@ _init_db()
 if auth.enabled() and not auth.has_users():
     log.warning("Нет ни одного пользователя: создайте его — python -m dwg3d user add LOGIN --role catalog_admin "
                 "(или DWG3D_AUTH=off для сервера во внутренней сети)")
-store.data_dir().mkdir(parents=True, exist_ok=True)
 worker.start(int(os.environ.get("DWG3D_WORKERS", "2")))
 _cleanup()
+
+
+def _serve(key: str, media_type: str, filename: str | None = None, headers: dict | None = None):
+    """A file of the store as the response: from disk, or streamed from S3."""
+    st = files.store()
+    if (p := st.local_path(key)) is not None:
+        return FileResponse(p, media_type=media_type, filename=filename, headers=headers)
+    size = st.size(key)
+    if size is None:
+        raise HTTPException(404)
+    h = {"Content-Length": str(size), **(headers or {})}
+    if filename:
+        h["Content-Disposition"] = f"attachment; filename*=utf-8''{urllib.parse.quote(filename)}"
+    return StreamingResponse(st.stream(key), media_type=media_type, headers=h)
+
+
+def _tmp_path(suffix: str = "") -> Path:
+    """A fresh local temp file path for an upload on its way into the store."""
+    d = files.data_root() / "tmp"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{uuid.uuid4().hex}{suffix}.part"
 
 
 def _project(s, pid: str, lock: bool = False) -> Project:
@@ -253,11 +274,11 @@ async def upload_catalog_model(iid: str, file: UploadFile = File(...)):
 
 @app.get("/api/catalog/models/{name}")
 def get_catalog_model(name: str):
-    p = catalog.model_file(name)
-    if p is None:
+    key = catalog.model_key(name)
+    if key is None:
         raise HTTPException(404)
     # file names carry a content hash: cache forever
-    return FileResponse(p, media_type="model/gltf-binary", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    return _serve(key, "model/gltf-binary", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.post("/api/catalog/categories", status_code=201)
@@ -413,10 +434,10 @@ async def create_drawing(pid: str, file: UploadFile = File(...), config: str | N
         _project(s, pid)
     _cleanup()
     did = uuid.uuid4().hex[:12]
-    ddir = store.drawing_dir(did)
-    ddir.mkdir(parents=True)
+    tmp = _tmp_path(ext)
     try:
-        size = await _save_upload(file, ddir / f"input{ext}")
+        size = await _save_upload(file, tmp)
+        await run_in_threadpool(files.store().put_file, files.drawing_key(did, f"input{ext}"), tmp, True)
         with db.session() as s:
             _project(s, pid, lock=True)
             me = auth.current.get()
@@ -428,7 +449,8 @@ async def create_drawing(pid: str, file: UploadFile = File(...), config: str | N
             job = store.enqueue(s, d)
             out = store.public(s, d, job)
     except BaseException:
-        shutil.rmtree(ddir, ignore_errors=True)
+        tmp.unlink(missing_ok=True)
+        files.store().delete_prefix(files.drawing_key(did))
         raise
     worker.wake()
     return out
@@ -441,25 +463,26 @@ async def upload_revision(did: str, file: UploadFile = File(...)):
     stay on them (see store.sync_floors)."""
     filename, ext = _upload_name(file)
     with db.session() as s:
-        d = _drawing(s, did)
+        _drawing(s, did)
         if store.has_active(s, did):
             raise HTTPException(409, "Чертёж ещё обрабатывается")
-        rev = d.current_build + 1
-    ddir = store.drawing_dir(did)
-    part = ddir / f"input_r{rev}{ext}.{uuid.uuid4().hex[:8]}.part"
-    size = await _save_upload(file, part)
+    tmp = _tmp_path(ext)
+    try:
+        size = await _save_upload(file, tmp)
+        st = files.store()
+        n = 1
+        while st.size(files.drawing_key(did, f"input_r{n}{ext}")) is not None:
+            n += 1
+        name = f"input_r{n}{ext}"
+        await run_in_threadpool(st.put_file, files.drawing_key(did, name), tmp, True)
+    finally:
+        tmp.unlink(missing_ok=True)
     with db.session() as s:
         d = _drawing(s, did, lock=True)
         if store.has_active(s, did):
-            part.unlink(missing_ok=True)
             raise HTTPException(409, "Чертёж ещё обрабатывается")
-        n = 1
-        while (ddir / f"input_r{n}{ext}").exists():
-            n += 1
-        dst = ddir / f"input_r{n}{ext}"
-        part.replace(dst)
         before = {"filename": d.filename, "size": d.size}
-        d.filename, d.input_path, d.size = filename, dst.name, size
+        d.filename, d.input_path, d.size = filename, name, size
         viewdata.audit_entry(s, d.project_id, "drawing", did, "revision", before,
                              {"filename": filename, "size": size}, did)
         job = store.enqueue(s, d)
@@ -653,8 +676,7 @@ async def upload_detail(did: str, file: UploadFile = File(...)):
     """Detailed model (GLB: facade, furniture...) shown over the generated one."""
     with db.session() as s:
         _drawing(s, did)
-    ddir = store.drawing_dir(did)
-    tmp = ddir / f"detail.glb.{uuid.uuid4().hex[:8]}.part"
+    tmp = _tmp_path(".glb")
     size, head = 0, b""
     with open(tmp, "wb") as f:
         while chunk := await file.read(1 << 20):
@@ -669,7 +691,7 @@ async def upload_detail(did: str, file: UploadFile = File(...)):
     if head[:4] != b"glTF" or int.from_bytes(head[4:8], "little") != 2:
         tmp.unlink(missing_ok=True)
         raise HTTPException(400, "Нужен файл GLB (glTF 2.0, бинарный)")
-    tmp.replace(ddir / "detail.glb")
+    await run_in_threadpool(files.store().put_file, files.drawing_key(did, "detail.glb"), tmp, True)
     with db.session() as s:
         p = _drawing(s, did, lock=True)
         d = dict(p.detail or {})
@@ -687,7 +709,7 @@ async def upload_detail(did: str, file: UploadFile = File(...)):
 def delete_detail(did: str):
     with db.session() as s:
         p = _drawing(s, did, lock=True)
-        (store.drawing_dir(did) / "detail.glb").unlink(missing_ok=True)
+        files.store().delete(files.drawing_key(did, "detail.glb"))
         p.detail = None
         p.updated_at = func.now()
         return store.view_of(s, p)
@@ -697,10 +719,7 @@ def delete_detail(did: str):
 def get_detail(did: str):
     with db.session() as s:
         _drawing(s, did)
-    p = store.drawing_dir(did) / "detail.glb"
-    if not p.is_file():
-        raise HTTPException(404)
-    return FileResponse(p, media_type="model/gltf-binary")
+    return _serve(files.drawing_key(did, "detail.glb"), "model/gltf-binary")
 
 
 @app.get("/api/drawings/{did}")
@@ -774,39 +793,48 @@ def export_drawing(did: str, fmt: str):
         cfg, input_path, filename = p.config or {}, p.input_path, p.filename
     if not has_edits(cfg):
         raise HTTPException(400, "Правок нет — сохранять нечего")
-    ddir = store.drawing_dir(did)
-    src = ddir / input_path
-    if src.suffix.lower() == ".dwg":
-        src = ddir / "out" / (src.stem + ".dxf")
-        if not src.exists():
-            raise HTTPException(409, "Чертёж ещё не обработан")
+    src_rel = input_path
+    if Path(input_path).suffix.lower() == ".dwg":
+        src_rel = f"out/{Path(input_path).stem}.dxf"
     stem = Path(filename).stem + "_правки"
     # cache per configuration (edits, layer mapping, floors) actually applied
     key = hashlib.sha1(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
-    cache = ddir / "export" / key
-    cache.mkdir(parents=True, exist_ok=True)
-    dxf = cache / "edited.dxf"
-    try:
-        if not dxf.exists():
-            export_edited_dxf(src, dxf, cfg)
-        if fmt == "dxf":
-            return FileResponse(dxf, media_type="image/vnd.dxf", filename=f"{stem}.dxf")
-        dwg = cache / "edited.dwg"
-        failed = cache / "edited.dwg.error"
-        if not dwg.exists():
-            if failed.exists():               # don't re-run a slow converter that already failed
-                raise HTTPException(500, failed.read_text(encoding="utf-8"))
-            try:
-                dxf_to_dwg(dxf, dwg)
-            except Exception as ex:
-                failed.write_text(str(ex), encoding="utf-8")
-                raise
-        return FileResponse(dwg, media_type="application/acad", filename=f"{stem}.dwg")
-    except HTTPException:
-        raise
-    except Exception as ex:
-        log.exception("drawing export failed")
-        raise HTTPException(500, str(ex))
+    st = files.store()
+    ekey = lambda name: files.drawing_key(did, f"export/{key}/{name}")  # noqa: E731
+    out_name, media = ("edited.dxf", "image/vnd.dxf") if fmt == "dxf" else ("edited.dwg", "application/acad")
+    if st.size(ekey(out_name)) is None:
+        if fmt == "dwg" and (err := st.get_bytes(ekey("edited.dwg.error"))) is not None:
+            raise HTTPException(500, err.decode("utf-8"))   # don't re-run a slow converter that already failed
+        try:
+            with files.lock(did):
+                wd = st.pull(did, paths=[src_rel])
+                src = wd / src_rel
+                if not src.exists():
+                    raise HTTPException(409, "Чертёж ещё не обработан")
+                cache = wd / "export" / key
+                cache.mkdir(parents=True, exist_ok=True)
+                dxf = cache / "edited.dxf"
+                if not dxf.exists() and not st.download(ekey("edited.dxf"), dxf):
+                    export_edited_dxf(src, dxf, cfg)
+                    st.put_file(ekey("edited.dxf"), dxf)
+                if fmt == "dwg":
+                    dwg = cache / "edited.dwg"
+                    try:
+                        dxf_to_dwg(dxf, dwg)
+                    except Exception as ex:
+                        st.put_bytes(ekey("edited.dwg.error"), str(ex).encode("utf-8"), "text/plain")
+                        raise
+                    st.put_file(ekey("edited.dwg"), dwg)
+        except HTTPException:
+            raise
+        except Exception as ex:
+            log.exception("drawing export failed")
+            raise HTTPException(500, str(ex))
+    return _serve(ekey(out_name), media, filename=f"{stem}.{fmt}")
+
+
+FILE_TYPES = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png",
+              ".ifc": "application/x-step", ".zip": "application/zip"}
 
 
 @app.get("/api/drawings/{did}/files/{path:path}")
@@ -815,19 +843,23 @@ def get_file(did: str, path: str):
         p = _drawing(s, did)
         filename = p.filename
         busy = store.has_active(s, did)
-    base = (store.drawing_dir(did) / "out").resolve()
-    f = (base / path).resolve()
-    media = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png",
-             ".ifc": "application/x-step", ".zip": "application/zip"}
-    ext = f.suffix.lower()
-    if base in f.parents and f.parent == base / "debug" and ext == ".png" and not f.is_file() and not busy:
-        render_debug(base, f.name)              # rendered on demand from the cached plans
-    if base not in f.parents or not f.is_file() or ext not in media:
+    rel = PurePosixPath(path)
+    ext = rel.suffix.lower()
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or ext not in FILE_TYPES \
+            or rel.name == files.MANIFEST or rel.parts[0] == "cache":
         raise HTTPException(404)
+    key = files.drawing_key(did, f"out/{rel}")
+    st = files.store()
+    if len(rel.parts) == 2 and rel.parts[0] == "debug" and ext == ".png" and not busy and st.size(key) is None:
+        # rendered on demand from the cached plans
+        with files.lock(did):
+            wd = st.pull(did, trees=["out"], include=lambda r: r.startswith("cache/"))
+            if (png := render_debug(wd / "out", rel.name)) is not None:
+                st.put_file(key, png)
     if ext in (".ifc", ".zip"):
         stem = Path(filename).stem
-        return FileResponse(f, media_type=media[ext], filename=f"{stem}{'_obj.zip' if ext == '.zip' else ext}")
-    return FileResponse(f, media_type=media[ext])
+        return _serve(key, FILE_TYPES[ext], filename=f"{stem}{'_obj.zip' if ext == '.zip' else ext}")
+    return _serve(key, FILE_TYPES[ext])
 
 
 class _UI(StaticFiles):

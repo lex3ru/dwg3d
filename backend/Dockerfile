@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---- runtime
 FROM python:3.12-slim-trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        tini \
+        postgresql-client tini \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /app dwg3d
 COPY --from=libredwg /opt/libredwg /opt/libredwg

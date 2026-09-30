@@ -6,6 +6,8 @@
   python -m dwg3d catalog load [file] [--prune]  # import YAML (catalog_seed.yaml); --prune deactivates the rest
   python -m dwg3d catalog dump FILE       # export the database catalog as YAML
   python -m dwg3d worker [-n 2]           # build-only process sharing the queue with the API
+  python -m dwg3d files upload            # copy the local data directory into S3 (DWG3D_S3_*)
+  python -m dwg3d backup DIR [--keep 14]  # database dump + mirror of the file store
   python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
   python -m dwg3d user passwd LOGIN | role LOGIN ROLE | disable LOGIN | enable LOGIN | list
 """
@@ -39,6 +41,11 @@ def main(argv=None):
     k.add_argument("action", choices=["load", "dump"])
     k.add_argument("file", nargs="?", help="YAML (load: default dwg3d/catalog_seed.yaml; dump: required)")
     k.add_argument("--prune", action="store_true", help="load: deactivate items missing from the file")
+    f = sub.add_parser("files", help="file store (see dwg3d/files.py)")
+    f.add_argument("action", choices=["upload"], help="upload: copy DWG3D_DATA (jobs/, catalog/) into S3")
+    bk = sub.add_parser("backup", help="database dump and a mirror of the file store")
+    bk.add_argument("dir")
+    bk.add_argument("--keep", type=int, default=14, help="database dumps to keep")
     w = sub.add_parser("worker", help="run build workers only (no HTTP)")
     w.add_argument("-n", type=int, default=2, help="worker threads")
     u = sub.add_parser("user", help="users and roles (viewer, editor, catalog_admin)")
@@ -78,6 +85,21 @@ def main(argv=None):
         return 0
     if args.cmd == "user":
         return _user_cmd(args)
+    if args.cmd == "backup":
+        from . import backup
+        res = backup.run(Path(args.dir), args.keep)
+        print(f"Резервная копия: {res['dump']}; файлов {res['total']} "
+              f"(скопировано {res['copied']}, удалено {res['removed']})")
+        return 0
+    if args.cmd == "files":
+        from . import files
+        st = files.store()
+        if not st.s3:
+            print("Ошибка: хранилище S3 не настроено (DWG3D_S3_ENDPOINT)", file=sys.stderr)
+            return 1
+        res = files.copy_local_to(st)
+        print(f"Загружено файлов: {res['files']} ({res['bytes'] / 1e6:.1f} МБ), уже были: {res['skipped']}")
+        return 0
     if args.cmd == "worker":
         from . import worker
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")

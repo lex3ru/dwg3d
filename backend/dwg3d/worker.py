@@ -17,7 +17,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import func, select, text, update
 
-from . import db, store
+from . import db, files, store
 from .models import Build, Job
 from .pipeline import run
 
@@ -70,12 +70,12 @@ def process(jid: int, did: str):
         cfg_in, input_path = dict(d.config or {}), d.input_path
         old = store.current_build(s, d)
         old_converter = (old.result or {}).get("converter") if old else None
-    ddir = store.drawing_dir(did)
-    src = ddir / input_path
-    # reuse the converted DXF on rebuilds (conversion is the slow external step)
-    dxf = ddir / "out" / (src.stem + ".dxf")
-    if src.suffix.lower() == ".dwg" and dxf.exists():
-        src = dxf
+    with files.lock(did):
+        _build(jid, did, cfg_in, input_path, old_converter)
+
+
+def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str | None):
+    st = files.store()
     last = {"stage": "start", "t": 0.0}
 
     def progress(stage, frac, msg=""):
@@ -86,6 +86,15 @@ def process(jid: int, did: str):
             _set(jid, stage=stage, progress=round(frac, 3), message=msg)
 
     try:
+        # the working copy: the input and the previous out/ (converted DXF, plan caches)
+        ddir = st.pull(did, paths=[input_path], trees=["out"])
+        src = ddir / input_path
+        if not src.is_file():
+            raise RuntimeError("Исходный файл чертежа не найден в хранилище")
+        # reuse the converted DXF on rebuilds (conversion is the slow external step)
+        dxf = ddir / "out" / (src.stem + ".dxf")
+        if src.suffix.lower() == ".dwg" and dxf.exists():
+            src = dxf
         meta = run(src, ddir / "out", cfg_in, progress=progress, debug_png=False)
         cfg_used = meta.pop("config", None) or {}
         if src.suffix.lower() == ".dxf" and input_path.lower().endswith(".dwg"):
@@ -100,6 +109,8 @@ def process(jid: int, did: str):
             cfg.pop("edits_unmatched", None)
         if (cfg.get("floors") or {}).get("items"):
             cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
+        _set(jid, stage="export", progress=0.99, message="Сохранение файлов")
+        st.push(did, "out")                  # the files first: the build becomes current below
         with db.session() as s:
             d = store.get_drawing(s, did, lock=True)
             if d is None:

@@ -9,8 +9,8 @@ placed furniture keeps referring to them; `active = false` hides an item
 from the picker.
 
 GLB models: the bundled ones live in frontend/public/catalog/ (model
-"kenney/x.glb" -> /catalog/kenney/x.glb); uploaded ones in
-<DWG3D_DATA>/catalog/ (model "upload/<file>" -> /api/catalog/models/<file>).
+"kenney/x.glb" -> /catalog/kenney/x.glb); uploaded ones in the file store
+(files.py, key catalog/<file>; model "upload/<file>" -> /api/catalog/models/<file>).
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import func, select, update
 
-from . import db, store
+from . import db, files
 from .models import CatalogCategory, CatalogItem
 
 SEED = Path(__file__).with_name("catalog_seed.yaml")
@@ -37,10 +37,6 @@ ALIASES = {"cat": "category", "modelRot": "model_rot", "camera": "cam"}
 
 class CatalogError(ValueError):
     pass
-
-
-def catalog_dir() -> Path:
-    return store.data_dir().parent / "catalog"
 
 
 # ------------------------------------------------------------ validation ---
@@ -264,17 +260,13 @@ def upload_model(iid: str, data: bytes) -> dict:
     if data[:4] != b"glTF" or int.from_bytes(data[4:8], "little") != 2:
         raise CatalogError("нужен файл GLB (glTF 2.0, бинарный)")
     name = f"{iid.replace('/', '_')}-{hashlib.sha256(data).hexdigest()[:12]}.glb"
-    d = catalog_dir()
-    d.mkdir(parents=True, exist_ok=True)
-    tmp = d / f".{name}.part"
-    tmp.write_bytes(data)
-    tmp.replace(d / name)
+    files.store().put_bytes(model_key(name), data, "model/gltf-binary")
     return update_item(iid, {"model": UPLOAD + name})
 
 
-def model_file(name: str) -> Path | None:
-    p = (catalog_dir() / name).resolve()
-    return p if p.parent == catalog_dir().resolve() and p.suffix == ".glb" and p.is_file() else None
+def model_key(name: str) -> str | None:
+    """File-store key of an uploaded model, None for a name that is not one."""
+    return f"catalog/{name}" if re.fullmatch(r"[A-Za-z0-9_.-]{1,200}\.glb", name) and ".." not in name else None
 
 
 def save_category(cid: str, v: dict, create: bool) -> dict:

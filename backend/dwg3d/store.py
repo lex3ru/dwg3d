@@ -1,15 +1,14 @@
 """Projects, drawings, builds, floors and the job queue in PostgreSQL.
 
 A project holds drawings; a drawing is one uploaded DWG/DXF with its builds.
-Files stay on disk: <DWG3D_DATA>/jobs/<drawing id>/ holds the upload,
-out/ (model, plans, exports, converted DXF) and detail.glb.
+Its files (the upload, out/ with the model, plans, exports and converted
+DXF, detail.glb) are in the file store under drawings/<id>/ (files.py).
 
 The API describes a drawing with job-shaped JSON (`public()`), assembled
 from the drawing, its latest job and its current build.
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,17 +19,8 @@ from . import viewdata
 from .edits import _floor_ns, anchor_of, match
 from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, Pin, Placement, Project
 
-ROOT = Path(__file__).resolve().parents[2]
 # viewer settings stored in drawing columns; furniture and pins are rows (viewdata.py)
 VIEW_COLUMNS = ("name", "site", "detail")
-
-
-def data_dir() -> Path:
-    return Path(os.environ.get("DWG3D_DATA", ROOT / "data")) / "jobs"
-
-
-def drawing_dir(did: str) -> Path:
-    return data_dir() / did
 
 
 def ts(d: datetime | None) -> float | None:

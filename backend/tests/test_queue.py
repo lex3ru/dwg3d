@@ -11,7 +11,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from conftest import add_drawing
-from dwg3d import db, store, worker
+from dwg3d import db, files, store, worker
 from dwg3d.models import Floor, Job
 
 from make_sample import make
@@ -28,7 +28,7 @@ def _no_background_workers():
 @pytest.fixture
 def data(tmp_path, monkeypatch, pg):
     monkeypatch.setenv("DWG3D_DATA", str(tmp_path / "data"))
-    store.data_dir().mkdir(parents=True)
+    (files.data_root() / "jobs").mkdir(parents=True)
     yield tmp_path / "data"
     with db.session() as s:                      # other tests count projects / jobs
         s.execute(text("DELETE FROM projects"))
@@ -36,7 +36,7 @@ def data(tmp_path, monkeypatch, pg):
 
 def _project(sample=None, config=None) -> str:
     pid = uuid.uuid4().hex[:12]
-    d = store.drawing_dir(pid)
+    d = files.store().workdir(pid)
     d.mkdir(parents=True)
     if sample:
         shutil.copy(sample, d / "input.dxf")
@@ -119,7 +119,7 @@ def test_build_keeps_floor_rows_across_rebuilds(data, tmp_path):
 
 def test_failed_build_is_reported(data):
     pid = _project()
-    (store.drawing_dir(pid) / "input.dxf").write_text("0\nSECTION\n2\nGARBAGE\n")
+    (files.store().workdir(pid) / "input.dxf").write_text("0\nSECTION\n2\nGARBAGE\n")
     worker.process(*worker.claim())
     with db.session() as s:
         pub = store.public(s, store.get_drawing(s, pid))

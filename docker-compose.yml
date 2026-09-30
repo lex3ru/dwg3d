@@ -12,23 +12,31 @@
 #   api     FastAPI (dwg3d.api)
 #   worker  build queue: DWG -> 3D model (scale with --scale worker=N)
 #   db      PostgreSQL
+#   s3      RustFS: S3-compatible storage for drawings, models, exports
+#   backup  once a day: database dump + mirror of the files (DWG3D_BACKUP_DIR)
 name: 3drender
 
 x-app: &app
   build: ./backend
   image: dwg3d-api:${DWG3D_TAG:-dev}
   restart: unless-stopped
-  user: "${DWG3D_UID:-10001}:${DWG3D_GID:-10001}"
   environment: &app-env
     DWG3D_DATABASE_URL: postgresql+psycopg://dwg3d:${POSTGRES_PASSWORD:-dwg3d}@db:5432/dwg3d
     DWG3D_DATA: /data
     DWG3D_AUTH: ${DWG3D_AUTH:-on}
     DWG3D_ODA: ${DWG3D_ODA:-}
+    DWG3D_S3_ENDPOINT: http://s3:9000
+    DWG3D_S3_BUCKET: ${DWG3D_S3_BUCKET:-dwg3d}
+    DWG3D_S3_ACCESS_KEY: ${DWG3D_S3_ACCESS_KEY:-dwg3d}
+    DWG3D_S3_SECRET_KEY: ${DWG3D_S3_SECRET_KEY:-dwg3d-secret}
   volumes:
-    - ${DWG3D_DATA_DIR:-./data}:/data
+    # working copies and temporary files only: the files themselves are in s3
+    - scratch:/data
   depends_on:
     db:
       condition: service_healthy
+    s3:
+      condition: service_started
 
 services:
   web:
@@ -61,6 +69,13 @@ services:
     <<: *app
     command: ["python", "-m", "dwg3d", "worker", "-n", "${DWG3D_WORKER_THREADS:-2}"]
 
+  backup:
+    <<: *app
+    user: "0"                     # writes into a host directory
+    volumes:
+      - ${DWG3D_BACKUP_DIR:-./backups}:/backups
+    command: ["sh", "-c", "while true; do python -m dwg3d backup /backups --keep ${DWG3D_BACKUP_KEEP:-14}; sleep ${DWG3D_BACKUP_INTERVAL:-86400}; done"]
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -78,6 +93,19 @@ services:
       timeout: 3s
       retries: 30
 
+  s3:
+    image: rustfs/rustfs:1.0.0
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${DWG3D_S3_ACCESS_KEY:-dwg3d}
+      RUSTFS_SECRET_KEY: ${DWG3D_S3_SECRET_KEY:-dwg3d-secret}
+    ports:
+      - "127.0.0.1:${DWG3D_S3_PORT:-9000}:9000"
+    volumes:
+      - s3data:/data
+
 volumes:
   pgdata:
+  s3data:
+  scratch:
   caddy-data:
