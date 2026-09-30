@@ -94,6 +94,8 @@ if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split
 
 PUBLIC = {"/api/health", "/api/auth/login", "/api/auth/callback", "/api/auth/logout", "/api/auth/me"}
 READ = ("GET", "HEAD", "OPTIONS")
+# who is who: not for guests of share links
+GUEST_DENIED = {"/api/users"}
 
 
 def _whoami(request: Request) -> auth.Me | None:
@@ -115,8 +117,9 @@ async def _authenticate(request: Request, call_next):
     me = await run_in_threadpool(_whoami, request)
     if me is None:
         return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
-    if me.share is not None and request.method not in READ:
-        return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра"}, status_code=403)
+    if me.share is not None and (request.method not in READ or path in GUEST_DENIED
+                                 or path.endswith(("/members", "/shares", "/audit"))):
+        return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра проекта"}, status_code=403)
     if path.startswith("/api/catalog") and request.method not in READ and not me.can("catalog_admin"):
         return JSONResponse({"detail": "Недостаточно прав: нужна роль «администратор каталога»"}, status_code=403)
     token, mtoken = auth.current.set(me), auth.method.set(request.method)

@@ -239,6 +239,8 @@ def test_share_links(kc, api):
     assert guest.patch(f"/api/projects/{pid}", json={"name": "x"}).status_code == 403
     assert guest.get(f"/api/projects/{pid}/audit").status_code == 403
     assert guest.get(f"/api/projects/{pid}/shares").status_code == 403
+    assert guest.get(f"/api/projects/{pid}/members").status_code == 403       # no names and e-mails of members
+    assert guest.get("/api/users?q=").status_code == 403
     # revoked: the guest is out
     assert owner.delete(f"/api/projects/{pid}/shares/{sh['id']}").json()["revoked"] is True
     assert guest.get(f"/api/drawings/{d1}").status_code == 401
