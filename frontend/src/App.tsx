@@ -791,11 +791,12 @@ export default function App() {
   const applyEdits = (floorId: string, edits: FloorEdits) => rebuild({ edits: { [floorId]: edits } })
   const editCount = Object.values((job?.config?.edits ?? {}) as Record<string, Record<string, unknown[]>>)
     .reduce((n, fe) => n + Object.values(fe ?? {}).reduce((k, l) => k + (Array.isArray(l) ? l.length : 0), 0), 0)
-  const saveDrawing = async (fmt: 'dxf' | 'dwg') => {
+  const saveDrawing = async (fmt: 'dxf' | 'dwg', withLayers: boolean) => {
     if (!job) return
     setSaving(fmt)
     setSaveErr(null)
-    try { await downloadDrawing(job.id, fmt) } catch (e) { setSaveErr((e as Error).message) } finally { setSaving(null) }
+    const shownLayers = layers.filter((l) => !hiddenNow.has(l.id)).map((l) => l.id)
+    try { await downloadDrawing(job.id, fmt, withLayers ? shownLayers : 'none') } catch (e) { setSaveErr((e as Error).message) } finally { setSaving(null) }
   }
   const setToolSafe = (t: Tool) => {
     if ((t === 'marker' || t === 'comment') && !canEdit()) {
@@ -892,7 +893,8 @@ export default function App() {
               projectId={projectId} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {buildingOpen && job && shown && (
-              <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount} saving={saving}
+              <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount}
+                objectCount={shownFurniture.length + shapes.length} saving={saving}
                 saveErr={saveErr} onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
                 onClose={() => setBuildingOpen(false)} />
             )}

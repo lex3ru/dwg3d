@@ -348,9 +348,11 @@ export async function getPlan(id: string, path: string, v: number): Promise<Plan
 
 export const fileUrl = (id: string, path: string, v = 0) => `/api/drawings/${id}/files/${path}?v=${v}`
 
-/** Source drawing with the editor corrections applied, downloaded as a file. */
-export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<void> {
-  const r = await fetch(`/api/drawings/${id}/drawing.${fmt}`)
+/** Source drawing with the editor corrections applied and the objects of the
+ * shown project layers drawn in (or none), downloaded as a file. */
+export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg', layers: string[] | 'none' = 'none'): Promise<void> {
+  const q = layers === 'none' ? 'none' : layers.join(',') || 'none'
+  const r = await fetch(`/api/drawings/${id}/drawing.${fmt}?layers=${encodeURIComponent(q)}`)
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
     try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }

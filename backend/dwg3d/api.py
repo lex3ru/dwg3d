@@ -68,7 +68,7 @@ import urllib.parse
 import uuid
 from pathlib import Path, PurePosixPath
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -1034,9 +1034,35 @@ def _anchor_override(job: dict, override: dict) -> dict:
     return override
 
 
+def _layers_payload(s, d: Drawing, which: str | None) -> dict | None:
+    """The objects of project layers for the drawing export (see dxf_writer.add_project_layers):
+    `which` — "none", "all" (default: the layers the user may see) or layer ids separated by commas."""
+    from .models import CatalogItem
+    from .shapes import FLOWS, ZONE_KINDS
+
+    if which == "none":
+        return None
+    shown = access.visible_layers(auth.current.get())
+    wanted = None if which in (None, "", "all") else set(which.split(","))
+    lays = [x for x in layers.list_layers(s, d.project_id)
+            if (shown is None or x["id"] in shown) and (wanted is None or x["id"] in wanted)]
+    ids = {x["id"] for x in lays}
+    data = viewdata.view_data(s, d.id, ids)
+    objs = [o for o in [*(data.get("furniture") or []), *(data.get("shapes") or [])] if o.get("layer") in ids]
+    if not objs:
+        return None
+    used = {o["item"] for o in objs if o.get("item")}
+    catalog_ = {i.id: {"id": i.id, "name": i.name, "w": i.w, "d": i.d, "h": i.h, "article": i.article or "",
+                       **({"cam": i.camera} if i.camera else {})}
+                for i in s.scalars(select(CatalogItem).where(CatalogItem.id.in_(used)))}
+    return {"layers": [{"id": x["id"], "name": x["name"], "kind": x["kind"]} for x in lays if x["count"]],
+            "objects": objs, "catalog": catalog_, "flows": FLOWS, "zone_kinds": ZONE_KINDS}
+
+
 @app.get("/api/drawings/{did}/drawing.{fmt}")
-def export_drawing(did: str, fmt: str):
-    """Source drawing with the 2D-editor corrections applied (DXF or DWG)."""
+def export_drawing(did: str, fmt: str, layers_: str | None = Query(None, alias="layers")):
+    """Source drawing with the 2D-editor corrections applied and the objects of
+    the project layers drawn in (DXF or DWG); ?layers=none|all|<id>,<id>."""
     from .dxf_writer import dxf_to_dwg, export_edited_dxf, has_edits
 
     if fmt not in ("dxf", "dwg"):
@@ -1044,14 +1070,15 @@ def export_drawing(did: str, fmt: str):
     with db.session() as s:
         p = _drawing(s, did)
         cfg, input_path, filename = p.config or {}, p.input_path, p.filename
-    if not has_edits(cfg):
-        raise HTTPException(400, "Правок нет — сохранять нечего")
+        payload = _layers_payload(s, p, layers_)
+    if not has_edits(cfg) and not payload:
+        raise HTTPException(400, "Нет ни правок, ни объектов слоёв — сохранять нечего")
     src_rel = input_path
     if Path(input_path).suffix.lower() == ".dwg":
         src_rel = f"out/{Path(input_path).stem}.dxf"
-    stem = Path(filename).stem + "_правки"
-    # cache per configuration (edits, layer mapping, floors) actually applied
-    key = hashlib.sha1(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+    stem = Path(filename).stem + ("_правки" if has_edits(cfg) else "") + ("_слои" if payload else "")
+    # cache per configuration (edits, layer mapping, floors) and layer objects actually applied
+    key = hashlib.sha1(json.dumps([cfg, payload], sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
     st = files.store()
     ekey = lambda name: files.drawing_key(did, f"export/{key}/{name}")  # noqa: E731
     out_name, media = ("edited.dxf", "image/vnd.dxf") if fmt == "dxf" else ("edited.dwg", "application/acad")
@@ -1068,7 +1095,7 @@ def export_drawing(did: str, fmt: str):
                 cache.mkdir(parents=True, exist_ok=True)
                 dxf = cache / "edited.dxf"
                 if not dxf.exists() and not st.download(ekey("edited.dxf"), dxf):
-                    export_edited_dxf(src, dxf, cfg)
+                    export_edited_dxf(src, dxf, cfg, payload)
                     st.put_file(ekey("edited.dxf"), dxf)
                 if fmt == "dwg":
                     dwg = cache / "edited.dwg"

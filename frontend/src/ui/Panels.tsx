@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { FloorMeta, Job, Result, RoomMeta } from '../api'
 import { fileUrl } from '../api'
 import { Icon } from './icons'
@@ -87,22 +88,25 @@ export function RoomCard({ room, floor, result, onClose, onRoute, onFly }: {
 }
 
 /** "Здание и этажи": floors with details, editor, saving, exports, warnings. */
-export function BuildingPanel({ job, shown, active, running, editCount, saving, saveErr, onFloor, onEditor, onSave, onClose }: {
+export function BuildingPanel({ job, shown, active, running, editCount, objectCount, saving, saveErr, onFloor, onEditor, onSave, onClose }: {
   job: Job
   shown: Job
   active: string | null
   running: boolean
   editCount: number
+  /** objects of the project's layers on this drawing (shown ones) */
+  objectCount: number
   saving: 'dxf' | 'dwg' | null
   saveErr: string | null
   onFloor: (id: string | null) => void
   onEditor: () => void
-  onSave: (f: 'dxf' | 'dwg') => void
+  onSave: (f: 'dxf' | 'dwg', withLayers: boolean) => void
   onClose: () => void
 }) {
   const r = shown.result!
   const floors = [...r.floors].sort((a, b) => b.elevation! - a.elevation!)
   const act = floors.find((f) => f.id === active)
+  const [withLayers, setWithLayers] = useState(true)
   return (
     <aside className="building-panel menu-root">
       <header>
@@ -129,12 +133,18 @@ export function BuildingPanel({ job, shown, active, running, editCount, saving, 
         title="Исправить стены, проёмы и помещения на плане этажа">
         <Icon name="edit" size={15} /> 2D-редактор: {act?.name ?? 'выберите этаж'}
       </button>
-      {editCount > 0 && (
+      {(editCount > 0 || objectCount > 0) && (
         <div className="save-drawing">
-          <div className="sd-title">Чертёж с правками <span>{editCount}</span></div>
+          <div className="sd-title">Чертёж{editCount > 0 ? <> с правками <span>{editCount}</span></> : null}</div>
+          {objectCount > 0 && (
+            <label className="sd-layers" title="Мебель — блоками с атрибутами, камеры — с зоной обзора, маршруты — полилиниями, зоны — штриховкой; каждый слой проекта — отдельный слой чертежа">
+              <input type="checkbox" checked={withLayers} onChange={(e) => setWithLayers(e.target.checked)} />
+              слои проекта ({objectCount} объектов)
+            </label>
+          )}
           <div className="sd-buttons">
             {(['dxf', 'dwg'] as const).map((f) => (
-              <button key={f} className="small" disabled={!!saving || running} onClick={() => onSave(f)}>
+              <button key={f} className="small" disabled={!!saving || running || (!editCount && !withLayers)} onClick={() => onSave(f, withLayers && objectCount > 0)}>
                 {saving === f ? 'Готовлю…' : `Сохранить ${f.toUpperCase()}`}
               </button>
             ))}

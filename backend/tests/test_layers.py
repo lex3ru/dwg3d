@@ -202,3 +202,49 @@ def test_variants_copy_and_compare(c, built):
     cmp = c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b={c3['id']}").json()
     assert cmp["counts"]["same"] == 1 and cmp["counts"]["moved"] == 1
     assert c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b=nope").status_code == 404
+
+
+def test_drawing_export_with_layers(c, built):
+    """Objects of project layers drawn into the DXF: blocks with attributes,
+    camera views, routes, zones; at the right place of the source drawing."""
+    import ezdxf
+
+    from dwg3d.units import UNIT_SCALE
+
+    pid, d = built
+    did = d["id"]
+    fl = d["result"]["floors"][0]
+    s = UNIT_SCALE[d["result"]["units"]]
+    ox, oy = fl.get("offset") or (0.0, 0.0)
+    base = f"/api/drawings/{did}/objects"
+    lay = c.post(f"/api/projects/{pid}/layers", json={"kind": "furniture", "name": "Экспорт: мебель"}).json()
+    routes = c.post(f"/api/projects/{pid}/layers", json={"kind": "routes", "name": "Экспорт: маршруты"}).json()
+    zones = c.post(f"/api/projects/{pid}/layers", json={"kind": "zones", "name": "Экспорт: зоны"}).json()
+    ops = [{"op": "create", "id": "ex1", "floor": fl["id"], "item": "doc.couch", "at": [3, 4], "angle": 90,
+            "note": "KS-1", "layer": lay["id"]},
+           {"op": "create", "id": "ex2", "floor": fl["id"], "item": "sec.dome", "at": [5, 5], "fov": 90, "range": 6},
+           {"op": "create", "id": "ex3", "geom": "route", "layer": routes["id"], "props": {
+               "flow": "dirty", "name": "Отходы", "stops": [{"floor": fl["id"], "at": [1, 1], "label": "А"},
+                                                             {"floor": fl["id"], "at": [6, 1], "label": "Б"}],
+               "path": [{"floor": fl["id"], "pts": [[1, 1], [6, 1]]}], "length": 5, "time": 4, "build": d["build"]}},
+           {"op": "create", "id": "ex4", "geom": "polygon", "layer": zones["id"], "floor": fl["id"],
+            "points": [[0, 0], [2, 0], [2, 2], [0, 2]], "props": {"zone": "clean", "name": "Чистая"}}]
+    r = c.post(f"{base}:batch", json={"ops": ops})
+    assert r.status_code == 200, r.text
+    x = c.get(f"/api/drawings/{did}/drawing.dxf")
+    assert x.status_code == 200 and "_слои" in __import__("urllib.parse").parse.unquote(x.headers["content-disposition"])
+    doc = ezdxf.read(__import__("io").StringIO(x.content.decode("utf-8", "replace")))
+    msp = doc.modelspace()
+    assert {"3D_Экспорт_ мебель", "3D_Экспорт_ маршруты", "3D_Экспорт_ зоны"} <= {ly.dxf.name for ly in doc.layers}
+    couch = next(e for e in msp.query("INSERT") if e.dxf.name == "3D_doc.couch")
+    assert couch.dxf.layer == "3D_Экспорт_ мебель" and couch.dxf.rotation == 90
+    assert abs(couch.dxf.insert.x * s + ox - 3) < 1e-6 and abs(couch.dxf.insert.y * s + oy - 4) < 1e-6
+    attrs = {a.dxf.tag: a.dxf.text for a in couch.attribs}
+    assert attrs["NOTE"] == "KS-1" and attrs["NAME"]
+    assert any(e.dxf.name == "3D_sec.dome" for e in msp.query("INSERT"))
+    assert any(abs(a.dxf.radius * s - 6) < 1e-6 for a in msp.query("ARC"))           # the camera view
+    assert msp.query(f'LWPOLYLINE[layer=="3D_Экспорт_ маршруты"]') and msp.query("HATCH")
+    # only some layers / none
+    only = c.get(f"/api/drawings/{did}/drawing.dxf?layers={zones['id']}")
+    assert only.status_code == 200 and b"3D_doc.couch" not in only.content
+    assert c.get(f"/api/drawings/{did}/drawing.dxf?layers=none").status_code == 400   # no edits either

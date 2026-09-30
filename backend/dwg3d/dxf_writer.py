@@ -1,4 +1,5 @@
-"""Write the 2D-editor corrections back into the source drawing (DXF/DWG).
+"""Write the 2D-editor corrections — and the objects of the project's
+layers — back into the source drawing (DXF/DWG).
 
 Edits are stored in plan coordinates (meters, floors aligned); here they are
 mapped back to each sheet's drawing coordinates and applied to the original
@@ -304,8 +305,9 @@ def repair_for_save(doc):
                 ds.dxf.set(k, "")
 
 
-def export_edited_dxf(src: Path, out: Path, config: dict | None = None) -> dict:
-    """Apply `config['edits']` to the DXF `src` and save to `out`."""
+def export_edited_dxf(src: Path, out: Path, config: dict | None = None, project_layers: dict | None = None) -> dict:
+    """Apply `config['edits']` to the DXF `src`, draw the objects of
+    `project_layers` (see add_project_layers) and save to `out`."""
     cfg = load_config(config)
     doc = read_doc(src)
     d = read_drawing(src, cfg, doc=doc)
@@ -333,6 +335,8 @@ def export_edited_dxf(src: Path, out: Path, config: dict | None = None) -> dict:
         layout = doc.modelspace() if f.space == "Model" else doc.layouts.get(f.space)
         _apply_floor(_FloorWriter(doc, layout, f, d.scale, mapper, stats), plan, e)
         stats["floors"] += 1
+    if project_layers:
+        stats["layers"] = add_project_layers(doc, {f.id: f for f in floors}, d.scale, project_layers)
     repair_for_save(doc)
     tmp = Path(out).with_suffix(".tmp")
     doc.saveas(str(tmp))              # write-then-rename: no half-written file on failure
@@ -379,3 +383,145 @@ def dxf_to_dwg(src: Path, dst: Path, timeout: int = 600, libredwg_timeout: int =
     raise ConversionError(
         "Не удалось записать DWG (" + "; ".join(errors) + "). Скачайте DXF — он открывается в AutoCAD; "
         "для надёжной записи DWG установите ODA File Converter.")
+
+
+# ------------------------------------------------------ project layers ---
+# Objects of the project's layers go to one DXF layer each ("3D_<layer name>"):
+# catalog items as blocks (footprint + front edge, attributes NAME / ARTICLE /
+# NOTE for data extraction), CCTV cameras also with their field of view,
+# routes as polylines with numbered stops, zones as outlines with a hatch.
+LAYER_COLORS = {"furniture": 150, "cctv": 6, "routes": 5, "zones": 3}
+_BAD_NAME = re.compile(r'[<>/\\":;?*|=`]')
+
+
+def dxf_layer_name(name: str) -> str:
+    return ("3D_" + _BAD_NAME.sub("_", name).strip())[:250]
+
+
+def _rgb(hexcolor: str | None) -> int | None:
+    if not hexcolor or not re.fullmatch(r"#[0-9a-fA-F]{6}", hexcolor):
+        return None
+    from ezdxf.colors import rgb2int
+    return rgb2int((int(hexcolor[1:3], 16), int(hexcolor[3:5], 16), int(hexcolor[5:7], 16)))
+
+
+def _item_block(doc, item: dict, scale: float) -> str:
+    """A block of a catalog item: its footprint (w x d, in drawing units of
+    this file) centred on the origin, the front edge marked, attributes."""
+    name = "3D_" + re.sub(r"[^0-9A-Za-z_.-]", "_", item["id"])
+    if name in doc.blocks:
+        return name
+    blk = doc.blocks.new(name)
+    w, d = item["w"] / scale, item["d"] / scale
+    blk.add_lwpolyline([(-w / 2, -d / 2), (w / 2, -d / 2), (w / 2, d / 2), (-w / 2, d / 2)], close=True,
+                       dxfattribs={"layer": "0"})
+    blk.add_line((-w / 2, -d / 2 + d * 0.08), (w / 2, -d / 2 + d * 0.08), dxfattribs={"layer": "0"})
+    h = max(min(w, d) * 0.12, 0.05 / scale)
+    for tag, y in (("NAME", 0.0), ("ARTICLE", -h * 1.5), ("NOTE", -h * 3)):
+        a = blk.add_attdef(tag, insert=(0, y), height=h, dxfattribs={"layer": "0"})
+        a.set_placement((0, y), align=TextEntityAlignment.MIDDLE_CENTER)
+        a.is_invisible = tag != "NAME"
+    return name
+
+
+def add_project_layers(doc, floors: dict, scale: float, payload: dict) -> dict:
+    """Draw the objects of project layers into the floors' layouts.
+    floors: floor id (candidate of the current build) -> the Floor of this file.
+    payload: {"layers": [{id, name, kind}], "objects": [object JSON],
+              "catalog": {item id: {id, name, w, d, h, article, cam?}}, "flows": {...}, "zone_kinds": {...}}"""
+    stats = {"objects": 0, "blocks": 0, "routes": 0, "zones": 0, "skipped": 0}
+    layer_of = {}
+    for lay in payload.get("layers") or []:
+        nm = dxf_layer_name(lay["name"])
+        if nm not in doc.layers:
+            doc.layers.add(nm, color=LAYER_COLORS.get(lay.get("kind"), 7))
+        layer_of[lay["id"]] = nm
+    catalog = payload.get("catalog") or {}
+    flows, zone_kinds = payload.get("flows") or {}, payload.get("zone_kinds") or {}
+
+    def writer(fid: str):
+        f = floors.get(fid)
+        if f is None:
+            return None
+        layout = doc.modelspace() if f.space == "Model" else doc.layouts.get(f.space)
+        return _FloorWriter(doc, layout, f, scale, None, {})
+
+    for o in payload.get("objects") or []:
+        dxl = layer_of.get(o.get("layer"))
+        geom = o.get("geom") or "point"
+        if dxl is None:
+            continue
+        if geom == "route":
+            props = o.get("props") or {}
+            color = _rgb((flows.get(props.get("flow")) or {}).get("color"))
+            attrs = {"layer": dxl, **({"true_color": color} if color else {})}
+            drawn = False
+            for sg in props.get("path") or []:
+                w = writer(sg.get("floor"))
+                if w is None or len(sg.get("pts") or []) < 2:
+                    continue
+                w.layout.add_lwpolyline([w.xy(p) for p in sg["pts"]], dxfattribs=attrs)
+                drawn = True
+            for k, st in enumerate(props.get("stops") or []):
+                w = writer(st.get("floor"))
+                if w is None:
+                    continue
+                c = w.xy(st["at"])
+                w.layout.add_circle(c, 0.25 / scale, dxfattribs=attrs)
+                t = w.layout.add_text(f"{k + 1}. {st.get('label') or ''}".strip(), height=0.3 / scale, dxfattribs=attrs)
+                t.set_placement((c[0] + 0.35 / scale, c[1]), align=TextEntityAlignment.MIDDLE_LEFT)
+                drawn = True
+            stats["routes" if drawn else "skipped"] += 1
+            continue
+        w = writer(o.get("floor"))
+        if w is None:
+            stats["skipped"] += 1
+            continue
+        if geom in ("polygon", "polyline"):
+            pts = [w.xy(p) for p in o.get("points") or []]
+            if len(pts) < 2:
+                continue
+            props = o.get("props") or {}
+            color = _rgb((zone_kinds.get(props.get("zone")) or {}).get("color"))
+            attrs = {"layer": dxl, **({"true_color": color} if color else {})}
+            w.layout.add_lwpolyline(pts, close=geom == "polygon", dxfattribs=attrs)
+            if geom == "polygon" and len(pts) >= 3:
+                hatch = w.layout.add_hatch(dxfattribs=attrs)
+                hatch.set_pattern_fill("ANSI31", scale=0.5 / scale)
+                hatch.paths.add_polyline_path(pts, is_closed=True)
+                if props.get("name"):
+                    cx = sum(p[0] for p in pts) / len(pts)
+                    cy = sum(p[1] for p in pts) / len(pts)
+                    t = w.layout.add_text(props["name"], height=0.3 / scale, dxfattribs=attrs)
+                    t.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+            stats["zones"] += 1
+            continue
+        item = catalog.get(o.get("item"))
+        if item is None:
+            stats["skipped"] += 1
+            continue
+        bname = _item_block(doc, item, scale)
+        size = o.get("size") or [item["w"], item["d"], item["h"]]
+        ref = w.layout.add_blockref(bname, w.xy(o["at"]), dxfattribs={
+            "layer": dxl, "rotation": float(o.get("angle") or 0),
+            "xscale": size[0] / item["w"] if item["w"] else 1, "yscale": size[1] / item["d"] if item["d"] else 1})
+        ref.add_auto_attribs({"NAME": item.get("name") or item["id"], "ARTICLE": item.get("article") or "",
+                              "NOTE": o.get("note") or ""})
+        stats["blocks"] += 1
+        cam = item.get("cam")
+        if cam:
+            fov = float(o.get("fov") or cam.get("fov") or 90)
+            rng = float(o.get("range") or cam.get("range") or 10)
+            a0 = float(o.get("angle") or 0) + 90       # the front of an item faces -Y in its own frame: rotate
+            c = w.xy(o["at"])
+            r = rng / scale
+            if fov >= 359:
+                w.layout.add_circle(c, r, dxfattribs={"layer": dxl})
+            else:
+                s0, s1 = a0 - 180 - fov / 2, a0 - 180 + fov / 2
+                w.layout.add_arc(c, r, s0, s1, dxfattribs={"layer": dxl})
+                for ang in (s0, s1):
+                    w.layout.add_line(c, (c[0] + r * math.cos(math.radians(ang)), c[1] + r * math.sin(math.radians(ang))),
+                                      dxfattribs={"layer": dxl})
+        stats["objects"] += 1
+    return stats
