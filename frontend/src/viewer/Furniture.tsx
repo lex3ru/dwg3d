@@ -279,7 +279,7 @@ export default function Furniture(p: Props) {
   )
 }
 
-const VIEW = new THREE.Color('#7048e8')
+const VIEW_COLOR = { cam: '#7048e8', radio: '#0ca678', detect: '#e03131' }
 
 /** CCTV view: the seen floor (lighter up to the range, darker where faces
  * can be identified) and a see-through cone from the lens. */
@@ -308,6 +308,9 @@ function CameraView({ cov, y, lensY, center, selected }: { cov: Coverage; y: num
   }, [cov, y, lensY, center])
   useEffect(() => () => { geos.full.dispose(); geos.ident.dispose(); geos.cone.dispose() }, [geos])
   const k = selected ? 1.6 : 1
+  const hex = VIEW_COLOR[cov.kind ?? 'cam']
+  const VIEW = new THREE.Color(hex)
+  const cone = (cov.kind ?? 'cam') === 'cam'
   return (
     <group>
       <mesh geometry={geos.full} renderOrder={4}>
@@ -316,11 +319,13 @@ function CameraView({ cov, y, lensY, center, selected }: { cov: Coverage; y: num
       <mesh geometry={geos.ident} renderOrder={4}>
         <meshBasicMaterial color={VIEW} transparent opacity={0.2 * k} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
-      <mesh geometry={geos.cone} renderOrder={3}>
-        <meshBasicMaterial color={VIEW} transparent opacity={0.06 * k} depthWrite={false} side={THREE.DoubleSide} />
-      </mesh>
-      {geos.edges.map((e, i) => <Line key={i} points={e} color="#7048e8" lineWidth={1} transparent opacity={0.6} />)}
-      {geos.rim.length > 1 && <Line points={cov.closed ? [...geos.rim, geos.rim[0]] : geos.rim} color="#7048e8" lineWidth={selected ? 2 : 1} transparent opacity={0.7} />}
+      {cone && (
+        <mesh geometry={geos.cone} renderOrder={3}>
+          <meshBasicMaterial color={VIEW} transparent opacity={0.06 * k} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {geos.edges.map((e, i) => <Line key={i} points={e} color={hex} lineWidth={1} transparent opacity={0.6} />)}
+      {geos.rim.length > 1 && <Line points={cov.closed ? [...geos.rim, geos.rim[0]] : geos.rim} color={hex} lineWidth={selected ? 2 : 1} transparent opacity={0.7} />}
     </group>
   )
 }

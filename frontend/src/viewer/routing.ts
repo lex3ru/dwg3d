@@ -25,12 +25,14 @@ export interface RouteProps {
   problem?: string
 }
 export interface ZoneProps { zone: string; name: string }
+export interface CableProps { cable: string; name: string; reserve?: number }
 
 export interface Rules {
   flows: Record<string, { name: string; color: string }>
   flow_conflicts: [string, string][]
   zone_kinds: Record<string, { name: string; color: string }>
   zone_forbidden: Record<string, string[]>
+  cables: Record<string, { name: string; color: string }>
 }
 
 export const WALK_SPEED = 1.3               // m/s

@@ -57,7 +57,7 @@ def clean_item(it: dict, where: str) -> dict:
     if not isinstance(it, dict):
         raise CatalogError(f"{where}: ожидается объект")
     it = {ALIASES.get(k, k): v for k, v in it.items()}
-    unknown = set(it) - set(ITEM_FIELDS) - {"id", "cam", "category", "active", "sort"}
+    unknown = set(it) - set(ITEM_FIELDS) - {"id", "cam", "params", "category", "active", "sort"}
     if unknown:
         raise CatalogError(f"{where}: неизвестные поля {sorted(unknown)}")
     name, kind = it.get("name"), it.get("kind")
@@ -94,9 +94,28 @@ def clean_item(it: dict, where: str) -> dict:
                "range": _num(cam.get("range"), 0.5, 300, where, "cam.range"),
                "ident": _num(cam.get("ident"), 0, 300, where, "cam.ident")}
     row["camera"] = cam
+    row["params"] = clean_params(it.get("params"), where)
     if "active" in it:
         row["active"] = bool(it["active"])
     return row
+
+
+# kind-specific parameters of items: Wi-Fi access points, fire detectors
+PARAMS = {"radio": {"tx": (0, 36), "range": (1, 200)}, "detect": {"radius": (0.5, 30)}}
+
+
+def clean_params(v, where: str) -> dict | None:
+    if v in (None, {}):
+        return None
+    if not isinstance(v, dict) or set(v) - set(PARAMS):
+        raise CatalogError(f"{where}: params — {{{', '.join(PARAMS)}}}")
+    out = {}
+    for group, value in v.items():
+        spec = PARAMS[group]
+        if not isinstance(value, dict) or set(value) != set(spec):
+            raise CatalogError(f"{where}: params.{group} — {{{', '.join(spec)}}}")
+        out[group] = {k: _num(value[k], lo, hi, where, f"params.{group}.{k}") for k, (lo, hi) in spec.items()}
+    return out
 
 
 def _parse(path: Path) -> tuple[list[dict], list[dict]]:
@@ -160,10 +179,30 @@ def dump(path: Path) -> dict:
 
 
 def ensure_seeded():
+    """An empty catalog gets the seed; a filled one gets the categories and
+    items of the seed it does not have yet (nothing edited is touched)."""
     with db.session() as s:
         empty = not s.scalar(select(func.count()).select_from(CatalogItem))
     if empty:
         load(SEED)
+        return
+    add_missing(SEED)
+
+
+def add_missing(path: Path = SEED) -> dict:
+    cats, items = _parse(Path(path))
+    with db.session() as s:
+        have_c = set(s.scalars(select(CatalogCategory.id)))
+        have_i = set(s.scalars(select(CatalogItem.id)))
+        top = s.scalar(select(func.max(CatalogCategory.sort))) or 0
+        new_c = [r for r in cats if r["id"] not in have_c]
+        for k, r in enumerate(new_c):
+            s.add(CatalogCategory(**{**r, "sort": top + 1 + k}))
+        s.flush()
+        new_i = [r for r in items if r["id"] not in have_i]
+        for r in new_i:
+            s.add(CatalogItem(**r))
+    return {"categories": len(new_c), "items": len(new_i)}
 
 
 # ------------------------------------------------------------------ JSON ---
@@ -176,8 +215,8 @@ def model_url(model: str | None) -> str | None:
 def item_json(i: CatalogItem) -> dict:
     o = {"id": i.id, "name": i.name, "cat": i.category_id, "w": i.w, "d": i.d, "h": i.h, "kind": i.kind}
     for k, v in (("color", i.color), ("clear", i.clear), ("elev", i.elev), ("model", i.model),
-                 ("modelRot", i.model_rot), ("tags", i.tags), ("cam", i.camera), ("article", i.article),
-                 ("supplier", i.supplier)):
+                 ("modelRot", i.model_rot), ("tags", i.tags), ("cam", i.camera), ("params", i.params),
+                 ("article", i.article), ("supplier", i.supplier)):
         if v is not None:
             o[k] = v
     if i.model:

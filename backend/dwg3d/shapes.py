@@ -40,6 +40,14 @@ ZONE_KINDS = {
 # flows that must not enter zones of a kind
 ZONE_FORBIDDEN = {"clean": ["dirty", "infectious"], "sterile": ["dirty", "infectious", "visitors", "goods"],
                   "restricted": ["patients", "visitors"]}
+# cable routes of the network layer (polylines): the kinds and their names in the specification
+CABLES = {
+    "utp": {"name": "Кабель витая пара U/UTP кат. 6", "color": "#1c7ed6"},
+    "fiber": {"name": "Кабель оптический", "color": "#f08c00"},
+    "power": {"name": "Кабель силовой ВВГнг-LS 3×2,5", "color": "#e03131"},
+    "low": {"name": "Кабель слаботочный (АПС, СКУД)", "color": "#7048e8"},
+    "tray": {"name": "Лоток кабельный", "color": "#868e96"},
+}
 MAX_STOPS = 50
 MAX_SEGMENTS = 100
 MAX_PATH_POINTS = 20000
@@ -51,7 +59,7 @@ class ShapeError(ValueError):
 
 def rules_json() -> dict:
     return {"flows": FLOWS, "flow_conflicts": FLOW_CONFLICTS, "zone_kinds": ZONE_KINDS,
-            "zone_forbidden": ZONE_FORBIDDEN}
+            "zone_forbidden": ZONE_FORBIDDEN, "cables": CABLES}
 
 
 def _num(v, lo, hi, name) -> float:
@@ -151,3 +159,18 @@ def shift_route(props: dict, moves: dict[int, tuple[float, float, float]]) -> di
     if props.get("path") is not None:
         out["path"] = [{**sg, "pts": mv(sg.get("floor"), sg["pts"])} for sg in props["path"]]
     return out if changed else None
+
+
+def cable_props(props: dict) -> dict:
+    kind = props.get("cable") or "utp"
+    if kind not in CABLES:
+        raise ShapeError(f"cable: {', '.join(CABLES)}")
+    out = {"cable": kind, "name": _text(props.get("name"), "name", 200)}
+    if props.get("reserve") is not None:           # extra length for drops and slack, %
+        out["reserve"] = _num(props["reserve"], 0, 100, "reserve")
+    return out
+
+
+def polyline_length(points) -> float:
+    return sum(((points[i][0] - points[i - 1][0]) ** 2 + (points[i][1] - points[i - 1][1]) ** 2) ** 0.5
+               for i in range(1, len(points or [])))

@@ -332,6 +332,8 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
                     props = shapes.route_props(props, lambda c: floor_id(c, False))
                 elif v["geom"] == "polygon" and layer_kind(project_layers[layer_id]) == "zones":
                     props = shapes.zone_props(props)
+                elif v["geom"] == "polyline" and layer_kind(project_layers[layer_id]) == "network":
+                    props = shapes.cable_props(props)
             except shapes.ShapeError as ex:
                 raise Invalid(str(ex)) from ex
             x, y = v["at"]

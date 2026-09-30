@@ -10,7 +10,7 @@ import type { CatalogItem } from './furniture/catalog'
 import { catalogItem } from './furniture/catalog'
 import { conflictText, furnitureOps } from './furniture/sync'
 import { canEdit, READ_ONLY, setProjectRole } from './session'
-import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
+import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, systemsCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import CatalogEditor from './ui/CatalogEditor'
@@ -32,7 +32,7 @@ import FurniturePanel from './ui/FurniturePanel'
 import RoutesPanel, { type PlanClick } from './ui/RoutesPanel'
 import Compare from './ui/Compare'
 import { variantGroup, variantGroups } from './furniture/layers'
-import { checkFlows, computeRoute, connectors, type RouteProps, type RouteStop, type Rules, type ZoneProps } from './viewer/routing'
+import { checkFlows, computeRoute, connectors, type CableProps, type RouteProps, type RouteStop, type Rules, type ZoneProps } from './viewer/routing'
 import type { ShapeView } from './viewer/Shapes'
 import Toolbar, { type RouteState } from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
@@ -460,8 +460,10 @@ export default function App() {
     }
     const act = layers.find((l) => l.id === activeLayer)
     if (act && takes(act)) return act.id
-    const specific = layers.filter((l) => takes(l) && kinds.find((x) => x.kind === l.kind)?.categories)
-    return (specific[0] ?? layers.find(takes))?.id
+    // a kind made for this category (CCTV, fire alarm, Wi-Fi...): its layer, or none yet — the server creates it
+    const own = kinds.find((k) => k.categories?.includes(c.cat))
+    if (own) return layers.find((l) => l.kind === own.kind && takes(l))?.id
+    return layers.find(takes)?.id
   }
   const lockedLayer = (it: PlacedItem | undefined) => layers.find((l) => l.id === it?.layer && l.locked) ?? null
   const refuseLocked = (it: PlacedItem | undefined) => {
@@ -482,6 +484,7 @@ export default function App() {
   const [shapePicking, setShapePicking] = useState(false)
   const shapePick = useRef<((c: PlanClick) => void) | null>(null)
   const zoneLayerIds = useMemo(() => new Set(layers.filter((l) => l.kind === 'zones').map((l) => l.id)), [layers])
+  const netLayerIds = useMemo(() => new Set(layers.filter((l) => l.kind === 'network').map((l) => l.id)), [layers])
   const conflicts = useMemo(() => {
     if (!rules) return []
     const routes = shapes.filter((x) => x.geom === 'route').map((x) => {
@@ -505,8 +508,12 @@ export default function App() {
       const pr = (x.props ?? {}) as unknown as ZoneProps
       return [{ id: x.id, kind: 'zone', color: rules?.zone_kinds[pr.zone]?.color ?? '#868e96', segments: [{ floor: x.floor, pts: x.points ?? [] }], label: pr.name }]
     }
+    if (x.geom === 'polyline' && netLayerIds.has(x.layer ?? '')) {
+      const pr = (x.props ?? {}) as unknown as CableProps
+      return [{ id: x.id, kind: 'line', color: rules?.cables[pr.cable]?.color ?? '#495057', segments: [{ floor: x.floor, pts: x.points ?? [] }], label: pr.name }]
+    }
     return []
-  }), [shapes, rules, zoneLayerIds])
+  }), [shapes, rules, zoneLayerIds, netLayerIds])
   const saveShapes = async (ops: RowOp[]): Promise<boolean> => {
     if (!shown) return false
     if (!canEdit()) { alert(READ_ONLY); return false }
@@ -556,12 +563,14 @@ export default function App() {
   }, [shown?.build])
   const furnFloor = tool === 'furniture' ? activeFloor : null
   // the plan is also needed to draw the camera views of the active floor
-  const hasCams = !!activeFloor && shownFurniture.some((it) => it.floor === activeFloor.id && catalogItem(it.item).cam)
+  const hasCams = !!activeFloor && shownFurniture.some((it) => { const c = catalogItem(it.item); return it.floor === activeFloor.id && (!!c.cam || !!c.params) })
   const planFloor = furnFloor ?? (display.camViews && hasCams ? activeFloor : null)
   const floorItems = useMemo(() => shownFurniture.filter((it) => it.floor === planFloor?.id), [shownFurniture, planFloor])
   const furnPlan = planIdx && planIdx.floor === planFloor?.id ? planIdx.idx : null
   const issues = useMemo(() => (furnFloor ? checkFloor(floorItems, furnPlan) : new Map()), [floorItems, furnPlan, furnFloor])
   const coverage = useMemo(() => cameraCoverage(floorItems, furnPlan), [floorItems, furnPlan])
+  // Wi-Fi signal and the areas of fire detectors, drawn like camera views
+  const allCoverage = useMemo(() => new Map([...coverage, ...systemsCoverage(floorItems, furnPlan)]), [coverage, floorItems, furnPlan])
   // room shares are slower: let them lag behind while a camera is dragged
   const lazyCoverage = useDeferredValue(coverage)
   const roomCover = useMemo(() => (furnFloor ? roomCoverage(furnPlan, lazyCoverage) : []), [furnFloor, furnPlan, lazyCoverage])
@@ -836,7 +845,7 @@ export default function App() {
                 onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo}
                 furniture={{
                   items: shownFurniture, editing: tool === 'furniture', active: furnFloor?.id ?? null, plan: furnPlan, issues,
-                  selected: furnSel, placing, showZones, coverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
+                  selected: furnSel, placing, showZones, coverage: allCoverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
                   onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
                   onPlacing: setPlacing, onMove: moveItem,
                 }}

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   addMember, copyLayer, createLayer, createShare, deleteDrawing, deleteLayer, deleteProject, getProject, layerKinds, listLayers,
-  listMembers, listShares, removeMember, renameDrawing, revokeShare, setMemberRole, updateLayer, updateProject,
+  listMembers, listShares, projectChecks, removeMember, renameDrawing, revokeShare, setMemberRole, updateLayer, updateProject,
   uploadFile, uploadRevision,
-  type JobSummary, type Layer, type LayerKindInfo, type Member, type Project, type ProjectRole, type ShareLink,
+  type JobSummary, type Layer, type LayerKindInfo, type Member, type Project, type ProjectChecks, type ProjectRole, type ShareLink,
 } from '../api'
 import { jobColor } from '../state'
 import { hasProjectRole, me, PROJECT_ROLE_NAMES, setProjectRole } from '../session'
@@ -62,6 +62,7 @@ export default function ProjectPage({ pid }: { pid: string }) {
           </div>
           <p className="hint">Оборудование из слоёв проекта: по этажам всех чертежей или по помещениям, по всему проекту или одному слою; выгрузка в Excel.</p>
         </section>
+        <Checks pid={pid} />
         {!me?.guest && <Members pid={pid} owner={owner} />}
         {owner && <Shares p={p} />}
         {owner && <Danger p={p} />}
@@ -285,6 +286,30 @@ function LayerRow({ l, kindName, editable, variantOf, onCopy, onCompare, onPatch
         </div>
       )}
     </li>
+  )
+}
+
+// -------------------------------------------------------------- checks ---
+function Checks({ pid }: { pid: string }) {
+  const [c, setC] = useState<ProjectChecks | null>(null)
+  useEffect(() => { projectChecks(pid).then(setC).catch(() => setC(null)) }, [pid])
+  if (!c || !c.fire.length) return null
+  return (
+    <section className="card">
+      <div className="sec-head"><h2>Проверки систем <small>{c.fire.length}</small></h2></div>
+      <p className="hint">Пожарная сигнализация: помещения, где извещателей меньше, чем нужно по площади
+        (один дымовой защищает около 55 м², тепловой — около 27 м²). Уточняйте по нормам для высоты потолка.</p>
+      <ul className="rows">
+        {c.fire.slice(0, 50).map((x) => (
+          <li key={x.room_id} className="row">
+            <span className="badge st-error">{x.has} из {x.need}</span>
+            <div className="grow"><b>{x.room}</b><small>{[x.drawing, x.floor].filter(Boolean).join(' · ')} · {x.area.toFixed(1)} м²</small></div>
+            <a className="button small" href={`#/f/${x.drawing_id}`}>Открыть</a>
+          </li>
+        ))}
+      </ul>
+      {c.fire.length > 50 && <p className="hint">…и ещё {c.fire.length - 50}</p>}
+    </section>
   )
 }
 

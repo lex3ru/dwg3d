@@ -311,6 +311,9 @@ export interface Coverage {
   closed: boolean
   fov: number
   range: number
+  /** what covers: a camera (its view), a Wi-Fi access point (good / usable
+   * signal), a fire detector (the protected area) */
+  kind?: 'cam' | 'radio' | 'detect'
 }
 
 /** furniture this tall hides what is behind it */
@@ -372,6 +375,63 @@ export function cameraCoverage(items: PlacedItem[], idx: PlanIndex | null): Map<
       apex, fov: prm.fov, range: R, arc: far, arcIdent: idp, closed: full,
       full: full ? far : [apex, ...far], ident: full ? idp : [apex, ...idp],
     })
+  }
+  return out
+}
+
+// Wi-Fi: a log-distance path loss model with a loss per wall face crossed
+const RADIO_1M = 40            // dB of path loss at 1 m (2.4 GHz)
+const RADIO_N = 2.2            // path loss exponent indoors
+const FACE_DB = 3.5            // per face of a wall or partition (a wall ~ 7 dB)
+export const RADIO_GOOD = -67, RADIO_USABLE = -75       // dBm
+
+/** Radio coverage of Wi-Fi access points (params.radio) and the floor protected
+ * by fire detectors (params.detect): rays in all directions; radio fades with
+ * distance and loses FACE_DB at every wall face it crosses, a detector's area
+ * stops at walls. `full` / `ident`: usable / good signal (detectors: both the area). */
+export function systemsCoverage(items: PlacedItem[], idx: PlanIndex | null): Map<string, Coverage> {
+  const out = new Map<string, Coverage>()
+  for (const it of items) {
+    const c = catalogItem(it.item)
+    const radio = c.params?.radio, detect = c.params?.detect
+    if (!radio && !detect) continue
+    const R = radio ? radio.range : detect!.radius
+    const apex = it.at
+    const segs = (idx?.faces ?? []).filter(([a, b]) =>
+      Math.min(a[0], b[0]) <= apex[0] + R && Math.max(a[0], b[0]) >= apex[0] - R &&
+      Math.min(a[1], b[1]) <= apex[1] + R && Math.max(a[1], b[1]) >= apex[1] - R)
+    const n = 180
+    const good: XY[] = [], usable: XY[] = []
+    for (let i = 0; i < n; i++) {
+      const a = (2 * Math.PI * i) / n
+      const dir: XY = [Math.cos(a), Math.sin(a)]
+      const hits: number[] = []
+      for (const [p, q] of segs) {
+        const t = rayHit(apex, dir, p, q)
+        if (t > 1e-3 && t < R) hits.push(t)
+      }
+      hits.sort((x, y) => x - y)
+      let tg = R, tu = R
+      if (detect) {
+        tg = tu = hits.length ? hits[0] : R
+      } else {
+        const s1 = radio!.tx - RADIO_1M
+        const reach = (loss: number, thr: number) => Math.max(1, 10 ** ((s1 - loss - thr) / (10 * RADIO_N)))
+        let loss = 0, from = 0, gotG = false, gotU = false
+        for (const end of [...hits, R]) {
+          const dg = reach(loss, RADIO_GOOD), du = reach(loss, RADIO_USABLE)
+          if (!gotG && dg <= end) { tg = Math.max(dg, from); gotG = true }
+          if (!gotU && du <= end) { tu = Math.max(du, from); gotU = true }
+          if (gotG && gotU) break
+          loss += FACE_DB
+          from = end
+        }
+      }
+      good.push([apex[0] + dir[0] * tg, apex[1] + dir[1] * tg])
+      usable.push([apex[0] + dir[0] * tu, apex[1] + dir[1] * tu])
+    }
+    out.set(it.id, { apex, fov: 360, range: R, arc: usable, arcIdent: good, closed: true, full: usable, ident: good,
+      kind: radio ? 'radio' : 'detect' })
   }
   return out
 }

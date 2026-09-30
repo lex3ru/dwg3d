@@ -438,6 +438,7 @@ def add_project_layers(doc, floors: dict, scale: float, payload: dict) -> dict:
         layer_of[lay["id"]] = nm
     catalog = payload.get("catalog") or {}
     flows, zone_kinds = payload.get("flows") or {}, payload.get("zone_kinds") or {}
+    cables = payload.get("cables") or {}
 
     def writer(fid: str):
         f = floors.get(fid)
@@ -482,7 +483,8 @@ def add_project_layers(doc, floors: dict, scale: float, payload: dict) -> dict:
             if len(pts) < 2:
                 continue
             props = o.get("props") or {}
-            color = _rgb((zone_kinds.get(props.get("zone")) or {}).get("color"))
+            spec = zone_kinds.get(props.get("zone")) if geom == "polygon" else cables.get(props.get("cable"))
+            color = _rgb((spec or {}).get("color"))
             attrs = {"layer": dxl, **({"true_color": color} if color else {})}
             w.layout.add_lwpolyline(pts, close=geom == "polygon", dxfattribs=attrs)
             if geom == "polygon" and len(pts) >= 3:
@@ -494,7 +496,7 @@ def add_project_layers(doc, floors: dict, scale: float, payload: dict) -> dict:
                     cy = sum(p[1] for p in pts) / len(pts)
                     t = w.layout.add_text(props["name"], height=0.3 / scale, dxfattribs=attrs)
                     t.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
-            stats["zones"] += 1
+            stats["zones" if geom == "polygon" else "lines"] = stats.get("zones" if geom == "polygon" else "lines", 0) + 1
             continue
         item = catalog.get(o.get("item"))
         if item is None:

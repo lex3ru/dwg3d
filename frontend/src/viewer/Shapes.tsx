@@ -8,7 +8,7 @@ import { htmlLayer, type SceneCtx } from './scene'
 /** A route or a zone as drawn: plan coordinates, colours already chosen. */
 export interface ShapeView {
   id: string
-  kind: 'route' | 'zone'
+  kind: 'route' | 'zone' | 'line'
   color: string
   /** routes: the computed way per floor; zones: the outline (one segment) */
   segments: { floor: string; pts: XY[] }[]
@@ -39,6 +39,12 @@ export default function Shapes({ ctx, floors, center, visible, ...p }: ShapesPro
       {p.items.filter((s) => s.kind === 'zone').flatMap((s) => s.segments.filter((sg) => on(sg.floor) && sg.pts.length >= 3).map((sg, i) => (
         <FloorFollower key={`${s.id}-${i}`} ctx={ctx} floor={sg.floor}>
           <Zone pts={sg.pts.map((q) => g(sg.floor, q, 0.03))} color={s.color} selected={p.selected === s.id} />
+        </FloorFollower>
+      )))}
+      {p.items.filter((s) => s.kind === 'line').flatMap((s) => s.segments.filter((sg) => on(sg.floor) && sg.pts.length >= 2).map((sg, i) => (
+        <FloorFollower key={`${s.id}-l${i}`} ctx={ctx} floor={sg.floor}>
+          <Line points={sg.pts.map((q) => g(sg.floor, q, 0.06))} color={s.color} lineWidth={p.selected === s.id ? 5 : 3}
+            depthTest={false} renderOrder={17} />
         </FloorFollower>
       )))}
       {p.items.filter((s) => s.kind === 'route').flatMap((s) => [

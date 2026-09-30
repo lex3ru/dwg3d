@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FloorMeta, Layer, RowOp, ShapeObject, V3, XY } from '../api'
-import { fmtTime, type Computed, type Conflict, type RouteProps, type RouteStop, type Rules, type ZoneProps } from '../viewer/routing'
+import { fmtTime, type CableProps, type Computed, type Conflict, type RouteProps, type RouteStop, type Rules, type ZoneProps } from '../viewer/routing'
 import { plural } from './format'
 import { Icon } from './icons'
 
@@ -26,7 +26,7 @@ interface Props {
   onPicking: (on: boolean) => void
   save: (ops: RowOp[]) => Promise<boolean>
   compute: (stops: RouteStop[]) => Promise<Computed>
-  createLayer: (kind: 'routes' | 'zones') => Promise<void>
+  createLayer: (kind: 'routes' | 'zones' | 'network') => Promise<void>
   flyTo: (floor: string, at: XY) => void
   /** glTF -> plan coordinates (room label positions) */
   planOf: (v: V3) => XY
@@ -35,6 +35,12 @@ interface Props {
 
 const newId = () => Math.random().toString(36).slice(2, 10)
 const floorName = (floors: FloorMeta[], id: string) => floors.find((f) => f.id === id)?.name ?? '?'
+
+function length(pts: XY[]) {
+  let n = 0
+  for (let i = 1; i < pts.length; i++) n += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  return n
+}
 
 function area(pts: XY[]) {
   let a = 0
@@ -48,6 +54,9 @@ export default function RoutesPanel(p: Props) {
   const zoneLayers = p.layers.filter((l) => l.kind === 'zones')
   const routes = p.shapes.filter((s) => s.geom === 'route')
   const zones = p.shapes.filter((s) => s.geom === 'polygon' && zoneLayers.some((l) => l.id === s.layer))
+  const netLayers = p.layers.filter((l) => l.kind === 'network')
+  const cables = p.shapes.filter((s) => s.geom === 'polyline' && netLayers.some((l) => l.id === s.layer))
+  const [newCable, setNewCable] = useState<{ cable: string; name: string; reserve: number } | null>(null)
   const [routeLayer, setRouteLayer] = useState<string>('')
   const [zoneLayer, setZoneLayer] = useState<string>('')
   const rl = routeLayers.find((l) => l.id === routeLayer) ?? routeLayers[0]
@@ -59,7 +68,7 @@ export default function RoutesPanel(p: Props) {
   const [adding, setAdding] = useState<string | null>(null)        // route id waiting for stops by clicks
   const [newRoute, setNewRoute] = useState<{ flow: string; name: string } | null>(null)
   const [newZone, setNewZone] = useState<{ zone: string; name: string } | null>(null)
-  const [zoneDraft, setZoneDraft] = useState<{ floor: string; pts: XY[] } | null>(null)
+  const [zoneDraft, setZoneDraft] = useState<{ floor: string; pts: XY[]; what: 'zone' | 'cable' } | null>(null)
   const recomputing = useRef(false)
   const { onDraft, onPicking, pickRef } = p
 
@@ -110,10 +119,11 @@ export default function RoutesPanel(p: Props) {
     onPicking(waiting)
     pickRef.current = !waiting ? null : (c: PlanClick) => {
       if (zoneDraft) {
-        if (zoneDraft.pts.length && c.floor !== zoneDraft.floor) return setErr('Зона обводится на одном этаже')
-        const first = zoneDraft.pts[0]
-        if (zoneDraft.pts.length >= 3 && Math.hypot(c.at[0] - first[0], c.at[1] - first[1]) < 0.5) return finishZone()
-        setZoneDraft({ floor: c.floor, pts: [...zoneDraft.pts, c.at] })
+        if (zoneDraft.pts.length && c.floor !== zoneDraft.floor) return setErr(zoneDraft.what === 'zone' ? 'Зона обводится на одном этаже' : 'Трасса рисуется на одном этаже')
+        const first = zoneDraft.pts[0], last = zoneDraft.pts[zoneDraft.pts.length - 1]
+        if (zoneDraft.what === 'zone' && zoneDraft.pts.length >= 3 && Math.hypot(c.at[0] - first[0], c.at[1] - first[1]) < 0.5) return finishZone()
+        if (zoneDraft.what === 'cable' && zoneDraft.pts.length >= 2 && Math.hypot(c.at[0] - last[0], c.at[1] - last[1]) < 0.3) return finishZone()
+        setZoneDraft({ ...zoneDraft, floor: c.floor, pts: [...zoneDraft.pts, c.at] })
         return
       }
       const stop: RouteStop = { floor: c.floor, at: c.at, room: c.room?.id ?? null, label: c.room?.name || '' }
@@ -122,7 +132,7 @@ export default function RoutesPanel(p: Props) {
     return () => { pickRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding, zoneDraft, draftRoute, routes])
-  useEffect(() => { onDraft(zoneDraft ? { ...zoneDraft, closed: false } : null) }, [zoneDraft, onDraft])
+  useEffect(() => { onDraft(zoneDraft ? { floor: zoneDraft.floor, pts: zoneDraft.pts, closed: false } : null) }, [zoneDraft, onDraft])
   useEffect(() => () => { onPicking(false); onDraft(null) }, [onPicking, onDraft])
 
   const addStop = async (st: RouteStop) => {
@@ -138,19 +148,28 @@ export default function RoutesPanel(p: Props) {
     if (r) await saveRoute(r.id, { ...routeProps(r), stops: [...routeProps(r).stops, st] }, r)
   }
   const finishZone = async () => {
-    if (!zoneDraft || zoneDraft.pts.length < 3 || !newZone) return
+    if (!zoneDraft) return
     const id = newId()
-    const ok = await run('Сохранение…', [{ op: 'create', id, geom: 'polygon', layer: zl?.id, floor: zoneDraft.floor,
-      points: zoneDraft.pts, props: { zone: newZone.zone, name: newZone.name.trim() } }])
+    let ok = false
+    if (zoneDraft.what === 'cable') {
+      if (zoneDraft.pts.length < 2 || !newCable) return
+      ok = await run('Сохранение…', [{ op: 'create', id, geom: 'polyline', layer: netLayers[0]?.id, floor: zoneDraft.floor,
+        points: zoneDraft.pts, props: { cable: newCable.cable, name: newCable.name.trim(), reserve: newCable.reserve } }])
+      setNewCable(null)
+    } else {
+      if (zoneDraft.pts.length < 3 || !newZone) return
+      ok = await run('Сохранение…', [{ op: 'create', id, geom: 'polygon', layer: zl?.id, floor: zoneDraft.floor,
+        points: zoneDraft.pts, props: { zone: newZone.zone, name: newZone.name.trim() } }])
+      setNewZone(null)
+    }
     setZoneDraft(null)
-    setNewZone(null)
     if (ok) p.onSelect(id)
   }
   // Esc / Enter while picking
   useEffect(() => {
     if (!adding && !zoneDraft) return
     const on = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setAdding(null); setDraftRoute(null); setZoneDraft(null); setNewZone(null) }
+      if (e.key === 'Escape') { setAdding(null); setDraftRoute(null); setZoneDraft(null); setNewZone(null); setNewCable(null) }
       if (e.key === 'Enter' && zoneDraft) finishZone()
     }
     window.addEventListener('keydown', on)
@@ -164,7 +183,7 @@ export default function RoutesPanel(p: Props) {
   return (
     <aside className="furniture-panel routes-panel menu-root">
       <header>
-        <div><b>Маршруты и зоны</b><small>{routes.length} {plural(routes.length, 'маршрут', 'маршрута', 'маршрутов')} · {zones.length} {plural(zones.length, 'зона', 'зоны', 'зон')}</small></div>
+        <div><b>Маршруты, зоны, трассы</b><small>{routes.length} {plural(routes.length, 'маршрут', 'маршрута', 'маршрутов')} · {zones.length} {plural(zones.length, 'зона', 'зоны', 'зон')}{cables.length ? ` · ${cables.length} ${plural(cables.length, 'трасса', 'трассы', 'трасс')}` : ''}</small></div>
         <div className="fp-head-actions">
           <button className="icon" onClick={p.onClose} aria-label="Закрыть"><Icon name="close" size={16} /></button>
         </div>
@@ -174,9 +193,11 @@ export default function RoutesPanel(p: Props) {
         {err && <p className="fp-banner err">{err}</p>}
         {(adding || zoneDraft) && (
           <p className="fp-banner pick">
-            {zoneDraft ? `Обведите зону: щёлкайте углы на плане (${zoneDraft.pts.length}); замкнуть — щелчок по первой точке или Enter · Esc — отмена`
+            {zoneDraft ? (zoneDraft.what === 'cable'
+              ? `Трасса: щёлкайте точки на плане (${zoneDraft.pts.length}, ${length(zoneDraft.pts).toFixed(1)} м); закончить — повторный щелчок или Enter · Esc — отмена`
+              : `Обведите зону: щёлкайте углы на плане (${zoneDraft.pts.length}); замкнуть — щелчок по первой точке или Enter · Esc — отмена`)
               : 'Щёлкните на плане точку остановки (можно на другом этаже) или выберите помещение ниже · Esc — закончить'}
-            {zoneDraft && zoneDraft.pts.length >= 3 && <button className="small primary" onClick={finishZone}>Готово</button>}
+            {zoneDraft && zoneDraft.pts.length >= (zoneDraft.what === 'cable' ? 2 : 3) && <button className="small primary" onClick={finishZone}>Готово</button>}
             {adding && <button className="small" onClick={() => { setAdding(null); setDraftRoute(null) }}>Готово</button>}
           </p>
         )}
@@ -284,7 +305,7 @@ export default function RoutesPanel(p: Props) {
             <form className="rp-form" onSubmit={(e) => {
               e.preventDefault()
               if (!p.activeFloor) return setErr('Выберите этаж на лестнице слева')
-              setZoneDraft({ floor: p.activeFloor.id, pts: [] })
+              setZoneDraft({ floor: p.activeFloor.id, pts: [], what: 'zone' })
             }}>
               <input autoFocus placeholder="Название (например, «Стерилизационная»)" value={newZone.name} maxLength={200}
                 onChange={(e) => setNewZone({ ...newZone, name: e.target.value })} />
@@ -321,6 +342,69 @@ export default function RoutesPanel(p: Props) {
               </div>
             )
           })}
+        </section>
+
+        {/* ---- cable routes */}
+        <section className="rp-sec">
+          <div className="rp-head">
+            <b>Кабельные трассы</b>
+            {p.editable && netLayers.length > 0 && !newCable && !zoneDraft && (
+              <button className="small" onClick={() => setNewCable({ cable: 'utp', name: '', reserve: 10 })}><Icon name="plus" size={13} /> Трасса</button>
+            )}
+          </div>
+          {!netLayers.length && (
+            <p className="hint">Трассы СКС и электрики рисуются полилиниями по плану; их длина (с запасом) попадает в спецификацию.
+              {p.editable && <> <button className="link" onClick={() => p.createLayer('network')}>Создать слой СКС и электрики</button></>}</p>
+          )}
+          {newCable && !zoneDraft && (
+            <form className="rp-form" onSubmit={(e) => {
+              e.preventDefault()
+              if (!p.activeFloor) return setErr('Выберите этаж на лестнице слева')
+              setZoneDraft({ floor: p.activeFloor.id, pts: [], what: 'cable' })
+            }}>
+              <select value={newCable.cable} onChange={(e) => setNewCable({ ...newCable, cable: e.target.value })}>
+                {Object.entries(p.rules.cables).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
+              </select>
+              <input placeholder="Название (например, «Стояк серверной»)" value={newCable.name} maxLength={200}
+                onChange={(e) => setNewCable({ ...newCable, name: e.target.value })} />
+              <label className="inline">Запас, %
+                <input type="number" min={0} max={100} value={newCable.reserve} style={{ width: 64 }}
+                  onChange={(e) => setNewCable({ ...newCable, reserve: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+              </label>
+              <div className="row-actions">
+                <button type="button" className="small" onClick={() => setNewCable(null)}>Отмена</button>
+                <button className="small primary">Нарисовать на плане</button>
+              </div>
+            </form>
+          )}
+          {cables.map((x) => {
+            const pr = (x.props ?? {}) as unknown as CableProps
+            const on = p.selected === x.id
+            const len = length(x.points ?? []) * (1 + (pr.reserve ?? 0) / 100)
+            return (
+              <div key={x.id} className={`rp-item${on ? ' on' : ''}`}>
+                <button className="rp-main" onClick={() => { p.onSelect(on ? null : x.id); if (!on) p.flyTo(x.floor, x.at) }}>
+                  <i className="dot square" style={{ background: p.rules.cables[pr.cable]?.color ?? '#495057' }} />
+                  <span className="grow">
+                    <b>{pr.name || p.rules.cables[pr.cable]?.name || 'Трасса'}</b>
+                    <small>{p.rules.cables[pr.cable]?.name} · {len.toFixed(1)} м{pr.reserve ? ` (запас ${pr.reserve}%)` : ''} · {floorName(p.floors, x.floor)}</small>
+                  </span>
+                </button>
+                {on && p.editable && (
+                  <div className="rp-details">
+                    <button className="small danger" onClick={() => { if (confirm('Удалить трассу?')) run('Удаление…', [{ op: 'delete', id: x.id, version: x.version }]) }}>Удалить</button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {cables.length > 0 && (
+            <p className="hint">Итого: {Object.entries(cables.reduce<Record<string, number>>((acc, x) => {
+              const pr = (x.props ?? {}) as unknown as CableProps
+              acc[pr.cable] = (acc[pr.cable] ?? 0) + length(x.points ?? []) * (1 + (pr.reserve ?? 0) / 100)
+              return acc
+            }, {})).map(([k, v]) => `${p.rules.cables[k]?.name ?? k} — ${v.toFixed(1)} м`).join('; ')}</p>
+          )}
         </section>
 
         {/* ---- checks */}

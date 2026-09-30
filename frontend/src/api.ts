@@ -381,6 +381,7 @@ export interface LayerKinds {
   flow_conflicts: [string, string][]
   zone_kinds: Record<string, { name: string; color: string }>
   zone_forbidden: Record<string, string[]>
+  cables: Record<string, { name: string; color: string }>
 }
 
 export async function layerKinds(): Promise<LayerKinds> {
@@ -431,6 +432,15 @@ export interface LayerComparison {
 
 export async function compareLayers(projectId: string, a: string, b: string): Promise<LayerComparison> {
   return check(await fetch(`/api/projects/${projectId}/layers/compare?a=${a}&b=${b}`))
+}
+
+export interface ProjectChecks {
+  /** rooms short of fire detectors */
+  fire: { drawing_id: string; drawing: string; floor: string; room_id: number; room: string; area: number; has: number; need: number }[]
+}
+
+export async function projectChecks(projectId: string): Promise<ProjectChecks> {
+  return check(await fetch(`/api/projects/${projectId}/checks`))
 }
 
 export async function deleteLayer(projectId: string, id: string): Promise<void> {

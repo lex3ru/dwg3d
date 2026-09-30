@@ -388,6 +388,14 @@ def equipment_report(project: str | None = None, layer: str | None = None, by: s
     return _xlsx(reports.to_xlsx(rep), f"Спецификация — {rep['project']['name']}" if project else "Сводная спецификация")
 
 
+@app.get("/api/projects/{pid}/checks")
+def project_checks(pid: str):
+    """Problems of the engineering layers: rooms short of fire detectors."""
+    with db.session() as s:
+        _project(s, pid)
+        return {"fire": reports.fire_check(s, pid, auth.current.get())}
+
+
 def _layer_of(s, pid: str, lid: str) -> Layer | None:
     return s.scalar(select(Layer).where(Layer.id == lid, Layer.project_id == pid))
 
@@ -1038,7 +1046,7 @@ def _layers_payload(s, d: Drawing, which: str | None) -> dict | None:
     """The objects of project layers for the drawing export (see dxf_writer.add_project_layers):
     `which` — "none", "all" (default: the layers the user may see) or layer ids separated by commas."""
     from .models import CatalogItem
-    from .shapes import FLOWS, ZONE_KINDS
+    from .shapes import CABLES, FLOWS, ZONE_KINDS
 
     if which == "none":
         return None
@@ -1056,7 +1064,7 @@ def _layers_payload(s, d: Drawing, which: str | None) -> dict | None:
                        **({"cam": i.camera} if i.camera else {})}
                 for i in s.scalars(select(CatalogItem).where(CatalogItem.id.in_(used)))}
     return {"layers": [{"id": x["id"], "name": x["name"], "kind": x["kind"]} for x in lays if x["count"]],
-            "objects": objs, "catalog": catalog_, "flows": FLOWS, "zone_kinds": ZONE_KINDS}
+            "objects": objs, "catalog": catalog_, "flows": FLOWS, "zone_kinds": ZONE_KINDS, "cables": CABLES}
 
 
 @app.get("/api/drawings/{did}/drawing.{fmt}")

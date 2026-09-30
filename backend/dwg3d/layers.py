@@ -21,6 +21,11 @@ KINDS: dict[str, dict] = {
     # functional layers (shapes.py): routes of people between rooms and floors, zones of floors
     "routes": {"name": "Маршруты людей", "geoms": ("route",), "categories": (), "sort": 20},
     "zones": {"name": "Зоны", "geoms": ("polygon",), "categories": (), "sort": 30},
+    # engineering systems: equipment from their catalog categories; cable routes as polylines
+    "network": {"name": "СКС и электрика", "geoms": ("point", "polyline"), "categories": ("network",), "sort": 40},
+    "fire": {"name": "Пожарная сигнализация", "geoms": ("point",), "categories": ("fire",), "sort": 50},
+    "access": {"name": "СКУД", "geoms": ("point",), "categories": ("access",), "sort": 60},
+    "wifi": {"name": "Wi-Fi", "geoms": ("point",), "categories": ("wifi",), "sort": 70},
 }
 MAX_LAYERS = 200
 

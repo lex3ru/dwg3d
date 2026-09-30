@@ -129,13 +129,13 @@ export default function Toolbar(p: Props) {
       <Group id="furniture" icon="sofa" on={p.tool === 'furniture'} title="Мебель и оборудование: каталог и расстановка" onClick={p.onFurniture}>
         <div className="menu-title">Мебель и оборудование</div>
         <Check on={d.furniture} label="Показывать" onChange={(v) => p.set({ furniture: v })} />
-        <Check on={d.camViews} label="Обзор камер видеонаблюдения" onChange={(v) => p.set({ camViews: v })} />
+        <Check on={d.camViews} label="Обзор камер, покрытие Wi-Fi и извещателей" onChange={(v) => p.set({ camViews: v })} />
         <button className={`menu-item accent${p.tool === 'furniture' ? ' on' : ''}`} data-close="1" onClick={p.onFurniture}>
           <Icon name="plus" size={15} /> {p.tool === 'furniture' ? 'Закончить расстановку' : 'Каталог и расстановка…'}
         </button>
         <p className="menu-note">Расставлено: {p.placedCount} шт.{p.furnitureCount ? ` В детальной модели ещё ${p.furnitureCount} объект(ов) мебели.` : ''}</p>
       </Group>
-      <Group id="shapes" icon="flows" on={p.shapesOpen} title="Маршруты людей и зоны: пути по помещениям и этажам, проверка потоков"
+      <Group id="shapes" icon="flows" on={p.shapesOpen} title="Маршруты людей, зоны и кабельные трассы: пути по помещениям и этажам, проверка потоков"
         onClick={p.onShapes} />
       {p.conflictCount > 0 && <span className="tb-badge" title="Конфликты потоков и зон">{p.conflictCount}</span>}
       <Group id="layers" icon="layers" on={p.layers.some((l) => !p.hiddenLayers.has(l.id))} title="Слои проекта: мебель, видеонаблюдение…"

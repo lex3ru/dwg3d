@@ -11,7 +11,9 @@
 # kind — procedural model used when there is no GLB model (or while it loads);
 # model — GLB under frontend/public/catalog/, scaled to w×d×h, model_rot turns it
 # (deg) so its front faces +Z. cam — CCTV: fov (deg, 360 = panoramic), range and
-# face identification distance (m). Optional: article, supplier, price, currency.
+# face identification distance (m). params — kind-specific parameters:
+# radio: {tx: dBm, range: m} (Wi-Fi access points), detect: {radius: m} (fire
+# detectors: the protected area). Optional: article, supplier, price, currency.
 #
 # GLB models under kenney/ — Kenney Furniture Kit 2.0, CC0 (www.kenney.nl).
 
@@ -681,3 +683,196 @@ categories:
     clear: 0.8
     wall: true
     tags: охрана
+- id: network
+  name: СКС и электрика
+  color: '#f59f00'
+  items:
+  - id: net.socket_rj45
+    name: Розетка компьютерная RJ-45 (двойная)
+    w: 0.08
+    d: 0.04
+    h: 0.08
+    kind: device_wall
+    wall: true
+    elev: 0.3
+    color: '#f8f9fa'
+    tags: скс лвс сеть интернет розетка
+  - id: net.socket_220
+    name: Розетка 220 В (двойная)
+    w: 0.14
+    d: 0.04
+    h: 0.08
+    kind: device_wall
+    wall: true
+    elev: 0.3
+    color: '#f8f9fa'
+    tags: электрика розетка питание
+  - id: net.socket_med
+    name: Блок розеток медицинской консоли
+    w: 0.3
+    d: 0.08
+    h: 0.12
+    kind: device_wall
+    wall: true
+    elev: 1.2
+    color: '#e9ecef'
+    tags: консоль электрика розетка медицинская
+  - id: net.rack
+    name: Шкаф телекоммуникационный 19″ 42U
+    w: 0.6
+    d: 0.6
+    h: 2.0
+    kind: server
+    wall: true
+    clear: 0.8
+    tags: скс серверная коммутатор шкаф
+  - id: net.panel
+    name: Щит электрический этажный
+    w: 0.5
+    d: 0.15
+    h: 0.7
+    kind: panel
+    wall: true
+    elev: 1.2
+    clear: 0.8
+    tags: электрощит щрн щит
+- id: fire
+  name: Пожарная сигнализация
+  color: '#e03131'
+  items:
+  - id: fire.smoke
+    name: Извещатель пожарный дымовой
+    w: 0.1
+    d: 0.1
+    h: 0.05
+    kind: cam_dome
+    elev: 2.7
+    color: '#f8f9fa'
+    params: {detect: {radius: 5}}
+    tags: апс дымовой извещатель ип-212
+  - id: fire.heat
+    name: Извещатель пожарный тепловой
+    w: 0.1
+    d: 0.1
+    h: 0.05
+    kind: cam_dome
+    elev: 2.7
+    color: '#fff5f5'
+    params: {detect: {radius: 3.5}}
+    tags: апс тепловой извещатель ип-101
+  - id: fire.manual
+    name: Извещатель пожарный ручной (ИПР)
+    w: 0.1
+    d: 0.05
+    h: 0.12
+    kind: device_wall
+    wall: true
+    elev: 1.5
+    color: '#e03131'
+    tags: апс ипр кнопка
+  - id: fire.siren
+    name: Оповещатель звуковой
+    w: 0.12
+    d: 0.06
+    h: 0.1
+    kind: device_wall
+    wall: true
+    elev: 2.3
+    color: '#e03131'
+    tags: соуэ сирена оповещатель
+  - id: fire.exit
+    name: Табло «Выход»
+    w: 0.35
+    d: 0.05
+    h: 0.15
+    kind: device_wall
+    wall: true
+    elev: 2.2
+    color: '#2f9e44'
+    tags: соуэ выход световое табло
+  - id: fire.panel
+    name: Прибор приёмно-контрольный (ППК)
+    w: 0.4
+    d: 0.12
+    h: 0.5
+    kind: panel
+    wall: true
+    elev: 1.5
+    clear: 0.8
+    tags: апс ппк прибор
+- id: access
+  name: СКУД
+  color: '#1971c2'
+  items:
+  - id: acs.reader
+    name: Считыватель карт доступа
+    w: 0.08
+    d: 0.03
+    h: 0.12
+    kind: device_wall
+    wall: true
+    elev: 1.2
+    color: '#343a40'
+    tags: скуд считыватель карта пропуск
+  - id: acs.lock
+    name: Замок электромагнитный
+    w: 0.25
+    d: 0.05
+    h: 0.05
+    kind: device_wall
+    wall: true
+    elev: 2.0
+    color: '#868e96'
+    tags: скуд замок дверь
+  - id: acs.button
+    name: Кнопка выхода
+    w: 0.08
+    d: 0.04
+    h: 0.08
+    kind: device_wall
+    wall: true
+    elev: 1.2
+    color: '#2f9e44'
+    tags: скуд кнопка выход
+  - id: acs.turnstile
+    name: Турникет-трипод
+    w: 0.9
+    d: 0.3
+    h: 1.0
+    kind: kiosk
+    clear: 0.6
+    tags: скуд турникет проход
+  - id: acs.controller
+    name: Контроллер СКУД
+    w: 0.3
+    d: 0.1
+    h: 0.3
+    kind: device_wall
+    wall: true
+    elev: 1.8
+    tags: скуд контроллер
+- id: wifi
+  name: Wi-Fi
+  color: '#0ca678'
+  items:
+  - id: wifi.ap
+    name: Точка доступа Wi-Fi потолочная
+    w: 0.2
+    d: 0.2
+    h: 0.04
+    kind: cam_dome
+    elev: 2.8
+    color: '#f8f9fa'
+    params: {radio: {tx: 20, range: 40}}
+    tags: wi-fi вайфай точка доступа беспроводная сеть
+  - id: wifi.ap_wall
+    name: Точка доступа Wi-Fi настенная
+    w: 0.15
+    d: 0.04
+    h: 0.1
+    kind: device_wall
+    wall: true
+    elev: 2.2
+    color: '#f8f9fa'
+    params: {radio: {tx: 17, range: 30}}
+    tags: wi-fi вайфай точка доступа

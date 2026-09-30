@@ -55,6 +55,7 @@ class CatalogItem(Base):
     model: Mapped[str | None] = mapped_column(Text)         # GLB under frontend/public/catalog/
     model_rot: Mapped[float | None] = mapped_column(Float)
     camera: Mapped[dict | None] = mapped_column(JSONB)      # {fov, range, ident}
+    params: Mapped[dict | None] = mapped_column(JSONB)      # {radio: {tx, range}} | {detect: {radius}}
     tags: Mapped[str | None] = mapped_column(Text)
     article: Mapped[str | None] = mapped_column(Text)
     supplier: Mapped[str | None] = mapped_column(Text)

@@ -70,10 +70,14 @@ def test_objects_in_layers(c, built):
     r = c.post(base, json={"id": "c2", "floor": fid, "item": "doc.couch", "at": [2, 2], "layer": cctv})
     assert r.status_code == 400 and "не принимает" in r.json()["detail"]
     assert c.post(base, json={"floor": fid, "item": "doc.couch", "at": [2, 2], "layer": "nope"}).status_code == 400
-    # polylines are not furniture; no layer kind takes free polylines yet
+    # polylines are not furniture; without a layer they are cable routes of a network layer
     r = c.post(base, json={"floor": fid, "geom": "polyline", "points": [[0, 0], [1, 1]], "layer": couch["layer"]})
     assert r.status_code == 400
-    assert c.post(base, json={"floor": fid, "geom": "polyline", "points": [[0, 0], [1, 1]]}).status_code == 400
+    line = c.post(base, json={"floor": fid, "geom": "polyline", "points": [[0, 0], [1, 1]]})
+    assert line.status_code == 201 and line.json()["props"]["cable"] == "utp"
+    kinds_ = {x["id"]: x["kind"] for x in c.get(f"/api/projects/{pid}/layers").json()}
+    assert kinds_[line.json()["layer"]] == "network"
+    c.delete(f"{base}/{line.json()['id']}?version=1")
     # a second furniture layer: objects move between layers of a kind that accepts them
     b = c.post(f"/api/projects/{pid}/layers", json={"kind": "furniture", "name": "Вариант Б"}).json()
     moved = c.patch(f"{base}/couch", json={"layer": b["id"], "version": couch["version"]}).json()

@@ -39,6 +39,55 @@ def _item_row(it: CatalogItem | None, iid: str, cats: dict) -> dict:
             "currency": it.currency if it and it.price is not None else None, "qty": 0}
 
 
+def _cable_rows(s: Session, project_id, layer_id, me, layer_ids, floor_order) -> list[dict]:
+    """Cable routes (polylines of network layers): metres per cable kind (with the reserve)."""
+    from .shapes import CABLES, polyline_length
+
+    q = (select(LayerObject, Drawing.project_id, Floor.name, Floor.candidate, Floor.level, Drawing.id)
+         .select_from(LayerObject)
+         .join(Drawing, Drawing.id == LayerObject.drawing_id).join(Project, Project.id == Drawing.project_id)
+         .outerjoin(Floor, Floor.id == LayerObject.floor_id)
+         .where(LayerObject.geom == "polyline", Project.deleted_at.is_(None), Drawing.deleted_at.is_(None)))
+    if project_id is not None:
+        q = q.where(Drawing.project_id == project_id)
+    if layer_id is not None:
+        q = q.where(LayerObject.layer_id == layer_id)
+    if layer_ids is not None:
+        q = q.where(LayerObject.layer_id.in_(layer_ids))
+    if me is not None:
+        from . import access
+        q = access.visible(q, me)
+    rows: dict[str, dict] = {}
+    found = s.execute(q).all()
+    many = project_id is not None and len({r[5] for r in found}) > 1
+    drawings = {}
+    for o, pid, fname, cand, level, did in found:
+        kind = (o.props or {}).get("cable")
+        if kind not in CABLES:
+            continue
+        m = polyline_length(o.points) * (1 + float((o.props or {}).get("reserve") or 0) / 100)
+        r = rows.setdefault(kind, {"item": f"cable.{kind}", "name": CABLES[kind]["name"], "category": "Кабельные трассы",
+                                   "article": "", "supplier": "", "price": None, "currency": None, "qty": 0.0,
+                                   "unit": "м", "by": defaultdict(float)})
+        r["qty"] += m
+        if floor_order is not None:
+            if did not in drawings:
+                d = s.get(Drawing, did)
+                drawings[did] = d.name or d.filename.rsplit(".", 1)[0]
+            label = (fname or cand) if cand else NO_FLOOR
+            if many:
+                label = f"{drawings[did]} · {label}"
+            floor_order.setdefault(label, (drawings[did] if many else "", 0 if cand else 1,
+                                           level if level is not None else 0, label))
+            r["by"][label] += m
+        else:
+            r["by"][pid] += m
+    for r in rows.values():
+        r["qty"] = round(r["qty"], 1)
+        r["by"] = {k: round(v, 1) for k, v in r["by"].items()}
+    return sorted(rows.values(), key=lambda r: r["name"])
+
+
 def _placed(q, project_id: str | None, layer_id: str | None, me=None, layer_ids: set[str] | None = None):
     """Catalog objects of live projects and drawings (one project / layer;
     only projects `me` may open and layers in `layer_ids` when given)."""
@@ -93,13 +142,15 @@ def equipment(s: Session, project_id: str | None = None, layer_id: str | None = 
             r["by"][pid] += n
 
     out_rows = sorted(rows.values(), key=lambda r: (r["category_sort"], r["sort"], r["name"]))
+    out_rows += _cable_rows(s, project_id, layer_id, me, layer_ids, floor_order if project_id is not None else None)
     totals: dict[str, float] = defaultdict(float)
     for r in out_rows:
         r["sum"] = round(r["price"] * r["qty"], 2) if r["price"] is not None else None
         if r["sum"] is not None:
             totals[r["currency"]] += r["sum"]
         r["by"] = dict(r["by"])
-        del r["category_sort"], r["sort"]
+        r.pop("category_sort", None)
+        r.pop("sort", None)
     if project_id is not None:
         p = projects.get(project_id)
         columns = [label for label in sorted(floor_order, key=lambda k: floor_order[k])]
@@ -121,7 +172,7 @@ def equipment(s: Session, project_id: str | None = None, layer_id: str | None = 
                              for pid, n in zip(order, names, strict=True)]}
     return {**head, "columns": columns, "rows": out_rows,
             "totals": {k: round(v, 2) for k, v in totals.items()},
-            "qty": sum(r["qty"] for r in out_rows),
+            "qty": sum(r["qty"] for r in out_rows if r.get("unit", "шт.") == "шт."),
             "unpriced": sum(1 for r in out_rows if r["price"] is None),
             "generated": datetime.now().astimezone().isoformat(timespec="minutes")}
 
@@ -274,7 +325,7 @@ def to_xlsx(rep: dict) -> bytes:
         qty = f"=SUM({L(len(fixed) + 1)}{row}:{L(len(fixed) + nb)}{row})" if nb else r["qty"]
         price = r["price"]
         total = f"={L(qty_col)}{row}*{L(qty_col + 1)}{row}" if price is not None else None
-        ws.append([k, r["category"], r["name"], r["article"], r["supplier"], "шт."] + by +
+        ws.append([k, r["category"], r["name"], r["article"], r["supplier"], r.get("unit", "шт.")] + by +
                   [qty, price, total, r["currency"] or ""])
     last = ws.max_row
     if rep["rows"]:
@@ -303,3 +354,40 @@ def to_xlsx(rep: dict) -> bytes:
     wb.save(buf)
     return buf.getvalue()
 
+
+
+def fire_check(s: Session, project_id: str, me=None) -> list[dict]:
+    """Rooms of drawings with fire detectors that have fewer detectors than
+    their area needs (each protects about 0.7 π r² of floor)."""
+    import math
+
+    from shapely.geometry import Point
+
+    from .rooms import polygon
+
+    q = (select(LayerObject, CatalogItem.params).join(CatalogItem, CatalogItem.id == LayerObject.item_id)
+         .join(Drawing, Drawing.id == LayerObject.drawing_id)
+         .where(Drawing.project_id == project_id, Drawing.deleted_at.is_(None), CatalogItem.category_id == "fire"))
+    if me is not None and me.share is not None and me.share["layers"] is not None:
+        q = q.where(LayerObject.layer_id.in_(me.share["layers"]))
+    dets = [(o, (params or {}).get("detect", {}).get("radius")) for o, params in s.execute(q)]
+    dets = [(o, r) for o, r in dets if r]
+    if not dets:
+        return []
+    drawings = {o.drawing_id for o, _ in dets}
+    out = []
+    for room, fname, did in s.execute(select(Room, Floor.name, Room.drawing_id).join(Floor, Floor.id == Room.floor_id)
+                                      .where(Room.drawing_id.in_(drawings), Room.idx.is_not(None), Room.area >= 1.0)
+                                      .order_by(Floor.level, Room.name)):
+        poly = polygon(room.poly)
+        if poly is None:
+            continue
+        inside = [r for o, r in dets if o.floor_id == room.floor_id and poly.covers(Point(o.x, o.y))]
+        radius = max(inside) if inside else max(r for _, r in dets)
+        need = max(1, math.ceil(room.area / (0.7 * math.pi * radius ** 2)))
+        if len(inside) < need:
+            d = s.get(Drawing, did)
+            out.append({"drawing_id": did, "drawing": d.name or d.filename.rsplit(".", 1)[0], "floor": fname or "",
+                        "room_id": room.id, "room": room.name or "без названия", "area": round(room.area, 1),
+                        "has": len(inside), "need": need})
+    return out

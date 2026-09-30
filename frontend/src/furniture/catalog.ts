@@ -30,6 +30,9 @@ export interface CatalogItem {
   /** CCTV camera: horizontal view angle (deg, 360 = panoramic), range and
    * face identification distance (m); it looks along its front (+Z) */
   cam?: { fov: number; range: number; ident: number }
+  /** Wi-Fi access point: transmit power (dBm) and the longest range considered (m);
+   * fire detector: radius of the protected floor area (m) */
+  params?: { radio?: { tx: number; range: number }; detect?: { radius: number } }
   article?: string
   supplier?: string
   price?: number
