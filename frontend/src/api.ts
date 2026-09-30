@@ -394,6 +394,43 @@ export async function updateLayer(projectId: string, id: string, patch: Partial<
   return check(await fetch(`/api/projects/${projectId}/layers/${id}`, jsonBody('PATCH', patch)))
 }
 
+/** A copy of a layer with its objects: a variant (props.variant_group ties the variants of a layer). */
+export async function copyLayer(projectId: string, id: string, name?: string): Promise<Layer> {
+  return check(await fetch(`/api/projects/${projectId}/layers/${id}/copy`, jsonBody('POST', { name })))
+}
+
+export interface CompareObject {
+  key: string
+  change: 'added' | 'removed' | 'moved' | 'changed'
+  what: string[]
+  id_a: string | null
+  id_b: string | null
+  item: string | null
+  name: string
+  geom: string
+  drawing_id: string
+  drawing: string
+  floor: string
+  floor_name: string
+  room: string
+  at: XY
+  from?: { drawing_id: string; floor: string; floor_name: string; room: string; at: XY }
+}
+
+export interface LayerComparison {
+  a: Layer
+  b: Layer
+  counts: { added: number; removed: number; moved: number; changed: number; same: number }
+  objects: CompareObject[]
+  items: { item: string; name: string; category: string; price: number | null; currency: string | null;
+    qty_a: number; qty_b: number; delta: number; sum_a?: number; sum_b?: number }[]
+  totals: Record<string, { a: number; b: number; delta: number }>
+}
+
+export async function compareLayers(projectId: string, a: string, b: string): Promise<LayerComparison> {
+  return check(await fetch(`/api/projects/${projectId}/layers/compare?a=${a}&b=${b}`))
+}
+
 export async function deleteLayer(projectId: string, id: string): Promise<void> {
   return check(await fetch(`/api/projects/${projectId}/layers/${id}`, { method: 'DELETE' }))
 }

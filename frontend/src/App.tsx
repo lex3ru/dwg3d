@@ -30,6 +30,8 @@ import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
 import FurniturePanel from './ui/FurniturePanel'
 import RoutesPanel, { type PlanClick } from './ui/RoutesPanel'
+import Compare from './ui/Compare'
+import { variantGroup, variantGroups } from './furniture/layers'
 import { checkFlows, computeRoute, connectors, type RouteProps, type RouteStop, type Rules, type ZoneProps } from './viewer/routing'
 import type { ShapeView } from './viewer/Shapes'
 import Toolbar, { type RouteState } from './ui/Toolbar'
@@ -412,19 +414,38 @@ export default function App() {
   useEffect(() => { layerKinds().then((k) => { setKinds(k.kinds); setRules(k) }).catch(() => {}) }, [])
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
   const [activeLayer, setActiveLayer] = useState<string | null>(null)
+  // variants of a layer: one of them is shown (the first by default)
+  const [variantPick, setVariantPick] = useState<Record<string, string>>({})
   useEffect(() => {
     if (!projectId) return
     // this viewer's choice (localStorage); a layer hidden on the server starts hidden
-    let saved: { hidden?: string[]; active?: string | null } = {}
+    let saved: { hidden?: string[]; active?: string | null; variants?: Record<string, string> } = {}
     try { saved = JSON.parse(localStorage.getItem(`dwg3d.layers.${projectId}`) ?? '{}') } catch { /* private mode */ }
     setHiddenLayers(new Set(saved.hidden ?? (shown?.layers ?? []).filter((l) => !l.visible).map((l) => l.id)))
     setActiveLayer(saved.active ?? null)
+    setVariantPick(saved.variants ?? {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
   useEffect(() => {
     if (!projectId) return
-    try { localStorage.setItem(`dwg3d.layers.${projectId}`, JSON.stringify({ hidden: [...hiddenLayers], active: activeLayer })) } catch { /* private mode */ }
-  }, [projectId, hiddenLayers, activeLayer])
+    try { localStorage.setItem(`dwg3d.layers.${projectId}`, JSON.stringify({ hidden: [...hiddenLayers], active: activeLayer, variants: variantPick })) } catch { /* private mode */ }
+  }, [projectId, hiddenLayers, activeLayer, variantPick])
+  /** Hidden here: switched off, or another variant of the layer is chosen. */
+  const hiddenNow = useMemo(() => {
+    const h = new Set(hiddenLayers)
+    for (const g of variantGroups(layers)) {
+      const pick = g.find((l) => l.id === variantPick[variantGroup(g[0])]) ?? g[0]
+      for (const l of g) if (l.id !== pick.id) h.add(l.id)
+    }
+    return h
+  }, [hiddenLayers, layers, variantPick])
+  const [comparing, setComparing] = useState(false)
+  const showVariant = (id: string) => {
+    const l = layers.find((x) => x.id === id)
+    if (!l) return
+    setVariantPick((v) => ({ ...v, [variantGroup(l)]: id }))
+    setHiddenLayers((h) => { const n = new Set(h); n.delete(id); return n })
+  }
   const toggleLayer = (id: string) => setHiddenLayers((h) => {
     const n = new Set(h)
     if (n.has(id)) n.delete(id)
@@ -451,11 +472,11 @@ export default function App() {
 
   // ---- furniture (stored on the server with the job view)
   const furniture = useMemo(() => view.furniture ?? [], [view.furniture])
-  const shownFurniture = useMemo(() => furniture.filter((it) => !it.layer || !hiddenLayers.has(it.layer)), [furniture, hiddenLayers])
+  const shownFurniture = useMemo(() => furniture.filter((it) => !it.layer || !hiddenNow.has(it.layer)), [furniture, hiddenNow])
   const rebuilding = job?.status === 'queued' || job?.status === 'running'
 
   // ---- routes of people and zones (functional layers)
-  const shapes = useMemo(() => (view.shapes ?? []).filter((x) => !x.layer || !hiddenLayers.has(x.layer)), [view.shapes, hiddenLayers])
+  const shapes = useMemo(() => (view.shapes ?? []).filter((x) => !x.layer || !hiddenNow.has(x.layer)), [view.shapes, hiddenNow])
   const [shapeSel, setShapeSel] = useState<string | null>(null)
   const [shapeDraft, setShapeDraft] = useState<{ floor: string; pts: XY[]; closed: boolean } | null>(null)
   const [shapePicking, setShapePicking] = useState(false)
@@ -865,8 +886,9 @@ export default function App() {
               }}
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
-              layers={layers} hiddenLayers={hiddenLayers} onToggleLayer={toggleLayer}
+              layers={layers} hiddenLayers={hiddenNow} onToggleLayer={toggleLayer}
               onAllLayers={(show) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))}
+              onVariant={showVariant} onCompare={() => setComparing(true)}
               projectId={projectId} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {buildingOpen && job && shown && (
@@ -944,6 +966,21 @@ export default function App() {
         )}
         {settings === 'floors' && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(null)} />}
         {settings === 'report' && shown && <Report projectId={shown.project_id} onClose={() => setSettings(null)} />}
+        {comparing && shown && (() => {
+          const g = variantGroups(layers).find((x) => x.some((l) => !hiddenNow.has(l.id))) ?? variantGroups(layers)[0]
+          if (!g) return null
+          const b = g.find((l) => !hiddenNow.has(l.id)) ?? g[1]
+          const a = g.find((l) => l.id !== b.id) ?? g[0]
+          return (
+            <Compare projectId={shown.project_id} layers={layers} a={a.id} b={b.id} onClose={() => setComparing(false)}
+              onShow={(o) => {
+                setComparing(false)
+                if (o.drawing_id !== shown.id) { location.hash = `#/f/${o.drawing_id}`; return }
+                showVariant(o.change === 'removed' ? a.id : b.id)
+                if (o.floor) flyToPlan(o.floor, o.at)
+              }} />
+          )
+        })()}
         {settings === 'catalog' && <CatalogEditor onClose={() => setSettings(null)} onChanged={() => setCatalogTick((n) => n + 1)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}

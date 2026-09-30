@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  addMember, createLayer, createShare, deleteDrawing, deleteLayer, deleteProject, getProject, layerKinds, listLayers,
+  addMember, copyLayer, createLayer, createShare, deleteDrawing, deleteLayer, deleteProject, getProject, layerKinds, listLayers,
   listMembers, listShares, removeMember, renameDrawing, revokeShare, setMemberRole, updateLayer, updateProject,
   uploadFile, uploadRevision,
   type JobSummary, type Layer, type LayerKindInfo, type Member, type Project, type ProjectRole, type ShareLink,
@@ -10,6 +10,8 @@ import { hasProjectRole, me, PROJECT_ROLE_NAMES, setProjectRole } from '../sessi
 import { fmtDate, plural } from './format'
 import { PageHead } from './Projects'
 import Report from './Report'
+import Compare from './Compare'
+import { variantGroup, variantGroups } from '../furniture/layers'
 import { Icon } from './icons'
 
 const STATUS: Record<JobSummary['status'], string> = { queued: 'в очереди', running: 'обрабатывается', done: 'готов', error: 'ошибка' }
@@ -215,6 +217,9 @@ function Layers({ pid, editable }: { pid: string; editable: boolean }) {
     load()
   }
   const kindName = (k: string) => kinds.find((x) => x.kind === k)?.name ?? k
+  const [cmp, setCmp] = useState<[string, string] | null>(null)
+  const groups = variantGroups(layers ?? [])
+  const groupOf = (l: Layer) => groups.find((g) => g.some((x) => x.id === l.id)) ?? null
   return (
     <section className="card">
       <div className="sec-head">
@@ -234,18 +239,23 @@ function Layers({ pid, editable }: { pid: string; editable: boolean }) {
       <ul className="rows">
         {(layers ?? []).map((l) => (
           <LayerRow key={l.id} l={l} kindName={kindName(l.kind)} editable={editable}
+            variantOf={(() => { const g = groupOf(l); return g ? g.find((x) => x.id === variantGroup(l))?.name ?? g[0].name : null })()}
+            onCopy={() => act(() => copyLayer(pid, l.id))}
+            onCompare={groupOf(l) ? () => { const g = groupOf(l)!; setCmp([g[0].id === l.id ? g[1].id : g[0].id, l.id]) } : null}
             onPatch={(patch) => act(() => updateLayer(pid, l.id, { ...patch, version: l.version }))}
             onDelete={() => {
               if (confirm(`Удалить слой «${l.name}»${l.count ? ` и ${l.count} ${plural(l.count ?? 0, 'объект', 'объекта', 'объектов')} в нём` : ''}?`)) act(() => deleteLayer(pid, l.id))
             }} />
         ))}
       </ul>
+      {cmp && <Compare projectId={pid} layers={layers ?? []} a={cmp[0]} b={cmp[1]} onClose={() => setCmp(null)} />}
     </section>
   )
 }
 
-function LayerRow({ l, kindName, editable, onPatch, onDelete }: {
-  l: Layer; kindName: string; editable: boolean; onPatch: (p: Partial<Layer>) => void; onDelete: () => void
+function LayerRow({ l, kindName, editable, variantOf, onCopy, onCompare, onPatch, onDelete }: {
+  l: Layer; kindName: string; editable: boolean; variantOf: string | null; onCopy: () => void; onCompare: (() => void) | null
+  onPatch: (p: Partial<Layer>) => void; onDelete: () => void
 }) {
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(l.name)
@@ -259,13 +269,16 @@ function LayerRow({ l, kindName, editable, onPatch, onDelete }: {
             <button className="small primary" disabled={!name.trim()}>OK</button>
             <button type="button" className="small" onClick={() => setRenaming(false)}>Отмена</button>
           </form>
-        ) : <><b>{l.name}</b><small>{kindName} · {l.count ?? 0} {plural(l.count ?? 0, 'объект', 'объекта', 'объектов')}</small></>}
+        ) : <><b>{l.name}</b><small>{kindName} · {l.count ?? 0} {plural(l.count ?? 0, 'объект', 'объекта', 'объектов')}
+          {variantOf && <span className="variant-of"> · варианты «{variantOf}»</span>}</small></>}
       </div>
+      {onCompare && <button className="small" onClick={onCompare} title="Что отличается от другого варианта: предметы, стоимость">Сравнить…</button>}
       {l.locked && <span className="badge">заблокирован</span>}
       {!l.visible && <span className="badge">скрыт</span>}
       {editable && !renaming && (
         <div className="row-actions">
           <button className="small" onClick={() => setRenaming(true)}>Имя</button>
+          <button className="small" title="Копия слоя со всеми объектами — вариант, который можно менять и сравнивать с исходным" onClick={onCopy}>Вариант</button>
           <button className="small" title="Показывать ли слой при открытии чертежа" onClick={() => onPatch({ visible: !l.visible })}>{l.visible ? 'Скрыть' : 'Показать'}</button>
           <button className="small" title="Заблокированный слой нельзя менять" onClick={() => onPatch({ locked: !l.locked })}>{l.locked ? 'Разблокировать' : 'Заблокировать'}</button>
           <button className="small danger" disabled={l.locked} onClick={onDelete}>Удалить</button>

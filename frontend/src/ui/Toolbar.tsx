@@ -1,5 +1,6 @@
 import type { FloorMeta, Layer, Pin } from '../api'
 import type { Display, NavMode, Tool } from '../state'
+import { variantGroups } from '../furniture/layers'
 import { Icon, type IconName } from './icons'
 import { Check } from './menu'
 import { useMenu } from './menuCtx'
@@ -46,6 +47,9 @@ interface Props {
   hiddenLayers: Set<string>
   onToggleLayer: (id: string) => void
   onAllLayers: (show: boolean) => void
+  /** show this variant of a layer and hide the other variants */
+  onVariant: (id: string) => void
+  onCompare: () => void
   projectId: string
 }
 
@@ -138,10 +142,18 @@ export default function Toolbar(p: Props) {
         onClick={() => p.onAllLayers(p.layers.every((l) => p.hiddenLayers.has(l.id)))}>
         <div className="menu-title">Слои проекта</div>
         {!p.layers.length && <p className="menu-note">Слоёв пока нет: первый появится с первым предметом на плане.</p>}
-        {p.layers.map((l) => (
-          <Check key={l.id} on={!p.hiddenLayers.has(l.id)} label={`${l.name}${l.locked ? ' 🔒' : ''}${l.count != null ? ` · ${l.count}` : ''}`}
-            onChange={() => p.onToggleLayer(l.id)} />
-        ))}
+        {p.layers.map((l) => {
+          const variants = variantGroups(p.layers).some((g) => g.some((x) => x.id === l.id))
+          return (
+            <Check key={l.id} on={!p.hiddenLayers.has(l.id)}
+              label={`${l.name}${l.locked ? ' 🔒' : ''}${l.count != null ? ` · ${l.count}` : ''}`}
+              hint={variants ? 'Вариант: показывается один из вариантов слоя' : undefined}
+              onChange={() => (variants && p.hiddenLayers.has(l.id) ? p.onVariant(l.id) : p.onToggleLayer(l.id))} />
+          )
+        })}
+        {variantGroups(p.layers).length > 0 && (
+          <button className="menu-item" data-close="1" onClick={p.onCompare}>Сравнить варианты…</button>
+        )}
         {p.projectId && <a className="menu-item" href={`#/p/${p.projectId}`}>Настроить слои проекта…</a>}
       </Group>
       <Group id="comments" icon="comment" on={d.comments || p.tool === 'comment'} title="Комментарии"

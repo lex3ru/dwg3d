@@ -157,3 +157,48 @@ def test_rooms_backfill(c, built, pg):
     assert n == len(ids_before)
     d2 = c.get(f"/api/drawings/{did}").json()
     assert all(r.get("id") for f in d2["result"]["floors"] for r in f["rooms"])
+
+
+def test_variants_copy_and_compare(c, built):
+    pid, d = built
+    did, fid = d["id"], d["result"]["floors"][0]["id"]
+    base = f"/api/drawings/{did}/objects"
+    a = c.post(f"/api/projects/{pid}/layers", json={"kind": "furniture", "name": "Расстановка"}).json()
+    ops = [{"op": "create", "id": f"v{k}", "floor": fid, "item": "doc.chair", "at": [1 + k, 1], "layer": a["id"]}
+           for k in range(3)]
+    ops.append({"op": "create", "id": "vd", "floor": fid, "item": "doc.desk", "at": [5, 5], "layer": a["id"]})
+    assert c.post(f"{base}:batch", json={"ops": ops}).status_code == 200
+    b = c.post(f"/api/projects/{pid}/layers/{a['id']}/copy", json={})
+    assert b.status_code == 201
+    b = b.json()
+    assert b["kind"] == "furniture" and b["count"] == 4 and b["name"] == "Расстановка — вариант 2"
+    assert b["props"]["variant_group"] == a["id"]
+    got = {x["id"]: x for x in c.get(f"/api/projects/{pid}/layers").json()}
+    assert got[a["id"]]["props"]["variant_group"] == a["id"]
+    items_b = [x for x in c.get(f"{base}?layer={b['id']}").json()["items"]]
+    assert {x["props"]["origin"] for x in items_b} == {"v0", "v1", "v2", "vd"}
+    assert not {x["id"] for x in items_b} & {"v0", "v1", "v2", "vd"}
+    same = c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b={b['id']}").json()
+    assert same["counts"] == {"added": 0, "removed": 0, "moved": 0, "changed": 0, "same": 4} and not same["objects"]
+    # in variant B: one chair moved, the desk replaced by a couch, one chair removed, a cabinet added
+    by_origin = {x["props"]["origin"]: x for x in items_b}
+    ops = [{"op": "update", "id": by_origin["v0"]["id"], "version": 1, "at": [10, 1]},
+           {"op": "update", "id": by_origin["vd"]["id"], "version": 1, "item": "doc.couch"},
+           {"op": "delete", "id": by_origin["v2"]["id"], "version": 1},
+           {"op": "create", "id": "vn", "floor": fid, "item": "st.cabinet", "at": [2, 8], "layer": b["id"]}]
+    assert c.post(f"{base}:batch", json={"ops": ops}).status_code == 200
+    cmp = c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b={b['id']}").json()
+    assert cmp["counts"] == {"added": 1, "removed": 1, "moved": 1, "changed": 1, "same": 1}
+    ch = {o["key"]: o for o in cmp["objects"]}
+    assert ch["v0"]["change"] == "moved" and ch["v0"]["from"]["at"] == [1.0, 1.0] and ch["v0"]["at"] == [10.0, 1.0]
+    assert ch["vd"]["change"] == "changed" and "предмет" in ch["vd"]["what"]
+    assert ch["v2"]["change"] == "removed" and ch["vn"]["change"] == "added"
+    spec = {r["item"]: r for r in cmp["items"]}
+    assert (spec["doc.chair"]["qty_a"], spec["doc.chair"]["qty_b"], spec["doc.chair"]["delta"]) == (3, 2, -1)
+    assert spec["st.cabinet"]["delta"] == 1 and spec["doc.desk"]["delta"] == -1
+    # a copy of a copy stays in the group, its objects keep the first origin
+    c3 = c.post(f"/api/projects/{pid}/layers/{b['id']}/copy", json={"name": "Эконом"}).json()
+    assert c3["name"] == "Эконом" and c3["props"]["variant_group"] == a["id"]
+    cmp = c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b={c3['id']}").json()
+    assert cmp["counts"]["same"] == 1 and cmp["counts"]["moved"] == 1
+    assert c.get(f"/api/projects/{pid}/layers/compare?a={a['id']}&b=nope").status_code == 404

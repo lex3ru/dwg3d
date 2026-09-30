@@ -79,7 +79,7 @@ from . import access, auth, catalog, db, files, layers, reports, rooms, store, v
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Drawing, Layer, Project, ProjectMember
+from .models import Drawing, Layer, LayerObject, Project, ProjectMember
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -882,6 +882,33 @@ def update_layer(pid: str, lid: str, v: dict):
                                  {k: a for k, (_, a) in changes.items()})
             store.touch_project(s, pid)
         return layers.layer_json(layer)
+
+
+@app.post("/api/projects/{pid}/layers/{lid}/copy", status_code=201)
+def copy_layer(pid: str, lid: str, v: dict | None = None):
+    """A copy of the layer with all its objects: a variant to compare with it."""
+    with db.session() as s:
+        _project(s, pid, lock=True)
+        layer = _layer(s, pid, lid)
+        copy = layers.copy_layer(s, layer, (v or {}).get("name"))
+        viewdata.audit_entry(s, pid, "layer", copy.id, "create", None, {**layers.layer_json(copy), "copy_of": lid})
+        store.touch_project(s, pid)
+        n = s.scalar(select(func.count()).select_from(LayerObject).where(LayerObject.layer_id == copy.id))
+        return layers.layer_json(copy, n)
+
+
+@app.get("/api/projects/{pid}/layers/compare")
+def compare_layers(pid: str, a: str, b: str):
+    """Differences between two layers (variants): objects and the specification."""
+    with db.session() as s:
+        _project(s, pid)
+        la, lb = _layer_of(s, pid, a), _layer_of(s, pid, b)
+        if la is None or lb is None:
+            raise HTTPException(404, "Слой не найден")
+        shown = access.visible_layers(auth.current.get())
+        if shown is not None and not {a, b} <= shown:
+            raise HTTPException(404, "Слой не найден")
+        return layers.compare(s, la, lb)
 
 
 @app.delete("/api/projects/{pid}/layers/{lid}", status_code=204)

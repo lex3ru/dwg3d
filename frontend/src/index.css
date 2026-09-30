@@ -688,3 +688,20 @@ table.report tr.group small { display: inline; margin-left: 8px; }
 .route-stop { min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: default; }
 .flow-alert { width: 20px; height: 20px; border-radius: 50%; background: var(--danger); color: #fff; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 1px 6px rgba(224,49,49,.5); font-size: 12px; }
 .tb-badge { align-self: flex-start; margin-left: -10px; background: var(--danger); color: #fff; border-radius: 9px; font-size: 10.5px; font-weight: 700; padding: 0 5px; line-height: 16px; }
+
+/* ---- variants */
+.cmp-pick { margin-left: auto; margin-right: 8px; gap: 6px; }
+.cmp-pick select { max-width: 220px; padding: 4px 6px; }
+.cmp-counts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0; }
+.cmp-chip { border-radius: 14px; padding: 3px 10px; font-size: 12.5px; }
+.cmp-chip.on { border-color: var(--accent); background: var(--accent-soft); }
+.badge.cmp-added { background: #ebfbee; color: #2b8a3e; }
+.badge.cmp-removed { background: #fff5f5; color: var(--danger); }
+.badge.cmp-moved { background: #fff4e6; color: #d9480f; }
+.badge.cmp-changed { background: var(--accent-soft); color: #1864ab; }
+td.plus { color: #2b8a3e; }
+td.minus { color: var(--danger); }
+tr.muted td { color: var(--muted); }
+.report-scroll.short { max-height: 34vh; }
+.cmp-list .row { padding: 6px 2px; }
+.variant-of { font-size: 11.5px; color: #7048e8; }
