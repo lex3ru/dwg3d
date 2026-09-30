@@ -27,7 +27,8 @@ def test_removed_items_are_deactivated_not_deleted(pg, tmp_path):
     p = _write(tmp_path, [{"id": "x", "name": "X", "items": [
         {"id": "diag.mri", "name": "МРТ 3 Тл", "w": 2.3, "d": 4.6, "h": 2.3, "kind": "mri",
          "article": "MR-3T", "price": 1234567.891}]}])
-    r = catalog.load(p)
+    assert catalog.load(p)["deactivated"] == 0             # a plain import keeps the rest
+    r = catalog.load(p, prune=True)
     assert r["deactivated"] >= 70
     by_id = {i["id"]: i for i in catalog.as_json()["items"]}
     assert by_id["diag.mri"]["cat"] == "x" and by_id["diag.mri"]["price"] == 1234567.89
@@ -38,8 +39,11 @@ def test_removed_items_are_deactivated_not_deleted(pg, tmp_path):
 
 
 @pytest.mark.parametrize("item, msg", [
-    ({"name": "A", "w": 1, "d": 1, "h": 1, "kind": "k"}, "нужны id"),
+    ({"name": "A", "w": 1, "d": 1, "h": 1, "kind": "k"}, "нужен id"),
     ({"id": "a", "name": "A", "w": 0, "d": 1, "h": 1, "kind": "k"}, "w —"),
+    ({"id": "a", "name": "A", "w": 1, "d": 1, "h": 1, "kind": "k", "color": "red"}, "color"),
+    ({"id": "a", "name": "A", "w": 1, "d": 1, "h": 1, "kind": "k", "model": "../../etc/x.glb"}, "model"),
+    ({"id": "a", "name": "A", "w": 1, "d": 1, "h": 1, "kind": "k", "currency": "rub"}, "currency"),
     ({"id": "a", "name": "A", "w": 1, "d": 1, "h": 1, "kind": "k", "size": 3}, "неизвестные поля"),
     ({"id": "a", "name": "A", "w": 1, "d": 1, "h": 1, "kind": "k", "cam": {"fov": 1}}, "cam"),
 ])

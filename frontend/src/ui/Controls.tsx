@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react'
 import type { Result } from '../api'
+import { can } from '../session'
 import type { DayTime, MeasureMode, Projection } from '../state'
 import { Icon } from './icons'
 import { useMenu } from './menuCtx'
+
+/** Settings dialogs opened from the gear menu */
+export type SettingsPane = 'floors' | 'site' | 'report' | 'catalog'
 
 /** Top-right group: ruler, display menu (passed in), 2D | 3D, map, settings. */
 export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj, onProj, map, onMap, mapAvailable, onSettings }: {
@@ -15,7 +19,7 @@ export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj,
   map: boolean
   onMap: (v: boolean) => void
   mapAvailable: boolean
-  onSettings: (which: 'floors' | 'site') => void
+  onSettings: (which: SettingsPane) => void
 }) {
   const ruler = useMenu('ruler')
   const gear = useMenu('gear')
@@ -55,6 +59,10 @@ export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj,
           <div className="menu drop-right" role="menu">
             <button className="menu-item" onClick={() => { gear.close(); onSettings('floors') }}>Этажи и слои…</button>
             <button className="menu-item" onClick={() => { gear.close(); onSettings('site') }}>Карта и детальная модель…</button>
+            <button className="menu-item" onClick={() => { gear.close(); onSettings('report') }}>Спецификация оборудования…</button>
+            {can('catalog_admin') && (
+              <button className="menu-item" onClick={() => { gear.close(); onSettings('catalog') }}>Каталог оборудования…</button>
+            )}
           </div>
         )}
       </div>

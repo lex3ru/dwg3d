@@ -3,7 +3,8 @@
   python -m dwg3d build plan.dwg -o out/ [-c my_config.yaml]
   python -m dwg3d analyze plan.dwg        # layers + detected floors, no 3D
   python -m dwg3d db upgrade              # migrate PostgreSQL to the latest schema
-  python -m dwg3d catalog load [file]     # upsert the catalog from YAML (catalog_seed.yaml)
+  python -m dwg3d catalog load [file] [--prune]  # import YAML (catalog_seed.yaml); --prune deactivates the rest
+  python -m dwg3d catalog dump FILE       # export the database catalog as YAML
   python -m dwg3d migrate-files [--dry-run]  # import data/jobs/*/job.json into PostgreSQL
   python -m dwg3d worker [-n 2]           # build-only process sharing the queue with the API
   python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
@@ -36,8 +37,9 @@ def main(argv=None):
     d = sub.add_parser("db", help="database schema (DWG3D_DATABASE_URL)")
     d.add_argument("action", choices=["upgrade", "current"])
     k = sub.add_parser("catalog", help="equipment catalog in the database")
-    k.add_argument("action", choices=["load"])
-    k.add_argument("file", nargs="?", help="YAML (default: dwg3d/catalog_seed.yaml)")
+    k.add_argument("action", choices=["load", "dump"])
+    k.add_argument("file", nargs="?", help="YAML (load: default dwg3d/catalog_seed.yaml; dump: required)")
+    k.add_argument("--prune", action="store_true", help="load: deactivate items missing from the file")
     m = sub.add_parser("migrate-files", help="import file-based projects (job.json) into the database")
     m.add_argument("--dry-run", action="store_true", help="only print what would be imported")
     m.add_argument("--data", help="data directory (default: DWG3D_DATA or <project>/data)")
@@ -67,7 +69,13 @@ def main(argv=None):
         from . import catalog, db
         db.migrate()
         try:
-            print(json.dumps(catalog.load(Path(args.file) if args.file else catalog.SEED), ensure_ascii=False))
+            if args.action == "dump":
+                if not args.file:
+                    raise catalog.CatalogError("укажите файл: catalog dump catalog.yaml")
+                print(json.dumps(catalog.dump(Path(args.file)), ensure_ascii=False))
+            else:
+                print(json.dumps(catalog.load(Path(args.file) if args.file else catalog.SEED, prune=args.prune),
+                                 ensure_ascii=False))
         except catalog.CatalogError as ex:
             print(f"Ошибка в каталоге: {ex}", file=sys.stderr)
             return 1

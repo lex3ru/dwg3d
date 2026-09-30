@@ -1,3 +1,5 @@
+import type { CatalogItem, Category } from './furniture/catalog'
+
 export type Role = 'walls' | 'columns' | 'windows' | 'doors' | 'rooms' | 'grid' | 'ignore' | 'insulation' | 'stairs'
 
 export type V3 = [number, number, number]
@@ -290,3 +292,61 @@ export async function batchRows<T = PlacedItem>(id: string, kind: 'placements' |
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build, ops }),
   }))
 }
+
+// ---- catalog editing (catalog_admin) and reports
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+})
+
+export async function createCatalogItem(item: Partial<CatalogItem>): Promise<CatalogItem> {
+  return check(await fetch('/api/catalog/items', json('POST', item)))
+}
+
+/** Fields given replace the stored ones; null clears an optional field. */
+export async function updateCatalogItem(id: string, patch: Record<string, unknown>): Promise<CatalogItem> {
+  return check(await fetch(`/api/catalog/items/${encodeURIComponent(id)}`, json('PATCH', patch)))
+}
+
+export async function uploadCatalogModel(id: string, file: File): Promise<CatalogItem> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return check(await fetch(`/api/catalog/items/${encodeURIComponent(id)}/model`, { method: 'POST', body: fd }))
+}
+
+export async function saveCategory(c: Category, create: boolean): Promise<Category> {
+  return check(await fetch(create ? '/api/catalog/categories' : `/api/catalog/categories/${encodeURIComponent(c.id)}`,
+    json(create ? 'POST' : 'PATCH', c)))
+}
+
+export interface ReportRow {
+  item: string
+  name: string
+  category: string
+  article: string
+  supplier: string
+  price: number | null
+  currency: string | null
+  qty: number
+  sum: number | null
+  /** count per floor name (one project) or per project id (all projects) */
+  by: Record<string, number>
+}
+
+export interface EquipmentReport {
+  project?: { id: string; name: string }
+  projects?: { id: string; name: string }[]
+  columns: string[]
+  rows: ReportRow[]
+  totals: Record<string, number>
+  qty: number
+  unpriced: number
+  generated: string
+}
+
+export async function equipmentReport(project: string | null): Promise<EquipmentReport> {
+  return check(await fetch(`/api/reports/equipment${project ? `?project=${project}` : ''}`))
+}
+
+export const equipmentReportXlsx = (project: string | null) =>
+  `/api/reports/equipment?format=xlsx${project ? `&project=${project}` : ''}`

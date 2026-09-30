@@ -80,13 +80,20 @@
   медтехники нет). Любой предмет каталога может ссылаться на GLB (`model`,
   путь от `frontend/public/catalog/`, фасад к +Z) — он масштабируется до
   габаритов предмета.
-- **Каталог хранится в PostgreSQL** (`catalog_categories`, `catalog_items`) и
-  отдаётся по `GET /api/catalog`. Пока нет экрана редактирования, источник —
-  `backend/dwg3d/catalog_seed.yaml`: при первом старте он загружается в пустую
-  базу, после правок — `uv run python -m dwg3d catalog load`. Позиции
-  обновляются по `id`, а исчезнувшие из файла не удаляются, а снимаются с
-  выбора (`active = false`): уже расставленные предметы остаются на плане.
-  Поля `article`, `supplier`, `price`, `currency` — для будущих спецификаций.
+- **Каталог оборудования** (⚙ → «Каталог оборудования…», роль
+  «администратор каталога»): категории, позиции с габаритами, процедурной
+  моделью, цветом, зоной обслуживания, параметрами камеры, артикулом,
+  поставщиком и ценой; загрузка своей GLB-модели (масштабируется до
+  габаритов). Позиции не удаляются, а снимаются с продажи: из выбора они
+  пропадают, уже расставленные остаются на плане. Изменения сразу видны в
+  панели «Мебель и оборудование». Хранится в PostgreSQL (`catalog_categories`,
+  `catalog_items`), загруженные GLB — в `data/catalog/`;
+  `backend/dwg3d/catalog_seed.yaml` загружается только в пустую базу.
+- **Спецификация оборудования** (⚙ → «Спецификация оборудования…», любая
+  роль): по зданию — количество по этажам, цены и суммы; «Все проекты» —
+  сводная с количеством по каждому зданию. «Скачать XLSX» — та же таблица в
+  Excel с формулами (количество × цена, итоги). Позиции без цены
+  перечисляются, но в сумму не входят; суммы считаются по валютам.
 - **Видеонаблюдение** (категория каталога): купольная, цилиндрическая
   настенная, узкоугольная для коридоров, панорамная 360° и поворотная
   камеры, видеорегистратор, пост охраны. У камеры в карточке — угол обзора,
@@ -156,7 +163,8 @@ uv run python -m dwg3d analyze plan.dwg              # слои, найденн�
 uv run python -m dwg3d build plan.dwg -o out/        # model.glb + metadata.json + debug/*.png
 uv run python -m dwg3d build plan.dwg -o out/ -c my.yaml
 uv run python -m dwg3d db upgrade                     # схема БД до последней версии
-uv run python -m dwg3d catalog load                  # каталог из catalog_seed.yaml в БД
+uv run python -m dwg3d catalog dump catalog.yaml     # каталог из БД в YAML (копия, перенос)
+uv run python -m dwg3d catalog load catalog.yaml     # импорт YAML по id; --prune снимет с продажи остальные
 uv run pytest                                        # тесты на синтетическом чертеже
 ```
 
@@ -357,7 +365,11 @@ uv run python -m dwg3d migrate-files             # перенос + сверка
 |---|---|
 | `POST /api/jobs` | multipart `file` (+ `config` JSON) → задача |
 | `GET /api/jobs` | список задач (переключатель зданий) |
-| `GET /api/catalog` | каталог мебели и оборудования: `{categories, items}` |
+| `GET /api/catalog` | каталог мебели и оборудования: `{categories, items}` (снятые — с `active: false`) |
+| `POST /api/catalog/items`, `PATCH /api/catalog/items/{id}` | новая позиция / изменение полей (`null` очищает необязательное) — `catalog_admin` |
+| `POST /api/catalog/items/{id}/model` | загрузка GLB (до `DWG3D_MAX_CATALOG_GLB_MB`, 50 МБ); отдаётся по `GET /api/catalog/models/{file}` |
+| `POST /api/catalog/categories`, `PATCH /api/catalog/categories/{id}` | категории: `{id, name, color}` |
+| `GET /api/reports/equipment?project=&format=json\|xlsx` | спецификация здания (по этажам) или сводная по всем (по зданиям) |
 | `GET /api/jobs/{id}` | статус, прогресс, результат (этажи, помещения с типами, входы, метки) |
 | `GET/PUT /api/jobs/{id}/view` | настройки просмотра без перестроения: привязка к карте, выравнивание детальной модели; списки `furniture`/`markers`/`comments` в `PUT` целиком заменяют сохранённые (для старых клиентов, без проверки версий) |
 | `GET /api/projects/{id}/placements?floor=c1` | расставленные предметы (`items`, с `version`) и предметы без этажа (`unplaced`) |

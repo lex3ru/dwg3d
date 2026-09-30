@@ -354,7 +354,7 @@ const ItemModel = memo(function ItemModel({ c, w, d, h, mats }: { c: CatalogItem
   return (
     <Fallback fallback={fallback}>
       <Suspense fallback={fallback}>
-        <GlbModel url={`/catalog/${c.model}`} rot={c.modelRot ?? 0} w={w} d={d} h={h} />
+        <GlbModel url={c.modelUrl ?? `/catalog/${c.model}`} rot={c.modelRot ?? 0} w={w} d={d} h={h} />
       </Suspense>
     </Fallback>
   )

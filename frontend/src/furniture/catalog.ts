@@ -23,6 +23,8 @@ export interface CatalogItem {
   elev?: number
   /** GLB under /catalog/, scaled to w×d×h; `modelRot` turns it (deg) so its front faces +Z */
   model?: string
+  /** where the GLB is served: /catalog/… (bundled) or /api/catalog/models/… (uploaded) */
+  modelUrl?: string
   modelRot?: number
   tags?: string
   /** CCTV camera: horizontal view angle (deg, 360 = panoramic), range and

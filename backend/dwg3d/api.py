@@ -12,6 +12,11 @@
   GET  /api/jobs/{id}/files/...  model.glb, metadata.json, debug/*.png
   GET  /api/config/default       default config
   GET  /api/catalog              furniture / equipment catalog (PostgreSQL)
+  POST /api/catalog/items, PATCH /api/catalog/items/{id}, POST .../{id}/model (GLB),
+  POST /api/catalog/categories, PATCH /api/catalog/categories/{id}
+                                 catalog editing (catalog_admin)
+  GET  /api/reports/equipment?project=&format=json|xlsx
+                                 equipment specification (one or all projects)
   GET  /api/health               converter availability, database, queue
   GET/POST /api/projects/{id}/placements, PATCH/DELETE .../placements/{pid},
   POST /api/projects/{id}/placements:batch
@@ -51,6 +56,7 @@ import logging
 import os
 import shutil
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
 
@@ -61,7 +67,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 
-from . import auth, catalog, db, store, viewdata, worker
+from . import auth, catalog, db, reports, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -203,6 +209,71 @@ def health():
 @app.get("/api/catalog")
 def get_catalog():
     return catalog.as_json()
+
+
+# ------------------------------------------ catalog editing (catalog_admin) ---
+MAX_CATALOG_GLB = int(os.environ.get("DWG3D_MAX_CATALOG_GLB_MB", "50")) * 1024 * 1024
+
+
+@app.exception_handler(catalog.CatalogError)
+def _catalog_invalid(_, ex: catalog.CatalogError):
+    return JSONResponse({"detail": str(ex)}, status_code=400)
+
+
+@app.post("/api/catalog/items", status_code=201)
+def create_catalog_item(v: dict):
+    return catalog.create_item(v)
+
+
+@app.patch("/api/catalog/items/{iid}")
+def update_catalog_item(iid: str, v: dict):
+    return catalog.update_item(iid, v)
+
+
+@app.post("/api/catalog/items/{iid}/model")
+async def upload_catalog_model(iid: str, file: UploadFile = File(...)):
+    data = await file.read(MAX_CATALOG_GLB + 1)
+    if len(data) > MAX_CATALOG_GLB:
+        raise HTTPException(413, "Файл слишком большой")
+    return await run_in_threadpool(catalog.upload_model, iid, data)
+
+
+@app.get("/api/catalog/models/{name}")
+def get_catalog_model(name: str):
+    p = catalog.model_file(name)
+    if p is None:
+        raise HTTPException(404)
+    # file names carry a content hash: cache forever
+    return FileResponse(p, media_type="model/gltf-binary", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@app.post("/api/catalog/categories", status_code=201)
+def create_catalog_category(v: dict):
+    return catalog.save_category(v.get("id"), v, create=True)
+
+
+@app.patch("/api/catalog/categories/{cid}")
+def update_catalog_category(cid: str, v: dict):
+    return catalog.save_category(cid, v, create=False)
+
+
+# ------------------------------------------------------------- reports ---
+@app.get("/api/reports/equipment")
+def equipment_report(project: str | None = None, format: str = "json"):
+    """Specification of one project (per floor) or of all projects (per project); format=xlsx for Excel."""
+    if format not in ("json", "xlsx"):
+        raise HTTPException(400, "format: json или xlsx")
+    with db.session() as s:
+        if project is not None:
+            _project(s, project)
+        rep = reports.equipment(s, project)
+    if format == "json":
+        return rep
+    name = (f"Спецификация — {rep['project']['name']}" if project else "Сводная спецификация") + ".xlsx"
+    quoted = urllib.parse.quote(name)
+    return Response(reports.to_xlsx(rep),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename=\"specification.xlsx\"; filename*=UTF-8''{quoted}"})
 
 
 @app.get("/api/config/default")

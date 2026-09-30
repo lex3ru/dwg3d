@@ -12,6 +12,9 @@ import { canEdit, READ_ONLY } from './session'
 import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
+import CatalogEditor from './ui/CatalogEditor'
+import type { SettingsPane } from './ui/Controls'
+import Report from './ui/Report'
 import {
   formatHash, loadPrefs, parseHash, savePrefs,
   type Display, type MeasureMode, type NavMode, type Projection, type Speeds, type Tool,
@@ -65,19 +68,24 @@ function useJobPolling(jobId: string | null, nonce: number) {
   return { job, setJob, error }
 }
 
-function Upload({ onJob, onCancel }: { onJob: (id: string) => void; onCancel?: () => void }) {
-  const [drag, setDrag] = useState(false)
-  if (!canEdit()) {
-    return (
-      <div className="upload-screen">
-        <div className="dropzone">
-          <h1>Поэтажные планы → 3D</h1>
-          <p>Загружать чертежи может роль «редактор». Откройте здание по ссылке или попросите администратора дать доступ.</p>
-        </div>
-        {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
+function Upload(p: { onJob: (id: string) => void; onCancel?: () => void }) {
+  return canEdit() ? <UploadForm {...p} /> : <NoUpload onCancel={p.onCancel} />
+}
+
+function NoUpload({ onCancel }: { onCancel?: () => void }) {
+  return (
+    <div className="upload-screen">
+      <div className="dropzone">
+        <h1>Поэтажные планы → 3D</h1>
+        <p>Загружать чертежи может роль «редактор». Откройте здание по ссылке или попросите администратора дать доступ.</p>
       </div>
-    )
-  }
+      {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
+    </div>
+  )
+}
+
+function UploadForm({ onJob, onCancel }: { onJob: (id: string) => void; onCancel?: () => void }) {
+  const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -161,7 +169,8 @@ export default function App() {
   useOutsideClose(setOpenMenu)
   const [help, setHelp] = useState(false)
   const [buildingOpen, setBuildingOpen] = useState(false)
-  const [settings, setSettings] = useState<'floors' | 'site' | null>(null)
+  const [settings, setSettings] = useState<SettingsPane | null>(null)
+  const [, setCatalogTick] = useState(0)
   const [editor, setEditor] = useState(false)
   const [selRoom, setSelRoom] = useState<RoomHit | null>(null)
   const [cuts, setCuts] = useState<Cuts>({ h: { on: false, y: 0 }, v: { on: false, x: 0 } })
@@ -829,6 +838,8 @@ export default function App() {
             floor={activeFloor} busy={running} onApply={applyEdits} onClose={() => setEditor(false)} />
         )}
         {settings === 'floors' && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(null)} />}
+        {settings === 'report' && shown && <Report projectId={shown.id} onClose={() => setSettings(null)} />}
+        {settings === 'catalog' && <CatalogEditor onClose={() => setSettings(null)} onChanged={() => setCatalogTick((n) => n + 1)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}
             onSaved={(v) => { adoptView(v); setPreview(null) }} onClose={() => { setPreview(null); setSettings(null) }} />

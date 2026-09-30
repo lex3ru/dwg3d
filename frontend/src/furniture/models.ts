@@ -476,3 +476,6 @@ export function buildModel(kind: string, color: string | undefined, w: number, d
   ;(GEN[kind] ?? GEN.device)(b, w, d, h)
   return b.group
 }
+
+/** Procedural model kinds a catalog item can use (`kind`). */
+export const MODEL_KINDS = Object.keys(GEN).sort()
