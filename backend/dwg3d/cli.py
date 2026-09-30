@@ -47,7 +47,7 @@ def main(argv=None):
     u.add_argument("action", choices=["add", "passwd", "role", "disable", "enable", "list"])
     u.add_argument("login", nargs="?")
     u.add_argument("new_role", nargs="?", help="for `role`")
-    u.add_argument("--role", default="viewer", help="for `add`")
+    u.add_argument("--role", default="viewer", choices=["viewer", "editor", "catalog_admin"], help="for `add`")
     u.add_argument("--name", default="", help="for `add`: name shown in the journal")
     u.add_argument("--password-stdin", action="store_true", help="read the password from stdin (scripts)")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -138,6 +138,8 @@ def _user_cmd(args) -> int:
             return 0
         if not args.login:
             raise auth.UserError("нужен логин")
+        if args.action == "role" and args.new_role not in auth.ROLES:
+            raise auth.UserError(f"роль: {', '.join(auth.ROLES)}")
         if args.action == "add":
             auth.add_user(args.login, password(), role=args.role, name=args.name)
         elif args.action == "passwd":
