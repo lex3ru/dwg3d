@@ -17,6 +17,8 @@ Run:  uvicorn dwg3d.api:app --port 8765
 
 Environment:
   DWG3D_DATA              data directory (default <project>/data)
+  DWG3D_DATABASE_URL      PostgreSQL (default: the docker compose service, see
+                          dwg3d/db.py); migrated to the latest schema on start
   DWG3D_MAX_UPLOAD_MB     upload limit (200)
   DWG3D_WORKERS           parallel builds (2)
   DWG3D_CORS_ORIGINS      comma-separated origins allowed cross-origin (none;
@@ -46,6 +48,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import db
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of, remap_view
@@ -114,6 +117,15 @@ def _cleanup():
         log.info("job %s removed (retention %s days)", jid, RETENTION_DAYS)
 
 
+def _init_db():
+    try:
+        db.migrate()
+    except Exception as ex:
+        raise RuntimeError(f"PostgreSQL недоступен ({db.database_url().rsplit('@', 1)[-1]}): {ex}. "
+                           "Запустите `docker compose up -d db` или задайте DWG3D_DATABASE_URL") from ex
+
+
+_init_db()
 _load_existing()
 _cleanup()
 
@@ -175,7 +187,7 @@ def _process(jid: str):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "converters": available_converters()}
+    return {"ok": True, "converters": available_converters(), "db": db.ping()}
 
 
 @app.get("/api/config/default")

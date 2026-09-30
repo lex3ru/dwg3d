@@ -122,6 +122,9 @@ conda create -y -p .tools/libredwg -c conda-forge libredwg
 
 cd backend && uv sync            # Python 3.12+
 cd ../frontend && npm install
+
+# PostgreSQL 16 (нужен серверу и тестам); схема применяется при старте API
+docker compose up -d db
 ```
 
 DXF можно загружать и без конвертера.
@@ -145,6 +148,7 @@ cd backend
 uv run python -m dwg3d analyze plan.dwg              # слои, найденные этажи
 uv run python -m dwg3d build plan.dwg -o out/        # model.glb + metadata.json + debug/*.png
 uv run python -m dwg3d build plan.dwg -o out/ -c my.yaml
+uv run python -m dwg3d db upgrade                     # схема БД до последней версии
 uv run pytest                                        # тесты на синтетическом чертеже
 ```
 
@@ -282,6 +286,8 @@ Id этажа (`c3`, `l0`, `b2`) — это порядковый номер пр
 | Переменная | По умолчанию | |
 |---|---|---|
 | `DWG3D_DATA` | `<проект>/data` | каталог задач |
+| `DWG3D_DATABASE_URL` | `postgresql+psycopg://dwg3d:dwg3d@127.0.0.1:5432/dwg3d` | PostgreSQL (сервис `db` из `docker-compose.yml`); без базы сервер не стартует |
+| `DWG3D_TEST_DATABASE_URL` | как выше | сервер для тестов: они создают и удаляют временную базу `dwg3d_test_*`; если сервер недоступен, тесты с БД пропускаются |
 | `DWG3D_MAX_UPLOAD_MB` | 200 | лимит загрузки |
 | `DWG3D_WORKERS` | 2 | параллельных сборок |
 | `DWG3D_CORS_ORIGINS` | — | разрешённые чужие origin через запятую; собранный UI и прокси Vite работают с того же origin и CORS не требуют |
@@ -298,3 +304,6 @@ Id этажа (`c3`, `l0`, `b2`) — это порядковый номер пр
   устраняют риск от вредоносных файлов; для публичного сервиса нужна изоляция
   (контейнер или отдельный пользователь без доступа к данным).
 - Стектрейсы пишутся в лог и в `job.json`, но клиенту не отдаются.
+- Схема базы меняется только миграциями Alembic (`backend/dwg3d/migrations`);
+  новая миграция: `cd backend && uv run alembic revision --autogenerate -m "..."`.
+  Резервная копия — `pg_dump` плюс папка `data/`.

@@ -16,6 +16,9 @@ dependencies = [
   "matplotlib",
   "scipy>=1.18.1",
   "ifcopenshell>=0.8.5",
+  "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.13",
 ]
 
 [dependency-groups]

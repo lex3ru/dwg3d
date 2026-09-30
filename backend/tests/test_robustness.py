@@ -135,7 +135,7 @@ def test_validate_config_accepts_defaults_and_edits(edited):
 
 # -------------------------------------------------------------------- API ---
 @pytest.fixture(scope="module")
-def client(tmp_path_factory, sample):
+def client(tmp_path_factory, sample, pg):
     import os
     from fastapi.testclient import TestClient
 
