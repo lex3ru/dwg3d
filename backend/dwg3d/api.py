@@ -1,7 +1,7 @@
-"""HTTP API: upload DWG/DXF -> background processing -> glTF + metadata.
+"""HTTP API: upload DWG/DXF -> queued processing -> glTF + metadata.
 
   POST /api/jobs                 multipart: file, config (optional JSON string)
-  GET  /api/jobs                 processed jobs (building switcher)
+  GET  /api/jobs                 projects (building switcher)
   GET  /api/jobs/{id}            status / progress / result
   GET/PUT /api/jobs/{id}/view    viewer settings: map binding, detail model
                                  alignment, markers, comments, furniture
@@ -12,23 +12,27 @@
   GET  /api/jobs/{id}/files/...  model.glb, metadata.json, debug/*.png
   GET  /api/config/default       default config
   GET  /api/catalog              furniture / equipment catalog (PostgreSQL)
-  GET  /api/health               converter availability
+  GET  /api/health               converter availability, database, queue
 
-Run:  uvicorn dwg3d.api:app --port 8765
+"Job" in the URLs is a project (a building): its id is the project id.
+
+Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
 Environment:
   DWG3D_DATA              data directory (default <project>/data)
   DWG3D_DATABASE_URL      PostgreSQL (default: the docker compose service, see
                           dwg3d/db.py); migrated to the latest schema on start
   DWG3D_MAX_UPLOAD_MB     upload limit (200)
-  DWG3D_WORKERS           parallel builds (2)
+  DWG3D_WORKERS           build threads per API process (2; 0 = builds only in
+                          separate `python -m dwg3d worker` processes)
   DWG3D_CORS_ORIGINS      comma-separated origins allowed cross-origin (none;
                           the built UI and the Vite dev proxy are same-origin)
-  DWG3D_RETENTION_DAYS    delete jobs not touched for N days (0 = keep forever)
+  DWG3D_RETENTION_DAYS    delete projects not touched for N days (0 = keep forever)
 
 There is no authentication: bind to 127.0.0.1 or put it behind a reverse
-proxy that authenticates. Job state lives in this process, so run a single
-uvicorn worker.
+proxy that authenticates. All state is in PostgreSQL and <DWG3D_DATA>, so
+several uvicorn processes (and hosts sharing the data directory) can serve
+the same projects.
 """
 from __future__ import annotations
 
@@ -37,85 +41,46 @@ import json
 import logging
 import os
 import shutil
-import threading
 import time
-import traceback
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func
 
-from . import catalog, db
+from . import catalog, db, store, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
-from .edits import anchor_of, remap_view
-from .pipeline import render_debug, run
+from .edits import anchor_of
+from .models import Project
+from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
 ROOT = Path(__file__).resolve().parents[2]
-DATA = Path(os.environ.get("DWG3D_DATA", ROOT / "data")) / "jobs"
-DATA.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD = int(os.environ.get("DWG3D_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 RETENTION_DAYS = float(os.environ.get("DWG3D_RETENTION_DAYS", "0"))
-# fields kept in job.json for diagnostics but never sent to the client
-PRIVATE = ("input", "trace")
 
 app = FastAPI(title="dwg3d")
 if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"])
 
-_executor = ThreadPoolExecutor(max_workers=int(os.environ.get("DWG3D_WORKERS", "2")))
-_lock = threading.RLock()
-_jobs: dict[str, dict] = {}
 _last_cleanup = 0.0
 
 
-def _job_dir(jid: str) -> Path:
-    return DATA / jid
-
-
-def _save(job: dict):
-    (_job_dir(job["id"]) / "job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-
-
-def _update(jid: str, persist: bool = True, **kw):
-    with _lock:
-        job = _jobs[jid]
-        job.update(kw, updated=time.time())
-        if persist:
-            _save(job)
-
-
-def _load_existing():
-    for p in DATA.glob("*/job.json"):
-        try:
-            job = json.loads(p.read_text(encoding="utf-8"))
-            if job.get("status") not in ("done", "error"):
-                job.update(status="error", error="Сервер был перезапущен во время обработки")
-            _jobs[job["id"]] = job
-        except Exception:
-            pass
-
-
 def _cleanup():
-    """Delete finished jobs untouched for RETENTION_DAYS (disabled when 0)."""
+    """Delete projects untouched for RETENTION_DAYS (disabled when 0)."""
     global _last_cleanup
     if RETENTION_DAYS <= 0 or time.time() - _last_cleanup < 3600:
         return
     _last_cleanup = time.time()
-    cutoff = time.time() - RETENTION_DAYS * 86400
-    with _lock:
-        old = [j["id"] for j in _jobs.values()
-               if j.get("status") in ("done", "error") and j.get("updated", 0) < cutoff]
-        for jid in old:
-            _jobs.pop(jid, None)
-    for jid in old:
-        shutil.rmtree(_job_dir(jid), ignore_errors=True)
-        log.info("job %s removed (retention %s days)", jid, RETENTION_DAYS)
+    with db.session() as s:
+        gone = store.delete_stale(s, RETENTION_DAYS)
+    for pid in gone:
+        shutil.rmtree(store.project_dir(pid), ignore_errors=True)
+        log.info("project %s removed (retention %s days)", pid, RETENTION_DAYS)
 
 
 def _init_db():
@@ -128,68 +93,22 @@ def _init_db():
 
 
 _init_db()
-_load_existing()
+store.data_dir().mkdir(parents=True, exist_ok=True)
+worker.start(int(os.environ.get("DWG3D_WORKERS", "2")))
 _cleanup()
 
 
-def _public(job: dict) -> dict:
-    out = {k: v for k, v in job.items() if k not in PRIVATE}
-    if job.get("status") == "done":
-        v = job.get("build", 0)
-        out["model_url"] = f"/api/jobs/{job['id']}/files/model.glb?v={v}"
-        out["metadata_url"] = f"/api/jobs/{job['id']}/files/metadata.json?v={v}"
-    return out
-
-
-def _process(jid: str):
-    job = _jobs[jid]
-    jdir = _job_dir(jid)
-    src = jdir / job["input"]
-    # reuse the converted DXF on rebuilds (conversion is the slow external step)
-    dxf = jdir / "out" / (src.stem + ".dxf")
-    if src.suffix.lower() == ".dwg" and dxf.exists():
-        src = dxf
-
-    def progress(stage, frac, msg=""):
-        # job.json is rewritten only when the stage changes, not on every tick
-        _update(jid, persist=stage != job.get("stage"), status="running", stage=stage,
-                progress=round(frac, 3), message=msg)
-
-    try:
-        _update(jid, status="running", stage="start", progress=0.0, message="Запуск", error=None)
-        meta = run(src, jdir / "out", job.get("config") or {}, progress=progress, debug_png=False)
-        cfg_used = meta.pop("config", None) or {}
-        if src.suffix.lower() == ".dxf" and job["input"].lower().endswith(".dwg"):
-            meta["converter"] = job.get("result", {}).get("converter", meta.get("converter"))
-        result = {k: meta[k] for k in ("source", "units", "units_source", "converter", "floors", "roof_node",
-                                        "height_range", "candidates", "triangles", "warnings", "elapsed_s",
-                                        "center", "exports", "extent", "quality", "edits_unmatched",
-                                        "entrances", "pois", "room_types")}
-        result["layers"] = meta["layers"]
-        # persist the corrections re-anchored to the floors of this build
-        cfg = dict(job.get("config") or {})
-        cfg["edits"] = cfg_used.get("edits") or {}
-        if cfg_used.get("edits_unmatched"):
-            cfg["edits_unmatched"] = cfg_used["edits_unmatched"]
-        else:
-            cfg.pop("edits_unmatched", None)
-        if (cfg.get("floors") or {}).get("items"):
-            cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
-        with _lock:
-            # furniture and pins follow their floors into the new build (ids / alignment may change)
-            view, warns = remap_view(job.get("view"), job.get("result"), result)
-            result["warnings"] = list(result.get("warnings") or []) + warns
-            _update(jid, status="done", stage="done", progress=1.0, message="Готово", result=result,
-                    config=cfg, build=job.get("build", 0) + 1, view=view)
-    except Exception as ex:
-        log.exception("job %s failed", jid)
-        msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
-        _update(jid, status="error", stage="error", error=msg[:1000], trace=traceback.format_exc()[-3000:])
+def _project(s, jid: str, lock: bool = False) -> Project:
+    p = store.get_project(s, jid, lock=lock)
+    if p is None:
+        raise HTTPException(404, "Задача не найдена")
+    return p
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "converters": available_converters(), "db": db.ping()}
+    ok = db.ping()
+    return {"ok": ok, "converters": available_converters(), "db": ok, "queue": worker.queue_stats() if ok else None}
 
 
 @app.get("/api/catalog")
@@ -220,7 +139,7 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
         raise HTTPException(400, f"config: {ex}")
     _cleanup()
     jid = uuid.uuid4().hex[:12]
-    jdir = _job_dir(jid)
+    jdir = store.project_dir(jid)
     jdir.mkdir(parents=True)
     size = 0
     with open(jdir / f"input{ext}", "wb") as f:
@@ -231,33 +150,30 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
                 shutil.rmtree(jdir, ignore_errors=True)
                 raise HTTPException(413, "Файл слишком большой")
             f.write(chunk)
-    job = {"id": jid, "filename": name, "input": f"input{ext}", "size": size, "status": "queued",
-           "stage": "queued", "progress": 0.0, "message": "В очереди", "config": override,
-           "created": time.time(), "updated": time.time(), "build": 0}
-    with _lock:
-        _jobs[jid] = job
-        _save(job)
-    _executor.submit(_process, jid)
-    return _public(job)
+    try:
+        with db.session() as s:
+            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override, view={})
+            s.add(p)
+            s.flush()
+            job = store.enqueue(s, p)
+            out = store.public(s, p, job)
+    except Exception:
+        shutil.rmtree(jdir, ignore_errors=True)
+        raise
+    worker.wake()
+    return out
 
 
 @app.get("/api/jobs")
 def list_jobs():
     """Processed buildings (for the building switcher), newest first."""
-    with _lock:
-        jobs = list(_jobs.values())
-    out = []
-    for j in sorted(jobs, key=lambda j: -j.get("updated", 0)):
-        res = j.get("result") or {}
-        out.append({"id": j["id"], "filename": j.get("filename"), "status": j.get("status"),
-                    "updated": j.get("updated"), "floors": len(res.get("floors") or []),
-                    "name": ((j.get("view") or {}).get("name")) or Path(j.get("filename") or "").stem})
-    return out
+    with db.session() as s:
+        return store.list_projects(s)
 
 
 # ------------------------------------------------------ viewer settings ---
 # Per-job viewer state that needs no rebuild: map binding, detail-model
-# alignment, user markers and comments, placed furniture. Stored in job.json ("view").
+# alignment, user markers and comments, placed furniture. Stored in the project row.
 MAX_PINS = 500
 MAX_FURNITURE = 5000
 MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
@@ -385,36 +301,33 @@ def validate_view(v: dict, old: dict) -> dict:
 
 @app.get("/api/jobs/{jid}/view")
 def get_view(jid: str):
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
-    return _jobs[jid].get("view") or {}
+    with db.session() as s:
+        return store.view_of(_project(s, jid))
 
 
 @app.put("/api/jobs/{jid}/view")
 def put_view(jid: str, v: dict):
     """Merge viewer settings: top-level keys given replace the stored ones."""
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
-    with _lock:
-        job = _jobs[jid]
+    with db.session() as s:
+        p = _project(s, jid, lock=True)          # read-modify-write: one writer per project
         if any(k in v for k in FLOOR_BOUND):
             # these refer to floors of a particular build: never write them across a rebuild
-            if job.get("status") in ("queued", "running"):
+            if store.has_active(s, jid):
                 raise HTTPException(409, "Идёт перестроение модели: расстановка и метки сохранятся после него")
-            if "_build" in v and v["_build"] != job.get("build"):
+            if "_build" in v and v["_build"] != p.current_build:
                 raise HTTPException(409, "Модель была перестроена: обновите страницу, чтобы не потерять изменения")
-        view = validate_view(v, job.get("view") or {})
-        _update(jid, view=view)
+        view = validate_view(v, store.view_of(p))
+        store.set_view(p, view)
     return view
 
 
 @app.post("/api/jobs/{jid}/detail")
 async def upload_detail(jid: str, file: UploadFile = File(...)):
     """Detailed model (GLB: facade, furniture...) shown over the generated one."""
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
-    jdir = _job_dir(jid)
-    tmp = jdir / "detail.glb.part"
+    with db.session() as s:
+        _project(s, jid)
+    jdir = store.project_dir(jid)
+    tmp = jdir / f"detail.glb.{uuid.uuid4().hex[:8]}.part"
     size, head = 0, b""
     with open(tmp, "wb") as f:
         while chunk := await file.read(1 << 20):
@@ -430,66 +343,66 @@ async def upload_detail(jid: str, file: UploadFile = File(...)):
         tmp.unlink(missing_ok=True)
         raise HTTPException(400, "Нужен файл GLB (glTF 2.0, бинарный)")
     tmp.replace(jdir / "detail.glb")
-    with _lock:
-        view = dict(_jobs[jid].get("view") or {})
-        d = dict(view.get("detail") or {})
+    with db.session() as s:
+        p = _project(s, jid, lock=True)
+        d = dict(p.detail or {})
         d.update(file=Path(file.filename or "detail.glb").name[:200], size=size,
                  version=int(d.get("version", 0)) + 1)
         d.setdefault("offset", [0.0, 0.0, 0.0])
         d.setdefault("rotation", 0.0)
         d.setdefault("scale", 1.0)
-        view["detail"] = d
-        _update(jid, view=view)
-    return view
+        p.detail = d
+        p.updated_at = func.now()
+        return store.view_of(p)
 
 
 @app.delete("/api/jobs/{jid}/detail")
 def delete_detail(jid: str):
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
-    (_job_dir(jid) / "detail.glb").unlink(missing_ok=True)
-    with _lock:
-        view = dict(_jobs[jid].get("view") or {})
-        view.pop("detail", None)
-        _update(jid, view=view)
-    return view
+    with db.session() as s:
+        p = _project(s, jid, lock=True)
+        (store.project_dir(jid) / "detail.glb").unlink(missing_ok=True)
+        p.detail = None
+        p.updated_at = func.now()
+        return store.view_of(p)
 
 
 @app.get("/api/jobs/{jid}/detail.glb")
 def get_detail(jid: str):
-    p = _job_dir(jid) / "detail.glb"
-    if jid not in _jobs or not p.is_file():
+    with db.session() as s:
+        _project(s, jid)
+    p = store.project_dir(jid) / "detail.glb"
+    if not p.is_file():
         raise HTTPException(404)
     return FileResponse(p, media_type="model/gltf-binary")
 
 
 @app.get("/api/jobs/{jid}")
 def get_job(jid: str):
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
-    return _public(_jobs[jid])
+    with db.session() as s:
+        return store.public(s, _project(s, jid))
 
 
 @app.post("/api/jobs/{jid}/rebuild")
 def rebuild(jid: str, override: dict):
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
     if not isinstance(override, dict):
         raise HTTPException(400, "Ожидается объект")
-    with _lock:                         # check + enqueue atomically: no double builds
-        job = _jobs[jid]
-        if job["status"] in ("queued", "running"):
+    with db.session() as s:
+        p = _project(s, jid, lock=True)          # check + enqueue under the row lock: no double builds
+        if store.has_active(s, jid):
             raise HTTPException(409, "Задача ещё выполняется")
-        override = _anchor_override(job, override)
+        b = store.current_build(s, p)
+        override = _anchor_override({"config": p.config, "result": b.result if b else {}}, override)
         # floors.items is replaced wholesale (a full assignment list), the rest is merged
-        cfg = deep_merge(job.get("config") or {}, override)
+        cfg = deep_merge(p.config or {}, override)
         try:
             validate_config(load_config(cfg))
         except ConfigError as ex:
             raise HTTPException(400, str(ex))
-        _update(jid, status="queued", stage="queued", progress=0.0, message="В очереди", config=cfg)
-    _executor.submit(_process, jid)
-    return _public(_jobs[jid])
+        p.config = cfg
+        job = store.enqueue(s, p)
+        out = store.public(s, p, job, b)
+    worker.wake()
+    return out
 
 
 def _anchor_override(job: dict, override: dict) -> dict:
@@ -527,21 +440,20 @@ def export_drawing(jid: str, fmt: str):
     """Source drawing with the 2D-editor corrections applied (DXF or DWG)."""
     from .dxf_writer import dxf_to_dwg, export_edited_dxf, has_edits
 
-    if jid not in _jobs:
-        raise HTTPException(404, "Задача не найдена")
     if fmt not in ("dxf", "dwg"):
         raise HTTPException(400, "Формат: dxf или dwg")
-    job = _jobs[jid]
-    cfg = job.get("config") or {}
+    with db.session() as s:
+        p = _project(s, jid)
+        cfg, input_path, filename = p.config or {}, p.input_path, p.filename
     if not has_edits(cfg):
         raise HTTPException(400, "Правок нет — сохранять нечего")
-    jdir = _job_dir(jid)
-    src = jdir / job["input"]
+    jdir = store.project_dir(jid)
+    src = jdir / input_path
     if src.suffix.lower() == ".dwg":
         src = jdir / "out" / (src.stem + ".dxf")
         if not src.exists():
             raise HTTPException(409, "Чертёж ещё не обработан")
-    stem = Path(job["filename"]).stem + "_правки"
+    stem = Path(filename).stem + "_правки"
     # cache per configuration (edits, layer mapping, floors) actually applied
     key = hashlib.sha1(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
     cache = jdir / "export" / key
@@ -572,24 +484,23 @@ def export_drawing(jid: str, fmt: str):
 
 @app.get("/api/jobs/{jid}/files/{path:path}")
 def get_file(jid: str, path: str):
-    if jid not in _jobs:
-        raise HTTPException(404)
-    base = (_job_dir(jid) / "out").resolve()
-    p = (base / path).resolve()
+    with db.session() as s:
+        p = _project(s, jid)
+        filename = p.filename
+        busy = store.has_active(s, jid)
+    base = (store.project_dir(jid) / "out").resolve()
+    f = (base / path).resolve()
     media = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png",
              ".ifc": "application/x-step", ".zip": "application/zip"}
-    ext = p.suffix.lower()
-    if base in p.parents and p.parent == base / "debug" and ext == ".png" and not p.is_file():
-        with _lock:
-            busy = _jobs[jid].get("status") in ("queued", "running")
-        if not busy:
-            render_debug(base, p.name)          # rendered on demand from the cached plans
-    if base not in p.parents or not p.is_file() or ext not in media:
+    ext = f.suffix.lower()
+    if base in f.parents and f.parent == base / "debug" and ext == ".png" and not f.is_file() and not busy:
+        render_debug(base, f.name)              # rendered on demand from the cached plans
+    if base not in f.parents or not f.is_file() or ext not in media:
         raise HTTPException(404)
     if ext in (".ifc", ".zip"):
-        stem = Path(_jobs[jid]["filename"]).stem
-        return FileResponse(p, media_type=media[ext], filename=f"{stem}{'_obj.zip' if ext == '.zip' else ext}")
-    return FileResponse(p, media_type=media[ext])
+        stem = Path(filename).stem
+        return FileResponse(f, media_type=media[ext], filename=f"{stem}{'_obj.zip' if ext == '.zip' else ext}")
+    return FileResponse(f, media_type=media[ext])
 
 
 class _UI(StaticFiles):

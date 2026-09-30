@@ -227,7 +227,7 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "size": [0, 1, 1]}]}).status_code == 400
     # detail model: only GLB is accepted
     assert c.post(f"/api/jobs/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
-    glb = (api._job_dir(jid) / "out" / "model.glb").read_bytes()
+    glb = (api.store.project_dir(jid) / "out" / "model.glb").read_bytes()
     v = c.post(f"/api/jobs/{jid}/detail", files={"file": ("facade.glb", glb)}).json()
     assert v["detail"]["file"] == "facade.glb" and v["detail"]["version"] == 1
     assert c.get(f"/api/jobs/{jid}/detail.glb").content == glb

@@ -4,6 +4,8 @@
   python -m dwg3d analyze plan.dwg        # layers + detected floors, no 3D
   python -m dwg3d db upgrade              # migrate PostgreSQL to the latest schema
   python -m dwg3d catalog load [file]     # upsert the catalog from YAML (catalog_seed.yaml)
+  python -m dwg3d migrate-files [--dry-run]  # import data/jobs/*/job.json into PostgreSQL
+  python -m dwg3d worker [-n 2]           # build-only process sharing the queue with the API
 """
 from __future__ import annotations
 
@@ -34,6 +36,11 @@ def main(argv=None):
     k = sub.add_parser("catalog", help="equipment catalog in the database")
     k.add_argument("action", choices=["load"])
     k.add_argument("file", nargs="?", help="YAML (default: dwg3d/catalog_seed.yaml)")
+    m = sub.add_parser("migrate-files", help="import file-based projects (job.json) into the database")
+    m.add_argument("--dry-run", action="store_true", help="only print what would be imported")
+    m.add_argument("--data", help="data directory (default: DWG3D_DATA or <project>/data)")
+    w = sub.add_parser("worker", help="run build workers only (no HTTP)")
+    w.add_argument("-n", type=int, default=2, help="worker threads")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose or args.cmd == "build" else logging.WARNING,
@@ -55,6 +62,25 @@ def main(argv=None):
         except catalog.CatalogError as ex:
             print(f"Ошибка в каталоге: {ex}", file=sys.stderr)
             return 1
+        return 0
+    if args.cmd == "migrate-files":
+        from . import db, migrate_files
+        db.migrate()
+        st = migrate_files.migrate(args.data and Path(args.data), dry_run=args.dry_run)
+        print(("Будет перенесено" if args.dry_run else "Перенесено") +
+              f": проектов {st['imported']} (уже в базе {st['skipped']}, не читается {st['unreadable']}), "
+              f"сборок {st['builds']}, этажей {st['floors']}, оборудования {st['furniture']}, меток {st['pins']}")
+        if args.dry_run:
+            return 0
+        problems = migrate_files.verify(args.data and Path(args.data))
+        for x in problems:
+            print("  ! " + x)
+        print("Сверка с файлами: " + ("расхождений нет" if not problems else f"расхождений {len(problems)}"))
+        return 1 if problems else 0
+    if args.cmd == "worker":
+        from . import worker
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        worker.serve(args.n)
         return 0
     if args.cmd == "build":
         meta = run(args.input, args.out, args.config, debug_png=not args.no_debug)
