@@ -236,8 +236,8 @@ def test_drawing_export_with_layers(c, built):
     doc = ezdxf.read(__import__("io").StringIO(x.content.decode("utf-8", "replace")))
     msp = doc.modelspace()
     assert {"3D_Экспорт_ мебель", "3D_Экспорт_ маршруты", "3D_Экспорт_ зоны"} <= {ly.dxf.name for ly in doc.layers}
-    couch = next(e for e in msp.query("INSERT") if e.dxf.name == "3D_doc.couch")
-    assert couch.dxf.layer == "3D_Экспорт_ мебель" and couch.dxf.rotation == 90
+    couch = next(e for e in msp.query("INSERT") if e.dxf.name == "3D_doc.couch" and e.dxf.layer == "3D_Экспорт_ мебель")
+    assert couch.dxf.rotation == 90
     assert abs(couch.dxf.insert.x * s + ox - 3) < 1e-6 and abs(couch.dxf.insert.y * s + oy - 4) < 1e-6
     attrs = {a.dxf.tag: a.dxf.text for a in couch.attribs}
     assert attrs["NOTE"] == "KS-1" and attrs["NAME"]
