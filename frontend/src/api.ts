@@ -128,8 +128,11 @@ export interface Result {
   extent?: { x: [number, number]; z: [number, number] }
 }
 
+/** A drawing (one uploaded DWG/DXF) with the state of its latest build. */
 export interface Job {
   id: string
+  project_id: string
+  name: string
   filename: string
   status: 'queued' | 'running' | 'done' | 'error'
   stage: string
@@ -187,7 +190,27 @@ export interface ViewSettings {
   furniture_unplaced?: (PlacedItem & { _anchor?: { name?: string } | null })[]
 }
 
-export interface JobSummary { id: string; filename: string; name: string; status: Job['status']; floors: number; updated: number }
+export interface JobSummary {
+  id: string
+  project_id: string
+  filename: string
+  name: string
+  status: Job['status']
+  progress: number
+  floors: number
+  build: number
+  size: number
+  updated: number
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  created: number
+  updated: number
+  drawings: JobSummary[]
+}
 
 /** A failed request: `status` and the parsed JSON body (e.g. 409 conflicts). */
 export class ApiError extends Error {
@@ -216,18 +239,56 @@ async function check<T>(r: Response): Promise<T> {
   return (r.status === 204 ? null : r.json()) as Promise<T>
 }
 
-export async function uploadFile(file: File): Promise<Job> {
+const jsonBody = (method: string, body: unknown): RequestInit => ({
+  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+})
+
+export async function listProjects(): Promise<Project[]> {
+  return check(await fetch('/api/projects'))
+}
+
+export async function getProject(id: string): Promise<Project> {
+  return check(await fetch(`/api/projects/${id}`))
+}
+
+export async function createProject(name: string, description = ''): Promise<Project> {
+  return check(await fetch('/api/projects', jsonBody('POST', { name, description })))
+}
+
+export async function updateProject(id: string, patch: { name?: string; description?: string }): Promise<Project> {
+  return check(await fetch(`/api/projects/${id}`, jsonBody('PATCH', patch)))
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  return check(await fetch(`/api/projects/${id}`, { method: 'DELETE' }))
+}
+
+/** Upload a DWG/DXF into a project (a new project named after the file when none is given). */
+export async function uploadFile(file: File, projectId?: string, name?: string): Promise<Job> {
+  const pid = projectId ?? (await createProject(file.name.replace(/\.[^.]+$/, ''))).id
   const fd = new FormData()
   fd.append('file', file)
-  return check(await fetch('/api/jobs', { method: 'POST', body: fd }))
+  if (name) fd.append('name', name)
+  return check(await fetch(`/api/projects/${pid}/drawings`, { method: 'POST', body: fd }))
+}
+
+/** A new revision of a drawing's DWG: floors, corrections and furniture follow it. */
+export async function uploadRevision(id: string, file: File): Promise<Job> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return check(await fetch(`/api/drawings/${id}/revision`, { method: 'POST', body: fd }))
+}
+
+export async function deleteDrawing(id: string): Promise<void> {
+  return check(await fetch(`/api/drawings/${id}`, { method: 'DELETE' }))
 }
 
 export async function getJob(id: string): Promise<Job> {
-  return check(await fetch(`/api/jobs/${id}`))
+  return check(await fetch(`/api/drawings/${id}`))
 }
 
 export async function rebuildJob(id: string, override: Record<string, unknown>): Promise<Job> {
-  return check(await fetch(`/api/jobs/${id}/rebuild`, {
+  return check(await fetch(`/api/drawings/${id}/rebuild`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(override),
@@ -238,11 +299,11 @@ export async function getPlan(id: string, path: string, v: number): Promise<Plan
   return check(await fetch(fileUrl(id, path, v)))
 }
 
-export const fileUrl = (id: string, path: string, v = 0) => `/api/jobs/${id}/files/${path}?v=${v}`
+export const fileUrl = (id: string, path: string, v = 0) => `/api/drawings/${id}/files/${path}?v=${v}`
 
 /** Source drawing with the editor corrections applied, downloaded as a file. */
 export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<void> {
-  const r = await fetch(`/api/jobs/${id}/drawing.${fmt}`)
+  const r = await fetch(`/api/drawings/${id}/drawing.${fmt}`)
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
     try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }
@@ -259,12 +320,13 @@ export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg'): Promise<v
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
-export async function listJobs(): Promise<JobSummary[]> {
-  return check(await fetch('/api/jobs'))
+/** Drawings of one project (or all), newest first. */
+export async function listJobs(projectId?: string): Promise<JobSummary[]> {
+  return check(await fetch(projectId ? `/api/drawings?project=${projectId}` : '/api/drawings'))
 }
 
 export async function putView(id: string, v: Partial<ViewSettings> | Record<string, unknown>): Promise<ViewSettings> {
-  return check(await fetch(`/api/jobs/${id}/view`, {
+  return check(await fetch(`/api/drawings/${id}/view`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v),
   }))
 }
@@ -272,11 +334,11 @@ export async function putView(id: string, v: Partial<ViewSettings> | Record<stri
 export async function uploadDetail(id: string, file: File): Promise<ViewSettings> {
   const fd = new FormData()
   fd.append('file', file)
-  return check(await fetch(`/api/jobs/${id}/detail`, { method: 'POST', body: fd }))
+  return check(await fetch(`/api/drawings/${id}/detail`, { method: 'POST', body: fd }))
 }
 
 export async function deleteDetail(id: string): Promise<ViewSettings> {
-  return check(await fetch(`/api/jobs/${id}/detail`, { method: 'DELETE' }))
+  return check(await fetch(`/api/drawings/${id}/detail`, { method: 'DELETE' }))
 }
 
 /** One change of a placed item or pin; updates and deletes carry the row version they were made against. */
@@ -288,7 +350,7 @@ export interface BatchResult<T> { items: T[]; deleted: string[] }
  * Throws ApiError 409 with body.conflicts when rows were changed by someone else,
  * or when the model was rebuilt since `build`. */
 export async function batchRows<T = PlacedItem>(id: string, kind: 'placements' | 'pins', build: number, ops: RowOp[]): Promise<BatchResult<T>> {
-  return check(await fetch(`/api/projects/${id}/${kind}:batch`, {
+  return check(await fetch(`/api/drawings/${id}/${kind}:batch`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build, ops }),
   }))
 }

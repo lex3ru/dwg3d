@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import auth
-from .models import AuditLog, CatalogItem, Floor, Pin, Placement, Project
+from .models import AuditLog, CatalogItem, Drawing, Floor, Pin, Placement, Project
 
 MAX_PINS = 500
 MAX_FURNITURE = 5000
@@ -100,8 +100,8 @@ def furniture(items) -> list[dict]:
 
 
 # ------------------------------------------------------------------ JSON ---
-def _floors(s: Session, pid: str) -> dict[int, Floor]:
-    return {f.id: f for f in s.scalars(select(Floor).where(Floor.project_id == pid))}
+def _floors(s: Session, did: str) -> dict[int, Floor]:
+    return {f.id: f for f in s.scalars(select(Floor).where(Floor.drawing_id == did))}
 
 
 def _cand(floors: dict[int, Floor], fid: int | None) -> str:
@@ -126,14 +126,14 @@ def pin_json(r: Pin, floors: dict[int, Floor]) -> dict:
             "label": r.label, "author": r.author, "created": r.created_at.timestamp(), "version": r.version}
 
 
-def view_data(s: Session, pid: str) -> dict:
-    """furniture, furniture_unplaced, markers, comments (only non-empty lists)."""
-    floors = _floors(s, pid)
+def view_data(s: Session, did: str) -> dict:
+    """furniture, furniture_unplaced, markers, comments of a drawing (only non-empty lists)."""
+    floors = _floors(s, did)
     out: dict[str, list] = {"furniture": [], "furniture_unplaced": [], "markers": [], "comments": []}
-    for r in s.scalars(select(Placement).where(Placement.project_id == pid).order_by(Placement.created_at, Placement.id)):
+    for r in s.scalars(select(Placement).where(Placement.drawing_id == did).order_by(Placement.created_at, Placement.id)):
         o = placement_json(r, floors)
         out["furniture" if o["floor"] else "furniture_unplaced"].append(o)
-    for r in s.scalars(select(Pin).where(Pin.project_id == pid).order_by(Pin.created_at, Pin.id)):
+    for r in s.scalars(select(Pin).where(Pin.drawing_id == did).order_by(Pin.created_at, Pin.id)):
         out[r.kind + "s"].append(pin_json(r, floors))
     return {k: v for k, v in out.items() if v}
 
@@ -148,26 +148,27 @@ def _me_id() -> int | None:
     return me.id if me else None
 
 
-def audit_entry(s, pid, entity, eid, action, before, after):
+def audit_entry(s, pid, entity, eid, action, before, after, drawing_id=None):
     """Record a change by the user of the current request."""
     me = auth.current.get()
-    s.add(AuditLog(project_id=pid, entity=entity, entity_id=eid, action=action,
+    s.add(AuditLog(project_id=pid, drawing_id=drawing_id, entity=entity, entity_id=eid, action=action,
                    user_id=me.id if me else None, actor=(me.login or None) if me else None,
                    before=_strip(before), after=_strip(after)))
 
 
-def lock_project(s: Session, pid: str, build: int | None) -> Project:
-    """Share-lock the project (a finishing build takes it exclusively and moves
+def lock_drawing(s: Session, did: str, build: int | None) -> Drawing:
+    """Share-lock the drawing (a finishing build takes it exclusively and moves
     the rows); refuse requests made against another build's floor ids."""
-    p = s.scalar(select(Project).where(Project.id == pid, Project.deleted_at.is_(None)).with_for_update(read=True))
-    if p is None:
-        raise LookupError(pid)
-    if build is not None and build != p.current_build:
+    d = s.scalar(select(Drawing).where(Drawing.id == did, Drawing.deleted_at.is_(None))
+                 .with_for_update(read=True))
+    if d is None:
+        raise LookupError(did)
+    if build is not None and build != d.current_build:
         raise Conflict("Модель была перестроена: обновите страницу, чтобы не потерять изменения", [])
-    return p
+    return d
 
 
-def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None, force: bool = False) -> dict:
+def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None, force: bool = False) -> dict:
     """Create / update / delete placements (entity 'placement') or pins ('pin').
 
     ops: [{"op": "create" | "update" | "delete", "id", "version", ...fields}]
@@ -178,14 +179,15 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
     if not isinstance(ops, list) or len(ops) > MAX_OPS:
         raise Invalid(f"ops: ожидается список до {MAX_OPS} операций")
     Model = Placement if entity == "placement" else Pin
-    lock_project(s, pid, build)
-    floors = _floors(s, pid)
+    d = lock_drawing(s, did, build)
+    pid = d.project_id
+    floors = _floors(s, did)
     by_cand = {f.candidate: f.id for f in floors.values() if f.candidate}
     ids = [o.get("id") for o in ops if isinstance(o, dict) and isinstance(o.get("id"), str)]
-    rows = {r.id: r for r in s.scalars(select(Model).where(Model.project_id == pid, Model.id.in_(ids)).with_for_update())}
+    rows = {r.id: r for r in s.scalars(select(Model).where(Model.drawing_id == did, Model.id.in_(ids)).with_for_update())}
     to_json = placement_json if Model is Placement else pin_json
     conflicts, changed, deleted = [], {}, []
-    count = s.scalar(select(func.count()).select_from(Model).where(Model.project_id == pid))
+    count = s.scalar(select(func.count()).select_from(Model).where(Model.drawing_id == did))
     limit = MAX_FURNITURE if Model is Placement else MAX_PINS * 2
 
     def floor_id(cand: str, allow_none: bool):
@@ -210,7 +212,7 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
             continue
         if op == "delete":
             if row is not None:
-                audit_entry(s, pid, entity, row.id, "delete", to_json(row, floors), None)
+                audit_entry(s, pid, entity, row.id, "delete", to_json(row, floors), None, did)
                 s.delete(row)
                 rows.pop(row.id)
                 deleted.append(row.id)
@@ -246,8 +248,8 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
                 vals["created_at"] = datetime.fromtimestamp(v["created"], tz=timezone.utc)
         if row is None:
             if count >= limit:
-                raise Invalid(f"не больше {limit} объектов в проекте")
-            row = Model(project_id=pid, id=v["id"], version=1, updated_by=_me_id(), **vals)
+                raise Invalid(f"не больше {limit} объектов на чертеже")
+            row = Model(drawing_id=did, id=v["id"], version=1, updated_by=_me_id(), **vals)
             s.add(row)
             rows[row.id] = row
             count += 1
@@ -262,44 +264,50 @@ def apply(s: Session, pid: str, entity: str, ops: list, build: int | None = None
             row.updated_at = func.now()
         s.flush()
         after = to_json(row, floors)
-        audit_entry(s, pid, entity, row.id, "create" if before is None else "update", before, after)
+        audit_entry(s, pid, entity, row.id, "create" if before is None else "update", before, after, did)
         changed[row.id] = row
     if conflicts:
         raise Conflict("Изменено другим пользователем: обновите данные и повторите", conflicts)
     if changed or deleted:
+        s.execute(Drawing.__table__.update().where(Drawing.id == did).values(updated_at=func.now()))
         s.execute(Project.__table__.update().where(Project.id == pid).values(updated_at=func.now()))
     s.flush()
     return {"items": [to_json(r, floors) for r in changed.values()], "deleted": deleted}
 
 
-def replace(s: Session, pid: str, key: str, value):
+def replace(s: Session, did: str, key: str, value):
     """Legacy PUT /view: a whole list replaces the stored one (no versions)."""
     if key == "furniture":
         items = furniture(value)
         keep = {r.id for r in s.scalars(select(Placement).join(Floor, Placement.floor_id == Floor.id, isouter=True)
-                                        .where(Placement.project_id == pid,
+                                        .where(Placement.drawing_id == did,
                                                (Floor.candidate.is_(None)) | (Placement.floor_id.is_(None))))}
-        current = set(s.scalars(select(Placement.id).where(Placement.project_id == pid))) - keep
+        current = set(s.scalars(select(Placement.id).where(Placement.drawing_id == did))) - keep
         ops = [{"op": "update", **it} for it in items]
         ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, pid, "placement", ops, force=True)
+        apply(s, did, "placement", ops, force=True)
     elif key == "furniture_unplaced":
         # only removal (after the items were put back on a floor or deleted): ids to keep
         if not isinstance(value, list):
             raise Invalid("view.furniture_unplaced: ожидается список")
         ids = {it.get("id") if isinstance(it, dict) else it for it in value}
-        unplaced = view_data(s, pid).get("furniture_unplaced") or []
-        apply(s, pid, "placement", [{"op": "delete", "id": u["id"]} for u in unplaced if u["id"] not in ids],
+        unplaced = view_data(s, did).get("furniture_unplaced") or []
+        apply(s, did, "placement", [{"op": "delete", "id": u["id"]} for u in unplaced if u["id"] not in ids],
               force=True)
     else:
         items = pins(value, key)
-        current = set(s.scalars(select(Pin.id).where(Pin.project_id == pid, Pin.kind == PIN_KINDS[key])))
+        current = set(s.scalars(select(Pin.id).where(Pin.drawing_id == did, Pin.kind == PIN_KINDS[key])))
         ops = [{"op": "update", "kind": key, **it} for it in items]
         ops += [{"op": "delete", "id": i} for i in current - {it["id"] for it in items}]
-        apply(s, pid, "pin", ops, force=True)
+        apply(s, did, "pin", ops, force=True)
 
 
-def audit(s: Session, pid: str, limit: int = 100) -> list[dict]:
-    q = (select(AuditLog).where(AuditLog.project_id == pid).order_by(AuditLog.id.desc()).limit(min(max(limit, 1), 1000)))
-    return [{"id": a.id, "at": a.at.timestamp(), "entity": a.entity, "entity_id": a.entity_id, "action": a.action,
+def audit(s: Session, pid: str, limit: int = 100, drawing_id: str | None = None) -> list[dict]:
+    """Changes in a project (or in one of its drawings), newest first."""
+    q = select(AuditLog).where(AuditLog.project_id == pid)
+    if drawing_id is not None:
+        q = q.where(AuditLog.drawing_id == drawing_id)
+    q = q.order_by(AuditLog.id.desc()).limit(min(max(limit, 1), 1000))
+    return [{"id": a.id, "at": a.at.timestamp(), "drawing_id": a.drawing_id, "entity": a.entity,
+             "entity_id": a.entity_id, "action": a.action,
              "user_id": a.user_id, "actor": a.actor, "before": a.before, "after": a.after} for a in s.scalars(q)]

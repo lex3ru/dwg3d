@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from dwg3d import catalog, db, store, viewdata
+from conftest import add_drawing
 from dwg3d.models import AuditLog, Build, Project
 
 
@@ -96,9 +97,8 @@ def _project_with(items) -> str:
     floors = [{"id": "c0", "space": "Model", "owner": None, "bbox": [0, 0, 30, 20], "offset": [0, 0], "name": "1 этаж", "level": 1},
               {"id": "c1", "space": "Model", "owner": None, "bbox": [40, 0, 70, 20], "offset": [0, 0], "name": "2 этаж", "level": 2}]
     with db.session() as s:
-        s.add(Project(id=pid, name=f"Клиника {pid[:4]}", filename="p.dxf", input_path="input.dxf", current_build=1))
-        s.flush()
-        s.add(Build(project_id=pid, n=1, result={"floors": floors}, config={}, out_dir="out"))
+        add_drawing(s, pid, project_name=f"Клиника {pid[:4]}", current_build=1)
+        s.add(Build(drawing_id=pid, n=1, result={"floors": floors}, config={}, out_dir="out"))
         store.sync_floors(s, pid, {"floors": floors})
         viewdata.apply(s, pid, "placement", [{"op": "create", "floor": f, "item": it, "at": [1, 1]} for f, it in items])
     return pid

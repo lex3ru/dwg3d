@@ -865,7 +865,7 @@ export default function App() {
             floor={activeFloor} busy={running} onApply={applyEdits} onClose={() => setEditor(false)} />
         )}
         {settings === 'floors' && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(null)} />}
-        {settings === 'report' && shown && <Report projectId={shown.id} onClose={() => setSettings(null)} />}
+        {settings === 'report' && shown && <Report projectId={shown.project_id} onClose={() => setSettings(null)} />}
         {settings === 'catalog' && <CatalogEditor onClose={() => setSettings(null)} onChanged={() => setCatalogTick((n) => n + 1)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}

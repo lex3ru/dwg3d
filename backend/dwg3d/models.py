@@ -92,14 +92,30 @@ class AuthSession(Base):
 
 
 class Project(Base):
-    """A building: the uploaded drawing and everything the user set on it.
-    Model files live on disk in <DWG3D_DATA>/jobs/<id>/ (see Build.out_dir)."""
+    """A container for everything about one object: its drawings (buildings,
+    sections, revisions) and, later, its layers."""
     __tablename__ = "projects"
 
+    id: Mapped[str] = mapped_column(Text, primary_key=True)        # 12 hex chars
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, server_default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Drawing(Base):
+    """An uploaded DWG/DXF and everything the user set on it (builds, floors,
+    map binding, detail model). Model files live on disk in
+    <DWG3D_DATA>/jobs/<id>/ (see Build.out_dir)."""
+    __tablename__ = "drawings"
+
     id: Mapped[str] = mapped_column(Text, primary_key=True)        # 12 hex chars, as in data/jobs/<id>
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     name: Mapped[str | None] = mapped_column(Text)
     filename: Mapped[str] = mapped_column(Text)                     # original upload name
-    input_path: Mapped[str] = mapped_column(Text)                   # relative to the project dir
+    input_path: Mapped[str] = mapped_column(Text)                   # relative to the drawing dir
     size: Mapped[int] = mapped_column(BigInteger, server_default="0")
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))   # overrides for the next build
     site: Mapped[dict | None] = mapped_column(JSONB)                # map binding
@@ -115,7 +131,7 @@ class Build(Base):
     """Result of one successful pipeline run (build numbers start at 1)."""
     __tablename__ = "builds"
 
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), primary_key=True)
     n: Mapped[int] = mapped_column(Integer, primary_key=True)
     result: Mapped[dict] = mapped_column(JSONB)                     # floors, rooms, entrances, warnings...
     config: Mapped[dict] = mapped_column(JSONB)                     # overrides as re-anchored by this build
@@ -131,13 +147,13 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'running', 'done', 'error')", name="jobs_status"),
-        # at most one queued/running build per project
-        Index("jobs_one_active", "project_id", unique=True, postgresql_where=text("status IN ('queued', 'running')")),
+        # at most one queued/running build per drawing
+        Index("jobs_one_active", "drawing_id", unique=True, postgresql_where=text("status IN ('queued', 'running')")),
         Index("jobs_queue", "status", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(Text, server_default="queued")
     stage: Mapped[str] = mapped_column(Text, server_default="queued")
     progress: Mapped[float] = mapped_column(Float, server_default="0")
@@ -156,10 +172,10 @@ class Floor(Base):
     see edits.py) is matched to each new build; `candidate` is its id there
     (c0, c3...) or NULL when its sheet is no longer found."""
     __tablename__ = "floors"
-    __table_args__ = (UniqueConstraint("project_id", "candidate"),)
+    __table_args__ = (UniqueConstraint("drawing_id", "candidate"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), index=True)
     anchor: Mapped[dict] = mapped_column(JSONB)
     candidate: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
@@ -175,7 +191,7 @@ class Placement(Base):
     (candidate NULL), means "not on a floor" until it is put back."""
     __tablename__ = "placements"
 
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), primary_key=True)
     id: Mapped[str] = mapped_column(Text, primary_key=True)                     # client-made, per project
     floor_id: Mapped[int | None] = mapped_column(ForeignKey("floors.id", ondelete="SET NULL"), index=True)
     # no FK: catalog ids are never deleted, and old data must import even before the catalog is loaded
@@ -200,7 +216,7 @@ class Pin(Base):
     __tablename__ = "pins"
     __table_args__ = (CheckConstraint("kind IN ('marker', 'comment')", name="pins_kind"),)
 
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"), primary_key=True)
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     kind: Mapped[str] = mapped_column(Text)
     floor_id: Mapped[int | None] = mapped_column(ForeignKey("floors.id", ondelete="SET NULL"), index=True)
@@ -224,7 +240,8 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     project_id: Mapped[str | None] = mapped_column(Text)
-    entity: Mapped[str] = mapped_column(Text)            # placement, pin, project
+    drawing_id: Mapped[str | None] = mapped_column(Text)
+    entity: Mapped[str] = mapped_column(Text)            # placement, pin, drawing, project
     entity_id: Mapped[str] = mapped_column(Text)
     action: Mapped[str] = mapped_column(Text)            # create, update, delete
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

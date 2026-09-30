@@ -1,32 +1,37 @@
-"""HTTP API: upload DWG/DXF -> queued processing -> glTF + metadata.
+"""HTTP API.
 
-  POST /api/jobs                 multipart: file, config (optional JSON string)
-  GET  /api/jobs                 projects (building switcher)
-  GET  /api/jobs/{id}            status / progress / result
-  GET/PUT /api/jobs/{id}/view    viewer settings: map binding, detail model
-                                 alignment, markers, comments, furniture
-                                 (no rebuild)
-  POST/DELETE /api/jobs/{id}/detail, GET /api/jobs/{id}/detail.glb
-                                 detailed model (GLB) shown over the generated one
-  POST /api/jobs/{id}/rebuild    JSON config override (floors.items, layers...)
-  GET  /api/jobs/{id}/files/...  model.glb, metadata.json, debug/*.png
-  GET  /api/config/default       default config
-  GET  /api/catalog              furniture / equipment catalog (PostgreSQL)
+Projects hold drawings; a drawing is one uploaded DWG/DXF, processed by the
+build queue into a 3D model.
+
+  GET/POST /api/projects                 projects (with their drawings) / new project
+  GET/PATCH/DELETE /api/projects/{id}    one project; name, description
+  POST /api/projects/{id}/drawings       multipart: file, name, config (optional JSON string)
+  GET  /api/projects/{id}/audit          who changed what (?drawing=)
+  GET  /api/drawings?project=            drawings (building switcher)
+  GET/DELETE /api/drawings/{id}          status / progress / result
+  POST /api/drawings/{id}/revision       multipart: a new revision of the DWG; floors,
+                                         editor corrections, furniture and pins follow it
+  GET/PUT /api/drawings/{id}/view        viewer settings: name, map binding, detail model
+                                         alignment (no rebuild)
+  POST/DELETE /api/drawings/{id}/detail, GET /api/drawings/{id}/detail.glb
+                                         detailed model (GLB) shown over the generated one
+  POST /api/drawings/{id}/rebuild        JSON config override (floors.items, layers...)
+  GET  /api/drawings/{id}/files/...      model.glb, metadata.json, debug/*.png
+  GET  /api/drawings/{id}/drawing.dxf|dwg  source drawing with the editor corrections
+  GET/POST /api/drawings/{id}/placements, PATCH/DELETE .../placements/{rid},
+  POST /api/drawings/{id}/placements:batch
+                                         placed furniture row by row, with versions (409
+                                         on concurrent changes); the same for /pins
+  GET  /api/config/default               default config
+  GET  /api/catalog                      furniture / equipment catalog (PostgreSQL)
   POST /api/catalog/items, PATCH /api/catalog/items/{id}, POST .../{id}/model (GLB),
   POST /api/catalog/categories, PATCH /api/catalog/categories/{id}
-                                 catalog editing (catalog_admin)
+                                         catalog editing (catalog_admin)
   GET  /api/reports/equipment?project=&format=json|xlsx
-                                 equipment specification (one or all projects)
-  GET  /api/health               converter availability, database, queue
-  GET/POST /api/projects/{id}/placements, PATCH/DELETE .../placements/{pid},
-  POST /api/projects/{id}/placements:batch
-                                 placed furniture row by row, with versions (409
-                                 on concurrent changes); the same for /pins
-  GET  /api/projects/{id}/audit  who changed what
+                                         equipment specification (one or all projects)
+  GET  /api/health                       converter availability, database, queue
   POST /api/auth/login, /api/auth/logout, GET /api/auth/me
-                                 sign-in (session cookie), see auth.py
-
-"Job" in the URLs is a project (a building): its id is the project id.
+                                         sign-in (session cookie), see auth.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
@@ -71,7 +76,7 @@ from . import auth, catalog, db, reports, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Project
+from .models import Drawing, Project
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -170,9 +175,10 @@ def _cleanup():
     _last_cleanup = time.time()
     with db.session() as s:
         gone = store.delete_stale(s, RETENTION_DAYS)
-    for pid in gone:
-        shutil.rmtree(store.project_dir(pid), ignore_errors=True)
-        log.info("project %s removed (retention %s days)", pid, RETENTION_DAYS)
+    for did in gone:
+        shutil.rmtree(store.drawing_dir(did), ignore_errors=True)
+    if gone:
+        log.info("%d drawing(s) of stale projects removed (retention %s days)", len(gone), RETENTION_DAYS)
 
 
 def _init_db():
@@ -193,11 +199,18 @@ worker.start(int(os.environ.get("DWG3D_WORKERS", "2")))
 _cleanup()
 
 
-def _project(s, jid: str, lock: bool = False) -> Project:
-    p = store.get_project(s, jid, lock=lock)
+def _project(s, pid: str, lock: bool = False) -> Project:
+    p = store.get_project(s, pid, lock=lock)
     if p is None:
-        raise HTTPException(404, "Задача не найдена")
+        raise HTTPException(404, "Проект не найден")
     return p
+
+
+def _drawing(s, did: str, lock: bool = False) -> Drawing:
+    d = store.get_drawing(s, did, lock=lock)
+    if d is None:
+        raise HTTPException(404, "Чертёж не найден")
+    return d
 
 
 @app.get("/api/health")
@@ -281,12 +294,79 @@ def default_config():
     return load_config()
 
 
-@app.post("/api/jobs")
-async def create_job(file: UploadFile = File(...), config: str | None = Form(None)):
-    name = Path(file.filename or "plan.dwg").name
-    ext = Path(name).suffix.lower()
-    if ext not in (".dwg", ".dxf"):
-        raise HTTPException(400, "Поддерживаются только .dwg и .dxf")
+# ------------------------------------------------------------ projects ---
+def _text(v: dict, key: str, n: int, required: bool = False) -> str | None:
+    x = v.get(key)
+    if x is None and not required:
+        return None
+    if not isinstance(x, str) or len(x.strip()) > n or (required and not x.strip()):
+        raise HTTPException(400, f"{key}: строка до {n} символов" + (" (обязательно)" if required else ""))
+    return x.strip()
+
+
+@app.get("/api/projects")
+def list_projects():
+    with db.session() as s:
+        return store.list_projects(s)
+
+
+@app.post("/api/projects", status_code=201)
+def create_project(v: dict):
+    name = _text(v, "name", 200, required=True)
+    with db.session() as s:
+        me = auth.current.get()
+        p = Project(id=uuid.uuid4().hex[:12], name=name, description=_text(v, "description", 5000) or "",
+                    created_by=me.id if me else None)
+        s.add(p)
+        s.flush()
+        viewdata.audit_entry(s, p.id, "project", p.id, "create", None, {"name": p.name})
+        return store.project_json(s, p, [])
+
+
+@app.get("/api/projects/{pid}")
+def get_project(pid: str):
+    with db.session() as s:
+        return store.project_json(s, _project(s, pid))
+
+
+@app.patch("/api/projects/{pid}")
+def update_project(pid: str, v: dict):
+    with db.session() as s:
+        p = _project(s, pid, lock=True)
+        before, after = {}, {}
+        for key, n, req in (("name", 200, True), ("description", 5000, False)):
+            if key in v:
+                x = _text(v, key, n, required=req) or ""
+                if x != getattr(p, key):
+                    before[key], after[key] = getattr(p, key), x
+                    setattr(p, key, x)
+        if after:
+            p.updated_at = func.now()
+            viewdata.audit_entry(s, p.id, "project", p.id, "update", before, after)
+        s.flush()
+        return store.project_json(s, p)
+
+
+@app.delete("/api/projects/{pid}", status_code=204)
+def delete_project(pid: str):
+    """Hidden at once; rows and files go with the retention cleanup (or stay for recovery)."""
+    with db.session() as s:
+        p = _project(s, pid, lock=True)
+        if any(store.has_active(s, d["id"]) for d in store.list_drawings(s, pid)):
+            raise HTTPException(409, "Идёт обработка чертежа: удалите проект после её окончания")
+        p.deleted_at = func.now()
+        viewdata.audit_entry(s, p.id, "project", p.id, "delete", {"name": p.name}, None)
+
+
+@app.get("/api/projects/{pid}/audit")
+def get_audit(pid: str, limit: int = 100, drawing: str | None = None):
+    with db.session() as s:
+        _project(s, pid)
+        return viewdata.audit(s, pid, limit, drawing)
+
+
+# ------------------------------------------------------------ drawings ---
+def _parse_config(config: str | None) -> dict:
     try:
         override = json.loads(config) if config else {}
     except json.JSONDecodeError:
@@ -297,47 +377,120 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
         validate_config(load_config(override))
     except ConfigError as ex:
         raise HTTPException(400, f"config: {ex}")
-    _cleanup()
-    jid = uuid.uuid4().hex[:12]
-    jdir = store.project_dir(jid)
-    jdir.mkdir(parents=True)
+    return override
+
+
+def _upload_name(file: UploadFile) -> tuple[str, str]:
+    name = Path(file.filename or "plan.dwg").name
+    ext = Path(name).suffix.lower()
+    if ext not in (".dwg", ".dxf"):
+        raise HTTPException(400, "Поддерживаются только .dwg и .dxf")
+    return name, ext
+
+
+async def _save_upload(file: UploadFile, dst: Path) -> int:
+    """Stream an upload to `dst` (removed again when it is too big)."""
     size = 0
-    with open(jdir / f"input{ext}", "wb") as f:
+    with open(dst, "wb") as f:
         while chunk := await file.read(1 << 20):
             size += len(chunk)
             if size > MAX_UPLOAD:
                 f.close()
-                shutil.rmtree(jdir, ignore_errors=True)
+                dst.unlink(missing_ok=True)
                 raise HTTPException(413, "Файл слишком большой")
             f.write(chunk)
+    return size
+
+
+@app.post("/api/projects/{pid}/drawings")
+async def create_drawing(pid: str, file: UploadFile = File(...), config: str | None = Form(None),
+                         name: str | None = Form(None)):
+    filename, ext = _upload_name(file)
+    override = _parse_config(config)
+    if name is not None and len(name) > 200:
+        raise HTTPException(400, "name: строка до 200 символов")
+    with db.session() as s:
+        _project(s, pid)
+    _cleanup()
+    did = uuid.uuid4().hex[:12]
+    ddir = store.drawing_dir(did)
+    ddir.mkdir(parents=True)
     try:
+        size = await _save_upload(file, ddir / f"input{ext}")
         with db.session() as s:
+            _project(s, pid, lock=True)
             me = auth.current.get()
-            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override,
-                        created_by=me.id if me else None)
-            s.add(p)
+            d = Drawing(id=did, project_id=pid, name=(name or "").strip() or None, filename=filename,
+                        input_path=f"input{ext}", size=size, config=override, created_by=me.id if me else None)
+            s.add(d)
             s.flush()
-            job = store.enqueue(s, p)
-            out = store.public(s, p, job)
-    except Exception:
-        shutil.rmtree(jdir, ignore_errors=True)
+            viewdata.audit_entry(s, pid, "drawing", did, "create", None, {"filename": filename}, did)
+            job = store.enqueue(s, d)
+            out = store.public(s, d, job)
+    except BaseException:
+        shutil.rmtree(ddir, ignore_errors=True)
         raise
     worker.wake()
     return out
 
 
-@app.get("/api/jobs")
-def list_jobs():
-    """Processed buildings (for the building switcher), newest first."""
+@app.post("/api/drawings/{did}/revision")
+async def upload_revision(did: str, file: UploadFile = File(...)):
+    """A new revision of the drawing's DWG: rebuilt with the same settings;
+    floors are matched by their sheets, so corrections, furniture and pins
+    stay on them (see store.sync_floors)."""
+    filename, ext = _upload_name(file)
     with db.session() as s:
-        return store.list_projects(s)
+        d = _drawing(s, did)
+        if store.has_active(s, did):
+            raise HTTPException(409, "Чертёж ещё обрабатывается")
+        rev = d.current_build + 1
+    ddir = store.drawing_dir(did)
+    part = ddir / f"input_r{rev}{ext}.{uuid.uuid4().hex[:8]}.part"
+    size = await _save_upload(file, part)
+    with db.session() as s:
+        d = _drawing(s, did, lock=True)
+        if store.has_active(s, did):
+            part.unlink(missing_ok=True)
+            raise HTTPException(409, "Чертёж ещё обрабатывается")
+        n = 1
+        while (ddir / f"input_r{n}{ext}").exists():
+            n += 1
+        dst = ddir / f"input_r{n}{ext}"
+        part.replace(dst)
+        before = {"filename": d.filename, "size": d.size}
+        d.filename, d.input_path, d.size = filename, dst.name, size
+        viewdata.audit_entry(s, d.project_id, "drawing", did, "revision", before,
+                             {"filename": filename, "size": size}, did)
+        job = store.enqueue(s, d)
+        out = store.public(s, d, job)
+    worker.wake()
+    return out
+
+
+@app.get("/api/drawings")
+def list_drawings(project: str | None = None):
+    """Drawings (of one project), newest first."""
+    with db.session() as s:
+        return store.list_drawings(s, project)
+
+
+@app.delete("/api/drawings/{did}", status_code=204)
+def delete_drawing(did: str):
+    with db.session() as s:
+        d = _drawing(s, did, lock=True)
+        if store.has_active(s, did):
+            raise HTTPException(409, "Чертёж ещё обрабатывается")
+        d.deleted_at = func.now()
+        store.touch_project(s, d.project_id)
+        viewdata.audit_entry(s, d.project_id, "drawing", did, "delete", {"filename": d.filename}, None, did)
 
 
 # ------------------------------------------------------ viewer settings ---
-# Per-project viewer state that needs no rebuild. Map binding, detail-model
-# alignment and the name are project columns; placed furniture, markers and
-# comments are rows (viewdata.py), edited one by one through /api/projects/{id}/...
-# or, for the old whole-list clients, through PUT /api/jobs/{id}/view.
+# Per-drawing viewer state that needs no rebuild. Map binding, detail-model
+# alignment and the name are drawing columns; placed furniture, markers and
+# comments are rows (viewdata.py), edited one by one through /api/drawings/{id}/placements
+# and /pins or, for whole-list clients, through PUT /api/drawings/{id}/view.
 MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
 _f, _s = viewdata.num, viewdata.string
 
@@ -357,7 +510,7 @@ def _conflict(_, ex: viewdata.Conflict):
 
 @app.exception_handler(LookupError)
 def _missing(_, ex: LookupError):
-    return JSONResponse({"detail": "Проект не найден"}, status_code=404)
+    return JSONResponse({"detail": "Чертёж не найден"}, status_code=404)
 
 
 def validate_settings(v: dict, old: dict) -> dict:
@@ -398,43 +551,43 @@ def validate_settings(v: dict, old: dict) -> dict:
     return out
 
 
-@app.get("/api/jobs/{jid}/view")
-def get_view(jid: str):
+@app.get("/api/drawings/{did}/view")
+def get_view(did: str):
     with db.session() as s:
-        return store.view_of(s, _project(s, jid))
+        return store.view_of(s, _drawing(s, did))
 
 
-@app.put("/api/jobs/{jid}/view")
-def put_view(jid: str, v: dict):
+@app.put("/api/drawings/{did}/view")
+def put_view(did: str, v: dict):
     """Merge viewer settings: top-level keys given replace the stored ones.
     Whole furniture / pin lists are turned into row changes (last writer
-    wins); the viewer edits rows through /api/projects/{id}/placements instead."""
+    wins); the viewer edits rows through /api/drawings/{id}/placements instead."""
     with db.session() as s:
-        p = _project(s, jid, lock=True)
+        d = _drawing(s, did, lock=True)
         if any(k in v for k in FLOOR_BOUND):
             # these refer to floors of a particular build: never write them across a rebuild
-            if store.has_active(s, jid):
+            if store.has_active(s, did):
                 raise HTTPException(409, "Идёт перестроение модели: расстановка и метки сохранятся после него")
-            if "_build" in v and v["_build"] != p.current_build:
+            if "_build" in v and v["_build"] != d.current_build:
                 raise HTTPException(409, "Модель была перестроена: обновите страницу, чтобы не потерять изменения")
-        cols = validate_settings(v, store.view_of(s, p))
+        cols = validate_settings(v, store.view_of(s, d))
         if cols:
-            _audit_settings(s, p, cols)
-            store.set_settings(p, cols)
+            _audit_settings(s, d, cols)
+            store.set_settings(d, cols)
         for k in ("furniture", "markers", "comments", "furniture_unplaced"):
             if k in v:
-                viewdata.replace(s, jid, k, v[k])
+                viewdata.replace(s, did, k, v[k])
         s.flush()
-        return store.view_of(s, p)
+        return store.view_of(s, d)
 
 
-def _audit_settings(s, p: Project, cols: dict):
-    before = {k: getattr(p, k) for k in cols}
+def _audit_settings(s, d: Drawing, cols: dict):
+    before = {k: getattr(d, k) for k in cols}
     if before != cols:
-        viewdata.audit_entry(s, p.id, "project", p.id, "update", before, cols)
+        viewdata.audit_entry(s, d.project_id, "drawing", d.id, "update", before, cols, d.id)
 
 
-# ------------------------------------------- furniture and pins, row by row ---
+# ----------------------------------------- furniture and pins, row by row ---
 # Floors are the candidate ids of the build given in `build` (409 if the model
 # was rebuilt since); updates and deletes carry the row `version` they were
 # made against (409 with the current rows if someone changed them meanwhile).
@@ -451,70 +604,57 @@ def _one(res: dict):
     return res["items"][0] if res["items"] else None
 
 
-@app.get("/api/projects/{pid}/audit")
-def get_audit(pid: str, limit: int = 100):
-    with db.session() as s:
-        _project(s, pid)
-        return viewdata.audit(s, pid, limit)
+def _row_routes(kind: str):
+    entity = ROW_KINDS[kind]
+
+    def list_rows(did: str, floor: str | None = None):
+        with db.session() as s:
+            d = _drawing(s, did)
+            data = viewdata.view_data(s, did)
+        pick = lambda k: [it for it in data.get(k) or [] if floor is None or it["floor"] == floor]  # noqa: E731
+        if kind == "placements":
+            return {"build": d.current_build, "items": pick("furniture"), "unplaced": data.get("furniture_unplaced") or []}
+        return {"build": d.current_build, "markers": pick("markers"), "comments": pick("comments")}
+
+    def batch_rows(did: str, v: dict):
+        """{build, ops: [{op, id, version, ...}]}: all applied or none (Ряд…, копии, отмена)."""
+        v = _body(v)
+        with db.session() as s:
+            return viewdata.apply(s, did, entity, v.get("ops"), build=v.get("build"))
+
+    def create_row(did: str, v: dict):
+        v = _body(v)
+        with db.session() as s:
+            return _one(viewdata.apply(s, did, entity, [{**v, "op": "create"}], build=v.get("build")))
+
+    def update_row(did: str, rid: str, v: dict):
+        v = _body(v)
+        with db.session() as s:
+            return _one(viewdata.apply(s, did, entity, [{**v, "op": "update", "id": rid}], build=v.get("build")))
+
+    def delete_row(did: str, rid: str, version: int | None = None, build: int | None = None):
+        with db.session() as s:
+            viewdata.apply(s, did, entity, [{"op": "delete", "id": rid, "version": version}], build=build)
+
+    base = f"/api/drawings/{{did}}/{kind}"
+    app.add_api_route(base, list_rows, methods=["GET"])
+    app.add_api_route(base + ":batch", batch_rows, methods=["POST"])
+    app.add_api_route(base, create_row, methods=["POST"], status_code=201)
+    app.add_api_route(base + "/{rid}", update_row, methods=["PATCH"])
+    app.add_api_route(base + "/{rid}", delete_row, methods=["DELETE"], status_code=204)
 
 
-@app.get("/api/projects/{pid}/{kind}")
-def list_rows(pid: str, kind: str, floor: str | None = None):
-    if kind not in ROW_KINDS:
-        raise HTTPException(404)
-    with db.session() as s:
-        p = _project(s, pid)
-        data = viewdata.view_data(s, pid)
-    if kind == "placements":
-        items = [it for it in data.get("furniture") or [] if floor is None or it["floor"] == floor]
-        return {"build": p.current_build, "items": items, "unplaced": data.get("furniture_unplaced") or []}
-    pick = lambda k: [it for it in data.get(k) or [] if floor is None or it["floor"] == floor]  # noqa: E731
-    return {"build": p.current_build, "markers": pick("markers"), "comments": pick("comments")}
+for _kind in ROW_KINDS:
+    _row_routes(_kind)
 
 
-@app.post("/api/projects/{pid}/{kind}:batch")
-def batch_rows(pid: str, kind: str, v: dict):
-    """{build, ops: [{op, id, version, ...}]}: all applied or none (Ряд…, копии, отмена)."""
-    if kind not in ROW_KINDS:
-        raise HTTPException(404)
-    v = _body(v)
-    with db.session() as s:
-        return viewdata.apply(s, pid, ROW_KINDS[kind], v.get("ops"), build=v.get("build"))
-
-
-@app.post("/api/projects/{pid}/{kind}", status_code=201)
-def create_row(pid: str, kind: str, v: dict):
-    if kind not in ROW_KINDS:
-        raise HTTPException(404)
-    v = _body(v)
-    with db.session() as s:
-        return _one(viewdata.apply(s, pid, ROW_KINDS[kind], [{**v, "op": "create"}], build=v.get("build")))
-
-
-@app.patch("/api/projects/{pid}/{kind}/{rid}")
-def update_row(pid: str, kind: str, rid: str, v: dict):
-    if kind not in ROW_KINDS:
-        raise HTTPException(404)
-    v = _body(v)
-    with db.session() as s:
-        return _one(viewdata.apply(s, pid, ROW_KINDS[kind], [{**v, "op": "update", "id": rid}], build=v.get("build")))
-
-
-@app.delete("/api/projects/{pid}/{kind}/{rid}", status_code=204)
-def delete_row(pid: str, kind: str, rid: str, version: int | None = None, build: int | None = None):
-    if kind not in ROW_KINDS:
-        raise HTTPException(404)
-    with db.session() as s:
-        viewdata.apply(s, pid, ROW_KINDS[kind], [{"op": "delete", "id": rid, "version": version}], build=build)
-
-
-@app.post("/api/jobs/{jid}/detail")
-async def upload_detail(jid: str, file: UploadFile = File(...)):
+@app.post("/api/drawings/{did}/detail")
+async def upload_detail(did: str, file: UploadFile = File(...)):
     """Detailed model (GLB: facade, furniture...) shown over the generated one."""
     with db.session() as s:
-        _project(s, jid)
-    jdir = store.project_dir(jid)
-    tmp = jdir / f"detail.glb.{uuid.uuid4().hex[:8]}.part"
+        _drawing(s, did)
+    ddir = store.drawing_dir(did)
+    tmp = ddir / f"detail.glb.{uuid.uuid4().hex[:8]}.part"
     size, head = 0, b""
     with open(tmp, "wb") as f:
         while chunk := await file.read(1 << 20):
@@ -529,9 +669,9 @@ async def upload_detail(jid: str, file: UploadFile = File(...)):
     if head[:4] != b"glTF" or int.from_bytes(head[4:8], "little") != 2:
         tmp.unlink(missing_ok=True)
         raise HTTPException(400, "Нужен файл GLB (glTF 2.0, бинарный)")
-    tmp.replace(jdir / "detail.glb")
+    tmp.replace(ddir / "detail.glb")
     with db.session() as s:
-        p = _project(s, jid, lock=True)
+        p = _drawing(s, did, lock=True)
         d = dict(p.detail or {})
         d.update(file=Path(file.filename or "detail.glb").name[:200], size=size,
                  version=int(d.get("version", 0)) + 1)
@@ -543,39 +683,39 @@ async def upload_detail(jid: str, file: UploadFile = File(...)):
         return store.view_of(s, p)
 
 
-@app.delete("/api/jobs/{jid}/detail")
-def delete_detail(jid: str):
+@app.delete("/api/drawings/{did}/detail")
+def delete_detail(did: str):
     with db.session() as s:
-        p = _project(s, jid, lock=True)
-        (store.project_dir(jid) / "detail.glb").unlink(missing_ok=True)
+        p = _drawing(s, did, lock=True)
+        (store.drawing_dir(did) / "detail.glb").unlink(missing_ok=True)
         p.detail = None
         p.updated_at = func.now()
         return store.view_of(s, p)
 
 
-@app.get("/api/jobs/{jid}/detail.glb")
-def get_detail(jid: str):
+@app.get("/api/drawings/{did}/detail.glb")
+def get_detail(did: str):
     with db.session() as s:
-        _project(s, jid)
-    p = store.project_dir(jid) / "detail.glb"
+        _drawing(s, did)
+    p = store.drawing_dir(did) / "detail.glb"
     if not p.is_file():
         raise HTTPException(404)
     return FileResponse(p, media_type="model/gltf-binary")
 
 
-@app.get("/api/jobs/{jid}")
-def get_job(jid: str):
+@app.get("/api/drawings/{did}")
+def get_drawing(did: str):
     with db.session() as s:
-        return store.public(s, _project(s, jid))
+        return store.public(s, _drawing(s, did))
 
 
-@app.post("/api/jobs/{jid}/rebuild")
-def rebuild(jid: str, override: dict):
+@app.post("/api/drawings/{did}/rebuild")
+def rebuild(did: str, override: dict):
     if not isinstance(override, dict):
         raise HTTPException(400, "Ожидается объект")
     with db.session() as s:
-        p = _project(s, jid, lock=True)          # check + enqueue under the row lock: no double builds
-        if store.has_active(s, jid):
+        p = _drawing(s, did, lock=True)          # check + enqueue under the row lock: no double builds
+        if store.has_active(s, did):
             raise HTTPException(409, "Задача ещё выполняется")
         b = store.current_build(s, p)
         override = _anchor_override({"config": p.config, "result": b.result if b else {}}, override)
@@ -622,28 +762,28 @@ def _anchor_override(job: dict, override: dict) -> dict:
     return override
 
 
-@app.get("/api/jobs/{jid}/drawing.{fmt}")
-def export_drawing(jid: str, fmt: str):
+@app.get("/api/drawings/{did}/drawing.{fmt}")
+def export_drawing(did: str, fmt: str):
     """Source drawing with the 2D-editor corrections applied (DXF or DWG)."""
     from .dxf_writer import dxf_to_dwg, export_edited_dxf, has_edits
 
     if fmt not in ("dxf", "dwg"):
         raise HTTPException(400, "Формат: dxf или dwg")
     with db.session() as s:
-        p = _project(s, jid)
+        p = _drawing(s, did)
         cfg, input_path, filename = p.config or {}, p.input_path, p.filename
     if not has_edits(cfg):
         raise HTTPException(400, "Правок нет — сохранять нечего")
-    jdir = store.project_dir(jid)
-    src = jdir / input_path
+    ddir = store.drawing_dir(did)
+    src = ddir / input_path
     if src.suffix.lower() == ".dwg":
-        src = jdir / "out" / (src.stem + ".dxf")
+        src = ddir / "out" / (src.stem + ".dxf")
         if not src.exists():
             raise HTTPException(409, "Чертёж ещё не обработан")
     stem = Path(filename).stem + "_правки"
     # cache per configuration (edits, layer mapping, floors) actually applied
     key = hashlib.sha1(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
-    cache = jdir / "export" / key
+    cache = ddir / "export" / key
     cache.mkdir(parents=True, exist_ok=True)
     dxf = cache / "edited.dxf"
     try:
@@ -669,13 +809,13 @@ def export_drawing(jid: str, fmt: str):
         raise HTTPException(500, str(ex))
 
 
-@app.get("/api/jobs/{jid}/files/{path:path}")
-def get_file(jid: str, path: str):
+@app.get("/api/drawings/{did}/files/{path:path}")
+def get_file(did: str, path: str):
     with db.session() as s:
-        p = _project(s, jid)
+        p = _drawing(s, did)
         filename = p.filename
-        busy = store.has_active(s, jid)
-    base = (store.project_dir(jid) / "out").resolve()
+        busy = store.has_active(s, did)
+    base = (store.drawing_dir(did) / "out").resolve()
     f = (base / path).resolve()
     media = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png",
              ".ifc": "application/x-step", ".zip": "application/zip"}

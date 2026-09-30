@@ -1,10 +1,11 @@
-"""Projects, builds, floors and the job queue in PostgreSQL.
+"""Projects, drawings, builds, floors and the job queue in PostgreSQL.
 
-Files stay on disk: <DWG3D_DATA>/jobs/<project id>/ holds the upload,
+A project holds drawings; a drawing is one uploaded DWG/DXF with its builds.
+Files stay on disk: <DWG3D_DATA>/jobs/<drawing id>/ holds the upload,
 out/ (model, plans, exports, converted DXF) and detail.glb.
 
-The API keeps its job-shaped JSON (`public()`), assembled from the project,
-its latest job and its current build.
+The API describes a drawing with job-shaped JSON (`public()`), assembled
+from the drawing, its latest job and its current build.
 """
 from __future__ import annotations
 
@@ -17,10 +18,10 @@ from sqlalchemy.orm import Session
 
 from . import viewdata
 from .edits import _floor_ns, anchor_of, match
-from .models import JOB_ACTIVE, Build, Floor, Job, Pin, Placement, Project
+from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, Pin, Placement, Project
 
 ROOT = Path(__file__).resolve().parents[2]
-# viewer settings stored in project columns; furniture and pins are rows (viewdata.py)
+# viewer settings stored in drawing columns; furniture and pins are rows (viewdata.py)
 VIEW_COLUMNS = ("name", "site", "detail")
 
 
@@ -28,8 +29,8 @@ def data_dir() -> Path:
     return Path(os.environ.get("DWG3D_DATA", ROOT / "data")) / "jobs"
 
 
-def project_dir(pid: str) -> Path:
-    return data_dir() / pid
+def drawing_dir(did: str) -> Path:
+    return data_dir() / did
 
 
 def ts(d: datetime | None) -> float | None:
@@ -45,90 +46,125 @@ def get_project(s: Session, pid: str, lock: bool = False) -> Project | None:
     return s.scalar(q.with_for_update() if lock else q)
 
 
-def latest_job(s: Session, pid: str) -> Job | None:
-    return s.scalar(select(Job).where(Job.project_id == pid).order_by(Job.id.desc()).limit(1))
+def get_drawing(s: Session, did: str, lock: bool = False) -> Drawing | None:
+    q = (select(Drawing).join(Project, Project.id == Drawing.project_id)
+         .where(Drawing.id == did, Drawing.deleted_at.is_(None), Project.deleted_at.is_(None)))
+    return s.scalar(q.with_for_update(of=Drawing) if lock else q)
 
 
-def current_build(s: Session, p: Project) -> Build | None:
-    return s.get(Build, (p.id, p.current_build)) if p.current_build else None
+def drawing_name(d: Drawing) -> str:
+    return d.name or Path(d.filename or "").stem
 
 
-def view_of(s: Session, p: Project) -> dict:
-    v = {k: getattr(p, k) for k in VIEW_COLUMNS if getattr(p, k) is not None}
-    return {**v, **viewdata.view_data(s, p.id)}
+def touch_project(s: Session, pid: str):
+    s.execute(update(Project).where(Project.id == pid).values(updated_at=func.now()))
 
 
-def set_settings(p: Project, v: dict):
+def latest_job(s: Session, did: str) -> Job | None:
+    return s.scalar(select(Job).where(Job.drawing_id == did).order_by(Job.id.desc()).limit(1))
+
+
+def current_build(s: Session, d: Drawing) -> Build | None:
+    return s.get(Build, (d.id, d.current_build)) if d.current_build else None
+
+
+def view_of(s: Session, d: Drawing) -> dict:
+    v = {k: getattr(d, k) for k in VIEW_COLUMNS if getattr(d, k) is not None}
+    return {**v, **viewdata.view_data(s, d.id)}
+
+
+def set_settings(d: Drawing, v: dict):
     """name / site / detail (validated), None removes."""
     for k in VIEW_COLUMNS:
         if k in v:
-            setattr(p, k, v[k])
-    p.updated_at = func.now()
+            setattr(d, k, v[k])
+    d.updated_at = func.now()
 
 
-def status_of(p: Project, job: Job | None) -> str:
-    return job.status if job else ("done" if p.current_build else "error")
+def status_of(d: Drawing, job: Job | None) -> str:
+    return job.status if job else ("done" if d.current_build else "error")
 
 
-def public(s: Session, p: Project, job: Job | None = None, build: Build | None = None) -> dict:
+def public(s: Session, d: Drawing, job: Job | None = None, build: Build | None = None) -> dict:
     """The job-shaped JSON the viewer expects (no input path, no trace)."""
-    job = job or latest_job(s, p.id)
-    build = build or current_build(s, p)
-    out = {"id": p.id, "filename": p.filename, "size": p.size, "status": status_of(p, job),
+    job = job or latest_job(s, d.id)
+    build = build or current_build(s, d)
+    out = {"id": d.id, "project_id": d.project_id, "name": drawing_name(d), "filename": d.filename,
+           "size": d.size, "status": status_of(d, job),
            "stage": job.stage if job else "done", "progress": job.progress if job else 1.0,
            "message": job.message if job else "", "error": job.error if job else None,
-           "config": p.config or {}, "created": ts(p.created_at), "updated": ts(p.updated_at),
-           "build": p.current_build}
+           "config": d.config or {}, "created": ts(d.created_at), "updated": ts(d.updated_at),
+           "build": d.current_build}
     if build is not None:
         out["result"] = build.result
-    view = view_of(s, p)
+    view = view_of(s, d)
     if view:
         out["view"] = view
     if out["status"] == "done":
-        out["model_url"] = f"/api/jobs/{p.id}/files/model.glb?v={p.current_build}"
-        out["metadata_url"] = f"/api/jobs/{p.id}/files/metadata.json?v={p.current_build}"
+        out["model_url"] = f"/api/drawings/{d.id}/files/model.glb?v={d.current_build}"
+        out["metadata_url"] = f"/api/drawings/{d.id}/files/metadata.json?v={d.current_build}"
     return out
 
 
-def list_projects(s: Session) -> list[dict]:
-    """Building switcher: newest first, without reading build results."""
-    last = (select(Job.project_id, func.max(Job.id).label("jid")).group_by(Job.project_id).subquery())
+def list_drawings(s: Session, project_id: str | None = None) -> list[dict]:
+    """Drawings (of one project, or all): newest first, without reading build results."""
+    last = (select(Job.drawing_id, func.max(Job.id).label("jid")).group_by(Job.drawing_id).subquery())
     nfloors = func.coalesce(func.jsonb_array_length(Build.result["floors"]), 0)
-    q = (select(Project.id, Project.name, Project.filename, Project.updated_at, Project.current_build,
-                Job.status, nfloors)
-         .outerjoin(last, last.c.project_id == Project.id)
+    q = (select(Drawing.id, Drawing.project_id, Drawing.name, Drawing.filename, Drawing.size, Drawing.updated_at,
+                Drawing.current_build, Job.status, Job.progress, nfloors)
+         .join(Project, Project.id == Drawing.project_id)
+         .outerjoin(last, last.c.drawing_id == Drawing.id)
          .outerjoin(Job, Job.id == last.c.jid)
-         .outerjoin(Build, (Build.project_id == Project.id) & (Build.n == Project.current_build))
-         .where(Project.deleted_at.is_(None))
-         .order_by(Project.updated_at.desc()))
-    return [{"id": pid, "filename": fn, "status": st or ("done" if cb else "error"), "updated": ts(up),
-             "floors": nf, "name": name or Path(fn or "").stem}
-            for pid, name, fn, up, cb, st, nf in s.execute(q)]
+         .outerjoin(Build, (Build.drawing_id == Drawing.id) & (Build.n == Drawing.current_build))
+         .where(Drawing.deleted_at.is_(None), Project.deleted_at.is_(None))
+         .order_by(Drawing.updated_at.desc()))
+    if project_id is not None:
+        q = q.where(Drawing.project_id == project_id)
+    return [{"id": did, "project_id": pid, "filename": fn, "size": size,
+             "status": st or ("done" if cb else "error"), "progress": pr if st else 1.0,
+             "updated": ts(up), "floors": nf, "build": cb, "name": name or Path(fn or "").stem}
+            for did, pid, name, fn, size, up, cb, st, pr, nf in s.execute(q)]
 
 
-def enqueue(s: Session, p: Project) -> Job:
-    """Queue a build; the caller holds the project row lock (see has_active)."""
-    job = Job(project_id=p.id, status="queued", stage="queued", progress=0.0, message="В очереди")
+def project_json(s: Session, p: Project, drawings: list[dict] | None = None) -> dict:
+    return {"id": p.id, "name": p.name, "description": p.description, "created": ts(p.created_at),
+            "updated": ts(p.updated_at),
+            "drawings": drawings if drawings is not None else list_drawings(s, p.id)}
+
+
+def list_projects(s: Session) -> list[dict]:
+    """Projects with their drawings, most recently changed first."""
+    drawings: dict[str, list[dict]] = {}
+    for d in list_drawings(s):
+        drawings.setdefault(d["project_id"], []).append(d)
+    q = select(Project).where(Project.deleted_at.is_(None)).order_by(Project.updated_at.desc())
+    return [project_json(s, p, drawings.get(p.id, [])) for p in s.scalars(q)]
+
+
+def enqueue(s: Session, d: Drawing) -> Job:
+    """Queue a build; the caller holds the drawing row lock (see has_active)."""
+    job = Job(drawing_id=d.id, status="queued", stage="queued", progress=0.0, message="В очереди")
     s.add(job)
-    p.updated_at = func.now()
+    d.updated_at = func.now()
+    touch_project(s, d.project_id)
     s.flush()
     return job
 
 
-def has_active(s: Session, pid: str) -> bool:
+def has_active(s: Session, did: str) -> bool:
     return s.scalar(select(func.count()).select_from(Job)
-                    .where(Job.project_id == pid, Job.status.in_(JOB_ACTIVE))) > 0
+                    .where(Job.drawing_id == did, Job.status.in_(JOB_ACTIVE))) > 0
 
 
-def sync_floors(s: Session, pid: str, result: dict, old: dict | None = None) -> list[str]:
-    """Match the project's floors to the floors of a new build by their sheet
+def sync_floors(s: Session, did: str, result: dict, old: dict | None = None) -> list[str]:
+    """Match the drawing's floors to the floors of a new build by their sheet
     anchor (like the edits, see edits.py), so a floor keeps its row while its
     candidate id (c0, c3...) changes between builds, and move its furniture
     and pins with it: by the change of the alignment offset and elevation, and
     pins (glTF coordinates) also by the change of the model centre `old` -> `result`.
     A floor whose sheet is not found keeps its row (candidate NULL) and its
     rows stay where they were until the sheet is back. Returns warnings."""
-    rows = s.scalars(select(Floor).where(Floor.project_id == pid)
+    rows = s.scalars(select(Floor).where(Floor.drawing_id == did)
                      .order_by(Floor.candidate.is_(None), Floor.id)).all()
     new = [f for f in result.get("floors") or [] if f.get("bbox")]
     ns = [_floor_ns(f) for f in new]
@@ -150,7 +186,7 @@ def sync_floors(s: Session, pid: str, result: dict, old: dict | None = None) -> 
     for f in new:
         r = taken.get(f["id"])
         if r is None:
-            r = Floor(project_id=pid)
+            r = Floor(drawing_id=did)
             s.add(r)
         r.anchor = anchor_of(f)
         r.candidate = f["id"]
@@ -166,18 +202,18 @@ def sync_floors(s: Session, pid: str, result: dict, old: dict | None = None) -> 
     cdx, cdz = ocx - ncx, ncy - ocy
     for fid, (dx, dy, dz) in moves.items():
         if dx or dy:
-            s.execute(update(Placement).where(Placement.project_id == pid, Placement.floor_id == fid)
+            s.execute(update(Placement).where(Placement.drawing_id == did, Placement.floor_id == fid)
                       .values(x=Placement.x + dx, y=Placement.y + dy))
         if dx or dy or dz or cdx or cdz:
-            s.execute(update(Pin).where(Pin.project_id == pid, Pin.floor_id == fid)
+            s.execute(update(Pin).where(Pin.drawing_id == did, Pin.floor_id == fid)
                       .values(x=Pin.x + (cdx + dx), y=Pin.y + dz, z=Pin.z + (cdz - dy)))
     if cdx or cdz:                        # building-wide pins and pins of lost floors
-        s.execute(update(Pin).where(Pin.project_id == pid,
+        s.execute(update(Pin).where(Pin.drawing_id == did,
                                     Pin.floor_id.is_(None) | Pin.floor_id.not_in(list(moves) or [-1]))
                   .values(x=Pin.x + cdx, z=Pin.z + cdz))
 
     lost = s.execute(select(Floor.name, func.count()).join(Placement, Placement.floor_id == Floor.id)
-                     .where(Floor.project_id == pid, Floor.candidate.is_(None)).group_by(Floor.name)).all()
+                     .where(Floor.drawing_id == did, Floor.candidate.is_(None)).group_by(Floor.name)).all()
     n = sum(c for _, c in lost)
     if not n:
         return []
@@ -187,11 +223,16 @@ def sync_floors(s: Session, pid: str, result: dict, old: dict | None = None) -> 
 
 
 def delete_stale(s: Session, days: float) -> list[str]:
-    """Projects untouched for `days` without an active build: rows removed, ids returned."""
+    """Projects untouched for `days` without an active build: rows removed,
+    the ids of their drawings (file directories) returned."""
     cutoff = func.now() - func.make_interval(0, 0, 0, 0, 0, 0, days * 86400)
-    active = select(Job.project_id).where(Job.status.in_(JOB_ACTIVE))
-    return list(s.scalars(delete(Project).where(Project.updated_at < cutoff, Project.id.not_in(active))
-                          .returning(Project.id)))
+    active = select(Drawing.project_id).join(Job, Job.drawing_id == Drawing.id).where(Job.status.in_(JOB_ACTIVE))
+    gone = list(s.scalars(select(Project.id).where(Project.updated_at < cutoff, Project.id.not_in(active))))
+    if not gone:
+        return []
+    dirs = list(s.scalars(select(Drawing.id).where(Drawing.project_id.in_(gone))))
+    s.execute(delete(Project).where(Project.id.in_(gone)))
+    return dirs
 
 
 def fail_stale_jobs(s: Session, seconds: int) -> int:

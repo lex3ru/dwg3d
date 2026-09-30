@@ -134,7 +134,7 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
       />
       {detail && (
         <Suspense fallback={null}>
-          <Detail ctx={ctx} url={`/api/jobs/${p.jobId}/detail.glb?v=${detail.version ?? 0}`} cfg={detail}
+          <Detail ctx={ctx} url={`/api/drawings/${p.jobId}/detail.glb?v=${detail.version ?? 0}`} cfg={detail}
             floors={floors} display={display} active={p.floor} nav={p.nav} onInfo={p.onDetailInfo} />
         </Suspense>
       )}

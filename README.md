@@ -231,7 +231,7 @@ uv run pytest                                        # тесты на синт�
 ## Настройка
 
 Любой параметр `backend/dwg3d/default_config.yaml` переопределяется YAML/JSON
-(`-c` в CLI, поле `config` при загрузке, `POST /api/jobs/{id}/rebuild`).
+(`-c` в CLI, поле `config` при загрузке, `POST /api/drawings/{id}/rebuild`).
 Ручное назначение этажей:
 
 ```yaml
@@ -338,7 +338,7 @@ uv run python -m dwg3d user disable ivanov     # вход запрещён, се
 состояние. Ctrl+Z работает так же: откатывает свои изменения, а если
 предмет с тех пор менял кто-то другой — сообщает об этом.
 
-`data/jobs/<id>/` по-прежнему содержит исходный чертёж, `out/` (модель, планы,
+`data/jobs/<id чертежа>/` по-прежнему содержит исходный чертёж (и его ревизии), `out/` (модель, планы,
 экспорт, сконвертированный DXF) и `detail.glb`.
 
 Сборки выполняют потоки в каждом процессе API (`DWG3D_WORKERS`) и, при
@@ -347,38 +347,38 @@ uv run python -m dwg3d user disable ivanov     # вход запрещён, се
 любые процессы. Работающая сборка раз в 15 с отмечается в базе; если процесс
 упал, через 2 минуты задача помечается ошибкой.
 
-Перенос проектов, созданных до перехода на базу (`job.json`):
-
-```bash
-cd backend
-uv run python -m dwg3d migrate-files --dry-run   # что будет перенесено
-uv run python -m dwg3d migrate-files             # перенос + сверка с файлами
-```
-
-Уже перенесённые проекты пропускаются, файлы не меняются; `job.json`
-остаётся резервной копией и сервером больше не читается. Остановите старый
-сервер перед переносом, иначе его последующие правки в базу не попадут.
-
 ## API
+
+Проект — контейнер; в нём чертежи (каждый — загруженный DWG/DXF со своими
+сборками, этажами, мебелью и метками).
 
 | | |
 |---|---|
-| `POST /api/jobs` | multipart `file` (+ `config` JSON) → задача |
-| `GET /api/jobs` | список задач (переключатель зданий) |
+| `GET /api/projects` | проекты с их чертежами |
+| `POST /api/projects` | `{name, description?}` → новый проект, `201` |
+| `GET/PATCH/DELETE /api/projects/{id}` | проект; изменение названия и описания; удаление (скрывается сразу) |
+| `POST /api/projects/{id}/drawings` | multipart `file` (+ `name`, `config` JSON) → чертёж, ставится в очередь |
+| `GET /api/projects/{id}/audit?limit=100&drawing=` | журнал изменений проекта (или одного чертежа) |
+| `GET /api/drawings?project=` | чертежи (переключатель зданий) |
+| `GET /api/drawings/{id}` | статус, прогресс, результат (этажи, помещения с типами, входы, метки) |
+| `DELETE /api/drawings/{id}` | удаление чертежа |
+| `POST /api/drawings/{id}/revision` | multipart `file` — новая ревизия DWG: этажи сопоставляются по листам, правки, мебель и метки остаются на них |
+| `GET/PUT /api/drawings/{id}/view` | настройки просмотра без перестроения: название, привязка к карте, выравнивание детальной модели; списки `furniture`/`markers`/`comments` в `PUT` целиком заменяют сохранённые (без проверки версий) |
+| `GET /api/drawings/{id}/placements?floor=c1` | расставленные предметы (`items`, с `version`) и предметы без этажа (`unplaced`) |
+| `POST /api/drawings/{id}/placements` | новый предмет `{id?, floor, item, at, angle, …, build}` → `201` |
+| `PATCH /api/drawings/{id}/placements/{rid}` | `{version, build, …изменённые поля}`; `null` снимает переопределение |
+| `DELETE /api/drawings/{id}/placements/{rid}?version=&build=` | `204`; уже удалённый — тоже `204` |
+| `POST /api/drawings/{id}/placements:batch` | `{build, ops: [{op: create/update/delete, id, version, …}]}` — всё или ничего |
+| `…/pins`, `…/pins/{rid}`, `…/pins:batch` | то же для меток и комментариев (`kind`: `marker` / `comment`) |
+| `POST/DELETE /api/drawings/{id}/detail`, `GET …/detail.glb` | детальная модель (только GLB) |
+| `POST /api/drawings/{id}/rebuild` | JSON-переопределение конфига → перестроение |
+| `GET /api/drawings/{id}/drawing.dxf` / `.dwg` | исходный чертёж с внесёнными правками |
+| `GET /api/drawings/{id}/files/model.glb` | модель; также `model.ifc`, `model_obj.zip`, `metadata.json`, `plans/*.json`, `debug/*.png` |
 | `GET /api/catalog` | каталог мебели и оборудования: `{categories, items}` (снятые — с `active: false`) |
 | `POST /api/catalog/items`, `PATCH /api/catalog/items/{id}` | новая позиция / изменение полей (`null` очищает необязательное) — `catalog_admin` |
 | `POST /api/catalog/items/{id}/model` | загрузка GLB (до `DWG3D_MAX_CATALOG_GLB_MB`, 50 МБ); отдаётся по `GET /api/catalog/models/{file}` |
 | `POST /api/catalog/categories`, `PATCH /api/catalog/categories/{id}` | категории: `{id, name, color}` |
-| `GET /api/reports/equipment?project=&format=json\|xlsx` | спецификация здания (по этажам) или сводная по всем (по зданиям) |
-| `GET /api/jobs/{id}` | статус, прогресс, результат (этажи, помещения с типами, входы, метки) |
-| `GET/PUT /api/jobs/{id}/view` | настройки просмотра без перестроения: привязка к карте, выравнивание детальной модели; списки `furniture`/`markers`/`comments` в `PUT` целиком заменяют сохранённые (для старых клиентов, без проверки версий) |
-| `GET /api/projects/{id}/placements?floor=c1` | расставленные предметы (`items`, с `version`) и предметы без этажа (`unplaced`) |
-| `POST /api/projects/{id}/placements` | новый предмет `{id?, floor, item, at, angle, …, build}` → `201` |
-| `PATCH /api/projects/{id}/placements/{pid}` | `{version, build, …изменённые поля}`; `null` снимает переопределение |
-| `DELETE /api/projects/{id}/placements/{pid}?version=&build=` | `204`; уже удалённый — тоже `204` |
-| `POST /api/projects/{id}/placements:batch` | `{build, ops: [{op: create/update/delete, id, version, …}]}` — всё или ничего |
-| `…/pins`, `…/pins/{pid}`, `…/pins:batch` | то же для меток и комментариев (`kind`: `marker` / `comment`) |
-| `GET /api/projects/{id}/audit?limit=100` | журнал изменений проекта |
+| `GET /api/reports/equipment?project=&format=json\|xlsx` | спецификация проекта (по этажам всех его чертежей) или сводная по всем проектам |
 | `POST /api/auth/login` | `{login, password}` → пользователь, cookie сессии; `401` — неверно, `429` — слишком много попыток |
 | `POST /api/auth/logout`, `GET /api/auth/me` | выход; текущий пользователь (`401` — нужно войти) |
 
@@ -387,10 +387,6 @@ uv run python -m dwg3d migrate-files             # перенос + сверка
 перестроена после сборки `build`, нужно перезагрузить данные. Этажи
 передаются id текущей сборки (`c0`, `c3`…); неизвестный этаж или предмет
 каталога — `400`.
-| `POST/DELETE /api/jobs/{id}/detail`, `GET …/detail.glb` | детальная модель (только GLB) |
-| `POST /api/jobs/{id}/rebuild` | JSON-переопределение конфига → перестроение |
-| `GET /api/jobs/{id}/drawing.dxf` / `.dwg` | исходный чертёж с внесёнными правками |
-| `GET /api/jobs/{id}/files/model.glb` | модель; также `model.ifc`, `model_obj.zip`, `metadata.json`, `plans/*.json`, `debug/*.png` |
 
 Конфиг из запросов проверяется по структуре `default_config.yaml`: неизвестные
 ключи, неверные типы и значения вне допустимых диапазонов дают `400`.

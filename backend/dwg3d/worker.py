@@ -51,7 +51,7 @@ def claim() -> tuple[int, str] | None:
                    error = NULL, worker = :w, started_at = now(), heartbeat_at = now()
             WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY id
                         FOR UPDATE SKIP LOCKED LIMIT 1)
-            RETURNING id, project_id"""), {"w": WORKER_ID}).first()
+            RETURNING id, drawing_id"""), {"w": WORKER_ID}).first()
     return (row[0], row[1]) if row else None
 
 
@@ -60,20 +60,20 @@ def _set(jid: int, **kw):
         s.execute(update(Job).where(Job.id == jid).values(**kw, heartbeat_at=func.now()))
 
 
-def process(jid: int, pid: str):
+def process(jid: int, did: str):
     with db.session() as s:
-        p = store.get_project(s, pid)
-        if p is None:
+        d = store.get_drawing(s, did)
+        if d is None:
             s.execute(update(Job).where(Job.id == jid).values(status="error", stage="error",
-                                                              error="Проект удалён", finished_at=func.now()))
+                                                              error="Чертёж удалён", finished_at=func.now()))
             return
-        cfg_in, input_path = dict(p.config or {}), p.input_path
-        old = store.current_build(s, p)
+        cfg_in, input_path = dict(d.config or {}), d.input_path
+        old = store.current_build(s, d)
         old_converter = (old.result or {}).get("converter") if old else None
-    pdir = store.project_dir(pid)
-    src = pdir / input_path
+    ddir = store.drawing_dir(did)
+    src = ddir / input_path
     # reuse the converted DXF on rebuilds (conversion is the slow external step)
-    dxf = pdir / "out" / (src.stem + ".dxf")
+    dxf = ddir / "out" / (src.stem + ".dxf")
     if src.suffix.lower() == ".dwg" and dxf.exists():
         src = dxf
     last = {"stage": "start", "t": 0.0}
@@ -86,7 +86,7 @@ def process(jid: int, pid: str):
             _set(jid, stage=stage, progress=round(frac, 3), message=msg)
 
     try:
-        meta = run(src, pdir / "out", cfg_in, progress=progress, debug_png=False)
+        meta = run(src, ddir / "out", cfg_in, progress=progress, debug_png=False)
         cfg_used = meta.pop("config", None) or {}
         if src.suffix.lower() == ".dxf" and input_path.lower().endswith(".dwg"):
             meta["converter"] = old_converter or meta.get("converter")
@@ -101,23 +101,23 @@ def process(jid: int, pid: str):
         if (cfg.get("floors") or {}).get("items"):
             cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
         with db.session() as s:
-            p = store.get_project(s, pid, lock=True)
-            if p is None:
-                raise RuntimeError("Проект удалён во время обработки")
-            old = store.current_build(s, p)
+            d = store.get_drawing(s, did, lock=True)
+            if d is None:
+                raise RuntimeError("Чертёж удалён во время обработки")
+            old = store.current_build(s, d)
             # floors keep their rows; furniture and pins move with them (ids / alignment may change)
-            warns = store.sync_floors(s, pid, result, old.result if old else None)
+            warns = store.sync_floors(s, did, result, old.result if old else None)
             result["warnings"] = list(result.get("warnings") or []) + warns
-            n = p.current_build + 1
-            s.add(Build(project_id=pid, n=n, result=result, config=cfg, out_dir="out"))
+            n = d.current_build + 1
+            s.add(Build(drawing_id=did, n=n, result=result, config=cfg, out_dir="out"))
             s.flush()
-            p.current_build = n
-            p.config = cfg
-            p.updated_at = func.now()
+            d.current_build = n
+            d.config = cfg
+            d.updated_at = func.now()
             s.execute(update(Job).where(Job.id == jid).values(
                 status="done", stage="done", progress=1.0, message="Готово", finished_at=func.now()))
     except Exception as ex:
-        log.exception("job %s (%s) failed", jid, pid)
+        log.exception("job %s (%s) failed", jid, did)
         msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
         _set(jid, status="error", stage="error", error=msg[:1000], trace=traceback.format_exc()[-3000:],
              finished_at=func.now())

@@ -145,10 +145,17 @@ def client(tmp_path_factory, sample, pg):
     return TestClient(api.app), api
 
 
+def _upload(c, name, content, pid=None, **kw):
+    """POST a drawing (into a new project unless `pid`)."""
+    if pid is None:
+        pid = c.post("/api/projects", json={"name": "Тест"}).json()["id"]
+    return c.post(f"/api/projects/{pid}/drawings", files={"file": (name, content)}, **kw)
+
+
 def _wait(c, jid, timeout=120):
     t = time.time()
     while time.time() - t < timeout:
-        j = c.get(f"/api/jobs/{jid}").json()
+        j = c.get(f"/api/drawings/{jid}").json()
         if j["status"] in ("done", "error"):
             return j
         time.sleep(0.2)
@@ -165,95 +172,95 @@ def test_api_catalog_and_health(client):
 
 def test_api_flow(client, sample):
     c, api = client
-    r = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())},
-               data={"config": '{"geometry": {"snap_tolerance": 99}}'})
+    r = _upload(c, "plan.dxf", sample.read_bytes(),
+                data={"config": '{"geometry": {"snap_tolerance": 99}}'})
     assert r.status_code == 400
-    r = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())})
+    r = _upload(c, "plan.dxf", sample.read_bytes())
     jid = r.json()["id"]
     j = _wait(c, jid)
     assert j["status"] == "done" and "trace" not in j and "input" not in j
     assert j["result"]["quality"]["status"] == "ok"
     fid = j["result"]["floors"][0]["id"]
 
-    assert c.post(f"/api/jobs/{jid}/rebuild", json={"geometry": {"min_room_area": -1}}).status_code == 400
-    r = c.post(f"/api/jobs/{jid}/rebuild", json={"edits": _edits(fid)})
+    assert c.post(f"/api/drawings/{jid}/rebuild", json={"geometry": {"min_room_area": -1}}).status_code == 400
+    r = c.post(f"/api/drawings/{jid}/rebuild", json={"edits": _edits(fid)})
     assert r.status_code == 200
-    assert c.post(f"/api/jobs/{jid}/rebuild", json={}).status_code == 409   # still queued/running
+    assert c.post(f"/api/drawings/{jid}/rebuild", json={}).status_code == 409   # still queued/running
     j = _wait(c, jid)
     assert j["status"] == "done" and j["build"] == 2
     anchor = j["config"]["edits"][fid]["_anchor"]
     assert anchor["id"] == fid
     # debug PNGs are rendered on demand
-    r = c.get(f"/api/jobs/{jid}/files/debug/floor_{fid}.png")
+    r = c.get(f"/api/drawings/{jid}/files/debug/floor_{fid}.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-    assert c.get(f"/api/jobs/{jid}/files/debug/../../job.json").status_code == 404
+    assert c.get(f"/api/drawings/{jid}/files/debug/../../job.json").status_code == 404
 
 
 def test_api_error_hides_trace(client):
     c, _ = client
-    r = c.post("/api/jobs", files={"file": ("broken.dxf", b"0\nSECTION\n2\nGARBAGE\n")})
+    r = _upload(c, "broken.dxf", b"0\nSECTION\n2\nGARBAGE\n")
     j = _wait(c, r.json()["id"])
     assert j["status"] == "error" and j["error"] and "trace" not in j
 
 
 def test_api_view_settings_and_detail_model(client, sample):
     c, api = client
-    jid = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())}).json()["id"]
+    jid = _upload(c, "plan.dxf", sample.read_bytes()).json()["id"]
     j = _wait(c, jid)
     assert j["result"]["room_types"] and "entrances" in j["result"]
-    assert any(x["id"] == jid for x in c.get("/api/jobs").json())
+    assert any(x["id"] == jid for x in c.get("/api/drawings").json())
     fid = j["result"]["floors"][0]["id"]
-    r = c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1},
+    r = c.put(f"/api/drawings/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1},
                                             "comments": [{"id": "k1", "floor": fid, "pos": [1, 2, 3], "text": "Трещина"}]})
     assert r.status_code == 200 and r.json()["site"]["azimuth"] == 15
-    assert c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 120, "lon": 0}}).status_code == 400
-    assert c.put(f"/api/jobs/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
-    v = c.get(f"/api/jobs/{jid}/view").json()
+    assert c.put(f"/api/drawings/{jid}/view", json={"site": {"lat": 120, "lon": 0}}).status_code == 400
+    assert c.put(f"/api/drawings/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
+    v = c.get(f"/api/drawings/{jid}/view").json()
     assert v["comments"][0]["text"] == "Трещина" and v["site"]["lat"] == 55.75
     # furniture: plan position, angle normalised, other view keys kept
-    v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
+    v = c.put(f"/api/drawings/{jid}/view", json={"furniture": [
         {"id": "a1", "floor": fid, "item": "doc.couch", "at": [2.5, 3], "angle": -90, "size": [0.7, 1.9, 0.75]}]}).json()
     assert v["furniture"][0]["angle"] == 270 and v["furniture"][0]["size"] == [0.7, 1.9, 0.75]
     assert v["comments"][0]["text"] == "Трещина"
-    v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
+    v = c.put(f"/api/drawings/{jid}/view", json={"furniture": [
         {"id": "k1", "floor": fid, "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110, "range": 12}]}).json()
     assert v["furniture"][0]["fov"] == 110 and v["furniture"][0]["elev"] == 2.8 and len(v["furniture"]) == 1
     # a floor or catalog item the server does not know is refused
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"floor": "c99", "item": "sec.dome", "at": [1, 2]}]}).status_code == 400
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"floor": fid, "item": "nope", "at": [1, 2]}]}).status_code == 400
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "fov": 400}]}).status_code == 400
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1]}]}).status_code == 400
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"floor": "c99", "item": "sec.dome", "at": [1, 2]}]}).status_code == 400
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"floor": fid, "item": "nope", "at": [1, 2]}]}).status_code == 400
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "fov": 400}]}).status_code == 400
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1]}]}).status_code == 400
     # written against another build: refused, nothing lost silently
-    r = c.put(f"/api/jobs/{jid}/view", json={"furniture": [], "_build": j["build"] + 5})
+    r = c.put(f"/api/drawings/{jid}/view", json={"furniture": [], "_build": j["build"] + 5})
     assert r.status_code == 409
-    assert c.get(f"/api/jobs/{jid}/view").json()["furniture"][0]["id"] == "k1"
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [], "_build": j["build"]}).status_code == 200
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "size": [0, 1, 1]}]}).status_code == 400
+    assert c.get(f"/api/drawings/{jid}/view").json()["furniture"][0]["id"] == "k1"
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [], "_build": j["build"]}).status_code == 200
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "size": [0, 1, 1]}]}).status_code == 400
     # detail model: only GLB is accepted
-    assert c.post(f"/api/jobs/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
-    glb = (api.store.project_dir(jid) / "out" / "model.glb").read_bytes()
-    v = c.post(f"/api/jobs/{jid}/detail", files={"file": ("facade.glb", glb)}).json()
+    assert c.post(f"/api/drawings/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
+    glb = (api.store.drawing_dir(jid) / "out" / "model.glb").read_bytes()
+    v = c.post(f"/api/drawings/{jid}/detail", files={"file": ("facade.glb", glb)}).json()
     assert v["detail"]["file"] == "facade.glb" and v["detail"]["version"] == 1
-    assert c.get(f"/api/jobs/{jid}/detail.glb").content == glb
-    v = c.put(f"/api/jobs/{jid}/view", json={"detail": {"offset": [1, 0, 2], "rotation": 90}}).json()
+    assert c.get(f"/api/drawings/{jid}/detail.glb").content == glb
+    v = c.put(f"/api/drawings/{jid}/view", json={"detail": {"offset": [1, 0, 2], "rotation": 90}}).json()
     assert v["detail"]["file"] == "facade.glb" and v["detail"]["rotation"] == 90
-    assert c.delete(f"/api/jobs/{jid}/detail").json().get("detail") is None
-    assert c.get(f"/api/jobs/{jid}/detail.glb").status_code == 404
+    assert c.delete(f"/api/drawings/{jid}/detail").json().get("detail") is None
+    assert c.get(f"/api/drawings/{jid}/detail.glb").status_code == 404
 
 
 def test_api_furniture_survives_rebuild(client, sample):
     c, _ = client
-    jid = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())}).json()["id"]
+    jid = _upload(c, "plan.dxf", sample.read_bytes()).json()["id"]
     j = _wait(c, jid)
     fids = [f["id"] for f in j["result"]["floors"]]
     items = [{"id": f"i{k}", "floor": fid, "item": "doc.couch", "at": [1.0 + k, 2.0], "angle": 0} for k, fid in enumerate(fids)]
-    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": items, "_build": j["build"]}).status_code == 200
-    assert c.post(f"/api/jobs/{jid}/rebuild", json={"geometry": {"snap_tolerance": 0.011}}).status_code == 200
+    assert c.put(f"/api/drawings/{jid}/view", json={"furniture": items, "_build": j["build"]}).status_code == 200
+    assert c.post(f"/api/drawings/{jid}/rebuild", json={"geometry": {"snap_tolerance": 0.011}}).status_code == 200
     # while the model is rebuilt, floor-bound data is not accepted
-    r = c.put(f"/api/jobs/{jid}/view", json={"furniture": []})
+    r = c.put(f"/api/drawings/{jid}/view", json={"furniture": []})
     assert r.status_code in (200, 409)
     j2 = _wait(c, jid)
-    v = c.get(f"/api/jobs/{jid}/view").json()
+    v = c.get(f"/api/drawings/{jid}/view").json()
     new_ids = {f["id"] for f in j2["result"]["floors"]}
     if r.status_code == 409:
         assert len(v["furniture"]) == len(items)

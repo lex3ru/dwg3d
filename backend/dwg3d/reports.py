@@ -1,9 +1,10 @@
 """Equipment specification: placed items counted per catalog position.
 
-  equipment(project_id)  one project, with the count per floor
+  equipment(project_id)  one project, with the count per floor (of each drawing)
   equipment(None)        all projects, with the count per project
 
 Items whose floor is not in the current build count under "без этажа".
+When a project has several drawings, floor columns carry the drawing name.
 Sums are per currency; items without a price are listed and counted but
 left out of the sums. `to_xlsx()` writes the same table with formulas
 (quantity × price, totals), so edits in Excel recalculate.
@@ -17,25 +18,28 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import CatalogCategory, CatalogItem, Floor, Placement, Project
+from .models import CatalogCategory, CatalogItem, Drawing, Floor, Placement, Project
 
 NO_FLOOR = "без этажа"
 
 
 def _project_name(p: Project) -> str:
-    return p.name or p.filename.rsplit(".", 1)[0]
+    return p.name
 
 
 def equipment(s: Session, project_id: str | None = None) -> dict:
-    q = (select(Placement.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level,
-                func.count())
-         .join(Project, Project.id == Placement.project_id)
+    q = (select(Drawing.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level,
+                Drawing.id, func.count())
+         .join(Drawing, Drawing.id == Placement.drawing_id)
+         .join(Project, Project.id == Drawing.project_id)
          .outerjoin(Floor, Floor.id == Placement.floor_id)
-         .where(Project.deleted_at.is_(None))
-         .group_by(Placement.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level))
+         .where(Project.deleted_at.is_(None), Drawing.deleted_at.is_(None))
+         .group_by(Drawing.project_id, Placement.item_id, Floor.name, Floor.candidate, Floor.level, Drawing.id))
     if project_id is not None:
-        q = q.where(Placement.project_id == project_id)
+        q = q.where(Drawing.project_id == project_id)
     counts = s.execute(q).all()
+    drawings = {d.id: d for d in s.scalars(select(Drawing).where(Drawing.id.in_({c[5] for c in counts})))}
+    many = len(drawings) > 1
     items = {i.id: i for i in s.scalars(select(CatalogItem).where(CatalogItem.id.in_({c[1] for c in counts})))}
     cats = {c.id: c for c in s.scalars(select(CatalogCategory))}
     projects = {p.id: p for p in s.scalars(select(Project).where(Project.id.in_({c[0] for c in counts} |
@@ -43,7 +47,7 @@ def equipment(s: Session, project_id: str | None = None) -> dict:
 
     rows: dict[str, dict] = {}
     floor_order: dict[str, tuple] = {}
-    for pid, iid, fname, cand, level, n in counts:
+    for pid, iid, fname, cand, level, did, n in counts:
         it, key = items.get(iid), iid
         r = rows.get(key)
         if r is None:
@@ -59,7 +63,11 @@ def equipment(s: Session, project_id: str | None = None) -> dict:
         r["qty"] += n
         if project_id is not None:
             label = (fname or cand) if cand else NO_FLOOR
-            floor_order.setdefault(label, (0 if cand else 1, level if level is not None else 0, label))
+            dname = drawings[did].name or drawings[did].filename.rsplit(".", 1)[0]
+            if many:
+                label = f"{dname} · {label}"
+            floor_order.setdefault(label, (dname if many else "", 0 if cand else 1,
+                                           level if level is not None else 0, label))
             r["by"][label] += n
         else:
             r["by"][pid] += n

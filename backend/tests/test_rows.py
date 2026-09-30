@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 from dwg3d import db, store, viewdata
-from dwg3d.models import Build, Project
+from conftest import add_drawing
+from dwg3d.models import Build
 
 
 def _floor(fid, bbox, offset=(0.0, 0.0), elevation=0.0, name=None):
@@ -24,20 +25,19 @@ def _project(floors, center=(0.0, 0.0)) -> str:
     pid = uuid.uuid4().hex[:12]
     result = {"center": list(center), "floors": floors}
     with db.session() as s:
-        s.add(Project(id=pid, filename="p.dxf", input_path="input.dxf", current_build=1))
-        s.flush()
-        s.add(Build(project_id=pid, n=1, result=result, config={}, out_dir="out"))
+        add_drawing(s, pid, current_build=1)
+        s.add(Build(drawing_id=pid, n=1, result=result, config={}, out_dir="out"))
         store.sync_floors(s, pid, result)
     return pid
 
 
 def _rebuild(pid, floors, center=(0.0, 0.0)) -> list[str]:
     with db.session() as s:
-        p = store.get_project(s, pid, lock=True)
+        p = store.get_drawing(s, pid, lock=True)
         old = store.current_build(s, p)
         result = {"center": list(center), "floors": floors}
         warns = store.sync_floors(s, pid, result, old.result)
-        s.add(Build(project_id=pid, n=p.current_build + 1, result=result, config={}, out_dir="out"))
+        s.add(Build(drawing_id=pid, n=p.current_build + 1, result=result, config={}, out_dir="out"))
         s.flush()
         p.current_build += 1
     return warns
@@ -106,7 +106,7 @@ def api(pg):
 
 def test_row_api_versions_conflicts_batch_audit(pg, api):
     pid = _project([_floor("c0", A), _floor("c1", B)])
-    base = f"/api/projects/{pid}/placements"
+    base = f"/api/drawings/{pid}/placements"
     r = api.post(base, json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2], "build": 1})
     assert r.status_code == 201 and r.json()["version"] == 1
     assert api.post(base, json={"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 2]}).status_code == 409
@@ -148,7 +148,7 @@ def test_row_api_versions_conflicts_batch_audit(pg, api):
     assert r.status_code == 409 and r.json()["conflicts"] == [{"id": "b", "current": None}]
 
     # pins the same way
-    pins = f"/api/projects/{pid}/pins"
+    pins = f"/api/drawings/{pid}/pins"
     r = api.post(pins, json={"id": "k", "kind": "comment", "floor": "c0", "pos": [1, 2, 3], "text": "Трещина"})
     assert r.status_code == 201 and r.json()["text"] == "Трещина"
     assert api.post(pins, json={"kind": "flag", "pos": [1, 2, 3]}).status_code == 400
@@ -162,7 +162,7 @@ def test_row_api_versions_conflicts_batch_audit(pg, api):
     assert ("placement", "b", "delete") in acts and ("pin", "k", "update") in acts
     upd = next(a for a in log if a["entity_id"] == "a" and a["action"] == "update" and a["after"]["angle"] == 90)
     assert upd["before"]["angle"] == 0 and "version" not in upd["after"]
-    assert api.get("/api/projects/nope/placements").status_code == 404
+    assert api.get("/api/drawings/nope/placements").status_code == 404
 
 
 def test_legacy_put_view_keeps_unplaced_and_other_kinds(pg, api):
@@ -171,12 +171,12 @@ def test_legacy_put_view_keeps_unplaced_and_other_kinds(pg, api):
     _rebuild(pid, [_floor("c0", A)])
     _apply(pid, "pin", [{"op": "create", "id": "m", "kind": "marker", "pos": [0, 0, 0]}])
     with db.session() as s:
-        s.execute(text("UPDATE jobs SET status = 'done' WHERE project_id = :p"), {"p": pid})
-    v = api.put(f"/api/jobs/{pid}/view", json={"furniture": [{"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 1]}],
+        s.execute(text("UPDATE jobs SET status = 'done' WHERE drawing_id = :p"), {"p": pid})
+    v = api.put(f"/api/drawings/{pid}/view", json={"furniture": [{"id": "a", "floor": "c0", "item": "doc.couch", "at": [1, 1]}],
                                                "comments": []}).json()
     assert [it["id"] for it in v["furniture"]] == ["a"] and v["furniture_unplaced"][0]["id"] == "u"
     assert v["markers"][0]["id"] == "m"
-    v = api.put(f"/api/jobs/{pid}/view", json={"furniture_unplaced": []}).json()
+    v = api.put(f"/api/drawings/{pid}/view", json={"furniture_unplaced": []}).json()
     assert "furniture_unplaced" not in v and v["furniture"][0]["id"] == "a"
 
 

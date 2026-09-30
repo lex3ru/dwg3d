@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from dwg3d import catalog, db
+from dwg3d.models import Drawing, Project
 
 BASE_URL = make_url(os.environ.get("DWG3D_TEST_DATABASE_URL") or db.DEFAULT_URL)
 TEST_URL = BASE_URL.set(database=f"dwg3d_test_{uuid.uuid4().hex[:8]}")
@@ -46,3 +47,14 @@ def pg():
     with admin.connect() as c:
         c.execute(text(f'DROP DATABASE IF EXISTS "{TEST_URL.database}" WITH (FORCE)'))
     admin.dispose()
+
+
+def add_drawing(s, did: str | None = None, project_name: str = "Проект", **kw) -> Drawing:
+    """A project holding one drawing with the same id (flushed)."""
+    did = did or uuid.uuid4().hex[:12]
+    s.add(Project(id=did, name=project_name))
+    s.flush()
+    d = Drawing(id=did, project_id=did, **{"filename": "p.dxf", "input_path": "input.dxf", **kw})
+    s.add(d)
+    s.flush()
+    return d

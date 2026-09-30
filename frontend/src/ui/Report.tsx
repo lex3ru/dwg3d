@@ -26,7 +26,7 @@ export default function Report({ projectId, onClose }: { projectId: string; onCl
         <header>
           <h2>Спецификация оборудования</h2>
           <div className="seg-toggle" role="group">
-            <button className={scope === 'project' ? 'on' : ''} onClick={() => setScope('project')}>Это здание</button>
+            <button className={scope === 'project' ? 'on' : ''} onClick={() => setScope('project')}>Этот проект</button>
             <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>Все проекты</button>
           </div>
           <button className="ghost" onClick={onClose} aria-label="Закрыть">✕</button>
