@@ -373,6 +373,73 @@ export async function deleteLayer(projectId: string, id: string): Promise<void> 
   return check(await fetch(`/api/projects/${projectId}/layers/${id}`, { method: 'DELETE' }))
 }
 
+export type ProjectRole = 'viewer' | 'editor' | 'owner'
+
+export interface Member {
+  id: number
+  role: ProjectRole
+  role_name: string
+  /** an invitation by e-mail waiting for the first sign-in */
+  pending: boolean
+  email: string | null
+  user: { id: number; login: string; name: string } | null
+}
+
+export interface UserInfo { id: number; login: string; name: string; email: string | null; role: string }
+
+export async function listMembers(projectId: string): Promise<Member[]> {
+  return check(await fetch(`/api/projects/${projectId}/members`))
+}
+
+/** `who`: a login or an e-mail (an e-mail of someone who has not signed in yet is an invitation). */
+export async function addMember(projectId: string, who: string, role: ProjectRole): Promise<Member> {
+  return check(await fetch(`/api/projects/${projectId}/members`, jsonBody('POST', { who, role })))
+}
+
+export async function setMemberRole(projectId: string, id: number, role: ProjectRole): Promise<Member> {
+  return check(await fetch(`/api/projects/${projectId}/members/${id}`, jsonBody('PATCH', { role })))
+}
+
+export async function removeMember(projectId: string, id: number): Promise<void> {
+  return check(await fetch(`/api/projects/${projectId}/members/${id}`, { method: 'DELETE' }))
+}
+
+export async function searchUsers(q: string): Promise<UserInfo[]> {
+  return check(await fetch(`/api/users?q=${encodeURIComponent(q)}`))
+}
+
+export interface ShareLink {
+  id: string
+  name: string
+  /** drawing / layer ids the link opens (null: all) */
+  drawings: string[] | null
+  layers: string[] | null
+  expires: number | null
+  revoked: boolean
+  active: boolean
+  created: number | null
+  last_used: number | null
+  /** only in the answer to its creation */
+  token?: string
+  url?: string
+}
+
+export async function listShares(projectId: string): Promise<ShareLink[]> {
+  return check(await fetch(`/api/projects/${projectId}/shares`))
+}
+
+export async function createShare(projectId: string, v: { name?: string; days?: number | null; drawings?: string[] | null; layers?: string[] | null }): Promise<ShareLink> {
+  return check(await fetch(`/api/projects/${projectId}/shares`, jsonBody('POST', v)))
+}
+
+export async function revokeShare(projectId: string, id: string): Promise<ShareLink> {
+  return check(await fetch(`/api/projects/${projectId}/shares/${id}`, { method: 'DELETE' }))
+}
+
+export async function renameDrawing(id: string, name: string): Promise<ViewSettings> {
+  return putView(id, { name })
+}
+
 export async function listJobs(projectId?: string): Promise<JobSummary[]> {
   return check(await fetch(projectId ? `/api/drawings?project=${projectId}` : '/api/drawings'))
 }

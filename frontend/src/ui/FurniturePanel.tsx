@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import type { FloorMeta, PlacedItem } from '../api'
+import type { FloorMeta, Layer, LayerKindInfo, PlacedItem } from '../api'
 import { CATALOG, CATEGORIES, catalogError, catalogItem, type CatalogItem } from '../furniture/catalog'
 import { ISSUE_LABEL, camParams, itemElev, itemSize, roomAt, type Issue, type PlanIndex, type RoomCover } from '../furniture/geom'
+import { layersFor } from '../furniture/layers'
 import { Icon } from './icons'
 
 interface Props {
@@ -32,6 +33,11 @@ interface Props {
   readOnly?: boolean
   unplaced: NonNullable<import('../api').ViewSettings['furniture_unplaced']>
   onUnplaced: (ids: string[], toFloor: string | null) => void
+  /** layers of the project; the one new items go to (when it takes them) */
+  layers: Layer[]
+  kinds: LayerKindInfo[]
+  activeLayer: string | null
+  onActiveLayer: (id: string | null) => void
 }
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
@@ -153,6 +159,19 @@ export default function FurniturePanel(p: Props) {
           <input value={sel.note ?? ''} placeholder="артикул, поставщик…" maxLength={500}
             onChange={(e) => p.onUpdate(sel.id, { note: e.target.value || undefined })} />
         </label>
+        {(() => {
+          const opts = layersFor(p.layers, p.kinds, c.cat)
+          return opts.length > 1 || (sel.layer && !opts.some((l) => l.id === sel.layer)) ? (
+            <label className="fp-note">Слой
+              <select value={sel.layer ?? ''} onChange={(e) => e.target.value && p.onUpdate(sel.id, { layer: e.target.value })}>
+                {!sel.layer && <option value="">—</option>}
+                {p.layers.filter((l) => l.id === sel.layer || opts.includes(l)).map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}{l.locked ? ' (заблокирован)' : ''}</option>
+                ))}
+              </select>
+            </label>
+          ) : null
+        })()}
         {iss.length > 0 && (
           <ul className="fp-issues">
             {iss.map((x, i) => (
@@ -190,7 +209,17 @@ export default function FurniturePanel(p: Props) {
         </div>
       </header>
 
-      {p.readOnly && <p className="fp-banner">Только просмотр: менять расстановку может роль «редактор».</p>}
+      {p.readOnly && <p className="fp-banner">Только просмотр: менять расстановку могут участники проекта с ролью «редактор».</p>}
+      {!p.readOnly && p.layers.length > 1 && (
+        <label className="fp-layer">Новые предметы — в слой
+          <select value={p.activeLayer ?? ''} onChange={(e) => p.onActiveLayer(e.target.value || null)}>
+            <option value="">по категории предмета</option>
+            {p.layers.filter((l) => p.kinds.find((k) => k.kind === l.kind)?.geoms.includes('point')).map((l) => (
+              <option key={l.id} value={l.id} disabled={l.locked}>{l.name}{l.locked ? ' (заблокирован)' : ''}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {p.locked && <p className="fp-banner">Идёт перестроение модели — расстановку можно будет менять после него.</p>}
       {p.unplaced.length > 0 && (
         <section className="fp-unplaced">

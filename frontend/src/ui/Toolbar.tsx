@@ -1,4 +1,4 @@
-import type { FloorMeta, Pin } from '../api'
+import type { FloorMeta, Layer, Pin } from '../api'
 import type { Display, NavMode, Tool } from '../state'
 import { Icon, type IconName } from './icons'
 import { Check } from './menu'
@@ -38,6 +38,11 @@ interface Props {
   furnitureCount: number | null
   placedCount: number
   onFurniture: () => void
+  layers: Layer[]
+  hiddenLayers: Set<string>
+  onToggleLayer: (id: string) => void
+  onAllLayers: (show: boolean) => void
+  projectId: string
 }
 
 function Group({ id, icon, label, on, onClick, children, title }: {
@@ -121,6 +126,16 @@ export default function Toolbar(p: Props) {
           <Icon name="plus" size={15} /> {p.tool === 'furniture' ? 'Закончить расстановку' : 'Каталог и расстановка…'}
         </button>
         <p className="menu-note">Расставлено: {p.placedCount} шт.{p.furnitureCount ? ` В детальной модели ещё ${p.furnitureCount} объект(ов) мебели.` : ''}</p>
+      </Group>
+      <Group id="layers" icon="layers" on={p.layers.some((l) => !p.hiddenLayers.has(l.id))} title="Слои проекта: мебель, видеонаблюдение…"
+        onClick={() => p.onAllLayers(p.layers.every((l) => p.hiddenLayers.has(l.id)))}>
+        <div className="menu-title">Слои проекта</div>
+        {!p.layers.length && <p className="menu-note">Слоёв пока нет: первый появится с первым предметом на плане.</p>}
+        {p.layers.map((l) => (
+          <Check key={l.id} on={!p.hiddenLayers.has(l.id)} label={`${l.name}${l.locked ? ' 🔒' : ''}${l.count != null ? ` · ${l.count}` : ''}`}
+            onChange={() => p.onToggleLayer(l.id)} />
+        ))}
+        {p.projectId && <a className="menu-item" href={`#/p/${p.projectId}`}>Настроить слои проекта…</a>}
       </Group>
       <Group id="comments" icon="comment" on={d.comments || p.tool === 'comment'} title="Комментарии"
         onClick={() => p.set({ comments: !d.comments })}>

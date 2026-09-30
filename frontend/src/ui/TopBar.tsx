@@ -5,13 +5,13 @@ import { jobColor } from '../state'
 import { Icon } from './icons'
 import { useMenu } from './menuCtx'
 
-/** Top centre: current building chip (switch buildings) + search over rooms and buildings. */
-export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRoom }: {
+/** Top centre: current drawing chip (the project, its other drawings) + search over rooms and drawings. */
+export default function TopBar({ jobId, projectId, name, result, onOpenJob, onRoom }: {
   jobId: string
+  projectId: string
   name: string
   result: Result | undefined
   onOpenJob: (id: string) => void
-  onNewFile: () => void
   onRoom: (f: FloorMeta, r: RoomMeta) => void
 }) {
   const chip = useMenu('buildings')
@@ -20,8 +20,8 @@ export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRo
   const [q, setQ] = useState('')
   useEffect(() => {
     if (!chip.isOpen && !search.isOpen) return
-    listJobs().then((j) => setJobs(j.filter((x) => x.status === 'done'))).catch(() => {})
-  }, [chip.isOpen, search.isOpen])
+    listJobs(projectId).then((j) => setJobs(j.filter((x) => x.status === 'done'))).catch(() => {})
+  }, [chip.isOpen, search.isOpen, projectId])
 
   const typeLabel = useMemo(() => new Map((result?.room_types ?? []).map((t) => [t.type, t.label])), [result])
   const hits = useMemo(() => {
@@ -37,14 +37,17 @@ export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRo
   return (
     <div className="topbar">
       <div className="menu-root chip-wrap">
-        <button className="chip" onClick={chip.toggle} title="Выбрать здание">
+        <button className="chip" onClick={chip.toggle} title="Проект и его чертежи">
           <i style={{ background: jobColor(jobId) }} />
           <span>{name}</span>
           <Icon name="chevron" size={14} />
         </button>
         {chip.isOpen && (
           <div className="menu drop-left buildings" role="menu">
-            <div className="menu-title">Здания</div>
+            <a className="menu-item" href={`#/p/${projectId}`} onClick={() => chip.close()}>
+              <Icon name="left" size={15} /> Проект: чертежи, слои, участники
+            </a>
+            <div className="menu-title">Чертежи проекта</div>
             {jobs.map((j) => (
               <button key={j.id} className={`menu-item${j.id === jobId ? ' on' : ''}`} onClick={() => { chip.close(); onOpenJob(j.id) }}>
                 <i className="dot" style={{ background: jobColor(j.id) }} />
@@ -53,10 +56,11 @@ export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRo
               </button>
             ))}
             {canEdit() && (
-              <button className="menu-item accent" onClick={() => { chip.close(); onNewFile() }}>
-                <Icon name="upload" size={15} /> Загрузить новый чертёж…
-              </button>
+              <a className="menu-item accent" href={`#/p/${projectId}`} onClick={() => chip.close()}>
+                <Icon name="upload" size={15} /> Загрузить чертёж в проект…
+              </a>
             )}
+            <a className="menu-item" href="#/" onClick={() => chip.close()}>Все проекты</a>
             {me?.auth && !me.guest && (
               <div className="menu-user">
                 <b>{me.name}</b> <small>{me.login} · {me.role_name}</small>

@@ -1,8 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
 import { loadCatalog } from './furniture/catalog'
+import Root from './Root'
 import { loadMe, openShare } from './session'
 import Login from './ui/Login'
 
@@ -26,6 +26,6 @@ async function start() {
     return
   }
   await loadCatalog()
-  root.render(<StrictMode><App /></StrictMode>)
+  root.render(<StrictMode><Root /></StrictMode>)
 }
 start()

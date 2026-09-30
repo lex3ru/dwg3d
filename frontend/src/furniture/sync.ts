@@ -2,9 +2,9 @@
  * confirmed last, and a readable message when someone else got there first. */
 import { ApiError, type PlacedItem, type RowConflict, type RowOp } from '../api'
 
-const FIELDS = ['floor', 'item', 'at', 'angle', 'size', 'note', 'elev', 'fov', 'range'] as const
+const FIELDS = ['layer', 'floor', 'item', 'at', 'angle', 'size', 'note', 'elev', 'fov', 'range'] as const
 const LABEL: Record<string, string> = {
-  floor: 'этаж', item: 'предмет', at: 'положение', angle: 'поворот', size: 'размер', note: 'заметка',
+  layer: 'слой', floor: 'этаж', item: 'предмет', at: 'положение', angle: 'поворот', size: 'размер', note: 'заметка',
   elev: 'высота установки', fov: 'угол обзора', range: 'дальность',
 }
 
@@ -24,7 +24,7 @@ export function furnitureOps(saved: Map<string, PlacedItem>, list: PlacedItem[])
       continue
     }
     const changed: Record<string, unknown> = {}
-    for (const k of FIELDS) if (!same(it[k], prev[k])) changed[k] = it[k] ?? null
+    for (const k of FIELDS) if (!same(it[k], prev[k]) && !(k === 'layer' && it[k] == null)) changed[k] = it[k] ?? null
     if (Object.keys(changed).length) ops.push({ op: 'update', id: it.id, version: prev.version, ...changed })
   }
   for (const [id, prev] of saved) if (!ids.has(id)) ops.push({ op: 'delete', id, version: prev.version })
