@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from dwg3d import db
+from dwg3d import catalog, db
 
 BASE_URL = make_url(os.environ.get("DWG3D_TEST_DATABASE_URL") or db.DEFAULT_URL)
 TEST_URL = BASE_URL.set(database=f"dwg3d_test_{uuid.uuid4().hex[:8]}")
@@ -28,7 +28,7 @@ def _admin():
 
 @pytest.fixture(scope="session")
 def pg():
-    """URL of a freshly migrated scratch database."""
+    """URL of a freshly migrated scratch database (catalog loaded)."""
     admin = _admin()
     try:
         with admin.connect() as c:
@@ -38,6 +38,7 @@ def pg():
         pytest.skip(f"PostgreSQL недоступен ({BASE_URL.host}:{BASE_URL.port}): {ex.__class__.__name__}")
     db.reset()
     db.migrate()
+    catalog.load()
     yield TEST_URL
     db.reset()
     with admin.connect() as c:

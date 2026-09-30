@@ -13,6 +13,11 @@
   GET  /api/config/default       default config
   GET  /api/catalog              furniture / equipment catalog (PostgreSQL)
   GET  /api/health               converter availability, database, queue
+  GET/POST /api/projects/{id}/placements, PATCH/DELETE .../placements/{pid},
+  POST /api/projects/{id}/placements:batch
+                                 placed furniture row by row, with versions (409
+                                 on concurrent changes); the same for /pins
+  GET  /api/projects/{id}/audit  who changed what
 
 "Job" in the URLs is a project (a building): its id is the project id.
 
@@ -47,15 +52,15 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 
-from . import catalog, db, store, worker
+from . import catalog, db, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Project
+from .models import AuditLog, Project
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -152,7 +157,7 @@ async def create_job(file: UploadFile = File(...), config: str | None = Form(Non
             f.write(chunk)
     try:
         with db.session() as s:
-            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override, view={})
+            p = Project(id=jid, filename=name, input_path=f"input{ext}", size=size, config=override)
             s.add(p)
             s.flush()
             job = store.enqueue(s, p)
@@ -172,153 +177,179 @@ def list_jobs():
 
 
 # ------------------------------------------------------ viewer settings ---
-# Per-job viewer state that needs no rebuild: map binding, detail-model
-# alignment, user markers and comments, placed furniture. Stored in the project row.
-MAX_PINS = 500
-MAX_FURNITURE = 5000
+# Per-project viewer state that needs no rebuild. Map binding, detail-model
+# alignment and the name are project columns; placed furniture, markers and
+# comments are rows (viewdata.py), edited one by one through /api/projects/{id}/...
+# or, for the old whole-list clients, through PUT /api/jobs/{id}/view.
 MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
-
-
-def _f(v, lo, hi, name):
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
-        raise HTTPException(400, f"view.{name}: ожидается число в [{lo}, {hi}]")
-    return float(v)
-
-
-def _s(v, name, n=2000):
-    if not isinstance(v, str) or len(v) > n:
-        raise HTTPException(400, f"view.{name}: ожидается строка до {n} символов")
-    return v
-
-
-def _pins(items, name):
-    if not isinstance(items, list) or len(items) > MAX_PINS:
-        raise HTTPException(400, f"view.{name}: ожидается список до {MAX_PINS} элементов")
-    out = []
-    for it in items:
-        if not isinstance(it, dict) or not isinstance(it.get("pos"), list) or len(it["pos"]) != 3:
-            raise HTTPException(400, f"view.{name}: элемент {{id, pos: [x, y, z], text}}")
-        out.append({"id": _s(it.get("id", uuid.uuid4().hex[:8]), f"{name}.id", 40),
-                    "floor": _s(it.get("floor") or "", f"{name}.floor", 40),
-                    "pos": [_f(c, -1e5, 1e5, f"{name}.pos") for c in it["pos"]],
-                    "text": _s(it.get("text", ""), f"{name}.text"),
-                    "label": _s(it.get("label", ""), f"{name}.label", 8),
-                    "author": _s(it.get("author", ""), f"{name}.author", 80),
-                    "created": _f(it.get("created", time.time()), 0, 1e11, f"{name}.created")})
-    return out
-
-
-def _furniture(items):
-    """Placed furniture / equipment: catalog item id, plan position (m), turn
-    (degrees, counter-clockwise), optional size override [w, d, h] (m),
-    mounting height; for CCTV cameras the view angle (deg) and range (m)."""
-    if not isinstance(items, list) or len(items) > MAX_FURNITURE:
-        raise HTTPException(400, f"view.furniture: ожидается список до {MAX_FURNITURE} элементов")
-    out = []
-    for it in items:
-        if (not isinstance(it, dict) or not isinstance(it.get("at"), list) or len(it["at"]) != 2
-                or not isinstance(it.get("item"), str)):
-            raise HTTPException(400, "view.furniture: элемент {id, floor, item, at: [x, y], angle}")
-        f = {"id": _s(it.get("id") or uuid.uuid4().hex[:8], "furniture.id", 40),
-             "floor": _s(it.get("floor") or "", "furniture.floor", 40),
-             "item": _s(it["item"], "furniture.item", 80),
-             "at": [_f(c, -1e5, 1e5, "furniture.at") for c in it["at"]],
-             "angle": _f(it.get("angle", 0), -3600, 3600, "furniture.angle") % 360}
-        if it.get("size") is not None:
-            if not isinstance(it["size"], list) or len(it["size"]) != 3:
-                raise HTTPException(400, "view.furniture.size: ожидается [ширина, глубина, высота]")
-            f["size"] = [_f(c, 0.01, 50, "furniture.size") for c in it["size"]]
-        if it.get("note"):
-            f["note"] = _s(it["note"], "furniture.note", 500)
-        if it.get("elev") is not None:                  # mounting height override
-            f["elev"] = _f(it["elev"], 0, 20, "furniture.elev")
-        if it.get("fov") is not None:                   # CCTV camera: view angle, range
-            f["fov"] = _f(it["fov"], 1, 360, "furniture.fov")
-        if it.get("range") is not None:
-            f["range"] = _f(it["range"], 0.5, 300, "furniture.range")
-        out.append(f)
-    return out
-
+_f, _s = viewdata.num, viewdata.string
 
 # viewer data tied to the floors of the build it was made on
 FLOOR_BOUND = ("furniture", "furniture_unplaced", "markers", "comments")
 
 
-def validate_view(v: dict, old: dict) -> dict:
-    if not isinstance(v, dict):
-        raise HTTPException(400, "Ожидается объект")
-    out = dict(old)
+@app.exception_handler(viewdata.Invalid)
+def _invalid(_, ex: viewdata.Invalid):
+    return JSONResponse({"detail": str(ex)}, status_code=400)
+
+
+@app.exception_handler(viewdata.Conflict)
+def _conflict(_, ex: viewdata.Conflict):
+    return JSONResponse({"detail": str(ex), "conflicts": ex.conflicts}, status_code=409)
+
+
+@app.exception_handler(LookupError)
+def _missing(_, ex: LookupError):
+    return JSONResponse({"detail": "Проект не найден"}, status_code=404)
+
+
+def validate_settings(v: dict, old: dict) -> dict:
+    """name / site / detail from a PUT /view body: the columns to set."""
+    out = {}
     if "name" in v:
         out["name"] = _s(v["name"], "name", 120)
     if "site" in v:
         st = v["site"]
         if st is None:
-            out.pop("site", None)
+            out["site"] = None
         else:
             if not isinstance(st, dict):
-                raise HTTPException(400, "view.site: ожидается объект")
+                raise viewdata.Invalid("view.site: ожидается объект")
             out["site"] = {"lat": _f(st.get("lat"), -85, 85, "site.lat"), "lon": _f(st.get("lon"), -180, 180, "site.lon"),
                            "azimuth": _f(st.get("azimuth", 0), -360, 360, "site.azimuth"),
                            "scale": _f(st.get("scale", 1), 0.01, 100, "site.scale")}
             if st.get("tiles"):
                 t = _s(st["tiles"], "site.tiles", 300)
                 if not t.startswith("https://") or not all(k in t for k in ("{z}", "{x}", "{y}")):
-                    raise HTTPException(400, "view.site.tiles: шаблон https://…/{z}/{x}/{y}.png")
+                    raise viewdata.Invalid("view.site.tiles: шаблон https://…/{z}/{x}/{y}.png")
                 out["site"]["tiles"] = t
                 out["site"]["attribution"] = _s(st.get("attribution", ""), "site.attribution", 200)
     if "detail" in v:
         dt = v["detail"] or {}
         if not isinstance(dt, dict):
-            raise HTTPException(400, "view.detail: ожидается объект")
+            raise viewdata.Invalid("view.detail: ожидается объект")
         cur = dict(old.get("detail") or {})
         if "offset" in dt:
             if not isinstance(dt["offset"], list) or len(dt["offset"]) != 3:
-                raise HTTPException(400, "view.detail.offset: ожидается [x, y, z]")
+                raise viewdata.Invalid("view.detail.offset: ожидается [x, y, z]")
             cur["offset"] = [_f(c, -1e4, 1e4, "detail.offset") for c in dt["offset"]]
         if "rotation" in dt:
             cur["rotation"] = _f(dt["rotation"], -360, 360, "detail.rotation")
         if "scale" in dt:
             cur["scale"] = _f(dt["scale"], 1e-4, 1e4, "detail.scale")
         out["detail"] = cur
-    for k in ("comments", "markers"):
-        if k in v:
-            out[k] = _pins(v[k], k)
-    if "furniture" in v:
-        out["furniture"] = _furniture(v["furniture"])
-    if "furniture_unplaced" in v:
-        # only removal (after the items were put back on a floor or deleted): ids to keep
-        keep = v["furniture_unplaced"]
-        if not isinstance(keep, list):
-            raise HTTPException(400, "view.furniture_unplaced: ожидается список")
-        ids = {it.get("id") if isinstance(it, dict) else it for it in keep}
-        rest = [u for u in old.get("furniture_unplaced") or [] if u.get("id") in ids]
-        if rest:
-            out["furniture_unplaced"] = rest
-        else:
-            out.pop("furniture_unplaced", None)
     return out
 
 
 @app.get("/api/jobs/{jid}/view")
 def get_view(jid: str):
     with db.session() as s:
-        return store.view_of(_project(s, jid))
+        return store.view_of(s, _project(s, jid))
 
 
 @app.put("/api/jobs/{jid}/view")
 def put_view(jid: str, v: dict):
-    """Merge viewer settings: top-level keys given replace the stored ones."""
+    """Merge viewer settings: top-level keys given replace the stored ones.
+    Whole furniture / pin lists are turned into row changes (last writer
+    wins); the viewer edits rows through /api/projects/{id}/placements instead."""
     with db.session() as s:
-        p = _project(s, jid, lock=True)          # read-modify-write: one writer per project
+        p = _project(s, jid, lock=True)
         if any(k in v for k in FLOOR_BOUND):
             # these refer to floors of a particular build: never write them across a rebuild
             if store.has_active(s, jid):
                 raise HTTPException(409, "Идёт перестроение модели: расстановка и метки сохранятся после него")
             if "_build" in v and v["_build"] != p.current_build:
                 raise HTTPException(409, "Модель была перестроена: обновите страницу, чтобы не потерять изменения")
-        view = validate_view(v, store.view_of(p))
-        store.set_view(p, view)
-    return view
+        cols = validate_settings(v, store.view_of(s, p))
+        if cols:
+            _audit_settings(s, p, cols)
+            store.set_settings(p, cols)
+        for k in ("furniture", "markers", "comments", "furniture_unplaced"):
+            if k in v:
+                viewdata.replace(s, jid, k, v[k])
+        s.flush()
+        return store.view_of(s, p)
+
+
+def _audit_settings(s, p: Project, cols: dict):
+    before = {k: getattr(p, k) for k in cols}
+    if before != cols:
+        s.add(AuditLog(project_id=p.id, entity="project", entity_id=p.id, action="update",
+                       before=before, after=cols))
+
+
+# ------------------------------------------- furniture and pins, row by row ---
+# Floors are the candidate ids of the build given in `build` (409 if the model
+# was rebuilt since); updates and deletes carry the row `version` they were
+# made against (409 with the current rows if someone changed them meanwhile).
+ROW_KINDS = {"placements": "placement", "pins": "pin"}
+
+
+def _body(v) -> dict:
+    if not isinstance(v, dict):
+        raise viewdata.Invalid("Ожидается объект")
+    return v
+
+
+def _one(res: dict):
+    return res["items"][0] if res["items"] else None
+
+
+@app.get("/api/projects/{pid}/audit")
+def get_audit(pid: str, limit: int = 100):
+    with db.session() as s:
+        _project(s, pid)
+        return viewdata.audit(s, pid, limit)
+
+
+@app.get("/api/projects/{pid}/{kind}")
+def list_rows(pid: str, kind: str, floor: str | None = None):
+    if kind not in ROW_KINDS:
+        raise HTTPException(404)
+    with db.session() as s:
+        p = _project(s, pid)
+        data = viewdata.view_data(s, pid)
+    if kind == "placements":
+        items = [it for it in data.get("furniture") or [] if floor is None or it["floor"] == floor]
+        return {"build": p.current_build, "items": items, "unplaced": data.get("furniture_unplaced") or []}
+    pick = lambda k: [it for it in data.get(k) or [] if floor is None or it["floor"] == floor]  # noqa: E731
+    return {"build": p.current_build, "markers": pick("markers"), "comments": pick("comments")}
+
+
+@app.post("/api/projects/{pid}/{kind}:batch")
+def batch_rows(pid: str, kind: str, v: dict):
+    """{build, ops: [{op, id, version, ...}]}: all applied or none (Ряд…, копии, отмена)."""
+    if kind not in ROW_KINDS:
+        raise HTTPException(404)
+    v = _body(v)
+    with db.session() as s:
+        return viewdata.apply(s, pid, ROW_KINDS[kind], v.get("ops"), build=v.get("build"))
+
+
+@app.post("/api/projects/{pid}/{kind}", status_code=201)
+def create_row(pid: str, kind: str, v: dict):
+    if kind not in ROW_KINDS:
+        raise HTTPException(404)
+    v = _body(v)
+    with db.session() as s:
+        return _one(viewdata.apply(s, pid, ROW_KINDS[kind], [{**v, "op": "create"}], build=v.get("build")))
+
+
+@app.patch("/api/projects/{pid}/{kind}/{rid}")
+def update_row(pid: str, kind: str, rid: str, v: dict):
+    if kind not in ROW_KINDS:
+        raise HTTPException(404)
+    v = _body(v)
+    with db.session() as s:
+        return _one(viewdata.apply(s, pid, ROW_KINDS[kind], [{**v, "op": "update", "id": rid}], build=v.get("build")))
+
+
+@app.delete("/api/projects/{pid}/{kind}/{rid}", status_code=204)
+def delete_row(pid: str, kind: str, rid: str, version: int | None = None, build: int | None = None):
+    if kind not in ROW_KINDS:
+        raise HTTPException(404)
+    with db.session() as s:
+        viewdata.apply(s, pid, ROW_KINDS[kind], [{"op": "delete", "id": rid, "version": version}], build=build)
 
 
 @app.post("/api/jobs/{jid}/detail")
@@ -353,7 +384,7 @@ async def upload_detail(jid: str, file: UploadFile = File(...)):
         d.setdefault("scale", 1.0)
         p.detail = d
         p.updated_at = func.now()
-        return store.view_of(p)
+        return store.view_of(s, p)
 
 
 @app.delete("/api/jobs/{jid}/detail")
@@ -363,7 +394,7 @@ def delete_detail(jid: str):
         (store.project_dir(jid) / "detail.glb").unlink(missing_ok=True)
         p.detail = None
         p.updated_at = func.now()
-        return store.view_of(p)
+        return store.view_of(s, p)
 
 
 @app.get("/api/jobs/{jid}/detail.glb")

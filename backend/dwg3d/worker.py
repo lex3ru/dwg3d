@@ -17,7 +17,6 @@ import traceback
 from sqlalchemy import func, select, text, update
 
 from . import db, store
-from .edits import remap_view
 from .models import Build, Job
 from .pipeline import run
 
@@ -103,16 +102,15 @@ def process(jid: int, pid: str):
             if p is None:
                 raise RuntimeError("Проект удалён во время обработки")
             old = store.current_build(s, p)
-            # furniture and pins follow their floors into the new build (ids / alignment may change)
-            view, warns = remap_view(store.view_of(p), old.result if old else None, result)
+            # floors keep their rows; furniture and pins move with them (ids / alignment may change)
+            warns = store.sync_floors(s, pid, result, old.result if old else None)
             result["warnings"] = list(result.get("warnings") or []) + warns
             n = p.current_build + 1
             s.add(Build(project_id=pid, n=n, result=result, config=cfg, out_dir="out"))
             s.flush()
             p.current_build = n
             p.config = cfg
-            store.set_view(p, view or {})
-            store.sync_floors(s, pid, result)
+            p.updated_at = func.now()
             s.execute(update(Job).where(Job.id == jid).values(
                 status="done", stage="done", progress=1.0, message="Готово", finished_at=func.now()))
     except Exception as ex:

@@ -161,94 +161,10 @@ def resolve_edits(cfg: dict, floors) -> tuple[dict, dict, list, list[str]]:
 
 
 # ---------------------------------------------------------------- viewer data
-# Placed furniture and pins (markers, comments) live in the job's viewer
-# settings and refer to floors by id. After every build they are carried over
-# the same way as the edits: each old floor is matched to a new one by its
-# sheet, positions follow the change of alignment offset (and, for pins in
-# glTF coordinates, of the model centre and floor elevation). Furniture whose
-# floor is gone is kept aside in `furniture_unplaced` and retried next build.
+# Placed furniture and pins follow their floors the same way: store.sync_floors
+# matches each floor row's anchor to the new build and shifts its rows.
 
 def _floor_ns(f: dict) -> SimpleNamespace:
     return SimpleNamespace(id=f["id"], space=f.get("space", "Model"), owner=f.get("owner"),
                            bbox=f.get("bbox") or [0, 0, 0, 0], offset=f.get("offset") or [0.0, 0.0],
                            elevation=float(f.get("elevation") or 0.0), name=f.get("name", ""))
-
-
-def remap_view(view: dict | None, old: dict | None, new: dict) -> tuple[dict | None, list[str]]:
-    """Carry furniture and pins of `view` from the build `old` to the build `new` (results)."""
-    if not view or not old:
-        return view, []
-    oldf = {f["id"]: f for f in old.get("floors") or [] if f.get("bbox")}
-    newf = [_floor_ns(f) for f in new.get("floors") or [] if f.get("bbox")]
-    by_new = {f.id: f for f in newf}
-    cache: dict = {}
-
-    def target(fid: str):
-        """(new floor, dx, dy, dz) for an old floor id, or None when its sheet is gone."""
-        if fid not in cache:
-            o = oldf.get(fid)
-            if o is None:                     # unknown to the old build: trust the id
-                f = by_new.get(fid)
-                cache[fid] = (f, 0.0, 0.0, 0.0) if f else None
-            else:
-                f = match(anchor_of(o), newf, prefer_id=fid)
-                oo = o.get("offset") or (0.0, 0.0)
-                cache[fid] = None if f is None else (
-                    f, f.offset[0] - oo[0], f.offset[1] - oo[1], f.elevation - float(o.get("elevation") or 0.0))
-        return cache[fid]
-
-    out = dict(view)
-    placed, unplaced = [], []
-    for it in view.get("furniture") or []:
-        t = target(it.get("floor") or "")
-        if t is None:
-            o = oldf.get(it.get("floor") or "")
-            unplaced.append({**it, "_anchor": anchor_of(o) if o else None})
-            continue
-        f, dx, dy, _ = t
-        placed.append({**it, "floor": f.id, "at": [round(it["at"][0] + dx, 4), round(it["at"][1] + dy, 4)]})
-    for u in view.get("furniture_unplaced") or []:
-        a = u.get("_anchor")
-        f = match(a, newf, prefer_id=u.get("floor")) if a else None
-        if f is None:
-            unplaced.append(u)
-            continue
-        ox, oy = a.get("offset") or (0.0, 0.0)
-        it = {k: v for k, v in u.items() if k != "_anchor"}
-        placed.append({**it, "floor": f.id, "at": [round(it["at"][0] + f.offset[0] - ox, 4), round(it["at"][1] + f.offset[1] - oy, 4)]})
-    if "furniture" in view or placed:
-        out["furniture"] = placed
-    if unplaced:
-        out["furniture_unplaced"] = unplaced
-    else:
-        out.pop("furniture_unplaced", None)
-
-    # pins are in glTF coordinates: plan = (x + cx, -z + cy)
-    ocx, ocy = old.get("center") or (0.0, 0.0)
-    ncx, ncy = new.get("center") or (0.0, 0.0)
-    for key in ("markers", "comments"):
-        if key not in view:
-            continue
-        pins = []
-        for p in view.get(key) or []:
-            x, y, z = p["pos"]
-            fid, dx, dy, dz = p.get("floor") or "", 0.0, 0.0, 0.0
-            if fid:
-                t = target(fid)
-                if t is None:
-                    fid = ""                  # keep it where it was, as a building-wide pin
-                else:
-                    fid, dx, dy, dz = t[0].id, t[1], t[2], t[3]
-            px, py = x + ocx + dx, -z + ocy + dy
-            pins.append({**p, "floor": fid, "pos": [round(px - ncx, 4), round(y + dz, 4), round(-(py - ncy), 4)]})
-        out[key] = pins
-
-    warnings = []
-    if unplaced:
-        names = sorted({(u.get("_anchor") or {}).get("name") or u.get("floor") or "?" for u in unplaced})
-        warnings.append(f"Оборудование ({len(unplaced)} шт.) не привязано: этаж «{', '.join(names)}» не найден "
-                        f"в новой сборке. Оно сохранено — перенесите его на этаж в панели «Мебель и оборудование»")
-    moved = sum(1 for k, t in cache.items() if t and (t[0].id != k))
-    if moved:
-        log.info("viewer data: %d floor(s) re-keyed", moved)
-    return out, warnings

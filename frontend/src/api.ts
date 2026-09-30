@@ -143,6 +143,8 @@ export interface Job {
 
 export interface Pin {
   id: string
+  /** row version on the server (sent back with changes) */
+  version?: number
   floor: string
   pos: V3
   text: string
@@ -153,6 +155,8 @@ export interface Pin {
 /** Furniture / equipment placed on a floor (plan coordinates, meters). */
 export interface PlacedItem {
   id: string
+  /** row version on the server (sent back with changes) */
+  version?: number
   floor: string
   /** catalog item id */
   item: string
@@ -183,16 +187,29 @@ export interface ViewSettings {
 
 export interface JobSummary { id: string; filename: string; name: string; status: Job['status']; floors: number; updated: number }
 
+/** A failed request: `status` and the parsed JSON body (e.g. 409 conflicts). */
+export class ApiError extends Error {
+  status: number
+  body: Record<string, unknown> | null
+  constructor(msg: string, status: number, body: Record<string, unknown> | null) {
+    super(msg)
+    this.status = status
+    this.body = body
+  }
+}
+
 async function check<T>(r: Response): Promise<T> {
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
+    let body: Record<string, unknown> | null = null
     try {
-      const j = await r.json()
-      if (j.detail) msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail)
+      body = await r.json()
+      const d = body?.detail
+      if (d) msg = typeof d === 'string' ? d : JSON.stringify(d)
     } catch { /* not json */ }
-    throw new Error(msg)
+    throw new ApiError(msg, r.status, body)
   }
-  return r.json() as Promise<T>
+  return (r.status === 204 ? null : r.json()) as Promise<T>
 }
 
 export async function uploadFile(file: File): Promise<Job> {
@@ -256,4 +273,18 @@ export async function uploadDetail(id: string, file: File): Promise<ViewSettings
 
 export async function deleteDetail(id: string): Promise<ViewSettings> {
   return check(await fetch(`/api/jobs/${id}/detail`, { method: 'DELETE' }))
+}
+
+/** One change of a placed item or pin; updates and deletes carry the row version they were made against. */
+export type RowOp = { op: 'create' | 'update' | 'delete'; id: string; version?: number } & Record<string, unknown>
+export interface RowConflict { id: string; current: (PlacedItem & Pin) | null }
+export interface BatchResult<T> { items: T[]; deleted: string[] }
+
+/** Apply changes to furniture ('placements') or pins as one transaction: all or none.
+ * Throws ApiError 409 with body.conflicts when rows were changed by someone else,
+ * or when the model was rebuilt since `build`. */
+export async function batchRows<T = PlacedItem>(id: string, kind: 'placements' | 'pins', build: number, ops: RowOp[]): Promise<BatchResult<T>> {
+  return check(await fetch(`/api/projects/${id}/${kind}:batch`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build, ops }),
+  }))
 }

@@ -202,8 +202,9 @@ def test_api_view_settings_and_detail_model(client, sample):
     j = _wait(c, jid)
     assert j["result"]["room_types"] and "entrances" in j["result"]
     assert any(x["id"] == jid for x in c.get("/api/jobs").json())
+    fid = j["result"]["floors"][0]["id"]
     r = c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 55.75, "lon": 37.62, "azimuth": 15, "scale": 1},
-                                            "comments": [{"id": "k1", "floor": "c1", "pos": [1, 2, 3], "text": "Трещина"}]})
+                                            "comments": [{"id": "k1", "floor": fid, "pos": [1, 2, 3], "text": "Трещина"}]})
     assert r.status_code == 200 and r.json()["site"]["azimuth"] == 15
     assert c.put(f"/api/jobs/{jid}/view", json={"site": {"lat": 120, "lon": 0}}).status_code == 400
     assert c.put(f"/api/jobs/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
@@ -211,12 +212,15 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert v["comments"][0]["text"] == "Трещина" and v["site"]["lat"] == 55.75
     # furniture: plan position, angle normalised, other view keys kept
     v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
-        {"id": "a1", "floor": "c1", "item": "med.couch", "at": [2.5, 3], "angle": -90, "size": [0.7, 1.9, 0.75]}]}).json()
+        {"id": "a1", "floor": fid, "item": "doc.couch", "at": [2.5, 3], "angle": -90, "size": [0.7, 1.9, 0.75]}]}).json()
     assert v["furniture"][0]["angle"] == 270 and v["furniture"][0]["size"] == [0.7, 1.9, 0.75]
     assert v["comments"][0]["text"] == "Трещина"
     v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
-        {"id": "k1", "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110, "range": 12}]}).json()
-    assert v["furniture"][0]["fov"] == 110 and v["furniture"][0]["elev"] == 2.8
+        {"id": "k1", "floor": fid, "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110, "range": 12}]}).json()
+    assert v["furniture"][0]["fov"] == 110 and v["furniture"][0]["elev"] == 2.8 and len(v["furniture"]) == 1
+    # a floor or catalog item the server does not know is refused
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"floor": "c99", "item": "sec.dome", "at": [1, 2]}]}).status_code == 400
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"floor": fid, "item": "nope", "at": [1, 2]}]}).status_code == 400
     assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "fov": 400}]}).status_code == 400
     assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1]}]}).status_code == 400
     # written against another build: refused, nothing lost silently

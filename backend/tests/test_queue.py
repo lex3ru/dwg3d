@@ -41,7 +41,7 @@ def _project(sample=None, config=None) -> str:
     if sample:
         shutil.copy(sample, d / "input.dxf")
     with db.session() as s:
-        p = Project(id=pid, filename="plan.dxf", input_path="input.dxf", config=config or dict(NO_EXPORT), view={})
+        p = Project(id=pid, filename="plan.dxf", input_path="input.dxf", config=config or dict(NO_EXPORT))
         s.add(p)
         s.flush()
         store.enqueue(s, p)

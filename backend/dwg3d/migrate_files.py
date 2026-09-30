@@ -16,10 +16,9 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from . import db, store
-from .models import Build, Floor, Job, Project
+from .models import Build, Floor, Job, Pin, Placement, Project
 
 log = logging.getLogger("dwg3d.migrate")
-VIEW_KEYS = ("furniture", "furniture_unplaced", "markers", "comments")
 
 
 def _read(path: Path) -> dict | None:
@@ -43,8 +42,7 @@ def _rows(job: dict) -> tuple[Project, Build | None, Job]:
         build_n = 1
     p = Project(id=pid, name=view.get("name"), filename=job.get("filename") or job["input"],
                 input_path=job["input"], size=int(job.get("size") or 0), config=job.get("config") or {},
-                site=view.get("site"), detail=view.get("detail"),
-                view={k: view[k] for k in VIEW_KEYS if k in view}, current_build=build_n,
+                site=view.get("site"), detail=view.get("detail"), current_build=build_n,
                 created_at=store.from_ts(job.get("created")), updated_at=store.from_ts(job.get("updated")))
     b = (Build(project_id=pid, n=build_n, result=result, config=job.get("config") or {}, out_dir="out",
                created_at=store.from_ts(job.get("updated"))) if result else None)
@@ -74,8 +72,9 @@ def migrate(data: Path | None = None, dry_run: bool = False) -> dict:
             continue
         p, b, j = _rows(job)
         nf = len([f for f in (b.result.get("floors") or []) if f.get("bbox")]) if b else 0
-        nfurn = len(p.view.get("furniture") or []) + len(p.view.get("furniture_unplaced") or [])
-        npins = len(p.view.get("markers") or []) + len(p.view.get("comments") or [])
+        view = job.get("view") or {}
+        nfurn = len(view.get("furniture") or []) + len(view.get("furniture_unplaced") or [])
+        npins = len(view.get("markers") or []) + len(view.get("comments") or [])
         print(f"  {p.id}  {p.filename[:40]:<40} сборка {p.current_build or '-':>2}  этажей {nf:>2}  "
               f"оборудование {nfurn:>3}  метки {npins:>3}  {j.status}")
         stats.update(imported=stats["imported"] + 1, builds=stats["builds"] + (1 if b else 0),
@@ -90,7 +89,38 @@ def migrate(data: Path | None = None, dry_run: bool = False) -> dict:
                 s.flush()
                 store.sync_floors(s, p.id, b.result)
             s.add(j)
+            s.flush()
+            _import_view(s, p.id, view)
     return stats
+
+
+def _import_view(s, pid: str, view: dict):
+    """Furniture and pins of a job.json view as rows (floor ids of its last build)."""
+    floors = {f.candidate: f.id for f in s.scalars(select(Floor).where(Floor.project_id == pid)) if f.candidate}
+    lost: dict[str, int] = {}
+
+    def lost_floor(anchor: dict) -> int:
+        key = json.dumps(anchor, sort_keys=True)
+        if key not in lost:
+            f = Floor(project_id=pid, anchor=anchor, name=anchor.get("name"))
+            s.add(f)
+            s.flush()
+            lost[key] = f.id
+        return lost[key]
+
+    items = [(it, floors.get(it.get("floor") or "")) for it in view.get("furniture") or []]
+    items += [(it, lost_floor(it["_anchor"]) if it.get("_anchor") else None) for it in view.get("furniture_unplaced") or []]
+    for it, fid in items:
+        s.add(Placement(project_id=pid, id=it["id"], floor_id=fid, item_id=it["item"], x=it["at"][0], y=it["at"][1],
+                        angle=it.get("angle") or 0.0, size=it.get("size"), elev=it.get("elev"), fov=it.get("fov"),
+                        range=it.get("range"), note=it.get("note")))
+    for key, kind in (("markers", "marker"), ("comments", "comment")):
+        for pin in view.get(key) or []:
+            s.add(Pin(project_id=pid, id=pin["id"], kind=kind, floor_id=floors.get(pin.get("floor") or ""),
+                      x=pin["pos"][0], y=pin["pos"][1], z=pin["pos"][2], text=pin.get("text") or "",
+                      label=pin.get("label") or "", author=pin.get("author") or "",
+                      created_at=store.from_ts(pin.get("created"))))
+    s.flush()
 
 
 def verify(data: Path | None = None) -> list[str]:
@@ -116,11 +146,12 @@ def verify(data: Path | None = None) -> list[str]:
                             .where(Floor.project_id == p.id, Floor.candidate.is_not(None)))
             if rows != nf:
                 problems.append(f"{p.id}: этажей в базе {rows}, в сборке {nf}")
-            view = store.view_of(p)
-            for k in VIEW_KEYS:
-                if len(view.get(k) or []) != len((job.get("view") or {}).get(k) or []):
-                    problems.append(f"{p.id}: {k} — в базе {len(view.get(k) or [])}, "
-                                    f"в файле {len((job.get('view') or {}).get(k) or [])}")
+            have, want = store.view_of(s, p), job.get("view") or {}
+            for keys in (("furniture", "furniture_unplaced"), ("markers",), ("comments",)):
+                n_db = sum(len(have.get(k) or []) for k in keys)
+                n_file = sum(len(want.get(k) or []) for k in keys)
+                if n_db != n_file:
+                    problems.append(f"{p.id}: {keys[0]} — в базе {n_db}, в файле {n_file}")
             if not (path.parent / p.input_path).is_file():
                 problems.append(f"{p.id}: нет исходного файла {p.input_path}")
             if p.current_build and not (path.parent / "out" / "model.glb").is_file():

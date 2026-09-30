@@ -1,11 +1,13 @@
 import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  downloadDrawing, getJob, getPlan, putView, rebuildJob, uploadFile,
-  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type PlanData, type RoomMeta, type V3, type ViewSettings,
+  batchRows, downloadDrawing, getJob, getPlan, rebuildJob, uploadFile,
+  type FloorEdits, type FloorMeta, type Job, type Pin, type PlacedItem, type PlanData, type RoomMeta,
+  type RowOp, type V3, type ViewSettings,
 } from './api'
 import type { CatalogItem } from './furniture/catalog'
 import { catalogItem } from './furniture/catalog'
+import { conflictText, furnitureOps } from './furniture/sync'
 import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
@@ -177,6 +179,10 @@ export default function App() {
   const furnHistory = useRef<PlacedItem[][]>([])
   const dragSnap = useRef<PlacedItem[] | null>(null)
   const furnTimer = useRef<number | undefined>(undefined)
+  /** Placed items as the server last confirmed them: the base of each diff and the versions to send */
+  const furnSaved = useRef(new Map<string, PlacedItem>())
+  /** Saves run one after another: each diff starts from what the previous one confirmed */
+  const furnQueue = useRef<Promise<void>>(Promise.resolve())
   const [, setUndoTick] = useState(0)
   const ctx = useMemo(() => new SceneCtx(), [])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -189,7 +195,11 @@ export default function App() {
     ?? floors.find((f) => f.elevation! >= -0.5) ?? floors[0] ?? null, [floors, r])
 
   // job settings stored on the server
-  useEffect(() => { setView(shown?.view ?? {}) }, [shown?.id, shown?.view])
+  const adoptView = useCallback((v: ViewSettings) => {
+    furnSaved.current = new Map((v.furniture ?? []).map((it) => [it.id, it]))
+    setView(v)
+  }, [])
+  useEffect(() => { adoptView(shown?.view ?? {}) }, [shown?.id, shown?.view, adoptView])
   const shownView = preview ?? view
 
   // drop a floor id that this build does not have
@@ -379,35 +389,41 @@ export default function App() {
     setRouteView(null)
   }
 
-  // ---- markers & comments (stored on the server)
-  const savePins = async (kind: 'markers' | 'comments', list: ViewSettings['markers']) => {
+  // ---- markers & comments (stored on the server, one row each)
+  const savePin = async (kind: 'markers' | 'comments', op: RowOp, local: Pin[]) => {
     if (!shown) return
     if (rebuilding) {
       alert('Идёт перестроение модели: метки и комментарии можно менять после него')
       return
     }
-    setView((v) => ({ ...v, [kind]: list }))
+    setView((v) => ({ ...v, [kind]: local }))
     try {
-      setView(await putView(shown.id, { [kind]: list, _build: shown.build }))
+      const res = await batchRows<Pin>(shown.id, 'pins', shown.build, [op])
+      setView((v) => ({
+        ...v,
+        [kind]: (v[kind] ?? []).filter((p) => !res.deleted.includes(p.id))
+          .map((p) => res.items.find((x) => x.id === p.id) ?? p),
+      }))
     } catch (e) {
-      alert((e as Error).message)
+      alert(conflictText(e, (id) => (view[kind] ?? []).find((p) => p.id === id)?.text || 'Метка'))
       setPollNonce((n) => n + 1)            // reload the job: the server's view wins
     }
   }
   const commitPending = () => {
     if (!pending) return
     const text = pendingText.trim()
-    const list = [...(view[pending.kind] ?? []), {
+    const pin: Pin = {
       id: Math.random().toString(36).slice(2, 10), floor: pending.floor, pos: pending.pos, text,
       label: pending.kind === 'markers' ? text.slice(0, 8) : '', created: Date.now() / 1000,
-    }]
-    savePins(pending.kind, list)
+    }
+    savePin(pending.kind, { op: 'create', kind: pending.kind, ...pin }, [...(view[pending.kind] ?? []), pin])
     setPending(null)
     setPendingText('')
     setTool('none')
   }
   const deletePin = (kind: 'markers' | 'comments', id: string) => {
-    savePins(kind, (view[kind] ?? []).filter((p) => p.id !== id))
+    const pin = (view[kind] ?? []).find((p) => p.id === id)
+    if (pin) savePin(kind, { op: 'delete', id, version: pin.version }, (view[kind] ?? []).filter((p) => p.id !== id))
     setOpenPin(null)
   }
 
@@ -440,8 +456,24 @@ export default function App() {
   }, [planFloor?.id, shown?.id, shown?.build])
   useEffect(() => { plans.current.clear(); setPlanIdx(null) }, [shown?.build])
 
+  /** Send what changed since the server's last confirmed state (only the changed items). */
+  const saveFurniture = async (id: string, build: number, list: PlacedItem[]) => {
+    const ops = furnitureOps(furnSaved.current, list)
+    if (!ops.length) return
+    try {
+      const res = await batchRows(id, 'placements', build, ops)
+      for (const it of res.items) furnSaved.current.set(it.id, it)
+      for (const d of res.deleted) furnSaved.current.delete(d)
+    } catch (e) {
+      const was = (i: string) => furnSaved.current.get(i) as unknown as Record<string, unknown> | undefined
+      alert(`Расстановка не сохранена. ${conflictText(e, (i) => catalogItem(list.find((x) => x.id === i)?.item ?? furnSaved.current.get(i)?.item ?? '').name, was)}`)
+      furnHistory.current = []
+      window.clearTimeout(furnTimer.current)
+      setPollNonce((n) => n + 1)          // reload the job: the server's state wins
+    }
+  }
   /** Replace the list: locally at once, on the server after a short pause. */
-  const setFurniture = (list: PlacedItem[], record = true, patch: Partial<ViewSettings> = {}) => {
+  const setFurniture = (list: PlacedItem[], record = true) => {
     if (!shown) return
     if (rebuilding) {
       alert('Идёт перестроение модели: расстановку можно менять после него')
@@ -451,27 +483,36 @@ export default function App() {
       furnHistory.current = [...furnHistory.current.slice(-99), furniture]
       setUndoTick((n) => n + 1)
     }
-    setView((v) => ({ ...v, ...patch, furniture: list }))
+    setView((v) => ({ ...v, furniture: list }))
     window.clearTimeout(furnTimer.current)
     const id = shown.id, build = shown.build
-    furnTimer.current = window.setTimeout(async () => {
-      try {
-        const saved = await putView(id, { ...patch, furniture: list, _build: build })
-        setView((v) => ({ ...saved, furniture: v.furniture }))
-      } catch (e) {
-        alert(`Расстановка не сохранена: ${(e as Error).message}`)
-        furnHistory.current = []
-        setPollNonce((n) => n + 1)          // reload the job: the server's view wins
-      }
+    furnTimer.current = window.setTimeout(() => {
+      furnQueue.current = furnQueue.current.then(() => saveFurniture(id, build, list))
     }, 400)
   }
   /** Items whose floor was not found after a rebuild: put back on the current floor, or drop. */
   const unplaced = view.furniture_unplaced ?? []
   const resolveUnplaced = (ids: string[], toFloor: string | null) => {
+    if (!shown) return
     const pick = unplaced.filter((u) => ids.includes(u.id))
-    const rest = unplaced.filter((u) => !ids.includes(u.id))
-    const back = toFloor ? pick.map(({ _anchor: _a, ...it }) => ({ ...it, floor: toFloor })) : []
-    setFurniture([...furniture, ...back], true, { furniture_unplaced: rest.map((u) => ({ id: u.id })) as ViewSettings['furniture_unplaced'] })
+    const ops: RowOp[] = pick.map((u) => (toFloor
+      ? { op: 'update', id: u.id, version: u.version, floor: toFloor }
+      : { op: 'delete', id: u.id, version: u.version }))
+    const id = shown.id, build = shown.build
+    furnQueue.current = furnQueue.current.then(async () => {
+      try {
+        const res = await batchRows(id, 'placements', build, ops)
+        for (const it of res.items) furnSaved.current.set(it.id, it)
+        setView((v) => ({
+          ...v,
+          furniture: [...(v.furniture ?? []), ...res.items],
+          furniture_unplaced: (v.furniture_unplaced ?? []).filter((u) => !ids.includes(u.id)),
+        }))
+      } catch (e) {
+        alert(conflictText(e, (i) => catalogItem(pick.find((x) => x.id === i)?.item ?? '').name))
+        setPollNonce((n) => n + 1)
+      }
+    })
   }
   const undoFurniture = () => {
     const prev = furnHistory.current.pop()
@@ -765,7 +806,7 @@ export default function App() {
         {settings === 'floors' && job?.result && <Settings job={job} onRebuild={rebuild} onClose={() => setSettings(null)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}
-            onSaved={(v) => { setView(v); setPreview(null) }} onClose={() => { setPreview(null); setSettings(null) }} />
+            onSaved={(v) => { adoptView(v); setPreview(null) }} onClose={() => { setPreview(null); setSettings(null) }} />
         )}
       </div>
     </MenuCtx.Provider>

@@ -21,7 +21,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -78,8 +78,6 @@ class Project(Base):
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))   # overrides for the next build
     site: Mapped[dict | None] = mapped_column(JSONB)                # map binding
     detail: Mapped[dict | None] = mapped_column(JSONB)              # detailed model alignment
-    # floor-bound viewer data (furniture, markers, comments) until they get their own tables
-    view: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     current_build: Mapped[int] = mapped_column(Integer, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -141,3 +139,65 @@ class Floor(Base):
     level: Mapped[int | None] = mapped_column(Integer)
     elevation: Mapped[float | None] = mapped_column(Float)
     height: Mapped[float | None] = mapped_column(Float)
+
+
+class Placement(Base):
+    """A placed piece of furniture / equipment. `x, y` are plan coordinates (m)
+    of the current build: when a rebuild moves the floor (alignment offset),
+    the rows are shifted with it. floor_id NULL, or a floor whose sheet is gone
+    (candidate NULL), means "not on a floor" until it is put back."""
+    __tablename__ = "placements"
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)                     # client-made, per project
+    floor_id: Mapped[int | None] = mapped_column(ForeignKey("floors.id", ondelete="SET NULL"), index=True)
+    # no FK: catalog ids are never deleted, and old data must import even before the catalog is loaded
+    item_id: Mapped[str] = mapped_column(Text, index=True)
+    x: Mapped[float] = mapped_column(Float(53))
+    y: Mapped[float] = mapped_column(Float(53))
+    angle: Mapped[float] = mapped_column(Float, server_default="0")
+    size: Mapped[list[float] | None] = mapped_column(ARRAY(Float))              # [w, d, h] override
+    elev: Mapped[float | None] = mapped_column(Float)
+    fov: Mapped[float | None] = mapped_column(Float)
+    range: Mapped[float | None] = mapped_column(Float)
+    note: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, server_default="1")          # optimistic locking
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Pin(Base):
+    """Marker or comment. `x, y, z` are glTF coordinates of the current build
+    (shifted on rebuilds like placements); floor_id NULL = building-wide."""
+    __tablename__ = "pins"
+    __table_args__ = (CheckConstraint("kind IN ('marker', 'comment')", name="pins_kind"),)
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text)
+    floor_id: Mapped[int | None] = mapped_column(ForeignKey("floors.id", ondelete="SET NULL"), index=True)
+    x: Mapped[float] = mapped_column(Float(53))
+    y: Mapped[float] = mapped_column(Float(53))
+    z: Mapped[float] = mapped_column(Float(53))
+    text: Mapped[str] = mapped_column(Text, server_default="")
+    label: Mapped[str] = mapped_column(Text, server_default="")
+    author: Mapped[str] = mapped_column(Text, server_default="")
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    """Who changed what. No FK to projects: the history outlives a deleted project."""
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("audit_log_project", "project_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    project_id: Mapped[str | None] = mapped_column(Text)
+    entity: Mapped[str] = mapped_column(Text)            # placement, pin, project
+    entity_id: Mapped[str] = mapped_column(Text)
+    action: Mapped[str] = mapped_column(Text)            # create, update, delete
+    actor: Mapped[str | None] = mapped_column(Text)      # user, once there are users
+    before: Mapped[dict | None] = mapped_column(JSONB)
+    after: Mapped[dict | None] = mapped_column(JSONB)

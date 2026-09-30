@@ -15,11 +15,12 @@ from pathlib import Path
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from . import viewdata
 from .edits import _floor_ns, anchor_of, match
-from .models import JOB_ACTIVE, Build, Floor, Job, Project
+from .models import JOB_ACTIVE, Build, Floor, Job, Pin, Placement, Project
 
 ROOT = Path(__file__).resolve().parents[2]
-# view keys stored in their own columns; the rest of the viewer data is Project.view
+# viewer settings stored in project columns; furniture and pins are rows (viewdata.py)
 VIEW_COLUMNS = ("name", "site", "detail")
 
 
@@ -52,15 +53,16 @@ def current_build(s: Session, p: Project) -> Build | None:
     return s.get(Build, (p.id, p.current_build)) if p.current_build else None
 
 
-def view_of(p: Project) -> dict:
+def view_of(s: Session, p: Project) -> dict:
     v = {k: getattr(p, k) for k in VIEW_COLUMNS if getattr(p, k) is not None}
-    return {**v, **(p.view or {})}
+    return {**v, **viewdata.view_data(s, p.id)}
 
 
-def set_view(p: Project, v: dict):
+def set_settings(p: Project, v: dict):
+    """name / site / detail (validated), None removes."""
     for k in VIEW_COLUMNS:
-        setattr(p, k, v.get(k))
-    p.view = {k: x for k, x in v.items() if k not in VIEW_COLUMNS}
+        if k in v:
+            setattr(p, k, v[k])
     p.updated_at = func.now()
 
 
@@ -79,7 +81,7 @@ def public(s: Session, p: Project, job: Job | None = None, build: Build | None =
            "build": p.current_build}
     if build is not None:
         out["result"] = build.result
-    view = view_of(p)
+    view = view_of(s, p)
     if view:
         out["view"] = view
     if out["status"] == "done":
@@ -118,10 +120,14 @@ def has_active(s: Session, pid: str) -> bool:
                     .where(Job.project_id == pid, Job.status.in_(JOB_ACTIVE))) > 0
 
 
-def sync_floors(s: Session, pid: str, result: dict):
+def sync_floors(s: Session, pid: str, result: dict, old: dict | None = None) -> list[str]:
     """Match the project's floors to the floors of a new build by their sheet
-    anchor (like the edits and the viewer data, see edits.py), so a floor keeps
-    its row while its candidate id (c0, c3...) changes between builds."""
+    anchor (like the edits, see edits.py), so a floor keeps its row while its
+    candidate id (c0, c3...) changes between builds, and move its furniture
+    and pins with it: by the change of the alignment offset and elevation, and
+    pins (glTF coordinates) also by the change of the model centre `old` -> `result`.
+    A floor whose sheet is not found keeps its row (candidate NULL) and its
+    rows stay where they were until the sheet is back. Returns warnings."""
     rows = s.scalars(select(Floor).where(Floor.project_id == pid)
                      .order_by(Floor.candidate.is_(None), Floor.id)).all()
     new = [f for f in result.get("floors") or [] if f.get("bbox")]
@@ -131,6 +137,13 @@ def sync_floors(s: Session, pid: str, result: dict):
         f = match(r.anchor, [x for x in ns if x.id not in taken], prefer_id=r.candidate)
         if f is not None:
             taken[f.id] = r
+    moves: dict[int, tuple[float, float, float]] = {}
+    for f in new:
+        r = taken.get(f["id"])
+        if r is not None:
+            ox, oy = r.anchor.get("offset") or (0.0, 0.0)
+            nx, ny = f.get("offset") or (0.0, 0.0)
+            moves[r.id] = (nx - ox, ny - oy, float(f.get("elevation") or 0.0) - float(r.elevation or 0.0))
     for r in rows:                       # candidates may swap: clear first (unique per project)
         r.candidate = None
     s.flush()
@@ -146,6 +159,31 @@ def sync_floors(s: Session, pid: str, result: dict):
         r.elevation = f.get("elevation")
         r.height = f.get("height")
     s.flush()
+
+    # plan -> glTF: x = px - cx, z = -(py - cy)
+    ocx, ocy = ((old or {}).get("center") or (0.0, 0.0)) if old else (result.get("center") or (0.0, 0.0))
+    ncx, ncy = result.get("center") or (0.0, 0.0)
+    cdx, cdz = ocx - ncx, ncy - ocy
+    for fid, (dx, dy, dz) in moves.items():
+        if dx or dy:
+            s.execute(update(Placement).where(Placement.project_id == pid, Placement.floor_id == fid)
+                      .values(x=Placement.x + dx, y=Placement.y + dy))
+        if dx or dy or dz or cdx or cdz:
+            s.execute(update(Pin).where(Pin.project_id == pid, Pin.floor_id == fid)
+                      .values(x=Pin.x + (cdx + dx), y=Pin.y + dz, z=Pin.z + (cdz - dy)))
+    if cdx or cdz:                        # building-wide pins and pins of lost floors
+        s.execute(update(Pin).where(Pin.project_id == pid,
+                                    Pin.floor_id.is_(None) | Pin.floor_id.not_in(list(moves) or [-1]))
+                  .values(x=Pin.x + cdx, z=Pin.z + cdz))
+
+    lost = s.execute(select(Floor.name, func.count()).join(Placement, Placement.floor_id == Floor.id)
+                     .where(Floor.project_id == pid, Floor.candidate.is_(None)).group_by(Floor.name)).all()
+    n = sum(c for _, c in lost)
+    if not n:
+        return []
+    names = ", ".join(sorted(name or "?" for name, _ in lost))
+    return [f"Оборудование ({n} шт.) не привязано: этаж «{names}» не найден в новой сборке. "
+            f"Оно сохранено — перенесите его на этаж в панели «Мебель и оборудование»"]
 
 
 def delete_stale(s: Session, days: float) -> list[str]:
