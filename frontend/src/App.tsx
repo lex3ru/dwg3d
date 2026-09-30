@@ -1,8 +1,8 @@
 import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  batchRows, downloadDrawing, getJob, getPlan, rebuildJob, uploadFile,
-  type FloorEdits, type FloorMeta, type Job, type Pin, type PlacedItem, type PlanData, type RoomMeta,
+  batchRows, downloadDrawing, getJob, getPlan, listJobs, rebuildJob, uploadFile,
+  type FloorEdits, type FloorMeta, type Job, type JobSummary, type Pin, type PlacedItem, type PlanData, type RoomMeta,
   type RowOp, type V3, type ViewSettings,
 } from './api'
 import type { CatalogItem } from './furniture/catalog'
@@ -16,7 +16,7 @@ import CatalogEditor from './ui/CatalogEditor'
 import type { SettingsPane } from './ui/Controls'
 import Report from './ui/Report'
 import {
-  formatHash, loadPrefs, parseHash, savePrefs,
+  formatHash, jobColor, loadPrefs, parseHash, savePrefs,
   type Display, type MeasureMode, type NavMode, type Projection, type Speeds, type Tool,
 } from './state'
 import { Legend, SideControls, TopRight } from './ui/Controls'
@@ -69,16 +69,42 @@ function useJobPolling(jobId: string | null, nonce: number) {
 }
 
 function Upload(p: { onJob: (id: string) => void; onCancel?: () => void }) {
-  return canEdit() ? <UploadForm {...p} /> : <NoUpload onCancel={p.onCancel} />
+  return canEdit() ? <UploadForm {...p} /> : <NoUpload {...p} />
 }
 
-function NoUpload({ onCancel }: { onCancel?: () => void }) {
+/** Buildings already on the server (start screen), newest first. */
+function Buildings({ onJob }: { onJob: (id: string) => void }) {
+  const [jobs, setJobs] = useState<JobSummary[] | null>(null)
+  useEffect(() => { listJobs().then(setJobs).catch(() => setJobs([])) }, [])
+  if (!jobs?.length) return null
+  return (
+    <div className="start-buildings">
+      <h2>Здания <small>{jobs.length}</small></h2>
+      <ul>
+        {jobs.map((j) => (
+          <li key={j.id}>
+            <button disabled={j.status !== 'done'} onClick={() => onJob(j.id)}
+              title={j.status === 'done' ? 'Открыть' : j.status === 'error' ? 'Не построено: ошибка обработки' : 'Обрабатывается'}>
+              <i className="dot" style={{ background: jobColor(j.id) }} />
+              <span className="grow">{j.name}<small>{j.filename}</small></span>
+              <small>{j.status === 'done' ? `${j.floors} эт.` : j.status === 'error' ? 'ошибка' : 'в работе'}</small>
+              <small>{new Date(j.updated * 1000).toLocaleDateString('ru-RU')}</small>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function NoUpload({ onJob, onCancel }: { onJob: (id: string) => void; onCancel?: () => void }) {
   return (
     <div className="upload-screen">
       <div className="dropzone">
         <h1>Поэтажные планы → 3D</h1>
-        <p>Загружать чертежи может роль «редактор». Откройте здание по ссылке или попросите администратора дать доступ.</p>
+        <p>Выберите здание из списка. Загружать новые чертежи может роль «редактор».</p>
       </div>
+      <Buildings onJob={onJob} />
       {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
     </div>
   )
@@ -115,6 +141,7 @@ function UploadForm({ onJob, onCancel }: { onJob: (id: string) => void; onCancel
         {err && <p className="error">{err}</p>}
         <input ref={input} type="file" accept=".dwg,.dxf" hidden onChange={(e) => send(e.target.files?.[0])} />
       </div>
+      <Buildings onJob={onJob} />
       {onCancel && <button className="ghost" onClick={onCancel}>← Вернуться к зданию</button>}
     </div>
   )

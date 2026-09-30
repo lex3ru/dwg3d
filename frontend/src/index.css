@@ -30,6 +30,16 @@ input, select { font: inherit; border: 1px solid #dee2e6; border-radius: 5px; pa
 .dropzone.drag, .dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
 .dropzone h1 { font-size: 22px; margin: 8px 0 12px; }
 .dz-icon { font-size: 34px; color: var(--accent); }
+.start-buildings { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; max-height: 45vh; display: flex; flex-direction: column; }
+.start-buildings h2 { font-size: 15px; margin: 4px 8px 8px; }
+.start-buildings h2 small { color: var(--muted); font-weight: 400; }
+.start-buildings ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.start-buildings button { width: 100%; display: flex; align-items: center; gap: 10px; border: none; background: none; text-align: left; padding: 8px; }
+.start-buildings button:hover:not(:disabled) { background: var(--accent-soft); }
+.start-buildings .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.start-buildings .grow { flex: 1; min-width: 0; }
+.start-buildings .grow small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.start-buildings button > small { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .login-card { width: min(360px, 100%); padding: 32px 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
 .login-card h1 { font-size: 20px; margin: 0; }
 .login-card .hint { margin: 0 0 4px; }
