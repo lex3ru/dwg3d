@@ -21,6 +21,8 @@ dependencies = [
   "alembic>=1.13",
   "openpyxl>=3.1",
   "boto3>=1.43.105",
+  "pyjwt[crypto]>=2.15.1",
+  "httpx>=0.28.1",
 ]
 
 [dependency-groups]

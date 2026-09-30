@@ -71,15 +71,15 @@ from pathlib import Path, PurePosixPath
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 
-from . import auth, catalog, db, files, layers, reports, rooms, store, viewdata, worker
+from . import access, auth, catalog, db, files, layers, reports, rooms, store, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Drawing, Layer, Project
+from .models import Drawing, Layer, Project, ProjectMember
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -92,80 +92,137 @@ if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
 
-PUBLIC = {"/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+PUBLIC = {"/api/health", "/api/auth/login", "/api/auth/callback", "/api/auth/logout", "/api/auth/me"}
+READ = ("GET", "HEAD", "OPTIONS")
 
 
-def required_role(method: str, path: str) -> str:
-    if method in ("GET", "HEAD", "OPTIONS"):
-        return "viewer"
-    return "catalog_admin" if path.startswith("/api/catalog") else "editor"
+def _whoami(request: Request) -> auth.Me | None:
+    """The user of the session cookie, else the guest of a share-link cookie."""
+    if not auth.enabled():
+        return auth.ANONYMOUS_ADMIN
+    return (auth.resolve(request.cookies.get(auth.COOKIE))
+            or access.resolve_share(request.cookies.get(access.SHARE_COOKIE)))
 
 
 @app.middleware("http")
 async def _authenticate(request: Request, call_next):
-    """Resolve the session cookie; refuse /api requests without the role they need."""
+    """Resolve the session (or share link); refuse /api requests of nobody,
+    changes by guests and catalog changes without the catalog role. What a
+    user may do in a project is checked by the endpoints (access.py)."""
     path = request.url.path
-    if not path.startswith("/api/") or path in PUBLIC:
+    if not path.startswith("/api/") or path in PUBLIC or path.startswith("/api/share/"):
         return await call_next(request)
-    if not auth.enabled():
-        me = auth.ANONYMOUS_ADMIN
-    else:
-        me = await run_in_threadpool(auth.resolve, request.cookies.get(auth.COOKIE))
-        if me is None:
-            return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
-    need = required_role(request.method, path)
-    if not me.can(need):
-        return JSONResponse({"detail": f"Недостаточно прав: нужна роль «{auth.ROLE_NAMES[need]}»"}, status_code=403)
-    token = auth.current.set(me)
+    me = await run_in_threadpool(_whoami, request)
+    if me is None:
+        return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
+    if me.share is not None and request.method not in READ:
+        return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра"}, status_code=403)
+    if path.startswith("/api/catalog") and request.method not in READ and not me.can("catalog_admin"):
+        return JSONResponse({"detail": "Недостаточно прав: нужна роль «администратор каталога»"}, status_code=403)
+    token, mtoken = auth.current.set(me), auth.method.set(request.method)
     try:
         return await call_next(request)
     finally:
         auth.current.reset(token)
+        auth.method.reset(mtoken)
+
+
+@app.exception_handler(access.Denied)
+def _denied(_, ex: access.Denied):
+    return JSONResponse({"detail": str(ex)}, status_code=ex.status)
+
+
+@app.exception_handler(auth.OIDCError)
+def _oidc_failed(_, ex: auth.OIDCError):
+    return JSONResponse({"detail": str(ex)}, status_code=400)
 
 
 # ------------------------------------------------------------- sign-in ---
-_FAILS: dict[str, list[float]] = {}          # login attempts per client (this process)
-FAIL_LIMIT, FAIL_WINDOW = 10, 600
+def _base_url(request: Request) -> str:
+    """This site as the browser sees it (for redirects back from Keycloak)."""
+    if url := os.environ.get("DWG3D_PUBLIC_URL"):
+        return url.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}"
 
 
-@app.post("/api/auth/login")
-def auth_login(v: dict, request: Request, response: Response):
-    login_, password = v.get("login") if isinstance(v, dict) else None, v.get("password") if isinstance(v, dict) else None
-    if not isinstance(login_, str) or not isinstance(password, str) or len(login_) > 80 or len(password) > 200:
-        raise HTTPException(400, "Нужны логин и пароль")
-    key = f"{request.client.host if request.client else ''}|{login_.strip().lower()}"
-    now = time.time()
-    recent = [t for t in _FAILS.get(key, []) if now - t < FAIL_WINDOW]
-    if len(recent) >= FAIL_LIMIT:
-        raise HTTPException(429, "Слишком много неудачных попыток. Попробуйте через несколько минут")
-    res = auth.login(login_, password, request.headers.get("user-agent", ""))
-    if res is None:
-        _FAILS[key] = [*recent, now]
-        raise HTTPException(401, "Неверный логин или пароль")
-    _FAILS.pop(key, None)
+def _secure(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+
+
+@app.get("/api/auth/login")
+def auth_login(request: Request, next: str = "/"):
+    """Off to the Keycloak sign-in page; it sends the browser back to /api/auth/callback."""
+    if not auth.enabled():
+        return RedirectResponse(auth.safe_next(next), status_code=303)
+    url, state = auth.login_redirect(_base_url(request), next)
+    r = RedirectResponse(url, status_code=303)
+    r.set_cookie(auth.STATE_COOKIE, state, max_age=auth.STATE_TTL, httponly=True, samesite="lax",
+                 secure=_secure(request), path="/api/auth")
+    return r
+
+
+@app.get("/api/auth/callback")
+def auth_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None,
+                  error_description: str | None = None):
+    if error or not code or not state:
+        msg = error_description or error or "нет кода авторизации"
+        return HTMLResponse(_signin_failed(msg), status_code=400)
+    try:
+        token, _, nxt = auth.complete_login(_base_url(request), code, state, request.cookies.get(auth.STATE_COOKIE),
+                                            request.headers.get("user-agent", ""))
+    except auth.OIDCError as ex:
+        return HTMLResponse(_signin_failed(str(ex)), status_code=400)
     auth.purge_sessions()
-    token, me = res
-    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    response.set_cookie(auth.COOKIE, token, max_age=int(auth.session_days() * 86400), httponly=True,
-                        samesite="lax", secure=secure, path="/")
-    return me.json()
+    r = RedirectResponse(nxt, status_code=303)
+    r.delete_cookie(auth.STATE_COOKIE, path="/api/auth")
+    r.delete_cookie(access.SHARE_COOKIE, path="/")
+    r.set_cookie(auth.COOKIE, token, max_age=int(auth.session_days() * 86400), httponly=True,
+                 samesite="lax", secure=_secure(request), path="/")
+    return r
+
+
+def _signin_failed(msg: str) -> str:
+    import html
+    return ("<!doctype html><meta charset=utf-8><title>Вход не выполнен</title>"
+            "<body style='font-family:sans-serif;max-width:40em;margin:4em auto'>"
+            f"<h1>Вход не выполнен</h1><p>{html.escape(msg)}</p><p><a href='/'>Попробовать ещё раз</a></p>")
 
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response):
-    auth.logout(request.cookies.get(auth.COOKIE))
+    """End the session; `logout_url` signs out of Keycloak too (the browser goes there)."""
+    url = auth.logout(request.cookies.get(auth.COOKIE), _base_url(request))
     response.delete_cookie(auth.COOKIE, path="/")
-    return {"ok": True}
+    response.delete_cookie(access.SHARE_COOKIE, path="/")
+    return {"ok": True, "logout_url": url}
 
 
 @app.get("/api/auth/me")
 def auth_me(request: Request):
-    if not auth.enabled():
-        return auth.ANONYMOUS_ADMIN.json()
-    me = auth.resolve(request.cookies.get(auth.COOKIE))
+    me = _whoami(request)
     if me is None:
         return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
     return me.json()
+
+
+@app.post("/api/share/{token}")
+def open_share(token: str, request: Request, response: Response):
+    """Open a share link: the token goes into a cookie; the project to show."""
+    me = access.resolve_share(token, touch=True)
+    if me is None:
+        raise HTTPException(404, "Ссылка недействительна: её отозвали, срок истёк или проект удалён")
+    response.set_cookie(access.SHARE_COOKIE, token, max_age=30 * 86400, httponly=True, samesite="lax",
+                        secure=_secure(request), path="/")
+    return me.json()
+
+
+@app.get("/api/users")
+def search_users(q: str = "", limit: int = 20):
+    """Users who have signed in at least once (to add them to a project)."""
+    return auth.list_users(q[:100], limit)
+
 
 _last_cleanup = 0.0
 
@@ -194,9 +251,9 @@ def _init_db():
 
 
 _init_db()
-if auth.enabled() and not auth.has_users():
-    log.warning("Нет ни одного пользователя: создайте его — python -m dwg3d user add LOGIN --role catalog_admin "
-                "(или DWG3D_AUTH=off для сервера во внутренней сети)")
+if auth.enabled() and not os.environ.get("DWG3D_OIDC_ISSUER"):
+    log.warning("Вход не настроен: задайте DWG3D_OIDC_ISSUER и DWG3D_OIDC_CLIENT_SECRET (Keycloak) "
+                "или DWG3D_AUTH=off для сервера во внутренней сети")
 worker.start(int(os.environ.get("DWG3D_WORKERS", "2")))
 _cleanup()
 
@@ -222,17 +279,21 @@ def _tmp_path(suffix: str = "") -> Path:
     return d / f"{uuid.uuid4().hex}{suffix}.part"
 
 
-def _project(s, pid: str, lock: bool = False) -> Project:
+def _project(s, pid: str, lock: bool = False, need: str | None = None) -> Project:
+    """The project, if the current user may do this in it (`need`: the role
+    it takes; by default viewer for reading, editor for changes)."""
     p = store.get_project(s, pid, lock=lock)
     if p is None:
         raise HTTPException(404, "Проект не найден")
+    access.check(s, pid, need)
     return p
 
 
-def _drawing(s, did: str, lock: bool = False) -> Drawing:
+def _drawing(s, did: str, lock: bool = False, need: str | None = None) -> Drawing:
     d = store.get_drawing(s, did, lock=lock)
     if d is None:
         raise HTTPException(404, "Чертёж не найден")
+    access.check_drawing(s, d, need)
     return d
 
 
@@ -317,7 +378,9 @@ def equipment_report(project: str | None = None, layer: str | None = None, by: s
             _project(s, project)
         if layer is not None and (project is None or _layer_of(s, project, layer) is None):
             raise HTTPException(404, "Слой не найден")
-        rep = reports.by_room(s, project, layer) if by == "room" else reports.equipment(s, project, layer)
+        me = auth.current.get()
+        rep = (reports.by_room(s, project, layer, me, access.visible_layers(me)) if by == "room"
+               else reports.equipment(s, project, layer, me, access.visible_layers(me)))
     if format == "json":
         return rep
     if by == "room":
@@ -346,8 +409,9 @@ def _text(v: dict, key: str, n: int, required: bool = False) -> str | None:
 
 @app.get("/api/projects")
 def list_projects():
+    """The projects the user may open, with their drawings and the user's role."""
     with db.session() as s:
-        return store.list_projects(s)
+        return store.list_projects(s, auth.current.get())
 
 
 @app.post("/api/projects", status_code=201)
@@ -359,14 +423,17 @@ def create_project(v: dict):
                     created_by=me.id if me else None)
         s.add(p)
         s.flush()
+        if me is not None and me.id is not None:           # the author owns it
+            s.add(ProjectMember(project_id=p.id, user_id=me.id, role="owner", added_by=me.id))
         viewdata.audit_entry(s, p.id, "project", p.id, "create", None, {"name": p.name})
-        return store.project_json(s, p, [])
+        return store.project_json(s, p, [], "owner")
 
 
 @app.get("/api/projects/{pid}")
 def get_project(pid: str):
     with db.session() as s:
-        return store.project_json(s, _project(s, pid))
+        p = _project(s, pid)
+        return store.project_json(s, p, None, access.project_role(s, auth.current.get(), pid))
 
 
 @app.patch("/api/projects/{pid}")
@@ -384,14 +451,14 @@ def update_project(pid: str, v: dict):
             p.updated_at = func.now()
             viewdata.audit_entry(s, p.id, "project", p.id, "update", before, after)
         s.flush()
-        return store.project_json(s, p)
+        return store.project_json(s, p, None, access.project_role(s, auth.current.get(), pid))
 
 
 @app.delete("/api/projects/{pid}", status_code=204)
 def delete_project(pid: str):
     """Hidden at once; rows and files go with the retention cleanup (or stay for recovery)."""
     with db.session() as s:
-        p = _project(s, pid, lock=True)
+        p = _project(s, pid, lock=True, need="owner")
         if any(store.has_active(s, d["id"]) for d in store.list_drawings(s, pid)):
             raise HTTPException(409, "Идёт обработка чертежа: удалите проект после её окончания")
         p.deleted_at = func.now()
@@ -400,9 +467,82 @@ def delete_project(pid: str):
 
 @app.get("/api/projects/{pid}/audit")
 def get_audit(pid: str, limit: int = 100, drawing: str | None = None):
+    me = auth.current.get()
+    if me is not None and me.share is not None:
+        raise HTTPException(403, "Журнал изменений недоступен по ссылке")
     with db.session() as s:
         _project(s, pid)
         return viewdata.audit(s, pid, limit, drawing)
+
+
+# ------------------------------------------------ members and share links ---
+def _bad(fn, *a):
+    try:
+        return fn(*a)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    except LookupError:
+        raise HTTPException(404, "Не найдено")
+
+
+@app.get("/api/projects/{pid}/members")
+def list_members(pid: str):
+    with db.session() as s:
+        _project(s, pid)
+        return access.members(s, pid)
+
+
+@app.post("/api/projects/{pid}/members", status_code=201)
+def add_member(pid: str, v: dict):
+    """{who: login or e-mail, role}: an e-mail of someone who has not signed in yet is an invitation."""
+    with db.session() as s:
+        _project(s, pid, lock=True, need="owner")
+        m = _bad(access.add_member, s, pid, v.get("who") or v.get("login") or v.get("email") or "", v.get("role"))
+        viewdata.audit_entry(s, pid, "member", str(m["id"]), "create", None, m)
+        return m
+
+
+@app.patch("/api/projects/{pid}/members/{mid}")
+def update_member(pid: str, mid: int, v: dict):
+    with db.session() as s:
+        _project(s, pid, lock=True, need="owner")
+        m = _bad(access.set_member_role, s, pid, mid, v.get("role"))
+        viewdata.audit_entry(s, pid, "member", str(mid), "update", None, m)
+        return m
+
+
+@app.delete("/api/projects/{pid}/members/{mid}", status_code=204)
+def delete_member(pid: str, mid: int):
+    with db.session() as s:
+        _project(s, pid, lock=True, need="owner")
+        m = _bad(access.remove_member, s, pid, mid)
+        viewdata.audit_entry(s, pid, "member", str(mid), "delete", m, None)
+
+
+@app.get("/api/projects/{pid}/shares")
+def list_shares(pid: str):
+    with db.session() as s:
+        _project(s, pid, need="owner")
+        return access.shares(s, pid)
+
+
+@app.post("/api/projects/{pid}/shares", status_code=201)
+def create_share(pid: str, v: dict, request: Request):
+    """{name?, days?, drawings?, layers?} -> the link (its token is shown only now)."""
+    with db.session() as s:
+        _project(s, pid, lock=True, need="owner")
+        x, token = _bad(access.create_share, s, pid, v if isinstance(v, dict) else {})
+        viewdata.audit_entry(s, pid, "share", x["id"], "create", None, x)
+    return {**x, "token": token, "url": f"{_base_url(request)}/#/s/{token}"}
+
+
+@app.delete("/api/projects/{pid}/shares/{sid}")
+def revoke_share(pid: str, sid: str):
+    with db.session() as s:
+        _project(s, pid, lock=True, need="owner")
+        x = _bad(access.revoke_share, s, pid, sid)
+        viewdata.audit_entry(s, pid, "share", sid, "revoke", None, x)
+        return x
 
 
 # ------------------------------------------------------------ drawings ---
@@ -512,9 +652,9 @@ async def upload_revision(did: str, file: UploadFile = File(...)):
 
 @app.get("/api/drawings")
 def list_drawings(project: str | None = None):
-    """Drawings (of one project), newest first."""
+    """Drawings (of one project) the user may open, newest first."""
     with db.session() as s:
-        return store.list_drawings(s, project)
+        return store.list_drawings(s, project, auth.current.get())
 
 
 @app.delete("/api/drawings/{did}", status_code=204)
@@ -644,7 +784,7 @@ def _row_routes(kind: str):
     def list_rows(did: str, floor: str | None = None, layer: str | None = None):
         with db.session() as s:
             d = _drawing(s, did)
-            data = viewdata.view_data(s, did)
+            data = viewdata.view_data(s, did, access.visible_layers(auth.current.get()))
         pick = lambda k: [it for it in data.get(k) or []  # noqa: E731
                           if (floor is None or it["floor"] == floor) and (layer is None or it.get("layer") == layer)]
         if kind == "objects":
@@ -713,7 +853,8 @@ def _layer(s, pid: str, lid: str) -> Layer:
 def list_layers(pid: str):
     with db.session() as s:
         _project(s, pid)
-        return layers.list_layers(s, pid)
+        shown = access.visible_layers(auth.current.get())
+        return [x for x in layers.list_layers(s, pid) if shown is None or x["id"] in shown]
 
 
 @app.post("/api/projects/{pid}/layers", status_code=201)

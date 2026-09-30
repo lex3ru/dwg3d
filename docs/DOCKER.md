@@ -10,16 +10,34 @@
 | `db`     | PostgreSQL                                                        |
 | `s3`     | RustFS — S3-совместимое хранилище чертежей, моделей, экспорта     |
 | `backup` | раз в сутки: дамп базы и зеркало файлов в `DWG3D_BACKUP_DIR`      |
+| `keycloak` | вход (OpenID Connect), realm `dwg3d`, по адресу `/auth`         |
 
 ## Первый запуск
 
 ```bash
-cp .env.example .env      # пароли, адрес сайта, uid:gid владельца каталога данных
+cp .env.example .env      # пароли, адрес сайта (DWG3D_PUBLIC_URL)
 docker compose up -d --build
-docker compose exec api python -m dwg3d user add admin --role catalog_admin
 ```
 
-Интерфейс: `http://localhost:8088` (порт — `DWG3D_HTTP_PORT`).
+Интерфейс: `http://localhost:8088` (порт — `DWG3D_HTTP_PORT`). Первый вход —
+`DWG3D_ADMIN_USER` / `DWG3D_ADMIN_PASSWORD` (Keycloak попросит сменить пароль);
+это глобальный администратор.
+
+## Keycloak
+
+Realm `dwg3d` импортируется при первом старте из
+`deploy/keycloak/dwg3d-realm.json` (переменные `${…}` берутся из окружения
+сервиса); если realm уже есть, файл не читается. Таблицы Keycloak лежат в
+схеме `keycloak` той же базы (попадают в резервные копии).
+
+- Консоль: `$DWG3D_PUBLIC_URL/auth/admin/` (`KEYCLOAK_ADMIN` /
+  `KEYCLOAK_ADMIN_PASSWORD`, realm `master`).
+- Пользователи: realm `dwg3d` → Users. Глобальные роли — realm roles `admin`
+  и `catalog_admin`; доступ к проектам выдаётся в самом приложении.
+- Вход через корпоративный каталог (LDAP/AD) или другой IdP настраивается в
+  Keycloak (User federation / Identity providers) — приложение не меняется.
+- Смена адреса сайта: `DWG3D_PUBLIC_URL` в `.env` и Valid redirect URIs
+  клиента `dwg3d` в консоли (импорт уже существующего realm не повторяется).
 
 ## Файлы
 
@@ -81,3 +99,16 @@ cd frontend && npm run dev
 
 Без `DWG3D_S3_ENDPOINT` локальный сервер хранит файлы в каталоге `data/`
 (как раньше); тесты S3-режима (`tests/test_files.py`) используют сервис `s3`.
+
+Вход при локальном запуске — через Keycloak из compose (адрес
+`http://localhost:5174` уже разрешён в realm для возврата после входа):
+
+```bash
+docker compose up -d                        # db, s3, keycloak (и остальное)
+cd backend && DWG3D_OIDC_ISSUER=http://localhost:8088/auth/realms/dwg3d \
+  DWG3D_OIDC_INTERNAL=http://127.0.0.1:8180/auth/realms/dwg3d \
+  DWG3D_OIDC_CLIENT_SECRET=dev-client-secret uv run uvicorn dwg3d.api:app --port 8765
+```
+
+или без входа: `DWG3D_AUTH=off`. Тест с настоящим Keycloak —
+`tests/test_keycloak.py` (пропускается, если Keycloak не запущен).

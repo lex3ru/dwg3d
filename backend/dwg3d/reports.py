@@ -39,11 +39,19 @@ def _item_row(it: CatalogItem | None, iid: str, cats: dict) -> dict:
             "currency": it.currency if it and it.price is not None else None, "qty": 0}
 
 
-def _placed(q, project_id: str | None, layer_id: str | None):
-    """Catalog objects of live projects and drawings (one project / layer)."""
+def _placed(q, project_id: str | None, layer_id: str | None, me=None, layer_ids: set[str] | None = None):
+    """Catalog objects of live projects and drawings (one project / layer;
+    only projects `me` may open and layers in `layer_ids` when given)."""
     q = (q.join(Drawing, Drawing.id == LayerObject.drawing_id)
          .join(Project, Project.id == Drawing.project_id)
          .where(Project.deleted_at.is_(None), Drawing.deleted_at.is_(None), LayerObject.item_id.is_not(None)))
+    if me is not None:
+        from . import access
+        q = access.visible(q, me)
+        if me.share is not None and me.share["drawings"] is not None:
+            q = q.where(Drawing.id.in_(me.share["drawings"]))
+    if layer_ids is not None:
+        q = q.where(LayerObject.layer_id.in_(layer_ids))
     if project_id is not None:
         q = q.where(Drawing.project_id == project_id)
     if layer_id is not None:
@@ -51,11 +59,12 @@ def _placed(q, project_id: str | None, layer_id: str | None):
     return q
 
 
-def equipment(s: Session, project_id: str | None = None, layer_id: str | None = None) -> dict:
+def equipment(s: Session, project_id: str | None = None, layer_id: str | None = None, me=None,
+              layer_ids: set[str] | None = None) -> dict:
     q = _placed(select(Drawing.project_id, LayerObject.item_id, Floor.name, Floor.candidate, Floor.level,
                        Drawing.id, func.count())
                 .select_from(LayerObject)
-                .outerjoin(Floor, Floor.id == LayerObject.floor_id), project_id, layer_id)
+                .outerjoin(Floor, Floor.id == LayerObject.floor_id), project_id, layer_id, me, layer_ids)
     q = q.group_by(Drawing.project_id, LayerObject.item_id, Floor.name, Floor.candidate, Floor.level, Drawing.id)
     counts = s.execute(q).all()
     drawings = {d.id: d for d in s.scalars(select(Drawing).where(Drawing.id.in_({c[5] for c in counts})))}
@@ -120,13 +129,14 @@ def equipment(s: Session, project_id: str | None = None, layer_id: str | None = 
 NO_ROOM = "вне помещений"
 
 
-def by_room(s: Session, project_id: str, layer_id: str | None = None) -> dict:
+def by_room(s: Session, project_id: str, layer_id: str | None = None, me=None,
+            layer_ids: set[str] | None = None) -> dict:
     """Catalog objects of a project room by room: [{drawing, floor, room, area, items, totals}]."""
     q = _placed(select(Drawing.id, Floor.name, Floor.candidate, Floor.level, Room.id, Room.name, Room.area,
                        LayerObject.item_id, func.count())
                 .select_from(LayerObject)
                 .outerjoin(Floor, Floor.id == LayerObject.floor_id)
-                .outerjoin(Room, Room.id == LayerObject.room_id), project_id, layer_id)
+                .outerjoin(Room, Room.id == LayerObject.room_id), project_id, layer_id, me, layer_ids)
     q = q.group_by(Drawing.id, Floor.name, Floor.candidate, Floor.level, Room.id, Room.name, Room.area,
                    LayerObject.item_id)
     counts = s.execute(q).all()

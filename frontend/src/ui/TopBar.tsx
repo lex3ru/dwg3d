@@ -57,7 +57,7 @@ export default function TopBar({ jobId, name, result, onOpenJob, onNewFile, onRo
                 <Icon name="upload" size={15} /> Загрузить новый чертёж…
               </button>
             )}
-            {me?.auth && (
+            {me?.auth && !me.guest && (
               <div className="menu-user">
                 <b>{me.name}</b> <small>{me.login} · {me.role_name}</small>
                 <button className="menu-item" onClick={() => { chip.close(); signOut() }}>Выйти</button>

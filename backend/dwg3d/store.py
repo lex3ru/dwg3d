@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from . import layers, viewdata
+from . import access, auth, layers, viewdata
 from .edits import _floor_ns, anchor_of, match
 from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, LayerObject, Pin, Project
 
@@ -60,7 +60,7 @@ def current_build(s: Session, d: Drawing) -> Build | None:
 
 def view_of(s: Session, d: Drawing) -> dict:
     v = {k: getattr(d, k) for k in VIEW_COLUMNS if getattr(d, k) is not None}
-    return {**v, **viewdata.view_data(s, d.id)}
+    return {**v, **viewdata.view_data(s, d.id, access.visible_layers(auth.current.get()))}
 
 
 def set_settings(d: Drawing, v: dict):
@@ -90,15 +90,19 @@ def public(s: Session, d: Drawing, job: Job | None = None, build: Build | None =
     view = view_of(s, d)
     if view:
         out["view"] = view
-    out["layers"] = layers.list_layers(s, d.project_id)
+    me = auth.current.get()
+    shown = access.visible_layers(me)
+    out["layers"] = [x for x in layers.list_layers(s, d.project_id) if shown is None or x["id"] in shown]
+    out["my_role"] = access.project_role(s, me, d.project_id)
     if out["status"] == "done":
         out["model_url"] = f"/api/drawings/{d.id}/files/model.glb?v={d.current_build}"
         out["metadata_url"] = f"/api/drawings/{d.id}/files/metadata.json?v={d.current_build}"
     return out
 
 
-def list_drawings(s: Session, project_id: str | None = None) -> list[dict]:
-    """Drawings (of one project, or all): newest first, without reading build results."""
+def list_drawings(s: Session, project_id: str | None = None, me=None) -> list[dict]:
+    """Drawings (of one project, or all; only those `me` may open when given):
+    newest first, without reading build results."""
     last = (select(Job.drawing_id, func.max(Job.id).label("jid")).group_by(Job.drawing_id).subquery())
     nfloors = func.coalesce(func.jsonb_array_length(Build.result["floors"]), 0)
     q = (select(Drawing.id, Drawing.project_id, Drawing.name, Drawing.filename, Drawing.size, Drawing.updated_at,
@@ -111,25 +115,35 @@ def list_drawings(s: Session, project_id: str | None = None) -> list[dict]:
          .order_by(Drawing.updated_at.desc()))
     if project_id is not None:
         q = q.where(Drawing.project_id == project_id)
+    if me is not None:
+        q = access.visible(q, me, Drawing.project_id)
     return [{"id": did, "project_id": pid, "filename": fn, "size": size,
              "status": st or ("done" if cb else "error"), "progress": pr if st else 1.0,
              "updated": ts(up), "floors": nf, "build": cb, "name": name or Path(fn or "").stem}
-            for did, pid, name, fn, size, up, cb, st, pr, nf in s.execute(q)]
+            for did, pid, name, fn, size, up, cb, st, pr, nf in s.execute(q)
+            if me is None or access.visible_drawing(me, did)]
 
 
-def project_json(s: Session, p: Project, drawings: list[dict] | None = None) -> dict:
+def project_json(s: Session, p: Project, drawings: list[dict] | None = None, role: str | None = None) -> dict:
+    """A project with its drawings (those the current user may open) and the user's role in it."""
+    if drawings is None:
+        me = auth.current.get()
+        drawings = list_drawings(s, p.id, me) if me is not None else list_drawings(s, p.id)
     return {"id": p.id, "name": p.name, "description": p.description, "created": ts(p.created_at),
-            "updated": ts(p.updated_at),
-            "drawings": drawings if drawings is not None else list_drawings(s, p.id)}
+            "updated": ts(p.updated_at), "my_role": role, "drawings": drawings}
 
 
-def list_projects(s: Session) -> list[dict]:
-    """Projects with their drawings, most recently changed first."""
+def list_projects(s: Session, me=None) -> list[dict]:
+    """Projects with their drawings, most recently changed first (only those `me` may open when given)."""
     drawings: dict[str, list[dict]] = {}
-    for d in list_drawings(s):
+    for d in list_drawings(s, None, me):
         drawings.setdefault(d["project_id"], []).append(d)
     q = select(Project).where(Project.deleted_at.is_(None)).order_by(Project.updated_at.desc())
-    return [project_json(s, p, drawings.get(p.id, [])) for p in s.scalars(q)]
+    if me is not None:
+        q = access.visible(q, me)
+    projects = list(s.scalars(q))
+    roles = access.roles_of(s, me, [p.id for p in projects]) if me is not None else {}
+    return [project_json(s, p, drawings.get(p.id, []), roles.get(p.id)) for p in projects]
 
 
 def enqueue(s: Session, d: Drawing) -> Job:

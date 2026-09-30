@@ -8,7 +8,7 @@ import {
 import type { CatalogItem } from './furniture/catalog'
 import { catalogItem } from './furniture/catalog'
 import { conflictText, furnitureOps } from './furniture/sync'
-import { canEdit, READ_ONLY } from './session'
+import { canEdit, me, READ_ONLY, setProjectRole } from './session'
 import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
@@ -52,6 +52,7 @@ function useJobPolling(jobId: string | null, nonce: number) {
       try {
         const j = await getJob(jobId)
         if (stop) return
+        setProjectRole(j.my_role)
         setJob(j)
         setError(null)
         if (j.status === 'queued' || j.status === 'running') timer = window.setTimeout(tick, 600)
@@ -69,7 +70,7 @@ function useJobPolling(jobId: string | null, nonce: number) {
 }
 
 function Upload(p: { onJob: (id: string) => void; onCancel?: () => void }) {
-  return canEdit() ? <UploadForm {...p} /> : <NoUpload {...p} />
+  return me && !me.guest ? <UploadForm {...p} /> : <NoUpload {...p} />
 }
 
 /** Buildings already on the server (start screen), newest first. */

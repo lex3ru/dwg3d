@@ -66,29 +66,38 @@ class CatalogItem(Base):
 
 
 class User(Base):
+    """A user signed in through Keycloak (`sub` of the tokens). `role` follows
+    the realm roles: admin (every project, the catalog), catalog_admin, user."""
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("role IN ('viewer', 'editor', 'catalog_admin')", name="users_role"),
-                      Index("users_login", func.lower(text("login")), unique=True))
+    __table_args__ = (CheckConstraint("role IN ('user', 'catalog_admin', 'admin')", name="users_role"),
+                      Index("users_login", func.lower(text("login")), unique=True),
+                      Index("users_sub", "sub", unique=True))
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sub: Mapped[str | None] = mapped_column(Text)
     login: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text, server_default="")
-    role: Mapped[str] = mapped_column(Text, server_default="viewer")
-    password_hash: Mapped[str] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text, server_default="user")
     active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuthSession(Base):
-    """A signed-in browser: the cookie holds the token, the row its SHA-256."""
+    """A signed-in browser: the cookie holds the token, the row its SHA-256
+    and the Keycloak tokens (refreshed now and then: a user signed out or
+    disabled in Keycloak loses the session)."""
     __tablename__ = "sessions"
 
     token_hash: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     user_agent: Mapped[str] = mapped_column(Text, server_default="")
+    id_token: Mapped[str | None] = mapped_column(Text)
+    refresh_token: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Project(Base):
@@ -273,6 +282,44 @@ class Pin(Base):
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProjectMember(Base):
+    """Who may open a project and how: owner (members, share links, deletion),
+    editor, viewer. An invitation by e-mail waits with user_id NULL until
+    that user signs in."""
+    __tablename__ = "project_members"
+    __table_args__ = (CheckConstraint("role IN ('owner', 'editor', 'viewer')", name="project_members_role"),
+                      CheckConstraint("user_id IS NOT NULL OR email IS NOT NULL", name="project_members_who"),
+                      UniqueConstraint("project_id", "user_id"),
+                      Index("project_members_invite", "project_id", func.lower(text("email")), unique=True,
+                            postgresql_where=text("user_id IS NULL")))
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text)
+    added_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ShareLink(Base):
+    """Read-only access to a project without an account (the link carries a
+    token, the row its SHA-256), optionally to some drawings and layers only."""
+    __tablename__ = "share_links"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text, server_default="")
+    drawings: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    layers: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditLog(Base):

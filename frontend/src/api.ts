@@ -166,6 +166,8 @@ export interface Job {
   view?: ViewSettings
   /** layers of the drawing's project */
   layers?: Layer[]
+  /** the current user's role in the project */
+  my_role?: 'viewer' | 'editor' | 'owner' | null
 }
 
 export interface Pin {
@@ -234,6 +236,8 @@ export interface Project {
   id: string
   name: string
   description: string
+  /** the current user's role in the project */
+  my_role: 'viewer' | 'editor' | 'owner' | null
   created: number
   updated: number
   drawings: JobSummary[]

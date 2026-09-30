@@ -14,6 +14,7 @@
 #   db      PostgreSQL
 #   s3      RustFS: S3-compatible storage for drawings, models, exports
 #   backup  once a day: database dump + mirror of the files (DWG3D_BACKUP_DIR)
+#   keycloak  sign-in (OpenID Connect), realm "dwg3d" from deploy/keycloak/ at /auth
 name: 3drender
 
 x-app: &app
@@ -29,6 +30,11 @@ x-app: &app
     DWG3D_S3_BUCKET: ${DWG3D_S3_BUCKET:-dwg3d}
     DWG3D_S3_ACCESS_KEY: ${DWG3D_S3_ACCESS_KEY:-dwg3d}
     DWG3D_S3_SECRET_KEY: ${DWG3D_S3_SECRET_KEY:-dwg3d-secret}
+    DWG3D_PUBLIC_URL: ${DWG3D_PUBLIC_URL:-http://localhost:8088}
+    DWG3D_OIDC_ISSUER: ${DWG3D_PUBLIC_URL:-http://localhost:8088}/auth/realms/dwg3d
+    DWG3D_OIDC_INTERNAL: http://keycloak:8080/auth/realms/dwg3d
+    DWG3D_OIDC_CLIENT_SECRET: ${DWG3D_OIDC_CLIENT_SECRET:-dev-client-secret}
+    DWG3D_SECRET: ${DWG3D_SECRET:-dev-secret-change-me}
   volumes:
     # working copies and temporary files only: the files themselves are in s3
     - scratch:/data
@@ -92,6 +98,37 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/dwg3d
+      KC_DB_SCHEMA: keycloak
+      KC_DB_USERNAME: dwg3d
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-dwg3d}
+      KC_HOSTNAME: ${DWG3D_PUBLIC_URL:-http://localhost:8088}/auth
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-kcadmin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
+      # read by the realm import (deploy/keycloak/dwg3d-realm.json)
+      DWG3D_PUBLIC_URL: ${DWG3D_PUBLIC_URL:-http://localhost:8088}
+      DWG3D_OIDC_CLIENT_SECRET: ${DWG3D_OIDC_CLIENT_SECRET:-dev-client-secret}
+      DWG3D_ADMIN_USER: ${DWG3D_ADMIN_USER:-admin}
+      DWG3D_ADMIN_PASSWORD: ${DWG3D_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:${DWG3D_KEYCLOAK_PORT:-8180}:8080"
+    depends_on:
+      # its tables live in the "keycloak" schema, created by the API's migrations
+      api:
+        condition: service_healthy
 
   s3:
     image: rustfs/rustfs:1.0.0

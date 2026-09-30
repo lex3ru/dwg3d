@@ -160,13 +160,15 @@ def pin_json(r: Pin, floors: dict[int, Floor]) -> dict:
             "label": r.label, "author": r.author, "created": r.created_at.timestamp(), "version": r.version}
 
 
-def view_data(s: Session, did: str) -> dict:
+def view_data(s: Session, did: str, layer_ids: set[str] | None = None) -> dict:
     """Objects and pins of a drawing: furniture (catalog items on a floor),
     furniture_unplaced (their floor is gone), shapes (lines, polygons, routes),
-    markers, comments — only non-empty lists."""
+    markers, comments — only non-empty lists; objects of `layer_ids` only when given."""
     floors = _floors(s, did)
     out: dict[str, list] = {"furniture": [], "furniture_unplaced": [], "shapes": [], "markers": [], "comments": []}
     q = select(LayerObject).where(LayerObject.drawing_id == did).order_by(LayerObject.created_at, LayerObject.id)
+    if layer_ids is not None:
+        q = q.where(LayerObject.layer_id.in_(layer_ids))
     for r in s.scalars(q):
         o = object_json(r, floors)
         if r.geom != "point":

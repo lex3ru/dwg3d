@@ -10,8 +10,7 @@
   python -m dwg3d files restore DIR       # upload a backup mirror (DIR/drawings, DIR/catalog)
   python -m dwg3d backup DIR [--keep 14]  # database dump + mirror of the file store
   python -m dwg3d rooms backfill          # room rows for drawings built before they existed
-  python -m dwg3d user add LOGIN --role editor [--name "Имя"]   # asks for the password
-  python -m dwg3d user passwd LOGIN | role LOGIN ROLE | disable LOGIN | enable LOGIN | list
+  python -m dwg3d user list               # users who have signed in (they are managed in Keycloak)
 """
 from __future__ import annotations
 
@@ -54,13 +53,8 @@ def main(argv=None):
     bk.add_argument("--keep", type=int, default=14, help="database dumps to keep")
     w = sub.add_parser("worker", help="run build workers only (no HTTP)")
     w.add_argument("-n", type=int, default=2, help="worker threads")
-    u = sub.add_parser("user", help="users and roles (viewer, editor, catalog_admin)")
-    u.add_argument("action", choices=["add", "passwd", "role", "disable", "enable", "list"])
-    u.add_argument("login", nargs="?")
-    u.add_argument("new_role", nargs="?", help="for `role`")
-    u.add_argument("--role", default="viewer", choices=["viewer", "editor", "catalog_admin"], help="for `add`")
-    u.add_argument("--name", default="", help="for `add`: name shown in the journal")
-    u.add_argument("--password-stdin", action="store_true", help="read the password from stdin (scripts)")
+    u = sub.add_parser("user", help="users who have signed in (managed in Keycloak)")
+    u.add_argument("action", choices=["list"])
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose or args.cmd == "build" else logging.WARNING,
@@ -155,42 +149,11 @@ def main(argv=None):
 
 
 def _user_cmd(args) -> int:
-    import getpass
-
     from . import auth, db
     db.migrate()
-
-    def password() -> str:
-        if args.password_stdin:
-            return sys.stdin.readline().rstrip("\n")
-        p1 = getpass.getpass("Пароль: ")
-        if p1 != getpass.getpass("Ещё раз: "):
-            raise auth.UserError("пароли не совпадают")
-        return p1
-
-    try:
-        if args.action == "list":
-            for x in auth.list_users():
-                print(f"  {x['login']:<20} {x['role']:<14} {'' if x['active'] else 'отключён':<9} "
-                      f"{x['name']:<30} вход: {x['last_login'] or '—'}")
-            return 0
-        if not args.login:
-            raise auth.UserError("нужен логин")
-        if args.action == "role" and args.new_role not in auth.ROLES:
-            raise auth.UserError(f"роль: {', '.join(auth.ROLES)}")
-        if args.action == "add":
-            auth.add_user(args.login, password(), role=args.role, name=args.name)
-        elif args.action == "passwd":
-            auth.set_password(args.login, password())
-        elif args.action == "role":
-            auth.set_role(args.login, args.new_role or "")
-        else:
-            auth.set_active(args.login, args.action == "enable")
-        print("Готово")
-        return 0
-    except auth.UserError as ex:
-        print(f"Ошибка: {ex}", file=sys.stderr)
-        return 1
+    for x in auth.list_users(limit=100):
+        print(f"  {x['login']:<24} {x['role']:<14} {x['name']:<30} {x['email'] or '':<30} вход: {x['last_login'] or '—'}")
+    return 0
 
 
 if __name__ == "__main__":
