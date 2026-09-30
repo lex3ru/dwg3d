@@ -14,6 +14,7 @@ import Ground, { Sky } from './MapLayer'
 import { SKY } from './tiles'
 import Furniture from './Furniture'
 import Markers, { type RouteView } from './Markers'
+import Shapes, { type ShapesProps } from './Shapes'
 import { useMeasure } from './Measure'
 import Rig from './Rig'
 import { openFloors, visibleFloors, type SceneCtx } from './scene'
@@ -49,6 +50,8 @@ export interface ViewerProps {
   onQuality: (q: 'high' | 'eco' | 'real') => void
   onDetailInfo: (i: DetailInfo | null) => void
   furniture: FurnitureView
+  /** routes of people and zones (functional layers) */
+  shapes: ShapesProps
 }
 
 /** Furniture layer props supplied by the app (the rest comes from the scene). */
@@ -140,6 +143,7 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
       )}
       {measure.node}
       <Furniture ctx={ctx} floors={floors} center={result.center ?? [0, 0]} visible={visible} display={display} proj={p.proj} {...p.furniture} />
+      <Shapes ctx={ctx} floors={floors} center={result.center ?? [0, 0]} visible={visible} {...p.shapes} />
       <Markers ctx={ctx} walking={p.nav === 'walk'} display={display} visible={visible} open={open} entrances={result.entrances ?? []} pois={result.pois ?? []}
         markers={p.view.markers ?? []} comments={p.view.comments ?? []} route={p.route} openPin={p.openPin}
         onPin={p.onPin} onDeletePin={p.onDeletePin} />

@@ -217,6 +217,22 @@ export interface ViewSettings {
   furniture?: PlacedItem[]
   /** furniture whose floor was not found after a rebuild (kept by the server) */
   furniture_unplaced?: (PlacedItem & { _anchor?: { name?: string } | null })[]
+  /** lines, zones, routes of functional layers */
+  shapes?: ShapeObject[]
+}
+
+/** An object of a functional layer: a route (stops and the computed way in props) or a polygon (a zone). */
+export interface ShapeObject {
+  id: string
+  version?: number
+  layer?: string
+  geom: 'route' | 'polygon' | 'polyline'
+  floor: string
+  room?: number | null
+  at: XY
+  angle?: number
+  points?: XY[]
+  props?: Record<string, unknown>
 }
 
 export interface JobSummary {
@@ -356,7 +372,16 @@ export async function listLayers(projectId: string): Promise<Layer[]> {
   return check(await fetch(`/api/projects/${projectId}/layers`))
 }
 
-export async function layerKinds(): Promise<LayerKindInfo[]> {
+export interface LayerKinds {
+  kinds: LayerKindInfo[]
+  /** functional layers: flows of routes, which must not meet, zone kinds and flows forbidden in them */
+  flows: Record<string, { name: string; color: string }>
+  flow_conflicts: [string, string][]
+  zone_kinds: Record<string, { name: string; color: string }>
+  zone_forbidden: Record<string, string[]>
+}
+
+export async function layerKinds(): Promise<LayerKinds> {
   return check(await fetch('/api/layer-kinds'))
 }
 

@@ -29,6 +29,7 @@ const P = {
   left: 'M15 6l-6 6 6 6',
   right: 'M9 6l6 6-6 6',
   check: 'M5 12l5 5 9-10',
+  flows: 'M4 7h9a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h11M17 16l3 3-3 3M4 7l3-3M4 7l3 3',
 }
 
 export type IconName = keyof typeof P

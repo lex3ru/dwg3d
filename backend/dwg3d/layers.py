@@ -18,6 +18,9 @@ from .models import CatalogItem, Layer, LayerObject
 KINDS: dict[str, dict] = {
     "furniture": {"name": "Мебель и оборудование", "geoms": ("point",), "categories": None, "sort": 0},
     "cctv": {"name": "Видеонаблюдение", "geoms": ("point",), "categories": ("security",), "sort": 10},
+    # functional layers (shapes.py): routes of people between rooms and floors, zones of floors
+    "routes": {"name": "Маршруты людей", "geoms": ("route",), "categories": (), "sort": 20},
+    "zones": {"name": "Зоны", "geoms": ("polygon",), "categories": (), "sort": 30},
 }
 MAX_LAYERS = 200
 
@@ -30,6 +33,12 @@ def kinds_json() -> list[dict]:
     return [{"kind": k, "name": v["name"], "geoms": list(v["geoms"]),
              "categories": list(v["categories"]) if v["categories"] is not None else None}
             for k, v in KINDS.items()]
+
+
+def kinds_with_rules() -> dict:
+    """GET /api/layer-kinds: the kinds and the rules of the functional layers."""
+    from .shapes import rules_json
+    return {"kinds": kinds_json(), **rules_json()}
 
 
 def layer_json(layer: Layer, count: int | None = None) -> dict:
@@ -98,12 +107,18 @@ def update(layer: Layer, v: dict) -> dict:
     return out
 
 
-def default_layer(s: Session, pid: str, item_id: str | None) -> Layer:
-    """The layer a new catalog object goes to when none is given: the first
-    layer of the most specific kind that takes the item's category (created
-    when the project has none)."""
-    cat = s.scalar(select(CatalogItem.category_id).where(CatalogItem.id == item_id)) if item_id else None
-    kind = next((k for k, v in KINDS.items() if v["categories"] and cat in v["categories"]), "furniture")
+def default_layer(s: Session, pid: str, item_id: str | None, geom: str = "point") -> Layer:
+    """The layer a new object goes to when none is given: for a catalog item
+    the first layer of the most specific kind that takes its category, else
+    the first layer of a kind that takes the geometry (created when the
+    project has none)."""
+    if geom == "point":
+        cat = s.scalar(select(CatalogItem.category_id).where(CatalogItem.id == item_id)) if item_id else None
+        kind = next((k for k, v in KINDS.items() if v["categories"] and cat in v["categories"]), "furniture")
+    else:
+        kind = next((k for k, v in KINDS.items() if geom in v["geoms"]), None)
+        if kind is None:
+            raise LayerError("нет типа слоя для такой геометрии: укажите слой")
     layer = s.scalar(select(Layer).where(Layer.project_id == pid, Layer.kind == kind)
                      .order_by(Layer.sort, Layer.created_at).limit(1))
     if layer is None:

@@ -7,7 +7,7 @@ export type Quality = 'auto' | 'high' | 'eco' | 'real'
 export type Facade = 'auto' | 'weekday' | 'holiday'
 export type DayTime = 'day' | 'evening' | 'night'
 /** click tools of the scene (navigation modes are separate) */
-export type Tool = 'none' | 'measure' | 'route' | 'marker' | 'comment' | 'furniture'
+export type Tool = 'none' | 'measure' | 'route' | 'marker' | 'comment' | 'furniture' | 'shapes'
 export type MeasureMode = 'length' | 'area'
 
 export interface Display {

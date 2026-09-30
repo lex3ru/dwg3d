@@ -39,8 +39,10 @@ def _wait(c, did, timeout=120):
 
 def test_layer_kinds_and_crud(c, built):
     pid, d = built
-    kinds = {k["kind"]: k for k in c.get("/api/layer-kinds").json()}
-    assert {"furniture", "cctv"} <= set(kinds) and kinds["cctv"]["categories"] == ["security"]
+    got = c.get("/api/layer-kinds").json()
+    kinds = {k["kind"]: k for k in got["kinds"]}
+    assert {"furniture", "cctv", "routes", "zones"} <= set(kinds) and kinds["cctv"]["categories"] == ["security"]
+    assert "dirty" in got["flows"] and ["clean", "dirty"] in got["flow_conflicts"] and "clean" in got["zone_kinds"]
     assert c.post(f"/api/projects/{pid}/layers", json={"kind": "nope"}).status_code == 400
     lay = c.post(f"/api/projects/{pid}/layers", json={"kind": "furniture", "name": "Мебель — вариант Б"})
     assert lay.status_code == 201
@@ -68,9 +70,10 @@ def test_objects_in_layers(c, built):
     r = c.post(base, json={"id": "c2", "floor": fid, "item": "doc.couch", "at": [2, 2], "layer": cctv})
     assert r.status_code == 400 and "не принимает" in r.json()["detail"]
     assert c.post(base, json={"floor": fid, "item": "doc.couch", "at": [2, 2], "layer": "nope"}).status_code == 400
-    # polylines are not furniture
+    # polylines are not furniture; no layer kind takes free polylines yet
     r = c.post(base, json={"floor": fid, "geom": "polyline", "points": [[0, 0], [1, 1]], "layer": couch["layer"]})
     assert r.status_code == 400
+    assert c.post(base, json={"floor": fid, "geom": "polyline", "points": [[0, 0], [1, 1]]}).status_code == 400
     # a second furniture layer: objects move between layers of a kind that accepts them
     b = c.post(f"/api/projects/{pid}/layers", json={"kind": "furniture", "name": "Вариант Б"}).json()
     moved = c.patch(f"{base}/couch", json={"layer": b["id"], "version": couch["version"]}).json()

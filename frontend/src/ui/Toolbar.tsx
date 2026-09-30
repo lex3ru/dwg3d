@@ -38,6 +38,10 @@ interface Props {
   furnitureCount: number | null
   placedCount: number
   onFurniture: () => void
+  shapesOpen: boolean
+  onShapes: () => void
+  shapesCount: number
+  conflictCount: number
   layers: Layer[]
   hiddenLayers: Set<string>
   onToggleLayer: (id: string) => void
@@ -127,6 +131,9 @@ export default function Toolbar(p: Props) {
         </button>
         <p className="menu-note">Расставлено: {p.placedCount} шт.{p.furnitureCount ? ` В детальной модели ещё ${p.furnitureCount} объект(ов) мебели.` : ''}</p>
       </Group>
+      <Group id="shapes" icon="flows" on={p.shapesOpen} title="Маршруты людей и зоны: пути по помещениям и этажам, проверка потоков"
+        onClick={p.onShapes} />
+      {p.conflictCount > 0 && <span className="tb-badge" title="Конфликты потоков и зон">{p.conflictCount}</span>}
       <Group id="layers" icon="layers" on={p.layers.some((l) => !p.hiddenLayers.has(l.id))} title="Слои проекта: мебель, видеонаблюдение…"
         onClick={() => p.onAllLayers(p.layers.every((l) => p.hiddenLayers.has(l.id)))}>
         <div className="menu-title">Слои проекта</div>

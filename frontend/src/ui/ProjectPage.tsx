@@ -208,7 +208,7 @@ function Layers({ pid, editable }: { pid: string; editable: boolean }) {
   const [kind, setKind] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const load = useCallback(() => { listLayers(pid).then(setLayers).catch((e) => setErr((e as Error).message)) }, [pid])
-  useEffect(() => { load(); layerKinds().then((k) => { setKinds(k); setKind(k[0]?.kind ?? '') }).catch(() => {}) }, [load])
+  useEffect(() => { load(); layerKinds().then((k) => { setKinds(k.kinds); setKind(k.kinds[0]?.kind ?? '') }).catch(() => {}) }, [load])
   const act = async (fn: () => Promise<unknown>) => {
     setErr(null)
     try { await fn() } catch (e) { setErr((e as Error).message) }

@@ -839,7 +839,8 @@ def _layer_invalid(_, ex: layers.LayerError):
 
 @app.get("/api/layer-kinds")
 def layer_kinds():
-    return layers.kinds_json()
+    """{kinds, flows, flow_conflicts, zone_kinds, zone_forbidden}: layer kinds and the rules of routes and zones."""
+    return layers.kinds_with_rules()
 
 
 def _layer(s, pid: str, lid: str) -> Layer:

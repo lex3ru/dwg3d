@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, layers
+from . import auth, layers, shapes
 from .models import AuditLog, CatalogItem, Drawing, Floor, Layer, LayerObject, Pin, Project
 from .rooms import Locator
 
@@ -94,6 +94,13 @@ def object_item(it) -> dict:
             raise Invalid("объект: элемент {id, floor, item, at: [x, y], angle}")
         f["item"] = string(it["item"], "object.item", 80)
         f["at"] = _xy(it.get("at"), "object.at")
+    elif geom == "route":
+        # stops and the way are in props (shapes.py); the object stands where the route starts
+        stops = (it.get("props") or {}).get("stops") if isinstance(it.get("props"), dict) else None
+        if not isinstance(stops, list) or not stops or not isinstance(stops[0], dict):
+            raise Invalid("маршрут: props.stops — список остановок {floor, at: [x, y]}")
+        f["at"] = _xy(stops[0].get("at"), "stops[0].at")
+        f["floor"] = string(stops[0].get("floor") or "", "stops[0].floor", 40)
     else:
         pts = it.get("points")
         least = 3 if geom == "polygon" else 2
@@ -112,7 +119,7 @@ def object_item(it) -> dict:
     if it.get("elev") is not None:                  # mounting height override
         f["elev"] = num(it["elev"], 0, 20, "object.elev")
     props = it.get("props") or {}
-    if not isinstance(props, dict) or len(repr(props)) > 20000:
+    if not isinstance(props, dict) or len(repr(props)) > (600000 if geom == "route" else 20000):
         raise Invalid("object.props: объект")
     props = {k: v for k, v in props.items() if k not in FLAT_PROPS}
     for k, (lo, hi) in FLAT_PROPS.items():
@@ -143,6 +150,8 @@ def object_json(r: LayerObject, floors: dict[int, Floor]) -> dict:
         if (v := getattr(r, k)) is not None:
             o[k] = list(v) if k == "size" else v
     props = dict(r.props or {})
+    if r.geom == "route":
+        props = shapes.route_props_json(props, lambda fid: _cand(floors, fid))
     for k in FLAT_PROPS:
         if k in props:
             o[k] = props.pop(k)
@@ -197,6 +206,10 @@ def audit_entry(s, pid, entity, eid, action, before, after, drawing_id=None):
     s.add(AuditLog(project_id=pid, drawing_id=drawing_id, entity=entity, entity_id=eid, action=action,
                    user_id=me.id if me else None, actor=(me.login or None) if me else None,
                    before=_strip(before), after=_strip(after)))
+
+
+def layer_kind(layer: Layer) -> str:
+    return layer.kind
 
 
 def lock_drawing(s: Session, did: str, build: int | None) -> Drawing:
@@ -303,13 +316,24 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
                     if layer is None:
                         raise Invalid(f"слоя «{v['layer']}» нет в проекте")
                 else:
-                    layer = layers.default_layer(s, pid, item)
+                    try:
+                        layer = layers.default_layer(s, pid, item, v["geom"])
+                    except layers.LayerError as ex:
+                        raise Invalid(str(ex)) from ex
                     project_layers[layer.id] = layer
                 if (why := layers.accepts(unlocked(layer), v["geom"], cat)) is not None:
                     raise Invalid(why)
                 layer_id = layer.id
             else:
                 layer_id = row.layer_id
+            props = v["props"]
+            try:
+                if v["geom"] == "route":
+                    props = shapes.route_props(props, lambda c: floor_id(c, False))
+                elif v["geom"] == "polygon" and layer_kind(project_layers[layer_id]) == "zones":
+                    props = shapes.zone_props(props)
+            except shapes.ShapeError as ex:
+                raise Invalid(str(ex)) from ex
             x, y = v["at"]
             if row is not None and fid == row.floor_id and x == row.x and y == row.y:
                 room = row.room_id
@@ -317,7 +341,7 @@ def apply(s: Session, did: str, entity: str, ops: list, build: int | None = None
                 room = loc.room(fid, x, y)
             vals = {"layer_id": layer_id, "floor_id": fid, "room_id": room, "item_id": item, "geom": v["geom"],
                     "x": x, "y": y, "angle": v["angle"], "points": v.get("points"), "size": v.get("size"),
-                    "note": v.get("note"), "elev": v.get("elev"), "props": v["props"]}
+                    "note": v.get("note"), "elev": v.get("elev"), "props": props}
             new_row = dict(project_id=pid, drawing_id=did)
         else:
             kind = (row.kind + "s") if row is not None else o.get("kind")

@@ -1,8 +1,9 @@
 import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  batchRows, downloadDrawing, getJob, getPlan, layerKinds, listLayers, rebuildJob,
+  batchRows, createLayer, downloadDrawing, getJob, getPlan, layerKinds, listLayers, rebuildJob,
   type FloorEdits, type FloorMeta, type Job, type Layer, type LayerKindInfo, type Pin, type PlacedItem, type PlanData, type RoomMeta,
+  type ShapeObject, type XY,
   type RowOp, type V3, type ViewSettings,
 } from './api'
 import type { CatalogItem } from './furniture/catalog'
@@ -28,6 +29,9 @@ import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
 import FurniturePanel from './ui/FurniturePanel'
+import RoutesPanel, { type PlanClick } from './ui/RoutesPanel'
+import { checkFlows, computeRoute, connectors, type RouteProps, type RouteStop, type Rules, type ZoneProps } from './viewer/routing'
+import type { ShapeView } from './viewer/Shapes'
 import Toolbar, { type RouteState } from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
 import { buildGrid, findPath, type Grid } from './viewer/route'
@@ -404,7 +408,8 @@ export default function App() {
   const [layers, setLayers] = useState<Layer[]>([])
   useEffect(() => { setLayers(shown?.layers ?? []) }, [shown?.layers])
   const [kinds, setKinds] = useState<LayerKindInfo[]>([])
-  useEffect(() => { layerKinds().then(setKinds).catch(() => {}) }, [])
+  const [rules, setRules] = useState<Rules | null>(null)
+  useEffect(() => { layerKinds().then((k) => { setKinds(k.kinds); setRules(k) }).catch(() => {}) }, [])
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
   const [activeLayer, setActiveLayer] = useState<string | null>(null)
   useEffect(() => {
@@ -448,6 +453,81 @@ export default function App() {
   const furniture = useMemo(() => view.furniture ?? [], [view.furniture])
   const shownFurniture = useMemo(() => furniture.filter((it) => !it.layer || !hiddenLayers.has(it.layer)), [furniture, hiddenLayers])
   const rebuilding = job?.status === 'queued' || job?.status === 'running'
+
+  // ---- routes of people and zones (functional layers)
+  const shapes = useMemo(() => (view.shapes ?? []).filter((x) => !x.layer || !hiddenLayers.has(x.layer)), [view.shapes, hiddenLayers])
+  const [shapeSel, setShapeSel] = useState<string | null>(null)
+  const [shapeDraft, setShapeDraft] = useState<{ floor: string; pts: XY[]; closed: boolean } | null>(null)
+  const [shapePicking, setShapePicking] = useState(false)
+  const shapePick = useRef<((c: PlanClick) => void) | null>(null)
+  const zoneLayerIds = useMemo(() => new Set(layers.filter((l) => l.kind === 'zones').map((l) => l.id)), [layers])
+  const conflicts = useMemo(() => {
+    if (!rules) return []
+    const routes = shapes.filter((x) => x.geom === 'route').map((x) => {
+      const pr = (x.props ?? {}) as unknown as RouteProps
+      return { id: x.id, name: pr.name, flow: pr.flow, path: pr.path ?? [] }
+    })
+    const zones = shapes.filter((x) => x.geom === 'polygon' && zoneLayerIds.has(x.layer ?? '')).map((x) => {
+      const pr = (x.props ?? {}) as unknown as ZoneProps
+      return { id: x.id, name: pr.name, zone: pr.zone, floor: x.floor, pts: x.points ?? [] }
+    })
+    return checkFlows(routes, zones, rules)
+  }, [shapes, rules, zoneLayerIds])
+  const shapeViews = useMemo<ShapeView[]>(() => shapes.flatMap((x): ShapeView[] => {
+    if (x.geom === 'route') {
+      const pr = (x.props ?? {}) as unknown as RouteProps
+      return [{ id: x.id, kind: 'route', color: rules?.flows[pr.flow]?.color ?? '#1c7ed6', segments: pr.path ?? [],
+        stops: (pr.stops ?? []).map((st, i) => ({ floor: st.floor, at: st.at, label: st.label || `Остановка ${i + 1}` })),
+        broken: !!pr.problem, label: pr.name }]
+    }
+    if (x.geom === 'polygon' && zoneLayerIds.has(x.layer ?? '')) {
+      const pr = (x.props ?? {}) as unknown as ZoneProps
+      return [{ id: x.id, kind: 'zone', color: rules?.zone_kinds[pr.zone]?.color ?? '#868e96', segments: [{ floor: x.floor, pts: x.points ?? [] }], label: pr.name }]
+    }
+    return []
+  }), [shapes, rules, zoneLayerIds])
+  const saveShapes = async (ops: RowOp[]): Promise<boolean> => {
+    if (!shown) return false
+    if (!canEdit()) { alert(READ_ONLY); return false }
+    if (rebuilding) { alert('Идёт перестроение модели: маршруты и зоны можно менять после него'); return false }
+    try {
+      const res = await batchRows<ShapeObject>(shown.id, 'objects', shown.build, ops)
+      setView((v) => {
+        const got = new Map(res.items.map((it) => [it.id, it]))
+        const kept = (v.shapes ?? []).filter((x) => !res.deleted.includes(x.id)).map((x) => got.get(x.id) ?? x)
+        const added = res.items.filter((it) => !kept.some((x) => x.id === it.id))
+        return { ...v, shapes: [...kept, ...added] }
+      })
+      if (res.items.some((it) => it.layer && !layers.some((l) => l.id === it.layer)) && projectId) {
+        listLayers(projectId).then(setLayers).catch(() => {})
+      }
+      return true
+    } catch (e) {
+      alert(conflictText(e, (i) => ((view.shapes ?? []).find((x) => x.id === i)?.props?.name as string) || 'Объект'))
+      setPollNonce((n) => n + 1)
+      return false
+    }
+  }
+  const computeStops = (stops: RouteStop[]) => computeRoute(stops, floors, r ? connectors(r) : [],
+    async (fid) => { const f = floors.find((x) => x.id === fid); return f ? loadGrid(f) : null },
+    (st, i) => st.label || `остановка ${i + 1}`)
+  const flyToPlan = (fid: string, [x, y]: XY) => {
+    const f = floors.find((q) => q.id === fid)
+    if (!f) return
+    setFloor(fid)
+    const p = new THREE.Vector3(x - cx, (f.elevation ?? 0) + (ctx.offset.get(fid) ?? 0), -(y - cy))
+    setTimeout(() => ctx.api?.flyToPoint(p, 16), 60)
+  }
+  const openShapes = () => {
+    if (tool === 'shapes') { setTool('none'); return }
+    if (nav === 'walk') exitWalk()
+    else if (nav === 'fly') setNav('orbit')
+    if (!floor) setFloor(entranceFloor?.id ?? null)
+    setSelRoom(null)
+    setBuildingOpen(false)
+    setTool('shapes')
+  }
+  useEffect(() => { if (tool !== 'shapes') { setShapeDraft(null); setShapePicking(false) } }, [tool])
   // a new build re-keys floors on the server: local undo steps refer to the old one
   useEffect(() => {
     furnHistory.current = []
@@ -663,6 +743,10 @@ export default function App() {
       if (!f) return
       const end = route.step === 'to' ? 'to' : 'from'
       setRouteEnd(end, f, toPlan(pk.local), pk.room?.room.name || (end === 'from' ? 'точка A' : 'точка B'))
+    } else if (tool === 'shapes') {
+      if (!pk.floor || !shapePick.current) return
+      const rm = pk.room?.room
+      shapePick.current({ floor: pk.floor, at: toPlan(pk.local), room: rm ? { id: rm.id, name: rm.name || '' } : null })
     } else if (tool === 'marker' || tool === 'comment') {
       setPending({ kind: tool === 'marker' ? 'markers' : 'comments', pos: pk.local.toArray() as V3, floor: pk.floor ?? '' })
       setPendingText('')
@@ -733,7 +817,8 @@ export default function App() {
                   selected: furnSel, placing, showZones, coverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
                   onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
                   onPlacing: setPlacing, onMove: moveItem,
-                }} />
+                }}
+                shapes={{ items: shapeViews, selected: shapeSel, draft: shapeDraft, alerts: conflicts }} />
             </Suspense>
           ) : running ? (
             <div className="center-msg"><Progress job={job!} /></div>
@@ -779,6 +864,7 @@ export default function App() {
                 setTimeout(() => ctx.api?.flyToPoint(new THREE.Vector3(...pin.pos).setY(pin.pos[1] + (ctx.offset.get(pin.floor) ?? 0)), 10), 60)
               }}
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
+              shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
               layers={layers} hiddenLayers={hiddenLayers} onToggleLayer={toggleLayer}
               onAllLayers={(show) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))}
               projectId={projectId} />
@@ -797,6 +883,15 @@ export default function App() {
                 locked={rebuilding} readOnly={!canEdit()} unplaced={unplaced} onUnplaced={resolveUnplaced}
                 layers={layers} kinds={kinds} activeLayer={activeLayer} onActiveLayer={setActiveLayer} />
             )}
+            {tool === 'shapes' && rules && shown && (
+              <RoutesPanel build={shown.build} floors={floors} activeFloor={activeFloor} layers={layers} rules={rules}
+                shapes={shapes} conflicts={conflicts} editable={canEdit() && !rebuilding} selected={shapeSel} onSelect={setShapeSel}
+                onDraft={setShapeDraft} pickRef={shapePick} onPicking={setShapePicking} save={saveShapes} compute={computeStops}
+                createLayer={async (kind) => {
+                  try { await createLayer(projectId, kind); setLayers(await listLayers(projectId)) } catch (e) { alert((e as Error).message) }
+                }}
+                flyTo={flyToPlan} planOf={(v) => toPlan(v)} onClose={() => setTool('none')} />
+            )}
             {selRoom && nav !== 'walk' && (
               <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
                 onFly={() => focusRoom(selRoom.floor, selRoom.room)}
@@ -808,6 +903,7 @@ export default function App() {
                   : 'Площадь: кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
                   : tool === 'route' ? (route.step === 'to' ? 'Маршрут: щёлкните конечную точку' : 'Маршрут: щёлкните начальную точку на полу')
                   : tool === 'marker' ? 'Щёлкните место для метки'
+                  : tool === 'shapes' ? (shapePicking ? 'Маршруты и зоны: щёлкайте точки на плане' : 'Маршруты и зоны: выберите действие в панели')
                   : tool === 'furniture' ? (placing ? `${placing.item.name}: щёлкните на плане · R / Q / E — повернуть · Alt — без привязки к стене · Esc — отмена`
                     : 'Перетащите предмет из каталога на план · перетаскивание — двигать · R — поворот · Del — удалить · Ctrl+D — копия · Ctrl+Z — отмена')
                   : 'Щёлкните место для комментария'}

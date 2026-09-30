@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from . import access, auth, layers, viewdata
+from . import access, auth, layers, shapes, viewdata
 from .edits import _floor_ns, anchor_of, match
 from .models import JOB_ACTIVE, Build, Drawing, Floor, Job, LayerObject, Pin, Project
 
@@ -210,6 +210,10 @@ def sync_floors(s: Session, did: str, result: dict, old: dict | None = None,
     cdx, cdz = ocx - ncx, ncy - ocy
     if moves_out is not None:
         moves_out.update(moves)
+    # routes: their stops and computed ways move with the floor of each stop
+    for o in s.scalars(select(LayerObject).where(LayerObject.drawing_id == did, LayerObject.geom == "route")):
+        if (moved := shapes.shift_route(o.props or {}, moves)) is not None:
+            o.props = moved
     for fid, (dx, dy, dz) in moves.items():
         if dx or dy:
             s.execute(update(LayerObject).where(LayerObject.drawing_id == did, LayerObject.floor_id == fid)
