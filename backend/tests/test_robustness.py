@@ -201,6 +201,22 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert c.put(f"/api/jobs/{jid}/view", json={"comments": [{"pos": [1, 2]}]}).status_code == 400
     v = c.get(f"/api/jobs/{jid}/view").json()
     assert v["comments"][0]["text"] == "Трещина" and v["site"]["lat"] == 55.75
+    # furniture: plan position, angle normalised, other view keys kept
+    v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
+        {"id": "a1", "floor": "c1", "item": "med.couch", "at": [2.5, 3], "angle": -90, "size": [0.7, 1.9, 0.75]}]}).json()
+    assert v["furniture"][0]["angle"] == 270 and v["furniture"][0]["size"] == [0.7, 1.9, 0.75]
+    assert v["comments"][0]["text"] == "Трещина"
+    v = c.put(f"/api/jobs/{jid}/view", json={"furniture": [
+        {"id": "k1", "item": "sec.dome", "at": [1, 1], "elev": 2.8, "fov": 110, "range": 12}]}).json()
+    assert v["furniture"][0]["fov"] == 110 and v["furniture"][0]["elev"] == 2.8
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "fov": 400}]}).status_code == 400
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1]}]}).status_code == 400
+    # written against another build: refused, nothing lost silently
+    r = c.put(f"/api/jobs/{jid}/view", json={"furniture": [], "_build": j["build"] + 5})
+    assert r.status_code == 409
+    assert c.get(f"/api/jobs/{jid}/view").json()["furniture"][0]["id"] == "k1"
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [], "_build": j["build"]}).status_code == 200
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": [{"item": "x", "at": [1, 2], "size": [0, 1, 1]}]}).status_code == 400
     # detail model: only GLB is accepted
     assert c.post(f"/api/jobs/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
     glb = (api._job_dir(jid) / "out" / "model.glb").read_bytes()
@@ -211,3 +227,23 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert v["detail"]["file"] == "facade.glb" and v["detail"]["rotation"] == 90
     assert c.delete(f"/api/jobs/{jid}/detail").json().get("detail") is None
     assert c.get(f"/api/jobs/{jid}/detail.glb").status_code == 404
+
+
+def test_api_furniture_survives_rebuild(client, sample):
+    c, _ = client
+    jid = c.post("/api/jobs", files={"file": ("plan.dxf", sample.read_bytes())}).json()["id"]
+    j = _wait(c, jid)
+    fids = [f["id"] for f in j["result"]["floors"]]
+    items = [{"id": f"i{k}", "floor": fid, "item": "doc.couch", "at": [1.0 + k, 2.0], "angle": 0} for k, fid in enumerate(fids)]
+    assert c.put(f"/api/jobs/{jid}/view", json={"furniture": items, "_build": j["build"]}).status_code == 200
+    assert c.post(f"/api/jobs/{jid}/rebuild", json={"geometry": {"snap_tolerance": 0.011}}).status_code == 200
+    # while the model is rebuilt, floor-bound data is not accepted
+    r = c.put(f"/api/jobs/{jid}/view", json={"furniture": []})
+    assert r.status_code in (200, 409)
+    j2 = _wait(c, jid)
+    v = c.get(f"/api/jobs/{jid}/view").json()
+    new_ids = {f["id"] for f in j2["result"]["floors"]}
+    if r.status_code == 409:
+        assert len(v["furniture"]) == len(items)
+    assert all(it["floor"] in new_ids for it in v.get("furniture") or [])
+    assert "furniture_unplaced" not in v

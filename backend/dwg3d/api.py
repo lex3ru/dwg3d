@@ -4,7 +4,8 @@
   GET  /api/jobs                 processed jobs (building switcher)
   GET  /api/jobs/{id}            status / progress / result
   GET/PUT /api/jobs/{id}/view    viewer settings: map binding, detail model
-                                 alignment, markers, comments (no rebuild)
+                                 alignment, markers, comments, furniture
+                                 (no rebuild)
   POST/DELETE /api/jobs/{id}/detail, GET /api/jobs/{id}/detail.glb
                                  detailed model (GLB) shown over the generated one
   POST /api/jobs/{id}/rebuild    JSON config override (floors.items, layers...)
@@ -47,7 +48,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
-from .edits import anchor_of
+from .edits import anchor_of, remap_view
 from .pipeline import render_debug, run
 
 log = logging.getLogger("dwg3d.api")
@@ -160,8 +161,12 @@ def _process(jid: str):
             cfg.pop("edits_unmatched", None)
         if (cfg.get("floors") or {}).get("items"):
             cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
-        _update(jid, status="done", stage="done", progress=1.0, message="Готово", result=result,
-                config=cfg, build=job.get("build", 0) + 1)
+        with _lock:
+            # furniture and pins follow their floors into the new build (ids / alignment may change)
+            view, warns = remap_view(job.get("view"), job.get("result"), result)
+            result["warnings"] = list(result.get("warnings") or []) + warns
+            _update(jid, status="done", stage="done", progress=1.0, message="Готово", result=result,
+                    config=cfg, build=job.get("build", 0) + 1, view=view)
     except Exception as ex:
         log.exception("job %s failed", jid)
         msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
@@ -233,8 +238,9 @@ def list_jobs():
 
 # ------------------------------------------------------ viewer settings ---
 # Per-job viewer state that needs no rebuild: map binding, detail-model
-# alignment, user markers and comments. Stored in job.json ("view").
+# alignment, user markers and comments, placed furniture. Stored in job.json ("view").
 MAX_PINS = 500
+MAX_FURNITURE = 5000
 MAX_DETAIL = int(os.environ.get("DWG3D_MAX_DETAIL_MB", "150")) * 1024 * 1024
 
 
@@ -265,6 +271,42 @@ def _pins(items, name):
                     "author": _s(it.get("author", ""), f"{name}.author", 80),
                     "created": _f(it.get("created", time.time()), 0, 1e11, f"{name}.created")})
     return out
+
+
+def _furniture(items):
+    """Placed furniture / equipment: catalog item id, plan position (m), turn
+    (degrees, counter-clockwise), optional size override [w, d, h] (m),
+    mounting height; for CCTV cameras the view angle (deg) and range (m)."""
+    if not isinstance(items, list) or len(items) > MAX_FURNITURE:
+        raise HTTPException(400, f"view.furniture: ожидается список до {MAX_FURNITURE} элементов")
+    out = []
+    for it in items:
+        if (not isinstance(it, dict) or not isinstance(it.get("at"), list) or len(it["at"]) != 2
+                or not isinstance(it.get("item"), str)):
+            raise HTTPException(400, "view.furniture: элемент {id, floor, item, at: [x, y], angle}")
+        f = {"id": _s(it.get("id") or uuid.uuid4().hex[:8], "furniture.id", 40),
+             "floor": _s(it.get("floor") or "", "furniture.floor", 40),
+             "item": _s(it["item"], "furniture.item", 80),
+             "at": [_f(c, -1e5, 1e5, "furniture.at") for c in it["at"]],
+             "angle": _f(it.get("angle", 0), -3600, 3600, "furniture.angle") % 360}
+        if it.get("size") is not None:
+            if not isinstance(it["size"], list) or len(it["size"]) != 3:
+                raise HTTPException(400, "view.furniture.size: ожидается [ширина, глубина, высота]")
+            f["size"] = [_f(c, 0.01, 50, "furniture.size") for c in it["size"]]
+        if it.get("note"):
+            f["note"] = _s(it["note"], "furniture.note", 500)
+        if it.get("elev") is not None:                  # mounting height override
+            f["elev"] = _f(it["elev"], 0, 20, "furniture.elev")
+        if it.get("fov") is not None:                   # CCTV camera: view angle, range
+            f["fov"] = _f(it["fov"], 1, 360, "furniture.fov")
+        if it.get("range") is not None:
+            f["range"] = _f(it["range"], 0.5, 300, "furniture.range")
+        out.append(f)
+    return out
+
+
+# viewer data tied to the floors of the build it was made on
+FLOOR_BOUND = ("furniture", "furniture_unplaced", "markers", "comments")
 
 
 def validate_view(v: dict, old: dict) -> dict:
@@ -306,6 +348,19 @@ def validate_view(v: dict, old: dict) -> dict:
     for k in ("comments", "markers"):
         if k in v:
             out[k] = _pins(v[k], k)
+    if "furniture" in v:
+        out["furniture"] = _furniture(v["furniture"])
+    if "furniture_unplaced" in v:
+        # only removal (after the items were put back on a floor or deleted): ids to keep
+        keep = v["furniture_unplaced"]
+        if not isinstance(keep, list):
+            raise HTTPException(400, "view.furniture_unplaced: ожидается список")
+        ids = {it.get("id") if isinstance(it, dict) else it for it in keep}
+        rest = [u for u in old.get("furniture_unplaced") or [] if u.get("id") in ids]
+        if rest:
+            out["furniture_unplaced"] = rest
+        else:
+            out.pop("furniture_unplaced", None)
     return out
 
 
@@ -323,6 +378,12 @@ def put_view(jid: str, v: dict):
         raise HTTPException(404, "Задача не найдена")
     with _lock:
         job = _jobs[jid]
+        if any(k in v for k in FLOOR_BOUND):
+            # these refer to floors of a particular build: never write them across a rebuild
+            if job.get("status") in ("queued", "running"):
+                raise HTTPException(409, "Идёт перестроение модели: расстановка и метки сохранятся после него")
+            if "_build" in v and v["_build"] != job.get("build"):
+                raise HTTPException(409, "Модель была перестроена: обновите страницу, чтобы не потерять изменения")
         view = validate_view(v, job.get("view") or {})
         _update(jid, view=view)
     return view

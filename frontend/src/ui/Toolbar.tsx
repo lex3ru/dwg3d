@@ -36,6 +36,8 @@ interface Props {
   comments: Pin[]
   onFlyToPin: (p: Pin) => void
   furnitureCount: number | null
+  placedCount: number
+  onFurniture: () => void
 }
 
 function Group({ id, icon, label, on, onClick, children, title }: {
@@ -111,12 +113,14 @@ export default function Toolbar(p: Props) {
           <button key={m.id} className="menu-item" data-close="1" onClick={() => p.onFlyToPin(m)}>📍 {m.label || m.text || 'Метка'}</button>
         ))}
       </Group>
-      <Group id="furniture" icon="sofa" on={d.furniture} title="Мебель и оборудование" onClick={() => p.set({ furniture: !d.furniture })}>
+      <Group id="furniture" icon="sofa" on={p.tool === 'furniture'} title="Мебель и оборудование: каталог и расстановка" onClick={p.onFurniture}>
         <div className="menu-title">Мебель и оборудование</div>
         <Check on={d.furniture} label="Показывать" onChange={(v) => p.set({ furniture: v })} />
-        <p className="menu-note">{p.furnitureCount
-          ? `В детальной модели ${p.furnitureCount} объект(ов) мебели.`
-          : 'Мебели в модели нет. Её даёт детальная модель (GLB): ⚙ → «Карта и детальная модель». Узлы с «furniture» / «мебель» в имени — мебель.'}</p>
+        <Check on={d.camViews} label="Обзор камер видеонаблюдения" onChange={(v) => p.set({ camViews: v })} />
+        <button className={`menu-item accent${p.tool === 'furniture' ? ' on' : ''}`} data-close="1" onClick={p.onFurniture}>
+          <Icon name="plus" size={15} /> {p.tool === 'furniture' ? 'Закончить расстановку' : 'Каталог и расстановка…'}
+        </button>
+        <p className="menu-note">Расставлено: {p.placedCount} шт.{p.furnitureCount ? ` В детальной модели ещё ${p.furnitureCount} объект(ов) мебели.` : ''}</p>
       </Group>
       <Group id="comments" icon="comment" on={d.comments || p.tool === 'comment'} title="Комментарии"
         onClick={() => p.set({ comments: !d.comments })}>

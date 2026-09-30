@@ -1,9 +1,12 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
   downloadDrawing, getJob, getPlan, putView, rebuildJob, uploadFile,
-  type FloorEdits, type FloorMeta, type Job, type PlanData, type RoomMeta, type V3, type ViewSettings,
+  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type PlanData, type RoomMeta, type V3, type ViewSettings,
 } from './api'
+import type { CatalogItem } from './furniture/catalog'
+import { catalogItem } from './furniture/catalog'
+import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, type PlanIndex, type Pose } from './furniture/geom'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import {
@@ -18,10 +21,12 @@ import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
+import FurniturePanel from './ui/FurniturePanel'
 import Toolbar, { type RouteState } from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
 import { buildGrid, findPath, type Grid } from './viewer/route'
 import { SceneCtx, entrancePose, htmlLayer } from './viewer/scene'
+import type { Placing } from './viewer/Furniture'
 import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit, type RouteView } from './viewer/Viewer'
 
 const STAGES: Record<string, string> = {
@@ -163,6 +168,16 @@ export default function App() {
   const [saving, setSaving] = useState<'dxf' | 'dwg' | null>(null)
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [intro, setIntro] = useState(() => !initial?.floor && !seenIntro(jobId))
+  // furniture placement
+  const [furnSel, setFurnSel] = useState<string | null>(null)
+  const [placing, setPlacing] = useState<Placing | null>(null)
+  const [showZones, setShowZones] = useState(false)
+  const [planIdx, setPlanIdx] = useState<{ floor: string; idx: PlanIndex } | null>(null)
+  const plans = useRef(new Map<string, PlanData>())
+  const furnHistory = useRef<PlacedItem[][]>([])
+  const dragSnap = useRef<PlacedItem[] | null>(null)
+  const furnTimer = useRef<number | undefined>(undefined)
+  const [, setUndoTick] = useState(0)
   const ctx = useMemo(() => new SceneCtx(), [])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useEffect(() => { if (import.meta.env.DEV) (window as any).__dwg3d = ctx }, [ctx])
@@ -228,6 +243,11 @@ export default function App() {
     setUploading(false)
     setDetailInfo(null)
     grids.current.clear()
+    plans.current.clear()
+    furnHistory.current = []
+    setFurnSel(null)
+    setPlacing(null)
+    setPlanIdx(null)
     setIntro(!seenIntro(id))
   }, [])
   const introDone = useCallback(() => {
@@ -299,10 +319,21 @@ export default function App() {
     return [x + cx, -z + cy]
   }
   const planToGltf = (p: [number, number], elev: number): V3 => [p[0] - cx, elev + 0.06, -(p[1] - cy)]
+  const loadPlan = async (f: FloorMeta): Promise<PlanData> => {
+    let plan = plans.current.get(f.id)
+    if (!plan) {
+      plan = await getPlan(shown!.id, f.plan, shown!.build)
+      plans.current.set(f.id, plan)
+    }
+    return plan
+  }
   const loadGrid = async (f: FloorMeta): Promise<Grid | null> => {
     if (!grids.current.has(f.id)) {
-      const plan: PlanData = await getPlan(shown!.id, f.plan, shown!.build)
-      grids.current.set(f.id, buildGrid(plan))
+      const plan = await loadPlan(f)
+      // furniture standing on the floor blocks the way (wall-hung items do not)
+      const extra = (view.furniture ?? []).filter((it) => it.floor === f.id && itemElev(it) < 1 && catalogItem(it.item).kind !== 'zone')
+        .map((it) => { const [w, d] = itemSize(it); const q = footprint(it.at, it.angle, w, d); return [...q, q[0]] })
+      grids.current.set(f.id, buildGrid(plan, extra))
     }
     return grids.current.get(f.id) ?? null
   }
@@ -351,11 +382,16 @@ export default function App() {
   // ---- markers & comments (stored on the server)
   const savePins = async (kind: 'markers' | 'comments', list: ViewSettings['markers']) => {
     if (!shown) return
+    if (rebuilding) {
+      alert('Идёт перестроение модели: метки и комментарии можно менять после него')
+      return
+    }
     setView((v) => ({ ...v, [kind]: list }))
     try {
-      setView(await putView(shown.id, { [kind]: list }))
+      setView(await putView(shown.id, { [kind]: list, _build: shown.build }))
     } catch (e) {
       alert((e as Error).message)
+      setPollNonce((n) => n + 1)            // reload the job: the server's view wins
     }
   }
   const commitPending = () => {
@@ -374,6 +410,175 @@ export default function App() {
     savePins(kind, (view[kind] ?? []).filter((p) => p.id !== id))
     setOpenPin(null)
   }
+
+  // ---- furniture (stored on the server with the job view)
+  const furniture = useMemo(() => view.furniture ?? [], [view.furniture])
+  const rebuilding = job?.status === 'queued' || job?.status === 'running'
+  // a new build re-keys floors on the server: local undo steps refer to the old one
+  useEffect(() => {
+    furnHistory.current = []
+    window.clearTimeout(furnTimer.current)
+  }, [shown?.build])
+  const furnFloor = tool === 'furniture' ? activeFloor : null
+  // the plan is also needed to draw the camera views of the active floor
+  const hasCams = !!activeFloor && furniture.some((it) => it.floor === activeFloor.id && catalogItem(it.item).cam)
+  const planFloor = furnFloor ?? (display.camViews && hasCams ? activeFloor : null)
+  const floorItems = useMemo(() => furniture.filter((it) => it.floor === planFloor?.id), [furniture, planFloor])
+  const furnPlan = planIdx && planIdx.floor === planFloor?.id ? planIdx.idx : null
+  const issues = useMemo(() => (furnFloor ? checkFloor(floorItems, furnPlan) : new Map()), [floorItems, furnPlan, furnFloor])
+  const coverage = useMemo(() => cameraCoverage(floorItems, furnPlan), [floorItems, furnPlan])
+  // room shares are slower: let them lag behind while a camera is dragged
+  const lazyCoverage = useDeferredValue(coverage)
+  const roomCover = useMemo(() => (furnFloor ? roomCoverage(furnPlan, lazyCoverage) : []), [furnFloor, furnPlan, lazyCoverage])
+  useEffect(() => { grids.current.clear() }, [furniture])
+  useEffect(() => {
+    if (!planFloor || !shown || planIdx?.floor === planFloor.id) return
+    let alive = true
+    loadPlan(planFloor).then((pl) => { if (alive) setPlanIdx({ floor: planFloor.id, idx: indexPlan(pl) }) }).catch(() => {})
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planFloor?.id, shown?.id, shown?.build])
+  useEffect(() => { plans.current.clear(); setPlanIdx(null) }, [shown?.build])
+
+  /** Replace the list: locally at once, on the server after a short pause. */
+  const setFurniture = (list: PlacedItem[], record = true, patch: Partial<ViewSettings> = {}) => {
+    if (!shown) return
+    if (rebuilding) {
+      alert('Идёт перестроение модели: расстановку можно менять после него')
+      return
+    }
+    if (record) {
+      furnHistory.current = [...furnHistory.current.slice(-99), furniture]
+      setUndoTick((n) => n + 1)
+    }
+    setView((v) => ({ ...v, ...patch, furniture: list }))
+    window.clearTimeout(furnTimer.current)
+    const id = shown.id, build = shown.build
+    furnTimer.current = window.setTimeout(async () => {
+      try {
+        const saved = await putView(id, { ...patch, furniture: list, _build: build })
+        setView((v) => ({ ...saved, furniture: v.furniture }))
+      } catch (e) {
+        alert(`Расстановка не сохранена: ${(e as Error).message}`)
+        furnHistory.current = []
+        setPollNonce((n) => n + 1)          // reload the job: the server's view wins
+      }
+    }, 400)
+  }
+  /** Items whose floor was not found after a rebuild: put back on the current floor, or drop. */
+  const unplaced = view.furniture_unplaced ?? []
+  const resolveUnplaced = (ids: string[], toFloor: string | null) => {
+    const pick = unplaced.filter((u) => ids.includes(u.id))
+    const rest = unplaced.filter((u) => !ids.includes(u.id))
+    const back = toFloor ? pick.map(({ _anchor: _a, ...it }) => ({ ...it, floor: toFloor })) : []
+    setFurniture([...furniture, ...back], true, { furniture_unplaced: rest.map((u) => ({ id: u.id })) as ViewSettings['furniture_unplaced'] })
+  }
+  const undoFurniture = () => {
+    const prev = furnHistory.current.pop()
+    if (!prev) return
+    setUndoTick((n) => n + 1)
+    setFurniture(prev, false)
+    if (furnSel && !prev.some((x) => x.id === furnSel)) setFurnSel(null)
+  }
+  const newId = () => Math.random().toString(36).slice(2, 10)
+  const updateItem = (id: string, patch: Partial<PlacedItem>, record = true) =>
+    setFurniture(furniture.map((it) => (it.id === id ? { ...it, ...patch } : it)), record)
+  const rotateItem = (id: string, by: number) => {
+    const it = furniture.find((x) => x.id === id)
+    if (it) updateItem(id, { angle: (((it.angle + by) % 360) + 360) % 360 })
+  }
+  const placeItem = (c: CatalogItem, pose: Pose) => {
+    if (!furnFloor) return
+    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle }
+    setFurniture([...furniture, it])
+    setFurnSel(it.id)
+  }
+  const duplicateItem = (id: string) => {
+    const it = furniture.find((x) => x.id === id)
+    if (!it) return
+    const [w] = itemSize(it)
+    const { u } = axes(it.angle)
+    const copy = { ...it, id: newId(), at: [it.at[0] + u[0] * (w + 0.1), it.at[1] + u[1] * (w + 0.1)] as [number, number] }
+    setFurniture([...furniture, copy])
+    setFurnSel(copy.id)
+  }
+  const rowItems = (id: string, n: number, gap: number) => {
+    const it = furniture.find((x) => x.id === id)
+    if (!it) return
+    const [w] = itemSize(it)
+    const { u } = axes(it.angle)
+    const add = Array.from({ length: n - 1 }, (_, k) => ({
+      ...it, id: newId(), at: [it.at[0] + u[0] * (w + gap) * (k + 1), it.at[1] + u[1] * (w + gap) * (k + 1)] as [number, number],
+    }))
+    setFurniture([...furniture, ...add])
+  }
+  const deleteItem = (id: string) => {
+    setFurniture(furniture.filter((x) => x.id !== id))
+    if (furnSel === id) setFurnSel(null)
+  }
+  const moveItem = (id: string, pose: Pose, done: boolean) => {
+    if (done) {
+      if (dragSnap.current) {
+        furnHistory.current = [...furnHistory.current.slice(-99), dragSnap.current]
+        dragSnap.current = null
+        setUndoTick((n) => n + 1)
+      }
+      setFurniture(furniture, false)
+      return
+    }
+    dragSnap.current ??= furniture
+    setView((v) => ({ ...v, furniture: (v.furniture ?? []).map((it) => (it.id === id ? { ...it, at: pose.at, angle: pose.angle } : it)) }))
+  }
+  const openFurniture = () => {
+    if (tool === 'furniture') {
+      setTool('none')
+      return
+    }
+    if (nav === 'walk') exitWalk()
+    else if (nav === 'fly') setNav('orbit')
+    if (!floor) setFloor(entranceFloor?.id ?? null)
+    setSelRoom(null)
+    setBuildingOpen(false)
+    setTool('furniture')
+  }
+  useEffect(() => {
+    if (tool !== 'furniture') { setPlacing(null); setFurnSel(null) }
+  }, [tool])
+  useEffect(() => { setFurnSel(null); setPlacing(null) }, [floor])
+
+  // keyboard while furnishing
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
+  keyRef.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement
+    if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
+    const sel = furniture.find((x) => x.id === furnSel)
+    const turn = e.code === 'KeyR' ? (e.shiftKey ? -90 : 90) : e.code === 'KeyQ' ? 15 : e.code === 'KeyE' ? -15 : 0
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); undoFurniture() }
+    else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') { e.preventDefault(); if (sel) duplicateItem(sel.id) }
+    else if (e.ctrlKey || e.metaKey || e.altKey) return
+    else if (e.key === 'Escape') {
+      if (placing) setPlacing(null)
+      else if (furnSel) setFurnSel(null)
+      else setTool('none')
+    } else if (turn) {
+      if (placing) setPlacing({ ...placing, angle: (((placing.angle + turn) % 360) + 360) % 360 })
+      else if (sel) rotateItem(sel.id, turn)
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
+      e.preventDefault()
+      deleteItem(sel.id)
+    } else if (sel && e.key.startsWith('Arrow')) {
+      e.preventDefault()
+      const s = e.shiftKey ? 0.5 : 0.05
+      const [dx, dy] = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, s], ArrowDown: [0, -s] }[e.key] ?? [0, 0]
+      updateItem(sel.id, { at: [Math.round((sel.at[0] + dx) * 100) / 100, Math.round((sel.at[1] + dy) * 100) / 100] })
+    }
+  }
+  useEffect(() => {
+    if (tool !== 'furniture') return
+    const on = (e: KeyboardEvent) => keyRef.current(e)
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [tool])
 
   // ---- clicks in the scene
   const onPick = (pk: Pick) => {
@@ -442,7 +647,13 @@ export default function App() {
                 view={shownView} selectedRoom={selRoom?.room.node ?? null} route={routeView} openPin={openPin}
                 walkStart={walkStart} intro={intro} ctx={ctx} onIntroDone={introDone}
                 onRoomClick={onRoomClick} onPick={onPick} onExitWalk={exitWalk} onWalkFloor={onWalkFloor}
-                onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo} />
+                onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo}
+                furniture={{
+                  items: furniture, editing: tool === 'furniture', active: furnFloor?.id ?? null, plan: furnPlan, issues,
+                  selected: furnSel, placing, showZones, coverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
+                  onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
+                  onPlacing: setPlacing, onMove: moveItem,
+                }} />
             </Suspense>
           ) : running ? (
             <div className="center-msg"><Progress job={job!} /></div>
@@ -487,12 +698,20 @@ export default function App() {
                 setOpenPin(pin.id)
                 setTimeout(() => ctx.api?.flyToPoint(new THREE.Vector3(...pin.pos).setY(pin.pos[1] + (ctx.offset.get(pin.floor) ?? 0)), 10), 60)
               }}
-              furnitureCount={detailInfo?.furniture ?? null} />
+              furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {buildingOpen && job && shown && (
               <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount} saving={saving}
                 saveErr={saveErr} onFloor={selectFloor} onEditor={() => setEditor(true)} onSave={saveDrawing}
                 onClose={() => setBuildingOpen(false)} />
+            )}
+            {tool === 'furniture' && (
+              <FurniturePanel floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} selected={furnSel}
+                placing={placing?.item ?? null} showZones={showZones} canUndo={furnHistory.current.length > 0}
+                onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
+                onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
+                onDelete={deleteItem} onUndo={undoFurniture} onClose={() => setTool('none')}
+                locked={rebuilding} unplaced={unplaced} onUnplaced={resolveUnplaced} />
             )}
             {selRoom && nav !== 'walk' && (
               <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
@@ -504,7 +723,10 @@ export default function App() {
                 {tool === 'measure' ? (measureMode === 'length' ? 'Рулетка: кликните две точки · Esc — сброс'
                   : 'Площадь: кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
                   : tool === 'route' ? (route.step === 'to' ? 'Маршрут: щёлкните конечную точку' : 'Маршрут: щёлкните начальную точку на полу')
-                  : tool === 'marker' ? 'Щёлкните место для метки' : 'Щёлкните место для комментария'}
+                  : tool === 'marker' ? 'Щёлкните место для метки'
+                  : tool === 'furniture' ? (placing ? `${placing.item.name}: щёлкните на плане · R / Q / E — повернуть · Alt — без привязки к стене · Esc — отмена`
+                    : 'Перетащите предмет из каталога на план · перетаскивание — двигать · R — поворот · Del — удалить · Ctrl+D — копия · Ctrl+Z — отмена')
+                  : 'Щёлкните место для комментария'}
                 <button className="link" onClick={() => setTool('none')}>готово</button>
               </div>
             )}

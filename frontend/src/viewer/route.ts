@@ -15,12 +15,13 @@ export interface Grid {
 
 type Ring = [number, number][]
 
-export function buildGrid(plan: PlanData, res = 0.15, clearance = 0.25): Grid | null {
+/** `extra` — more obstacles (furniture footprints). */
+export function buildGrid(plan: PlanData, extra: Ring[] = [], res = 0.15, clearance = 0.25): Grid | null {
   if (!plan.bounds) return null
   const [bx0, by0, bx1, by1] = plan.bounds
   const x0 = bx0 - 1, y0 = by0 - 1
   const w = Math.ceil((bx1 - bx0 + 2) / res), h = Math.ceil((by1 - by0 + 2) / res)
-  if (w * h > 4e6) return buildGrid(plan, res * 1.5, clearance)
+  if (w * h > 4e6) return buildGrid(plan, extra, res * 1.5, clearance)
   const cv = document.createElement('canvas')
   cv.width = w
   cv.height = h
@@ -46,7 +47,7 @@ export function buildGrid(plan: PlanData, res = 0.15, clearance = 0.25): Grid | 
   g.lineJoin = 'round'
   const blocked: Ring[][] = [...plan.walls, ...plan.partitions, ...plan.columns,
     ...plan.openings.filter((o) => o.kind === 'window' || o.kind === 'vitrage').map((o) => [o.poly as unknown as Ring])]
-  for (const poly of blocked) {
+  for (const poly of [...blocked, ...extra.map((r) => [r])]) {
     path(poly)
     g.fill('evenodd')
     g.stroke()

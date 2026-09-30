@@ -12,6 +12,7 @@ import Detail, { type DetailInfo } from './Detail'
 import { FlyControls, WalkControls } from './FlyWalk'
 import Ground, { Sky } from './MapLayer'
 import { SKY } from './tiles'
+import Furniture from './Furniture'
 import Markers, { type RouteView } from './Markers'
 import { useMeasure } from './Measure'
 import Rig from './Rig'
@@ -47,7 +48,11 @@ export interface ViewerProps {
   onDeletePin: (kind: 'markers' | 'comments', id: string) => void
   onQuality: (q: 'high' | 'eco' | 'real') => void
   onDetailInfo: (i: DetailInfo | null) => void
+  furniture: FurnitureView
 }
+
+/** Furniture layer props supplied by the app (the rest comes from the scene). */
+export type FurnitureView = Omit<React.ComponentProps<typeof Furniture>, 'ctx' | 'floors' | 'center' | 'visible' | 'display' | 'proj'>
 
 const NIGHT: Record<string, number> = { day: 0, evening: 0.6, night: 1 }
 
@@ -134,6 +139,7 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
         </Suspense>
       )}
       {measure.node}
+      <Furniture ctx={ctx} floors={floors} center={result.center ?? [0, 0]} visible={visible} display={display} proj={p.proj} {...p.furniture} />
       <Markers ctx={ctx} walking={p.nav === 'walk'} display={display} visible={visible} open={open} entrances={result.entrances ?? []} pois={result.pois ?? []}
         markers={p.view.markers ?? []} comments={p.view.comments ?? []} route={p.route} openPin={p.openPin}
         onPin={p.onPin} onDeletePin={p.onDeletePin} />

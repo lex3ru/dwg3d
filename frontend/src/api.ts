@@ -150,6 +150,25 @@ export interface Pin {
   created?: number
 }
 
+/** Furniture / equipment placed on a floor (plan coordinates, meters). */
+export interface PlacedItem {
+  id: string
+  floor: string
+  /** catalog item id */
+  item: string
+  at: XY
+  /** degrees, counter-clockwise; 0 = back towards +Y (plan up) */
+  angle: number
+  /** [w, d, h] override of the catalog size */
+  size?: [number, number, number]
+  note?: string
+  /** mounting height override, m */
+  elev?: number
+  /** CCTV camera: horizontal view angle (deg) and range (m) overrides */
+  fov?: number
+  range?: number
+}
+
 /** Per-job viewer settings stored on the server (no rebuild needed). */
 export interface ViewSettings {
   name?: string
@@ -157,6 +176,9 @@ export interface ViewSettings {
   detail?: { file?: string; version?: number; size?: number; offset: V3; rotation: number; scale: number }
   comments?: Pin[]
   markers?: Pin[]
+  furniture?: PlacedItem[]
+  /** furniture whose floor was not found after a rebuild (kept by the server) */
+  furniture_unplaced?: (PlacedItem & { _anchor?: { name?: string } | null })[]
 }
 
 export interface JobSummary { id: string; filename: string; name: string; status: Job['status']; floors: number; updated: number }
