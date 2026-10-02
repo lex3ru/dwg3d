@@ -34,7 +34,9 @@ class FakeKeycloak:
                 "preferred_username": user["login"], "name": user.get("name", user["login"]),
                 "email": user.get("email")}
         idt = jwt.encode({**base, "aud": "dwg3d", "nonce": nonce}, KEY, algorithm="RS256")
-        acc = jwt.encode({**base, "aud": "account", "realm_access": {"roles": user.get("roles", [])}}, KEY,
+        # the application's roles are client roles, named dwg3d.<role>; realm roles are ignored
+        acc = jwt.encode({**base, "aud": "account", "realm_access": {"roles": ["admin", "offline_access"]},
+                          "resource_access": {"dwg3d": {"roles": user.get("roles", [])}, "other": {"roles": ["dwg3d.admin"]}}}, KEY,
                          algorithm="RS256")
         rt = uuid.uuid4().hex
         self.refresh[rt] = user
@@ -112,10 +114,10 @@ def test_nothing_opens_without_sign_in(kc, api):
 
 
 def test_sign_in_flow(kc, api):
-    c = sign_in(api, kc, "anna", roles=["catalog_admin"], email="anna@example.com", next_="/#/p/x")
+    c = sign_in(api, kc, "anna", roles=["dwg3d.catalog_admin", "dwg3d.nurse"], email="anna@example.com", next_="/#/p/x")
     me = c.get("/api/auth/me").json()
     assert me["login"] == "anna" and me["name"] == "Имя anna" and me["role"] == "catalog_admin"
-    assert me["email"] == "anna@example.com"
+    assert me["email"] == "anna@example.com" and me["roles"] == ["dwg3d.catalog_admin", "dwg3d.nurse"]
     # the same Keycloak user signs in again: the same row, roles as Keycloak says now
     c2 = sign_in(api, kc, "anna", roles=[])
     assert c2.get("/api/auth/me").json()["id"] == me["id"] and c2.get("/api/auth/me").json()["role"] == "user"
@@ -133,6 +135,20 @@ def test_sign_in_flow(kc, api):
     assert c.get("/api/projects").status_code == 401
 
 
+def test_app_roles_from_client_roles(monkeypatch):
+    acc = {"realm_access": {"roles": ["admin"]},
+           "resource_access": {"dwg3d": {"roles": ["dwg3d.user", "dwg3d.nurse", "admin", "dwg3d.", 7]},
+                               "other": {"roles": ["dwg3d.admin"]}}}
+    assert auth.app_roles(acc) == ["dwg3d.nurse", "dwg3d.user"]
+    assert auth._role(auth.app_roles(acc)) == "user"           # realm "admin" and other clients do not count
+    assert auth._role([]) == "user" and auth._role(["dwg3d.catalog_admin"]) == "catalog_admin"
+    assert auth._role(["dwg3d.catalog_admin", "dwg3d.admin"]) == "admin"
+    monkeypatch.setenv("DWG3D_OIDC_CLIENT_ID", "other")
+    assert auth.app_roles(acc) == ["dwg3d.admin"]
+    me = auth.Me(1, "a", "A", "user", roles=("dwg3d.nurse",))
+    assert me.has("nurse") and not me.has("admin")
+
+
 def test_session_ends_when_keycloak_ends_it(kc, api, monkeypatch):
     c = sign_in(api, kc, "boris")
     monkeypatch.setattr(auth, "REFRESH_EVERY", timedelta(0))
@@ -143,7 +159,7 @@ def test_session_ends_when_keycloak_ends_it(kc, api, monkeypatch):
     c = sign_in(api, kc, "vera")
     for u in kc.refresh.values():
         if u["sub"] == "sub-vera":
-            u["roles"] = ["admin"]
+            u["roles"] = ["dwg3d.admin"]
     c.get("/api/projects")
     assert c.get("/api/auth/me").json()["role"] == "admin"
 
@@ -151,7 +167,7 @@ def test_session_ends_when_keycloak_ends_it(kc, api, monkeypatch):
 def test_project_members(kc, api):
     owner = sign_in(api, kc, "olga", email="olga@example.com")
     other = sign_in(api, kc, "petr", email="petr@example.com")
-    admin = sign_in(api, kc, "root", roles=["admin"])
+    admin = sign_in(api, kc, "root", roles=["dwg3d.admin"])
     p = owner.post("/api/projects", json={"name": "Клиника"}).json()
     assert p["my_role"] == "owner"
     pid = p["id"]

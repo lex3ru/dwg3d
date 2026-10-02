@@ -67,8 +67,9 @@ class CatalogItem(Base):
 
 
 class User(Base):
-    """A user signed in through Keycloak (`sub` of the tokens). `role` follows
-    the realm roles: admin (every project, the catalog), catalog_admin, user."""
+    """A user signed in through Keycloak (`sub` of the tokens). `roles` are the
+    application's client roles (dwg3d.<role>) as of the last sign-in or token
+    refresh; `role` is the global one they give: admin, catalog_admin, user."""
     __tablename__ = "users"
     __table_args__ = (CheckConstraint("role IN ('user', 'catalog_admin', 'admin')", name="users_role"),
                       Index("users_login", func.lower(text("login")), unique=True),
@@ -80,6 +81,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(Text, server_default="")
     email: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(Text, server_default="user")
+    roles: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
     active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

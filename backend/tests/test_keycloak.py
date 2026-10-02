@@ -19,7 +19,7 @@ ADMIN = (os.environ.get("KEYCLOAK_ADMIN", "kcadmin"), os.environ.get("KEYCLOAK_A
 
 @pytest.fixture
 def kc_user():
-    """A throwaway realm user with the catalog_admin role: (login, password)."""
+    """A throwaway realm user with the client role dwg3d.catalog_admin: (login, password)."""
     try:
         tok = httpx.post(f"{KC}/realms/master/protocol/openid-connect/token", timeout=5,
                          data={"client_id": "admin-cli", "username": ADMIN[0], "password": ADMIN[1],
@@ -35,8 +35,10 @@ def kc_user():
         "credentials": [{"type": "password", "value": pw, "temporary": False}]})
     assert r.status_code == 201, r.text
     uid = r.headers["location"].rsplit("/", 1)[1]
-    role = httpx.get(f"{KC}/admin/realms/dwg3d/roles/catalog_admin", headers=h).json()
-    httpx.post(f"{KC}/admin/realms/dwg3d/users/{uid}/role-mappings/realm", headers=h, json=[role])
+    client = httpx.get(f"{KC}/admin/realms/dwg3d/clients", headers=h, params={"clientId": "dwg3d"}).json()[0]["id"]
+    role = httpx.get(f"{KC}/admin/realms/dwg3d/clients/{client}/roles/dwg3d.catalog_admin", headers=h)
+    assert role.status_code == 200, "в Keycloak нет клиентской роли dwg3d.catalog_admin (realm из deploy/keycloak)"
+    httpx.post(f"{KC}/admin/realms/dwg3d/users/{uid}/role-mappings/clients/{client}", headers=h, json=[role.json()])
     yield login, pw
     httpx.delete(f"{KC}/admin/realms/dwg3d/users/{uid}", headers=h)
 

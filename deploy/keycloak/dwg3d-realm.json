@@ -17,10 +17,13 @@
   "ssoSessionIdleTimeoutRememberMe": 1209600,
   "ssoSessionMaxLifespanRememberMe": 2592000,
   "roles": {
-    "realm": [
-      {"name": "admin", "description": "Администратор dwg3d: все проекты и каталог"},
-      {"name": "catalog_admin", "description": "Редактирование каталога оборудования"}
-    ]
+    "client": {
+      "dwg3d": [
+        {"name": "dwg3d.admin", "description": "Администратор dwg3d: все проекты и каталог"},
+        {"name": "dwg3d.catalog_admin", "description": "Редактирование каталога оборудования"},
+        {"name": "dwg3d.user", "description": "Пользователь dwg3d"}
+      ]
+    }
   },
   "clients": [
     {
@@ -51,7 +54,8 @@
       "emailVerified": true,
       "firstName": "Администратор",
       "credentials": [{"type": "password", "value": "${DWG3D_ADMIN_PASSWORD}", "temporary": true}],
-      "realmRoles": ["default-roles-dwg3d", "admin"]
+      "realmRoles": ["default-roles-dwg3d"],
+      "clientRoles": {"dwg3d": ["dwg3d.admin"]}
     }
   ]
 }

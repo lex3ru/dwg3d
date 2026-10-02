@@ -11,6 +11,8 @@ export interface Me {
   name: string
   role: GlobalRole
   role_name: string
+  /** the application's roles in Keycloak (client roles): dwg3d.admin, dwg3d.user, dwg3d.<role>… */
+  roles?: string[]
   email: string | null
   /** false: the server runs without sign-in (DWG3D_AUTH=off) */
   auth: boolean
@@ -32,6 +34,9 @@ export async function loadMe(): Promise<Me | null> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return (me = await r.json() as Me)
 }
+
+/** Whether the user has the Keycloak client role dwg3d.<role>. */
+export const hasRole = (role: string) => !!me?.roles?.includes(`dwg3d.${role}`)
 
 /** Global roles (from Keycloak): catalog editing, every project. */
 export const can = (role: GlobalRole) => !!me && GLOBAL_RANK[me.role] >= GLOBAL_RANK[role]

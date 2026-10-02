@@ -8,10 +8,16 @@ only a random session token in an HttpOnly cookie (the row keeps its
 SHA-256). Every few minutes a request refreshes the Keycloak tokens, so a
 user signed out, disabled or with other roles in Keycloak is noticed.
 
-Global roles come from Keycloak realm roles: admin (every project, the
-catalog), catalog_admin (the catalog); other users are "user". What a user
-may do in a project is in project_members (see access.py). Users are
-managed in Keycloak (its admin console is at /auth/admin/).
+Roles come from the client roles of the access token,
+resource_access.<client_id>.roles, named dwg3d.<role>:
+  dwg3d.admin          every project, the catalog
+  dwg3d.catalog_admin  the catalog
+  dwg3d.user           an ordinary user (a user with no dwg3d.* role is one too)
+  dwg3d.<role>         any other role: kept with the user (Me.roles, has()) for checks
+                       that need it
+Realm roles are not read. What a user may do in a project is in
+project_members (see access.py). Users and their roles are managed in
+Keycloak (its admin console is at /auth/admin/).
 
 A share link (access.py) signs in a guest: read-only, one project.
 
@@ -47,6 +53,7 @@ from .models import AuthSession, ProjectMember, User
 
 log = logging.getLogger("dwg3d.auth")
 GLOBAL_ROLES = ("user", "catalog_admin", "admin")
+ROLE_PREFIX = "dwg3d."
 ROLE_NAMES = {"user": "пользователь", "catalog_admin": "администратор каталога", "admin": "администратор"}
 COOKIE = "dwg3d_session"
 STATE_COOKIE = "dwg3d_oidc"
@@ -65,13 +72,19 @@ class Me:
     email: str | None = None
     # a guest of a share link: {"id", "project_id", "drawings", "layers"}
     share: dict | None = field(default=None, compare=False)
+    # the application's roles from Keycloak, full names: ("dwg3d.user", "dwg3d.nurse", ...)
+    roles: tuple[str, ...] = field(default=(), compare=False)
 
     def can(self, role: str) -> bool:
         return GLOBAL_ROLES.index(self.role) >= GLOBAL_ROLES.index(role)
 
+    def has(self, role: str) -> bool:
+        """Whether the user has the role dwg3d.<role> in Keycloak."""
+        return f"{ROLE_PREFIX}{role}" in self.roles
+
     def json(self) -> dict:
         o = {"id": self.id, "login": self.login, "name": self.name, "role": self.role,
-             "role_name": ROLE_NAMES[self.role], "email": self.email, "auth": enabled()}
+             "role_name": ROLE_NAMES[self.role], "roles": list(self.roles), "email": self.email, "auth": enabled()}
         if self.share is not None:
             o["guest"] = {"project_id": self.share["project_id"], "drawings": self.share["drawings"],
                           "layers": self.share["layers"], "name": self.share.get("name") or ""}
@@ -162,9 +175,18 @@ def _decode(token: str, audience: str | None, nonce: str | None = None) -> dict:
     return claims
 
 
-def _role(access_claims: dict) -> str:
-    roles = set((access_claims.get("realm_access") or {}).get("roles") or [])
-    return "admin" if "admin" in roles else "catalog_admin" if "catalog_admin" in roles else "user"
+def app_roles(access_claims: dict) -> list[str]:
+    """The application's roles in an access token: resource_access.<client_id>.roles named dwg3d.<role>."""
+    client = (access_claims.get("resource_access") or {}).get(client_id()) or {}
+    return sorted({r for r in client.get("roles") or []
+                   if isinstance(r, str) and r.startswith(ROLE_PREFIX) and len(r) > len(ROLE_PREFIX)})
+
+
+def _role(roles: list[str]) -> str:
+    """The global role: admin, catalog_admin or (also with no role at all) user."""
+    if f"{ROLE_PREFIX}admin" in roles:
+        return "admin"
+    return "catalog_admin" if f"{ROLE_PREFIX}catalog_admin" in roles else "user"
 
 
 # ----------------------------------------------------- signed state cookie ---
@@ -207,7 +229,7 @@ def login_redirect(base_url: str, nxt: str | None) -> tuple[str, str]:
 
 
 # --------------------------------------------------------------- sign-in ---
-def _upsert_user(s, claims: dict, role: str) -> User:
+def _upsert_user(s, claims: dict, roles: list[str]) -> User:
     sub = claims["sub"]
     login = claims.get("preferred_username") or claims.get("email") or sub
     name = claims.get("name") or " ".join(x for x in (claims.get("given_name"), claims.get("family_name")) if x) or login
@@ -220,7 +242,7 @@ def _upsert_user(s, claims: dict, role: str) -> User:
         taken = s.scalar(select(User.id).where(func.lower(User.login) == login.lower()))
         u = User(login=login if taken is None else f"{login}#{sub[:8]}")
         s.add(u)
-    u.sub, u.name, u.email, u.role, u.active = sub, name, email, role, True
+    u.sub, u.name, u.email, u.role, u.roles, u.active = sub, name, email, _role(roles), roles, True
     u.last_login_at = func.now()
     s.flush()
     if email:     # invitations to projects by e-mail
@@ -248,7 +270,7 @@ def complete_login(base_url: str, code: str, state: str, cookie: str | None, use
         raise OIDCError("недействительный токен: sub")
     token = secrets.token_urlsafe(32)
     with db.session() as s:
-        u = _upsert_user(s, {**acc, **idc}, _role(acc))
+        u = _upsert_user(s, {**acc, **idc}, app_roles(acc))
         if not u.active:
             raise OIDCError("Учётная запись отключена")
         s.add(AuthSession(token_hash=_digest(token), user_id=u.id, user_agent=user_agent[:300],
@@ -258,7 +280,7 @@ def complete_login(base_url: str, code: str, state: str, cookie: str | None, use
 
 
 def _me(u: User) -> Me:
-    return Me(u.id, u.login, u.name or u.login, u.role, u.email)
+    return Me(u.id, u.login, u.name or u.login, u.role, u.email, roles=tuple(u.roles or ()))
 
 
 def resolve(token: str | None) -> Me | None:
@@ -280,7 +302,8 @@ def resolve(token: str | None) -> Me | None:
                 tok = _post_form(_endpoint("token", internal=True),
                                  {"grant_type": "refresh_token", "refresh_token": sess.refresh_token})
                 acc = _decode(tok["access_token"], None)
-                u.role = _role(acc)
+                u.roles = app_roles(acc)
+                u.role = _role(u.roles)
                 sess.refresh_token = tok.get("refresh_token") or sess.refresh_token
                 sess.id_token = tok.get("id_token") or sess.id_token
                 sess.refreshed_at = now
@@ -321,7 +344,7 @@ def list_users(q: str = "", limit: int = 20) -> list[dict]:
             like = f"%{q.lower()}%"
             sel = sel.where(func.lower(User.login).like(like) | func.lower(User.name).like(like)
                             | func.lower(func.coalesce(User.email, "")).like(like))
-        return [{"id": u.id, "login": u.login, "name": u.name, "email": u.email, "role": u.role,
+        return [{"id": u.id, "login": u.login, "name": u.name, "email": u.email, "role": u.role, "roles": list(u.roles or []),
                  "last_login": u.last_login_at.isoformat(timespec="minutes") if u.last_login_at else None}
                 for u in s.scalars(sel)]
 
