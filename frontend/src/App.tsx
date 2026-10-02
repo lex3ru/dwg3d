@@ -451,7 +451,7 @@ export default function App() {
             {leftContent}
           </Dock>
         )}
-        <div className="relative min-w-0 flex-1 overflow-hidden">
+        <div className="@container relative min-w-0 flex-1 overflow-hidden">
         <main className="stage" onClick={() => {
           if (nav === 'walk' && !document.pointerLockElement) {
             // pointer lock may be refused (iframe policy, right after Esc): dragging then looks around
@@ -490,8 +490,8 @@ export default function App() {
               <Button variant="secondary" size="sm" className="absolute top-14 left-3.5 z-20 rounded-full border-0 bg-float shadow-md" onClick={() => setPresenting(false)}
                 title="Вернуть панели (Esc)"><PanelLeft /> Панели</Button>
             )}
-            <TopBar jobId={jobId} projectId={shown?.project_id ?? job?.project_id ?? ''} name={name} result={r}
-              onOpenJob={openJob} onRoom={focusRoom} />
+            {nav !== 'walk' && <TopBar jobId={jobId} projectId={shown?.project_id ?? job?.project_id ?? ''} name={name} result={r}
+              onOpenJob={openJob} onRoom={focusRoom} />}
             {running && shown && <div className="rebuild-progress"><Progress job={job!} /></div>}
             <TopRight
               measuring={tool === 'measure'} measureMode={measureMode}
