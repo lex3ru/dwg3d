@@ -1,16 +1,10 @@
-import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  batchRows, createLayer, downloadDrawing, getJob, getPlan, layerKinds, listLayers, rebuildJob,
-  type FloorEdits, type FloorMeta, type Job, type Layer, type LayerKindInfo, type Pin, type PlacedItem, type PlanData, type RoomMeta,
-  type ShapeObject, type XY,
-  type RowOp, type V3, type ViewSettings,
+  createLayer, downloadDrawing, listLayers, rebuildJob,
+  type FloorEdits, type FloorMeta, type Job, type RoomMeta, type V3, type ViewSettings,
 } from './api'
-import type { CatalogItem } from './furniture/catalog'
-import { catalogItem } from './furniture/catalog'
-import { conflictText, furnitureOps } from './furniture/sync'
-import { canEdit, READ_ONLY, setProjectRole } from './session'
-import { axes, cameraCoverage, checkFloor, footprint, indexPlan, itemElev, itemSize, roomCoverage, systemsCoverage, type PlanIndex, type Pose } from './furniture/geom'
+import { canEdit, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import CatalogEditor from './ui/CatalogEditor'
@@ -26,70 +20,25 @@ import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
 import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
+import Progress from './ui/Progress'
 import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
 import FurniturePanel from './ui/FurniturePanel'
-import RoutesPanel, { type PlanClick } from './ui/RoutesPanel'
+import RoutesPanel from './ui/RoutesPanel'
 import Compare from './ui/Compare'
-import { variantGroup, variantGroups } from './furniture/layers'
-import { checkFlows, computeRoute, connectors, type CableProps, type RouteProps, type RouteStop, type Rules, type ZoneProps } from './viewer/routing'
-import type { ShapeView } from './viewer/Shapes'
-import Toolbar, { type RouteState } from './ui/Toolbar'
+import { variantGroups } from './furniture/layers'
+import Toolbar from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
-import { buildGrid, findPath, type Grid } from './viewer/route'
 import { SceneCtx, entrancePose, htmlLayer } from './viewer/scene'
-import type { Placing } from './viewer/Furniture'
-import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit, type RouteView } from './viewer/Viewer'
+import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit } from './viewer/Viewer'
+import { useFurniture } from './hooks/useFurniture'
+import { useJobPolling } from './hooks/useJob'
+import { useLayers } from './hooks/useLayers'
+import { usePins } from './hooks/usePins'
+import { usePlans } from './hooks/usePlans'
+import { useRoute } from './hooks/useRoute'
+import { useShapes } from './hooks/useShapes'
 
-const STAGES: Record<string, string> = {
-  queued: 'В очереди', start: 'Запуск', convert: 'Конвертация DWG → DXF', read: 'Чтение чертежа',
-  analyze: 'Поиск этажей', geometry: 'Построение геометрии', mesh: 'Построение 3D',
-  export: 'Экспорт', done: 'Готово', error: 'Ошибка',
-}
-
-function useJobPolling(jobId: string | null, nonce: number) {
-  const [job, setJob] = useState<Job | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    if (!jobId) return
-    let stop = false
-    let timer: number | undefined
-    const tick = async () => {
-      try {
-        const j = await getJob(jobId)
-        if (stop) return
-        setProjectRole(j.my_role)
-        setJob(j)
-        setError(null)
-        if (j.status === 'queued' || j.status === 'running') timer = window.setTimeout(tick, 600)
-      } catch (e) {
-        if (!stop) {
-          setError(String((e as Error).message))
-          timer = window.setTimeout(tick, 2000)
-        }
-      }
-    }
-    tick()
-    return () => { stop = true; window.clearTimeout(timer) }
-  }, [jobId, nonce])
-  return { job, setJob, error }
-}
-
-function Progress({ job }: { job: Job }) {
-  return (
-    <div className="progress-card">
-      <div className="progress-title">{job.filename}</div>
-      <div className="bar"><div style={{ width: `${Math.round(job.progress * 100)}%` }} /></div>
-      <div className="progress-msg">
-        <span>{STAGES[job.stage] ?? job.stage}</span>
-        <span>{job.message && job.message !== STAGES[job.stage] ? job.message : ''}</span>
-        <span>{Math.round(job.progress * 100)}%</span>
-      </div>
-    </div>
-  )
-}
-
-const NO_ROUTE: RouteState = { floor: null, step: 'from', fromLabel: '', toLabel: '', length: null, error: null }
 const introKey = (id: string) => `dwg3d.intro.${id}`
 const seenIntro = (id: string | null) => {
   try { return !id || !!sessionStorage.getItem(introKey(id)) } catch { return true }
@@ -130,13 +79,6 @@ export default function App() {
   const [cuts, setCuts] = useState<Cuts>({ h: { on: false, y: 0 }, v: { on: false, x: 0 } })
   const [view, setView] = useState<ViewSettings>({})
   const [preview, setPreview] = useState<ViewSettings | null>(null)
-  const [route, setRoute] = useState<RouteState>(NO_ROUTE)
-  const [routeView, setRouteView] = useState<RouteView | null>(null)
-  const routeEnds = useRef<{ from: [number, number] | null; to: [number, number] | null }>({ from: null, to: null })
-  const grids = useRef(new Map<string, Grid | null>())
-  const [openPin, setOpenPin] = useState<string | null>(null)
-  const [pending, setPending] = useState<{ kind: 'markers' | 'comments'; pos: V3; floor: string } | null>(null)
-  const [pendingText, setPendingText] = useState('')
   const [walkStart, setWalkStart] = useState<{ pos: THREE.Vector3; look: THREE.Vector3 } | null>(null)
   const [walkMsg, setWalkMsg] = useState('')
   const floorBeforeWalk = useRef<string | null>(null)
@@ -145,20 +87,6 @@ export default function App() {
   const [saving, setSaving] = useState<'dxf' | 'dwg' | null>(null)
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [intro, setIntro] = useState(() => !initial?.floor && !seenIntro(jobId))
-  // furniture placement
-  const [furnSel, setFurnSel] = useState<string | null>(null)
-  const [placing, setPlacing] = useState<Placing | null>(null)
-  const [showZones, setShowZones] = useState(false)
-  const [planIdx, setPlanIdx] = useState<{ floor: string; idx: PlanIndex } | null>(null)
-  const plans = useRef(new Map<string, PlanData>())
-  const furnHistory = useRef<PlacedItem[][]>([])
-  const dragSnap = useRef<PlacedItem[] | null>(null)
-  const furnTimer = useRef<number | undefined>(undefined)
-  /** Placed items as the server last confirmed them: the base of each diff and the versions to send */
-  const furnSaved = useRef(new Map<string, PlacedItem>())
-  /** Saves run one after another: each diff starts from what the previous one confirmed */
-  const furnQueue = useRef<Promise<void>>(Promise.resolve())
-  const [, setUndoTick] = useState(0)
   const ctx = useMemo(() => new SceneCtx(), [])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useEffect(() => { if (import.meta.env.DEV) (window as any).__dwg3d = ctx }, [ctx])
@@ -169,12 +97,6 @@ export default function App() {
   const entranceFloor = useMemo(() => floors.find((f) => f.id === r?.entrances?.[0]?.floor)
     ?? floors.find((f) => f.elevation! >= -0.5) ?? floors[0] ?? null, [floors, r])
 
-  // job settings stored on the server
-  const adoptView = useCallback((v: ViewSettings) => {
-    furnSaved.current = new Map((v.furniture ?? []).map((it) => [it.id, it]))
-    setView(v)
-  }, [])
-  useEffect(() => { adoptView(shown?.view ?? {}) }, [shown?.id, shown?.view, adoptView])
   const shownView = preview ?? view
 
   // drop a floor id that this build does not have
@@ -190,6 +112,41 @@ export default function App() {
       v: { ...c.v, x: c.v.x || ((r.extent?.x[0] ?? 0) + (r.extent?.x[1] ?? 0)) / 2 },
     }))
   }, [r])
+
+  // ---- state of the pieces of the viewer: each hook owns one kind of work
+  const rebuilding = job?.status === 'queued' || job?.status === 'running'
+  const reload = useCallback(() => setPollNonce((n) => n + 1), [])      // re-read the job: the server's state wins
+  const projectId = shown?.project_id ?? job?.project_id ?? ''
+  const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
+  const {
+    layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer, showVariant, toggleLayer, setAllLayers,
+    layerFor, refuseLocked, syncLayers,
+  } = useLayers(shown, projectId)
+  const [comparing, setComparing] = useState(false)
+  const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
+  const { openPin, setOpenPin, pending, setPending, pendingText, setPendingText, commitPending, deletePin, startPin } = usePins({
+    shown, view, setView, rebuilding, reload, onDone: () => setTool('none'),
+  })
+  const {
+    shapes, shapeSel, setShapeSel, shapeDraft, setShapeDraft, shapePicking, setShapePicking, shapePick,
+    conflicts, shapeViews, saveShapes, computeStops, flyToPlan,
+  } = useShapes({ shown, view, setView, layers, rules, hiddenNow, syncLayers, rebuilding, reload, floors, loadGrid, ctx, cx, cy, setFloor, tool })
+  const furn = useFurniture({
+    shown, view, setView, rebuilding, reload, hiddenNow, layerFor, refuseLocked, syncLayers, tool, setTool, floor, activeFloor,
+    camViews: display.camViews, loadPlan,
+  })
+  const {
+    furniture, shownFurniture, furnFloor, floorItems, furnPlan, issues, allCoverage, roomCover, furnSel, setFurnSel, placing, setPlacing,
+    showZones, setShowZones, unplaced, resolveUnplaced, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems,
+    deleteItem, moveItem, resetSaved, reset: resetFurn,
+  } = furn
+
+  // job settings stored on the server
+  const adoptView = useCallback((v: ViewSettings) => {
+    resetSaved(v)
+    setView(v)
+  }, [resetSaved])
+  useEffect(() => { adoptView(shown?.view ?? {}) }, [shown?.id, shown?.view, adoptView])
 
   // ---- URL hash <-> state
   useEffect(() => {
@@ -221,19 +178,14 @@ export default function App() {
     setShown(null)
     setFloor(null)
     setSelRoom(null)
-    setRoute(NO_ROUTE)
-    setRouteView(null)
+    clearRoute()
     setNav('orbit')
     setTool('none')
     setDetailInfo(null)
-    grids.current.clear()
-    plans.current.clear()
-    furnHistory.current = []
-    setFurnSel(null)
-    setPlacing(null)
-    setPlanIdx(null)
+    clearCaches()
+    resetFurn()
     setIntro(!seenIntro(id))
-  }, [])
+  }, [clearCaches, clearRoute, resetFurn])
   const introDone = useCallback(() => {
     try { if (jobId) sessionStorage.setItem(introKey(jobId), '1') } catch { /* private mode */ }
     setIntro(false)
@@ -296,256 +248,6 @@ export default function App() {
     setTimeout(() => ctx.api?.flyToPoint(p.clone().setY(p.y + (ctx.offset.get(f.id) ?? 0)), Math.max(8, Math.sqrt(room.area) * 2.2)), 60)
   }
 
-  // ---- route (one floor)
-  const cx = r?.center?.[0] ?? 0, cy = r?.center?.[1] ?? 0
-  const toPlan = (v: V3 | THREE.Vector3): [number, number] => {
-    const [x, , z] = Array.isArray(v) ? v : [v.x, v.y, v.z]
-    return [x + cx, -z + cy]
-  }
-  const planToGltf = (p: [number, number], elev: number): V3 => [p[0] - cx, elev + 0.06, -(p[1] - cy)]
-  const loadPlan = async (f: FloorMeta): Promise<PlanData> => {
-    let plan = plans.current.get(f.id)
-    if (!plan) {
-      plan = await getPlan(shown!.id, f.plan, shown!.build)
-      plans.current.set(f.id, plan)
-    }
-    return plan
-  }
-  const loadGrid = async (f: FloorMeta): Promise<Grid | null> => {
-    if (!grids.current.has(f.id)) {
-      const plan = await loadPlan(f)
-      // furniture standing on the floor blocks the way (wall-hung items do not)
-      const extra = (view.furniture ?? []).filter((it) => it.floor === f.id && itemElev(it) < 1 && catalogItem(it.item).kind !== 'zone')
-        .map((it) => { const [w, d] = itemSize(it); const q = footprint(it.at, it.angle, w, d); return [...q, q[0]] })
-      grids.current.set(f.id, buildGrid(plan, extra))
-    }
-    return grids.current.get(f.id) ?? null
-  }
-  const setRouteEnd = async (end: 'from' | 'to', f: FloorMeta, p: [number, number], label: string) => {
-    let ends = routeEnds.current
-    let st = route
-    if (st.floor && st.floor !== f.id) {
-      if (end === 'to' && ends.from) {
-        setRoute({ ...st, error: 'Маршрут строится в пределах одного этажа: выберите конец на этаже начала' })
-        return
-      }
-      ends = { from: null, to: null }
-      st = { ...NO_ROUTE }
-    }
-    ends = { ...ends, [end]: p }
-    routeEnds.current = ends
-    const next: RouteState = {
-      ...st, floor: f.id, [end === 'from' ? 'fromLabel' : 'toLabel']: label, error: null, length: null,
-      step: ends.from && ends.to ? 'done' : ends.from ? 'to' : 'from',
-    }
-    setRoute(next)
-    setFloor(f.id)
-    const elev = f.elevation!
-    setRouteView({ floor: f.id, pts: [], from: ends.from ? planToGltf(ends.from, elev) : null, to: ends.to ? planToGltf(ends.to, elev) : null, length: 0 })
-    if (!ends.from || !ends.to) return
-    const grid = await loadGrid(f)
-    const path = grid ? findPath(grid, ends.from, ends.to) : null
-    if (!path) {
-      setRoute({ ...next, error: 'Путь не найден: точки разделены стенами без проёмов' })
-      return
-    }
-    setRoute({ ...next, length: path.length })
-    setRouteView({
-      floor: f.id, pts: path.pts.map((q) => planToGltf(q, elev)), from: planToGltf(ends.from, elev),
-      to: planToGltf(ends.to, elev), length: path.length,
-    })
-  }
-  const routeRoom = (end: 'from' | 'to', f: FloorMeta, room: RoomMeta) =>
-    setRouteEnd(end, f, toPlan(room.label_pos), room.name || room.type || 'помещение')
-  const clearRoute = () => {
-    routeEnds.current = { from: null, to: null }
-    setRoute(NO_ROUTE)
-    setRouteView(null)
-  }
-
-  // ---- markers & comments (stored on the server, one row each)
-  const savePin = async (kind: 'markers' | 'comments', op: RowOp, local: Pin[]) => {
-    if (!shown) return
-    if (!canEdit()) {
-      alert(READ_ONLY)
-      return
-    }
-    if (rebuilding) {
-      alert('Идёт перестроение модели: метки и комментарии можно менять после него')
-      return
-    }
-    setView((v) => ({ ...v, [kind]: local }))
-    try {
-      const res = await batchRows<Pin>(shown.id, 'pins', shown.build, [op])
-      setView((v) => ({
-        ...v,
-        [kind]: (v[kind] ?? []).filter((p) => !res.deleted.includes(p.id))
-          .map((p) => res.items.find((x) => x.id === p.id) ?? p),
-      }))
-    } catch (e) {
-      alert(conflictText(e, (id) => (view[kind] ?? []).find((p) => p.id === id)?.text || 'Метка'))
-      setPollNonce((n) => n + 1)            // reload the job: the server's view wins
-    }
-  }
-  const commitPending = () => {
-    if (!pending) return
-    const text = pendingText.trim()
-    const pin: Pin = {
-      id: Math.random().toString(36).slice(2, 10), floor: pending.floor, pos: pending.pos, text,
-      label: pending.kind === 'markers' ? text.slice(0, 8) : '', created: Date.now() / 1000,
-    }
-    savePin(pending.kind, { op: 'create', kind: pending.kind, ...pin }, [...(view[pending.kind] ?? []), pin])
-    setPending(null)
-    setPendingText('')
-    setTool('none')
-  }
-  const deletePin = (kind: 'markers' | 'comments', id: string) => {
-    const pin = (view[kind] ?? []).find((p) => p.id === id)
-    if (pin) savePin(kind, { op: 'delete', id, version: pin.version }, (view[kind] ?? []).filter((p) => p.id !== id))
-    setOpenPin(null)
-  }
-
-  // ---- layers of the project: which are shown here, where new items go, which are locked
-  const projectId = shown?.project_id ?? job?.project_id ?? ''
-  const [layers, setLayers] = useState<Layer[]>([])
-  useEffect(() => { setLayers(shown?.layers ?? []) }, [shown?.layers])
-  const [kinds, setKinds] = useState<LayerKindInfo[]>([])
-  const [rules, setRules] = useState<Rules | null>(null)
-  useEffect(() => { layerKinds().then((k) => { setKinds(k.kinds); setRules(k) }).catch(() => {}) }, [])
-  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
-  const [activeLayer, setActiveLayer] = useState<string | null>(null)
-  // variants of a layer: one of them is shown (the first by default)
-  const [variantPick, setVariantPick] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (!projectId) return
-    // this viewer's choice (localStorage); a layer hidden on the server starts hidden
-    let saved: { hidden?: string[]; active?: string | null; variants?: Record<string, string> } = {}
-    try { saved = JSON.parse(localStorage.getItem(`dwg3d.layers.${projectId}`) ?? '{}') } catch { /* private mode */ }
-    setHiddenLayers(new Set(saved.hidden ?? (shown?.layers ?? []).filter((l) => !l.visible).map((l) => l.id)))
-    setActiveLayer(saved.active ?? null)
-    setVariantPick(saved.variants ?? {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId])
-  useEffect(() => {
-    if (!projectId) return
-    try { localStorage.setItem(`dwg3d.layers.${projectId}`, JSON.stringify({ hidden: [...hiddenLayers], active: activeLayer, variants: variantPick })) } catch { /* private mode */ }
-  }, [projectId, hiddenLayers, activeLayer, variantPick])
-  /** Hidden here: switched off, or another variant of the layer is chosen. */
-  const hiddenNow = useMemo(() => {
-    const h = new Set(hiddenLayers)
-    for (const g of variantGroups(layers)) {
-      const pick = g.find((l) => l.id === variantPick[variantGroup(g[0])]) ?? g[0]
-      for (const l of g) if (l.id !== pick.id) h.add(l.id)
-    }
-    return h
-  }, [hiddenLayers, layers, variantPick])
-  const [comparing, setComparing] = useState(false)
-  const showVariant = (id: string) => {
-    const l = layers.find((x) => x.id === id)
-    if (!l) return
-    setVariantPick((v) => ({ ...v, [variantGroup(l)]: id }))
-    setHiddenLayers((h) => { const n = new Set(h); n.delete(id); return n })
-  }
-  const toggleLayer = (id: string) => setHiddenLayers((h) => {
-    const n = new Set(h)
-    if (n.has(id)) n.delete(id)
-    else n.add(id)
-    return n
-  })
-  /** The layer for a new catalog item: the chosen one if it takes the item, else the first that does. */
-  const layerFor = (c: CatalogItem): string | undefined => {
-    const takes = (l: Layer) => {
-      const k = kinds.find((x) => x.kind === l.kind)
-      return !!k && k.geoms.includes('point') && (k.categories == null || k.categories.includes(c.cat))
-    }
-    const act = layers.find((l) => l.id === activeLayer)
-    if (act && takes(act)) return act.id
-    // a kind made for this category (CCTV, fire alarm, Wi-Fi...): its layer, or none yet — the server creates it
-    const own = kinds.find((k) => k.categories?.includes(c.cat))
-    if (own) return layers.find((l) => l.kind === own.kind && takes(l))?.id
-    return layers.find(takes)?.id
-  }
-  const lockedLayer = (it: PlacedItem | undefined) => layers.find((l) => l.id === it?.layer && l.locked) ?? null
-  const refuseLocked = (it: PlacedItem | undefined) => {
-    const l = lockedLayer(it)
-    if (l) alert(`Слой «${l.name}» заблокирован: разблокировать его можно на странице проекта`)
-    return !!l
-  }
-
-  // ---- furniture (stored on the server with the job view)
-  const furniture = useMemo(() => view.furniture ?? [], [view.furniture])
-  const shownFurniture = useMemo(() => furniture.filter((it) => !it.layer || !hiddenNow.has(it.layer)), [furniture, hiddenNow])
-  const rebuilding = job?.status === 'queued' || job?.status === 'running'
-
-  // ---- routes of people and zones (functional layers)
-  const shapes = useMemo(() => (view.shapes ?? []).filter((x) => !x.layer || !hiddenNow.has(x.layer)), [view.shapes, hiddenNow])
-  const [shapeSel, setShapeSel] = useState<string | null>(null)
-  const [shapeDraft, setShapeDraft] = useState<{ floor: string; pts: XY[]; closed: boolean } | null>(null)
-  const [shapePicking, setShapePicking] = useState(false)
-  const shapePick = useRef<((c: PlanClick) => void) | null>(null)
-  const zoneLayerIds = useMemo(() => new Set(layers.filter((l) => l.kind === 'zones').map((l) => l.id)), [layers])
-  const netLayerIds = useMemo(() => new Set(layers.filter((l) => l.kind === 'network').map((l) => l.id)), [layers])
-  const conflicts = useMemo(() => {
-    if (!rules) return []
-    const routes = shapes.filter((x) => x.geom === 'route').map((x) => {
-      const pr = (x.props ?? {}) as unknown as RouteProps
-      return { id: x.id, name: pr.name, flow: pr.flow, path: pr.path ?? [] }
-    })
-    const zones = shapes.filter((x) => x.geom === 'polygon' && zoneLayerIds.has(x.layer ?? '')).map((x) => {
-      const pr = (x.props ?? {}) as unknown as ZoneProps
-      return { id: x.id, name: pr.name, zone: pr.zone, floor: x.floor, pts: x.points ?? [] }
-    })
-    return checkFlows(routes, zones, rules)
-  }, [shapes, rules, zoneLayerIds])
-  const shapeViews = useMemo<ShapeView[]>(() => shapes.flatMap((x): ShapeView[] => {
-    if (x.geom === 'route') {
-      const pr = (x.props ?? {}) as unknown as RouteProps
-      return [{ id: x.id, kind: 'route', color: rules?.flows[pr.flow]?.color ?? '#1c7ed6', segments: pr.path ?? [],
-        stops: (pr.stops ?? []).map((st, i) => ({ floor: st.floor, at: st.at, label: st.label || `Остановка ${i + 1}` })),
-        broken: !!pr.problem, label: pr.name }]
-    }
-    if (x.geom === 'polygon' && zoneLayerIds.has(x.layer ?? '')) {
-      const pr = (x.props ?? {}) as unknown as ZoneProps
-      return [{ id: x.id, kind: 'zone', color: rules?.zone_kinds[pr.zone]?.color ?? '#868e96', segments: [{ floor: x.floor, pts: x.points ?? [] }], label: pr.name }]
-    }
-    if (x.geom === 'polyline' && netLayerIds.has(x.layer ?? '')) {
-      const pr = (x.props ?? {}) as unknown as CableProps
-      return [{ id: x.id, kind: 'line', color: rules?.cables[pr.cable]?.color ?? '#495057', segments: [{ floor: x.floor, pts: x.points ?? [] }], label: pr.name }]
-    }
-    return []
-  }), [shapes, rules, zoneLayerIds, netLayerIds])
-  const saveShapes = async (ops: RowOp[]): Promise<boolean> => {
-    if (!shown) return false
-    if (!canEdit()) { alert(READ_ONLY); return false }
-    if (rebuilding) { alert('Идёт перестроение модели: маршруты и зоны можно менять после него'); return false }
-    try {
-      const res = await batchRows<ShapeObject>(shown.id, 'objects', shown.build, ops)
-      setView((v) => {
-        const got = new Map(res.items.map((it) => [it.id, it]))
-        const kept = (v.shapes ?? []).filter((x) => !res.deleted.includes(x.id)).map((x) => got.get(x.id) ?? x)
-        const added = res.items.filter((it) => !kept.some((x) => x.id === it.id))
-        return { ...v, shapes: [...kept, ...added] }
-      })
-      if (res.items.some((it) => it.layer && !layers.some((l) => l.id === it.layer)) && projectId) {
-        listLayers(projectId).then(setLayers).catch(() => {})
-      }
-      return true
-    } catch (e) {
-      alert(conflictText(e, (i) => ((view.shapes ?? []).find((x) => x.id === i)?.props?.name as string) || 'Объект'))
-      setPollNonce((n) => n + 1)
-      return false
-    }
-  }
-  const computeStops = (stops: RouteStop[]) => computeRoute(stops, floors, r ? connectors(r) : [],
-    async (fid) => { const f = floors.find((x) => x.id === fid); return f ? loadGrid(f) : null },
-    (st, i) => st.label || `остановка ${i + 1}`)
-  const flyToPlan = (fid: string, [x, y]: XY) => {
-    const f = floors.find((q) => q.id === fid)
-    if (!f) return
-    setFloor(fid)
-    const p = new THREE.Vector3(x - cx, (f.elevation ?? 0) + (ctx.offset.get(fid) ?? 0), -(y - cy))
-    setTimeout(() => ctx.api?.flyToPoint(p, 16), 60)
-  }
   const openShapes = () => {
     if (tool === 'shapes') { setTool('none'); return }
     if (nav === 'walk') exitWalk()
@@ -555,166 +257,7 @@ export default function App() {
     setBuildingOpen(false)
     setTool('shapes')
   }
-  useEffect(() => { if (tool !== 'shapes') { setShapeDraft(null); setShapePicking(false) } }, [tool])
-  // a new build re-keys floors on the server: local undo steps refer to the old one
-  useEffect(() => {
-    furnHistory.current = []
-    window.clearTimeout(furnTimer.current)
-  }, [shown?.build])
-  const furnFloor = tool === 'furniture' ? activeFloor : null
-  // the plan is also needed to draw the camera views of the active floor
-  const hasCams = !!activeFloor && shownFurniture.some((it) => { const c = catalogItem(it.item); return it.floor === activeFloor.id && (!!c.cam || !!c.params) })
-  const planFloor = furnFloor ?? (display.camViews && hasCams ? activeFloor : null)
-  const floorItems = useMemo(() => shownFurniture.filter((it) => it.floor === planFloor?.id), [shownFurniture, planFloor])
-  const furnPlan = planIdx && planIdx.floor === planFloor?.id ? planIdx.idx : null
-  const issues = useMemo(() => (furnFloor ? checkFloor(floorItems, furnPlan) : new Map()), [floorItems, furnPlan, furnFloor])
-  const coverage = useMemo(() => cameraCoverage(floorItems, furnPlan), [floorItems, furnPlan])
-  // Wi-Fi signal and the areas of fire detectors, drawn like camera views
-  const allCoverage = useMemo(() => new Map([...coverage, ...systemsCoverage(floorItems, furnPlan)]), [coverage, floorItems, furnPlan])
-  // room shares are slower: let them lag behind while a camera is dragged
-  const lazyCoverage = useDeferredValue(coverage)
-  const roomCover = useMemo(() => (furnFloor ? roomCoverage(furnPlan, lazyCoverage) : []), [furnFloor, furnPlan, lazyCoverage])
-  useEffect(() => { grids.current.clear() }, [furniture])
-  useEffect(() => {
-    if (!planFloor || !shown || planIdx?.floor === planFloor.id) return
-    let alive = true
-    loadPlan(planFloor).then((pl) => { if (alive) setPlanIdx({ floor: planFloor.id, idx: indexPlan(pl) }) }).catch(() => {})
-    return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planFloor?.id, shown?.id, shown?.build])
-  useEffect(() => { plans.current.clear(); setPlanIdx(null) }, [shown?.build])
 
-  /** Send what changed since the server's last confirmed state (only the changed items). */
-  const saveFurniture = async (id: string, build: number, list: PlacedItem[]) => {
-    const ops = furnitureOps(furnSaved.current, list)
-    if (!ops.length) return
-    try {
-      const res = await batchRows(id, 'objects', build, ops)
-      for (const it of res.items) furnSaved.current.set(it.id, it)
-      for (const d of res.deleted) furnSaved.current.delete(d)
-      // the server chose the layer of items placed without one (and may have created it)
-      const got = new Map(res.items.map((it) => [it.id, it.layer]))
-      setView((v) => ({ ...v, furniture: (v.furniture ?? []).map((it) => (!it.layer && got.get(it.id) ? { ...it, layer: got.get(it.id) } : it)) }))
-      if (res.items.some((it) => it.layer && !layers.some((l) => l.id === it.layer)) && projectId) {
-        listLayers(projectId).then(setLayers).catch(() => {})
-      }
-    } catch (e) {
-      const was = (i: string) => furnSaved.current.get(i) as unknown as Record<string, unknown> | undefined
-      alert(`Расстановка не сохранена. ${conflictText(e, (i) => catalogItem(list.find((x) => x.id === i)?.item ?? furnSaved.current.get(i)?.item ?? '').name, was)}`)
-      furnHistory.current = []
-      window.clearTimeout(furnTimer.current)
-      setPollNonce((n) => n + 1)          // reload the job: the server's state wins
-    }
-  }
-  /** Replace the list: locally at once, on the server after a short pause. */
-  const setFurniture = (list: PlacedItem[], record = true) => {
-    if (!shown) return
-    if (!canEdit()) {
-      alert(READ_ONLY)
-      return
-    }
-    if (rebuilding) {
-      alert('Идёт перестроение модели: расстановку можно менять после него')
-      return
-    }
-    if (record) {
-      furnHistory.current = [...furnHistory.current.slice(-99), furniture]
-      setUndoTick((n) => n + 1)
-    }
-    setView((v) => ({ ...v, furniture: list }))
-    window.clearTimeout(furnTimer.current)
-    const id = shown.id, build = shown.build
-    furnTimer.current = window.setTimeout(() => {
-      furnQueue.current = furnQueue.current.then(() => saveFurniture(id, build, list))
-    }, 400)
-  }
-  /** Items whose floor was not found after a rebuild: put back on the current floor, or drop. */
-  const unplaced = view.furniture_unplaced ?? []
-  const resolveUnplaced = (ids: string[], toFloor: string | null) => {
-    if (!shown) return
-    const pick = unplaced.filter((u) => ids.includes(u.id))
-    const ops: RowOp[] = pick.map((u) => (toFloor
-      ? { op: 'update', id: u.id, version: u.version, floor: toFloor }
-      : { op: 'delete', id: u.id, version: u.version }))
-    const id = shown.id, build = shown.build
-    furnQueue.current = furnQueue.current.then(async () => {
-      try {
-        const res = await batchRows(id, 'objects', build, ops)
-        for (const it of res.items) furnSaved.current.set(it.id, it)
-        setView((v) => ({
-          ...v,
-          furniture: [...(v.furniture ?? []), ...res.items],
-          furniture_unplaced: (v.furniture_unplaced ?? []).filter((u) => !ids.includes(u.id)),
-        }))
-      } catch (e) {
-        alert(conflictText(e, (i) => catalogItem(pick.find((x) => x.id === i)?.item ?? '').name))
-        setPollNonce((n) => n + 1)
-      }
-    })
-  }
-  const undoFurniture = () => {
-    const prev = furnHistory.current.pop()
-    if (!prev) return
-    setUndoTick((n) => n + 1)
-    setFurniture(prev, false)
-    if (furnSel && !prev.some((x) => x.id === furnSel)) setFurnSel(null)
-  }
-  const newId = () => Math.random().toString(36).slice(2, 10)
-  const updateItem = (id: string, patch: Partial<PlacedItem>, record = true) => {
-    const it = furniture.find((x) => x.id === id)
-    if (refuseLocked(it) || (patch.layer && refuseLocked({ ...it!, layer: patch.layer }))) return
-    setFurniture(furniture.map((x) => (x.id === id ? { ...x, ...patch } : x)), record)
-  }
-  const rotateItem = (id: string, by: number) => {
-    const it = furniture.find((x) => x.id === id)
-    if (it) updateItem(id, { angle: (((it.angle + by) % 360) + 360) % 360 })
-  }
-  const placeItem = (c: CatalogItem, pose: Pose) => {
-    if (!furnFloor) return
-    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle, layer: layerFor(c) }
-    if (refuseLocked(it)) return
-    setFurniture([...furniture, it])
-    setFurnSel(it.id)
-  }
-  const duplicateItem = (id: string) => {
-    const it = furniture.find((x) => x.id === id)
-    if (!it || refuseLocked(it)) return
-    const [w] = itemSize(it)
-    const { u } = axes(it.angle)
-    const copy = { ...it, id: newId(), at: [it.at[0] + u[0] * (w + 0.1), it.at[1] + u[1] * (w + 0.1)] as [number, number] }
-    setFurniture([...furniture, copy])
-    setFurnSel(copy.id)
-  }
-  const rowItems = (id: string, n: number, gap: number) => {
-    const it = furniture.find((x) => x.id === id)
-    if (!it || refuseLocked(it)) return
-    const [w] = itemSize(it)
-    const { u } = axes(it.angle)
-    const add = Array.from({ length: n - 1 }, (_, k) => ({
-      ...it, id: newId(), at: [it.at[0] + u[0] * (w + gap) * (k + 1), it.at[1] + u[1] * (w + gap) * (k + 1)] as [number, number],
-    }))
-    setFurniture([...furniture, ...add])
-  }
-  const deleteItem = (id: string) => {
-    if (refuseLocked(furniture.find((x) => x.id === id))) return
-    setFurniture(furniture.filter((x) => x.id !== id))
-    if (furnSel === id) setFurnSel(null)
-  }
-  const moveItem = (id: string, pose: Pose, done: boolean) => {
-    if (!canEdit()) return
-    if (!done && !dragSnap.current && refuseLocked(furniture.find((x) => x.id === id))) return
-    if (done) {
-      if (dragSnap.current) {
-        furnHistory.current = [...furnHistory.current.slice(-99), dragSnap.current]
-        dragSnap.current = null
-        setUndoTick((n) => n + 1)
-      }
-      setFurniture(furniture, false)
-      return
-    }
-    dragSnap.current ??= furniture
-    setView((v) => ({ ...v, furniture: (v.furniture ?? []).map((it) => (it.id === id ? { ...it, at: pose.at, angle: pose.angle } : it)) }))
-  }
   const openFurniture = () => {
     if (tool === 'furniture') {
       setTool('none')
@@ -727,44 +270,6 @@ export default function App() {
     setBuildingOpen(false)
     setTool('furniture')
   }
-  useEffect(() => {
-    if (tool !== 'furniture') { setPlacing(null); setFurnSel(null) }
-  }, [tool])
-  useEffect(() => { setFurnSel(null); setPlacing(null) }, [floor])
-
-  // keyboard while furnishing
-  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
-  keyRef.current = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement
-    if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
-    const sel = furniture.find((x) => x.id === furnSel)
-    const turn = e.code === 'KeyR' ? (e.shiftKey ? -90 : 90) : e.code === 'KeyQ' ? 15 : e.code === 'KeyE' ? -15 : 0
-    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); undoFurniture() }
-    else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') { e.preventDefault(); if (sel) duplicateItem(sel.id) }
-    else if (e.ctrlKey || e.metaKey || e.altKey) return
-    else if (e.key === 'Escape') {
-      if (placing) setPlacing(null)
-      else if (furnSel) setFurnSel(null)
-      else setTool('none')
-    } else if (turn) {
-      if (placing) setPlacing({ ...placing, angle: (((placing.angle + turn) % 360) + 360) % 360 })
-      else if (sel) rotateItem(sel.id, turn)
-    } else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
-      e.preventDefault()
-      deleteItem(sel.id)
-    } else if (sel && e.key.startsWith('Arrow')) {
-      e.preventDefault()
-      const s = e.shiftKey ? 0.5 : 0.05
-      const [dx, dy] = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, s], ArrowDown: [0, -s] }[e.key] ?? [0, 0]
-      updateItem(sel.id, { at: [Math.round((sel.at[0] + dx) * 100) / 100, Math.round((sel.at[1] + dy) * 100) / 100] })
-    }
-  }
-  useEffect(() => {
-    if (tool !== 'furniture') return
-    const on = (e: KeyboardEvent) => keyRef.current(e)
-    window.addEventListener('keydown', on)
-    return () => window.removeEventListener('keydown', on)
-  }, [tool])
 
   // ---- clicks in the scene
   const onPick = (pk: Pick) => {
@@ -778,8 +283,7 @@ export default function App() {
       const rm = pk.room?.room
       shapePick.current({ floor: pk.floor, at: toPlan(pk.local), room: rm ? { id: rm.id, name: rm.name || '' } : null })
     } else if (tool === 'marker' || tool === 'comment') {
-      setPending({ kind: tool === 'marker' ? 'markers' : 'comments', pos: pk.local.toArray() as V3, floor: pk.floor ?? '' })
-      setPendingText('')
+      startPin(tool === 'marker' ? 'markers' : 'comments', pk.local.toArray() as V3, pk.floor ?? '')
     }
   }
   const onRoomClick = (h: RoomHit | null) => {
@@ -897,7 +401,7 @@ export default function App() {
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
               layers={layers} hiddenLayers={hiddenNow} onToggleLayer={toggleLayer}
-              onAllLayers={(show) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))}
+              onAllLayers={setAllLayers}
               onVariant={showVariant} onCompare={() => setComparing(true)}
               projectId={projectId} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
@@ -909,7 +413,7 @@ export default function App() {
             )}
             {tool === 'furniture' && (
               <FurniturePanel floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} selected={furnSel}
-                placing={placing?.item ?? null} showZones={showZones} canUndo={furnHistory.current.length > 0}
+                placing={placing?.item ?? null} showZones={showZones} canUndo={furn.canUndo}
                 onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
                 onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
                 onDelete={deleteItem} onUndo={undoFurniture} onClose={() => setTool('none')}
