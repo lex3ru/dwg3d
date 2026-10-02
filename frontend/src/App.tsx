@@ -30,7 +30,9 @@ import { catColor } from './ui/furniture/parts'
 import ModeMenu from './ui/ModeMenu'
 import { currentMode, MODES, type ModeDef } from './viewmodes'
 import NavPanel from './ui/NavPanel'
-import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
+import { HelpButton, HelpOverlay } from './ui/Panels'
+import DrawingInspector from './ui/inspector/DrawingInspector'
+import RoomInspector from './ui/inspector/RoomInspector'
 import Progress from './ui/Progress'
 import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
@@ -475,15 +477,18 @@ export default function App() {
     })()
     : selRoom && nav !== 'walk' ? {
       key: `room:${selRoom.room.node}`, title: 'Помещение', icon: DoorOpen, body: (
-        <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
-          onFly={() => focusRoom(selRoom.floor, selRoom.room)}
-          onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }} />
+        <RoomInspector room={selRoom.room} floor={selRoom.floor} result={r} layers={layers}
+          objects={[...treeObjects].filter(([l]) => !hiddenNow.has(l)).flatMap(([, list]) => list)
+            .filter((o) => o.floor === selRoom.floor.id && o.room != null && o.room === selRoom.room.id)}
+          onClose={() => setSelRoom(null)} onFly={() => focusRoom(selRoom.floor, selRoom.room)}
+          onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }}
+          onObject={(o) => onTreeObject(o.layer, o)} />
       ) }
     : drawingSel && job && shown ? {
       key: 'drawing', title: 'Чертёж', icon: FileText, body: (
-        <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount}
-          objectCount={shownFurniture.length + shapes.length} saving={saving}
-          saveErr={saveErr} onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
+        <DrawingInspector job={job} shown={shown} active={floor} running={running} editCount={editCount}
+          objectCount={shownFurniture.length + shapes.length} saving={saving} saveErr={saveErr} editable={canEdit()}
+          onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
           onClose={() => setDrawingSel(false)} />
       ) }
     : null
