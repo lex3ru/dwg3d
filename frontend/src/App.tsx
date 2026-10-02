@@ -18,12 +18,13 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
-import { Armchair, Building2, DoorOpen, Layers as LayersIcon, Route } from 'lucide-react'
+import { Armchair, Building2, DoorOpen, Layers as LayersIcon, ListTree, Route } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Dock, { DockEmpty, type DockTab } from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
 import LayersPanel from './ui/LayersPanel'
+import SceneTree from './ui/SceneTree'
 import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import Progress from './ui/Progress'
@@ -82,6 +83,7 @@ export default function App() {
   const leftDock = useDockState('left', 280)
   const rightDock = useDockState('right', 340)
   const [rightTab, setRightTab] = useState<InspectorTab>('room')
+  const [leftTab, setLeftTab] = useState<'tree' | 'layers'>('tree')
   const buildingOpen = rightDock.open && rightTab === 'building'
   const showInspector = (tab: InspectorTab) => { setRightTab(tab); rightDock.setOpen(true) }
   const [settings, setSettings] = useState<SettingsPane | null>(null)
@@ -360,7 +362,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', on)
   }, [toggleLeft, toggleRight])
 
-  const leftContent = (
+  const leftTabs: DockTab[] = [
+    { id: 'tree', label: 'Здание', icon: ListTree },
+    { id: 'layers', label: 'Слои', icon: LayersIcon },
+  ]
+  const leftContent = leftTab === 'tree' && r ? (
+    <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
+      onFloor={selectFloor} onRoom={focusRoom} onOpenJob={openJob} />
+  ) : (
     <LayersPanel layers={layers} kinds={kinds} hidden={hiddenNow} activeLayer={activeLayer} projectId={projectId}
       editable={canEdit()} onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onActive={setActiveLayer}
       onLock={patchLayer} onCompare={() => setComparing(true)} />
@@ -413,7 +422,7 @@ export default function App() {
       <div className={`app nav-${nav}`}>
         <div className="flex min-h-0 flex-1">
         {r && (
-          <Dock side="left" label="Слои" tabs={[{ id: 'layers', label: 'Слои', icon: LayersIcon }]} tab="layers" onTab={() => {}} state={leftDock}>
+          <Dock side="left" label="Проект" tabs={leftTabs} tab={leftTab} onTab={(t) => setLeftTab(t as 'tree' | 'layers')} state={leftDock}>
             {leftContent}
           </Dock>
         )}
@@ -488,7 +497,7 @@ export default function App() {
               }}
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
-              layersOpen={leftDock.open} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={leftDock.toggle} />
+              layersOpen={leftDock.open && leftTab === 'layers'} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={() => (leftDock.open && leftTab === 'layers' ? leftDock.setOpen(false) : (setLeftTab('layers'), leftDock.setOpen(true)))} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {tool !== 'none' && (
               <div className="tool-hint">
