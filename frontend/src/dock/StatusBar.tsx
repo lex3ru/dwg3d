@@ -4,7 +4,7 @@ import type { Projection, NavMode } from '@/state'
 const NAV: Record<NavMode, string> = { orbit: 'Обзор', fly: 'Полёт', walk: 'Прогулка' }
 
 /** The strip under the scene: where you are and what is going on. */
-export default function StatusBar({ floor, nav, proj, objects, rooms, conflicts, busy, onConflicts }: {
+export default function StatusBar({ floor, nav, proj, objects, rooms, conflicts, busy, error, onConflicts }: {
   floor: string
   nav: NavMode
   proj: Projection
@@ -12,7 +12,8 @@ export default function StatusBar({ floor, nav, proj, objects, rooms, conflicts,
   rooms: number | null
   conflicts: number
   /** a build in progress: text and 0..1 */
-  busy: { text: string; progress: number } | null
+  busy: { text: string; progress?: number } | null
+  error?: string | null
   onConflicts: () => void
 }) {
   return (
@@ -27,9 +28,10 @@ export default function StatusBar({ floor, nav, proj, objects, rooms, conflicts,
           <AlertTriangle className="size-3.5" /> конфликтов потоков: {conflicts}
         </button>
       )}
+      {error && <span className="text-destructive">{error}</span>}
       {busy && (
         <span className="inline-flex items-center gap-1.5 text-foreground">
-          <Loader2 className="size-3.5 animate-spin" /> {busy.text} {Math.round(busy.progress * 100)}%
+          <Loader2 className="size-3.5 animate-spin" /> {busy.text}{busy.progress != null ? ` ${Math.round(busy.progress * 100)}%` : ''}
         </span>
       )}
     </footer>

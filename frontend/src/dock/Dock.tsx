@@ -90,15 +90,3 @@ export default function Dock({ side, label, tabs, tab, onTab, state, children }:
     </aside>
   )
 }
-
-/** What a tab shows while there is nothing to show. */
-export function DockEmpty({ icon: Icon, title, text, action }: { icon: LucideIcon; title: string; text?: string; action?: ReactNode }) {
-  return (
-    <div className="grid justify-items-center gap-2 px-6 py-10 text-center">
-      <span className="grid size-10 place-items-center rounded-full bg-secondary text-muted-foreground"><Icon className="size-5" /></span>
-      <b className="text-sm">{title}</b>
-      {text && <p className="m-0 text-xs text-muted-foreground">{text}</p>}
-      {action}
-    </div>
-  )
-}

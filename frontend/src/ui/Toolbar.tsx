@@ -1,14 +1,11 @@
-import {
-  Armchair, Building2, ChevronDown, Layers, MapPin, MessageCircle, Orbit, Plane, Plus, Route, Footprints, Waypoints, type LucideIcon,
-} from 'lucide-react'
+import { Armchair, ChevronDown, Footprints, MapPin, MessageCircle, Orbit, Plane, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { FloorMeta, Pin } from '@/api'
+import type { Pin } from '@/api'
 import { floatClass } from '@/components/ui/float'
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Select } from '@/components/ui/select'
 import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { Display, NavMode, Tool } from '../state'
@@ -32,29 +29,11 @@ interface Props {
   nav: NavMode
   onNav: (n: NavMode) => void
   tool: Tool
-  onTool: (t: Tool) => void
-  route: RouteState
-  routeFloor: FloorMeta | null
-  onRouteRoom: (end: 'from' | 'to', node: string) => void
-  onClearRoute: () => void
-  buildingOpen: boolean
-  onBuilding: () => void
   display: Display
   set: (patch: Partial<Display>) => void
   markers: Pin[]
   comments: Pin[]
   onFlyToPin: (p: Pin) => void
-  furnitureCount: number | null
-  placedCount: number
-  onFurniture: () => void
-  shapesOpen: boolean
-  onShapes: () => void
-  shapesCount: number
-  conflictCount: number
-  /** the layers panel: open now, and whether any layer is shown */
-  layersOpen: boolean
-  layersShown: boolean
-  onLayers: () => void
 }
 
 const btn = 'inline-flex h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full border-0 px-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-5 [&_svg]:shrink-0'
@@ -94,12 +73,10 @@ const Note = ({ children, strong, err }: { children: ReactNode; strong?: boolean
 // a menu item that toggles and keeps the menu open
 const keep = (e: Event) => e.preventDefault()
 
-/** Bottom toolbar: navigation mode, route, building, markers, furniture, routes and zones, layers, comments. */
+/** Bottom of the scene: how the camera moves and what is shown (markers, objects, comments). Tools are in the context bar. */
 export default function Toolbar(p: Props) {
   const nav = NAV.find((n) => n.id === p.nav)!
   const d = p.display
-  const rooms = (p.routeFloor?.rooms ?? []).filter((r) => r.name || (r.type && r.type !== 'other'))
-  const roomOpts = rooms.map((r) => <option key={r.node} value={r.node}>{r.name || r.type} · {r.area.toFixed(0)} м²</option>)
   return (
     <div role="toolbar" aria-label="Инструменты"
       className={cn(floatClass, 'absolute bottom-3.5 left-1/2 z-20 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full px-2 py-1')}>
@@ -115,59 +92,25 @@ export default function Toolbar(p: Props) {
         </DropdownMenuRadioGroup>
       </Group>
       <Sep />
-      <Group icon={Route} active={p.tool === 'route'} title="Маршрут между двумя точками этажа"
-        onClick={() => p.onTool(p.tool === 'route' ? 'none' : 'route')}>
-        <DropdownMenuLabel>Маршрут{p.routeFloor ? ` · ${p.routeFloor.name}` : ''}</DropdownMenuLabel>
-        <Note>Щёлкните на полу начало и конец пути или выберите помещения.</Note>
-        <div className="grid gap-1.5 px-2 py-1" onKeyDown={(e) => e.stopPropagation()}>
-          <label className="grid grid-cols-[2rem_1fr] items-center gap-2 text-sm">От
-            <Select value="" disabled={!rooms.length} onChange={(e) => e.target.value && p.onRouteRoom('from', e.target.value)}>
-              <option value="">{p.route.fromLabel || '— помещение —'}</option>{roomOpts}
-            </Select>
-          </label>
-          <label className="grid grid-cols-[2rem_1fr] items-center gap-2 text-sm">До
-            <Select value="" disabled={!rooms.length} onChange={(e) => e.target.value && p.onRouteRoom('to', e.target.value)}>
-              <option value="">{p.route.toLabel || '— помещение —'}</option>{roomOpts}
-            </Select>
-          </label>
-        </div>
-        {p.route.length != null && <Note strong>{p.route.length.toFixed(1)} м · ~{Math.max(1, Math.round(p.route.length / 1.3 / 60))} мин пешком</Note>}
-        {p.route.error && <Note err>{p.route.error}</Note>}
-        <DropdownMenuItem onSelect={p.onClearRoute}>Очистить маршрут</DropdownMenuItem>
-      </Group>
-      <Group icon={Building2} active={p.buildingOpen} title="Здание и этажи" onClick={p.onBuilding} />
       <Group icon={MapPin} active={d.pois || p.tool === 'marker'} title="Метки: входы, лифты, лестницы, свои" onClick={() => p.set({ pois: !d.pois })}>
         <DropdownMenuLabel>Метки</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.poiKinds.entrance} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, entrance: v }, pois: true })}>Входы</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.poiKinds.lift} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, lift: v }, pois: true })}>Лифты</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.poiKinds.stair} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, stair: v }, pois: true })}>Лестницы</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.poiKinds.marker} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, marker: v }, pois: true })}>Мои метки ({p.markers.length})</DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="font-semibold text-primary" onSelect={() => p.onTool(p.tool === 'marker' ? 'none' : 'marker')}>
-          <Plus /> {p.tool === 'marker' ? 'Отменить установку' : 'Поставить метку…'}
-        </DropdownMenuItem>
+        {p.markers.length > 0 && <DropdownMenuSeparator />}
         {p.markers.map((m) => <DropdownMenuItem key={m.id} onSelect={() => p.onFlyToPin(m)}><MapPin /> {m.label || m.text || 'Метка'}</DropdownMenuItem>)}
       </Group>
-      <Group icon={Armchair} active={p.tool === 'furniture'} title="Мебель и оборудование: каталог и расстановка" onClick={p.onFurniture}>
+      <Group icon={Armchair} active={d.furniture} title="Мебель и оборудование на плане" onClick={() => p.set({ furniture: !d.furniture })}>
         <DropdownMenuLabel>Мебель и оборудование</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.furniture} onSelect={keep} onCheckedChange={(v) => p.set({ furniture: v })}>Показывать</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.camViews} onSelect={keep} onCheckedChange={(v) => p.set({ camViews: v })}>Обзор камер, покрытие Wi-Fi и извещателей</DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="font-semibold text-primary" onSelect={p.onFurniture}>
-          <Plus /> {p.tool === 'furniture' ? 'Закончить расстановку' : 'Каталог и расстановка…'}
-        </DropdownMenuItem>
-        <Note>Расставлено: {p.placedCount} шт.{p.furnitureCount ? ` В детальной модели ещё ${p.furnitureCount} объект(ов) мебели.` : ''}</Note>
+        <Note>Что именно показывать, задают слои в дереве слева.</Note>
       </Group>
-      <Group icon={Waypoints} active={p.shapesOpen} badge={p.conflictCount || undefined} onClick={p.onShapes}
-        title="Маршруты людей, зоны и кабельные трассы: пути по помещениям и этажам, проверка потоков" />
-      <Group icon={Layers} active={p.layersOpen || p.layersShown} title="Слои проекта: мебель, видеонаблюдение…" onClick={p.onLayers} />
       <Group icon={MessageCircle} active={d.comments || p.tool === 'comment'} title="Комментарии" onClick={() => p.set({ comments: !d.comments })}>
         <DropdownMenuLabel>Комментарии</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.comments} onSelect={keep} onCheckedChange={(v) => p.set({ comments: v })}>Показывать</DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="font-semibold text-primary" onSelect={() => p.onTool(p.tool === 'comment' ? 'none' : 'comment')}>
-          <Plus /> {p.tool === 'comment' ? 'Отменить' : 'Добавить комментарий…'}
-        </DropdownMenuItem>
+        {p.comments.length > 0 && <DropdownMenuSeparator />}
         {p.comments.map((c) => <DropdownMenuItem key={c.id} onSelect={() => p.onFlyToPin(c)}><MessageCircle /> {c.text.slice(0, 40)}</DropdownMenuItem>)}
       </Group>
     </div>

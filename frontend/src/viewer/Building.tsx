@@ -6,7 +6,7 @@ import type { FloorMeta, Result, RoomMeta } from '../api'
 import type { Display, FacadePreset, NavMode, Projection, Tool } from '../state'
 import FloorFollower from './FloorFollower'
 import RoomLabels from './RoomLabels'
-import { ACCENT, roleOf } from './looks'
+import { roleOf } from './looks'
 import { floorOf, htmlLayer, isVisible, openFloors, typeLabel, visibleFloors, type SceneCtx } from './scene'
 
 const EXPLODE_MS = 400
@@ -161,22 +161,6 @@ export default function Building(p: Props) {
     if (mesh) ctx.looks.setHover(mesh)
     return () => ctx.looks.setHover(null)
   }, [p.selectedRoom, scene, ctx])
-
-  // the selected room gets an outline on top of the highlighted floor
-  useEffect(() => {
-    if (!p.selectedRoom) return
-    const mesh = scene.getObjectByName(p.selectedRoom) as THREE.Mesh | undefined
-    if (!mesh?.geometry) return
-    const outline = new THREE.LineSegments(
-      new THREE.EdgesGeometry(mesh.geometry, 20),
-      new THREE.LineBasicMaterial({ color: ACCENT, depthTest: false, transparent: true, opacity: 0.95 }),
-    )
-    outline.renderOrder = 22
-    outline.raycast = () => null
-    outline.userData.role = 'selection'
-    mesh.add(outline)
-    return () => { mesh.remove(outline); outline.geometry.dispose(); (outline.material as THREE.Material).dispose() }
-  }, [p.selectedRoom, scene])
 
   const open = openFloors(floors, visible, { exploded, xray: display.xray, topDown: proj === '2d', walking: nav === 'walk', roofShown })
 

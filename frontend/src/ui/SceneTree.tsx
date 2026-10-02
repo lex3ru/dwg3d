@@ -1,13 +1,43 @@
-import { Building, ChevronDown, ChevronRight, ExternalLink, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { listJobs, type FloorMeta, type JobSummary, type Result, type RoomMeta } from '@/api'
+import {
+  Building, ChevronDown, ChevronRight, Download, ExternalLink, Eye, EyeOff, FileText, GitCompare, Layers as LayersIcon,
+  Lock, LockOpen, MoreHorizontal, Pencil, PencilRuler, Plus, Search, Settings2,
+} from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { listJobs, type FloorMeta, type JobSummary, type Layer, type LayerKindInfo, type Result, type RoomMeta } from '@/api'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Tip } from '@/components/ui/tooltip'
+import { variantGroups } from '@/furniture/layers'
 import { cn } from '@/lib/utils'
 import { jobColor } from '@/state'
 
+const row = 'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary'
+const iconBtn = 'grid size-6 shrink-0 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-muted-foreground hover:bg-border hover:text-foreground [&_svg]:size-3.5'
+
+function Section({ title, icon: Icon, action, children, open, onOpen }: {
+  title: string; icon: typeof Building; action?: ReactNode; children: ReactNode; open: boolean; onOpen: (v: boolean) => void
+}) {
+  return (
+    <section className="mb-1">
+      <div className="flex items-center gap-1 px-1">
+        <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent px-1 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
+          onClick={() => onOpen(!open)} aria-expanded={open}>
+          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          <Icon className="size-3.5" /> {title}
+        </button>
+        {action}
+      </div>
+      {open && children}
+    </section>
+  )
+}
+
 /**
- * The left dock's tree of the project: its drawings, and for the open one the
- * floors with their rooms. Choosing a floor or a room moves the scene there.
+ * The project in the left dock, one tree for everything on the plan:
+ * the building (drawings, floors, rooms — the base, changed only through the
+ * plan editor) and the layers on top of it (shown, locked, the one being edited).
  */
 export default function SceneTree(p: {
   jobId: string
@@ -15,13 +45,32 @@ export default function SceneTree(p: {
   result: Result
   active: string | null
   selectedRoom: string | null
+  drawingSelected: boolean
   onFloor: (id: string | null) => void
   onRoom: (f: FloorMeta, r: RoomMeta) => void
   onOpenJob: (id: string) => void
+  onDrawing: () => void
+  onPlan: (floorId: string) => void
+  onExport: (fmt: 'dxf' | 'dwg') => void
+  onFloorSettings: () => void
+  // layers
+  layers: Layer[]
+  kinds: LayerKindInfo[]
+  hidden: Set<string>
+  editLayer: string | null
+  editable: boolean
+  onToggle: (id: string) => void
+  onVariant: (id: string) => void
+  onAll: (show: boolean) => void
+  onLock: (l: Layer, patch: Partial<Layer>) => void
+  onEdit: (id: string | null) => void
+  onAddLayer: (kind: string) => void
+  onCompare: () => void
 }) {
   const [jobs, setJobs] = useState<JobSummary[]>([])
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [sec, setSec] = useState({ building: true, layers: true })
   useEffect(() => {
     if (p.projectId) listJobs(p.projectId).then((j) => setJobs(j.filter((x) => x.status === 'done'))).catch(() => {})
   }, [p.projectId])
@@ -31,39 +80,51 @@ export default function SceneTree(p: {
   const roomName = (r: RoomMeta) => r.name || types.get(r.type ?? '')?.label || 'Помещение'
   const match = (r: RoomMeta) => !s || roomName(r).toLowerCase().includes(s)
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const groups = variantGroups(p.layers)
+  const inVariants = (l: Layer) => groups.some((g) => g.some((x) => x.id === l.id))
+  const kindName = (k: string) => p.kinds.find((x) => x.kind === k)?.name ?? k
+  const allShown = p.layers.length > 0 && p.layers.every((l) => !p.hidden.has(l.id))
+  const current = jobs.find((j) => j.id === p.jobId)
+  const layersShown = !s || p.layers.some((l) => l.name.toLowerCase().includes(s))
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="relative shrink-0 border-b border-border p-2">
         <Search className="pointer-events-none absolute top-4 left-4 size-3.5 text-muted-foreground" />
-        <Input className="h-7 pl-7 text-xs" placeholder="Помещение или этаж" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input className="h-7 pl-7 text-xs" placeholder="Помещение, этаж или слой" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5 text-sm">
-        {jobs.length > 1 && !s && (
-          <section className="mb-2">
-            <h3 className="m-0 px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Чертежи проекта</h3>
-            <ul className="m-0 grid list-none gap-0.5 p-0">
-              {jobs.map((j) => (
-                <li key={j.id}>
-                  <button className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary', j.id === p.jobId && 'bg-accent font-medium text-accent-foreground')}
-                    onClick={() => j.id !== p.jobId && p.onOpenJob(j.id)}>
-                    <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
-                    <span className="min-w-0 flex-1 truncate">{j.name}</span>
-                    <small className="text-muted-foreground">{j.floors} эт.</small>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        <section>
-          <h3 className="m-0 px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Этажи и помещения</h3>
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <Section title="Здание" icon={Building} open={sec.building} onOpen={(v) => setSec({ ...sec, building: v })}>
+          {(jobs.length > 1 ? jobs : current ? [current] : []).filter(() => !s).map((j) => (
+            <div key={j.id} className={cn('group flex items-center rounded-md hover:bg-secondary', j.id === p.jobId && p.drawingSelected && 'bg-accent')}>
+              <button className={cn(row, 'hover:bg-transparent', j.id === p.jobId && 'font-medium')}
+                onClick={() => (j.id === p.jobId ? p.onDrawing() : p.onOpenJob(j.id))}
+                title={j.id === p.jobId ? 'Сводка чертежа: этажи, предупреждения, экспорт' : 'Открыть этот чертёж'}>
+                <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
+                <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                <small className="text-muted-foreground">{j.floors} эт.</small>
+              </button>
+              {j.id === p.jobId && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><button className={cn(iconBtn, 'mr-1')} aria-label="Действия с чертежом"><MoreHorizontal /></button></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuItem onSelect={p.onDrawing}><FileText /> Сводка и предупреждения</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF со слоями</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG со слоями</DropdownMenuItem>
+                    {p.editable && <DropdownMenuItem onSelect={p.onFloorSettings}><Settings2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/drawings`}><ExternalLink /> Чертежи проекта, новая ревизия</a></DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          ))}
           {!s && (
-            <button className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary', p.active == null && 'bg-accent font-medium text-accent-foreground')}
-              onClick={() => p.onFloor(null)}>
+            <button className={cn(row, 'pl-5', p.active == null && 'bg-accent font-medium text-accent-foreground')} onClick={() => p.onFloor(null)}>
               <Building className="size-4 shrink-0" /> Всё здание
             </button>
           )}
-          <ul className="m-0 grid list-none gap-0.5 p-0">
+          <ul className="m-0 grid list-none gap-px p-0 pl-3">
             {floors.map((f) => {
               const rooms = f.rooms.filter(match)
               if (s && !rooms.length && !f.name.toLowerCase().includes(s)) return null
@@ -71,23 +132,28 @@ export default function SceneTree(p: {
               const isActive = p.active === f.id
               return (
                 <li key={f.id}>
-                  <div className={cn('flex items-center rounded-md hover:bg-secondary', isActive && 'bg-accent')}>
-                    <button aria-label={expanded ? 'Свернуть' : 'Развернуть'} className="grid size-6 shrink-0 cursor-pointer place-items-center border-0 bg-transparent p-0 text-muted-foreground"
-                      onClick={() => toggle(f.id)}>
-                      {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                  <div className={cn('group flex items-center rounded-md hover:bg-secondary', isActive && 'bg-accent')}>
+                    <button aria-label={expanded ? 'Свернуть' : 'Развернуть'} className={cn(iconBtn, 'hover:bg-transparent')} onClick={() => toggle(f.id)}>
+                      {expanded ? <ChevronDown /> : <ChevronRight />}
                     </button>
-                    <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent py-1.5 pr-2 text-left text-sm text-foreground"
+                    <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent py-1.5 pr-1 text-left text-sm text-foreground"
                       onClick={() => p.onFloor(f.id)}>
                       <span className="grid h-5 min-w-6 shrink-0 place-items-center rounded-full bg-secondary px-1 text-[11px] font-bold">{f.level}</span>
                       <span className={cn('min-w-0 flex-1 truncate', isActive && 'font-medium text-accent-foreground')}>{f.name}</span>
                       <small className="text-muted-foreground">{f.stats.rooms}</small>
                     </button>
+                    {p.editable && (
+                      <Tip label="Редактировать план этажа: стены, проёмы, помещения" side="right">
+                        <button className={cn(iconBtn, 'mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100')} aria-label="Редактировать план этажа"
+                          onClick={() => p.onPlan(f.id)}><PencilRuler /></button>
+                      </Tip>
+                    )}
                   </div>
                   {expanded && (
                     <ul className="m-0 mb-1 ml-6 grid list-none gap-px border-l border-border p-0 pl-1">
                       {rooms.map((r) => (
                         <li key={r.node}>
-                          <button className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1 text-left text-xs text-foreground hover:bg-secondary', p.selectedRoom === r.node && 'bg-accent font-medium text-accent-foreground')}
+                          <button className={cn(row, 'py-1 text-xs', p.selectedRoom === r.node && 'bg-accent font-medium text-accent-foreground')}
                             onClick={() => p.onRoom(f, r)}>
                             <i className="size-2.5 shrink-0 rounded-[3px] border border-black/10" style={{ background: types.get(r.type ?? '')?.color ?? '#adb5bd' }} />
                             <span className="min-w-0 flex-1 truncate">{roomName(r)}</span>
@@ -102,7 +168,71 @@ export default function SceneTree(p: {
               )
             })}
           </ul>
-        </section>
+        </Section>
+
+        {layersShown && (
+          <Section title="Слои" icon={LayersIcon} open={sec.layers} onOpen={(v) => setSec({ ...sec, layers: v })}
+            action={(
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><button className={iconBtn} aria-label="Слои: действия"><MoreHorizontal /></button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  {p.layers.length > 1 && <DropdownMenuItem onSelect={() => p.onAll(!allShown)}>{allShown ? <EyeOff /> : <Eye />} {allShown ? 'Скрыть все' : 'Показать все'}</DropdownMenuItem>}
+                  {groups.length > 0 && <DropdownMenuItem onSelect={p.onCompare}><GitCompare /> Сравнить варианты</DropdownMenuItem>}
+                  {p.editable && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Новый слой</DropdownMenuLabel>
+                      {p.kinds.map((k) => <DropdownMenuItem key={k.kind} onSelect={() => p.onAddLayer(k.kind)}><Plus /> {k.name}</DropdownMenuItem>)}
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/layers`}><Settings2 /> Слои проекта: имена, варианты</a></DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}>
+            {!p.layers.length && (
+              <p className="m-0 px-3 py-2 text-xs text-muted-foreground">
+                Слоёв пока нет.{p.editable ? ' Создайте слой в меню «⋯» — мебель, камеры, маршруты, зоны, системы.' : ''}
+              </p>
+            )}
+            <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-px p-0">
+              {p.layers.filter((l) => !s || l.name.toLowerCase().includes(s)).map((l) => {
+                const off = p.hidden.has(l.id)
+                const variant = inVariants(l)
+                const editing = p.editLayer === l.id
+                return (
+                  <li key={l.id} className={cn('flex items-center gap-0.5 rounded-md px-1 hover:bg-secondary', editing && 'bg-accent ring-1 ring-primary/40')}>
+                    <Tip label={off ? (variant ? 'Показать этот вариант (остальные скроются)' : 'Показать слой') : 'Скрыть слой'} side="right">
+                      <button className={iconBtn} aria-pressed={!off} aria-label={off ? 'Показать слой' : 'Скрыть слой'}
+                        onClick={() => (variant && off ? p.onVariant(l.id) : p.onToggle(l.id))}>
+                        {off ? <EyeOff /> : <Eye className="text-foreground" />}
+                      </button>
+                    </Tip>
+                    <div className="min-w-0 flex-1 py-1 leading-tight">
+                      <div className={cn('truncate text-sm', off && 'text-muted-foreground', editing && 'font-medium text-accent-foreground')}>{l.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {kindName(l.kind)}{l.count != null ? ` · ${l.count}` : ''}{variant ? ' · вариант' : ''}
+                      </div>
+                    </div>
+                    {p.editable ? (
+                      <>
+                        <Tip label={l.locked ? 'Слой заблокирован — разблокировать' : 'Заблокировать: слой нельзя менять'} side="right">
+                          <button className={cn(iconBtn, l.locked && 'text-foreground')} aria-pressed={l.locked} aria-label="Блокировка"
+                            onClick={() => p.onLock(l, { locked: !l.locked })}>{l.locked ? <Lock /> : <LockOpen />}</button>
+                        </Tip>
+                        <Tip label={editing ? 'Закончить редактирование' : l.locked ? 'Слой заблокирован' : 'Редактировать слой: инструменты появятся сверху'} side="right">
+                          <button className={cn(iconBtn, editing && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground')}
+                            aria-pressed={editing} aria-label="Редактировать слой" disabled={l.locked && !editing}
+                            onClick={() => p.onEdit(editing ? null : l.id)}><Pencil /></button>
+                        </Tip>
+                      </>
+                    ) : l.locked && <Lock className="mx-1.5 size-3.5 text-muted-foreground" />}
+                  </li>
+                )
+              })}
+            </ul>
+          </Section>
+        )}
       </div>
       <a href={`#/p/${p.projectId}`} className="flex shrink-0 items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground no-underline hover:text-foreground">
         <ExternalLink className="size-3.5" /> Проект: чертежи, слои, участники
@@ -110,3 +240,4 @@ export default function SceneTree(p: {
     </div>
   )
 }
+

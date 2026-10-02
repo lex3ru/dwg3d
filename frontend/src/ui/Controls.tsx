@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { Result } from '../api'
 import { useTheme, type Theme } from '../lib/theme'
 import { can } from '../session'
-import type { DayTime, MeasureMode, Projection } from '../state'
+import type { DayTime, Projection } from '../state'
 import { Icon } from './icons'
 import { useMenu } from './menuCtx'
 
@@ -10,10 +10,7 @@ import { useMenu } from './menuCtx'
 export type SettingsPane = 'floors' | 'site' | 'report' | 'catalog'
 
 /** Top-right group: ruler, display menu (passed in), 2D | 3D, map, settings. */
-export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj, onProj, map, onMap, mapAvailable, onSettings }: {
-  measuring: boolean
-  measureMode: MeasureMode
-  onMeasure: (on: boolean, mode?: MeasureMode) => void
+export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, onSettings }: {
   displayMenu: ReactNode
   proj: Projection
   onProj: (p: Projection) => void
@@ -22,30 +19,12 @@ export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj,
   mapAvailable: boolean
   onSettings: (which: SettingsPane) => void
 }) {
-  const ruler = useMenu('ruler')
   const gear = useMenu('gear')
   const { theme, setTheme } = useTheme()
   const NEXT: Record<Theme, Theme> = { light: 'dark', dark: 'system', system: 'light' }
   const THEME_NAME: Record<Theme, string> = { light: 'светлая', dark: 'тёмная', system: 'как в системе' }
   return (
     <div className="top-right">
-      <div className="menu-root split">
-        <button className={`tb-btn${measuring ? ' on' : ''}`} title="Рулетка: расстояние или площадь"
-          onClick={() => onMeasure(!measuring)}>
-          <Icon name="ruler" />
-        </button>
-        <button className={`tb-btn caret${ruler.isOpen ? ' on' : ''}`} onClick={ruler.toggle} aria-label="Режим рулетки">
-          <Icon name="chevron" size={14} />
-        </button>
-        {ruler.isOpen && (
-          <div className="menu drop-right" role="menu">
-            <button className={`menu-item radio${measuring && measureMode === 'length' ? ' on' : ''}`}
-              onClick={() => { onMeasure(true, 'length'); ruler.close() }}><span className="mark">↔</span>Расстояние</button>
-            <button className={`menu-item radio${measuring && measureMode === 'area' ? ' on' : ''}`}
-              onClick={() => { onMeasure(true, 'area'); ruler.close() }}><span className="mark">▱</span>Площадь контура</button>
-          </div>
-        )}
-      </div>
       {displayMenu}
       <div className="seg-toggle" role="group" aria-label="Проекция">
         {(['2d', '3d'] as const).map((p) => (
