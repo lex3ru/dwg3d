@@ -80,8 +80,6 @@ docker compose up -d
 Предупреждение `transaction_timeout` при восстановлении в PostgreSQL 16 —
 безвредно (параметр появился в 17).
 
-Для развёртывания на сервере — папка `_deploy/` (свой `README.md`).
-
 ## HTTPS
 
 Укажите в `.env` доменное имя: `DWG3D_SITE=plan.example.com`, откройте
