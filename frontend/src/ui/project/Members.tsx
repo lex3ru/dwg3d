@@ -46,7 +46,7 @@ export default function Members({ pid, owner }: { pid: string; owner: boolean })
           </>
         )}
         {err && <p className="m-0 text-sm text-destructive">{err}</p>}
-        <ul className="m-0 grid list-none gap-1 p-0">
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-1 p-0">
           {(list ?? []).map((m) => (
             <li key={m.id} className="flex flex-wrap items-center gap-3 rounded-lg px-2 py-2 hover:bg-secondary/60">
               <div className="min-w-0 flex-1 basis-48">

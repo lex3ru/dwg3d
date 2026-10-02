@@ -8,4 +8,4 @@ export const CardHeader = ({ className, ...p }: React.ComponentProps<'div'>) =>
 export const CardTitle = ({ className, ...p }: React.ComponentProps<'h2'>) =>
   <h2 className={cn('m-0 mr-auto text-base font-semibold', className)} {...p} />
 export const CardContent = ({ className, ...p }: React.ComponentProps<'div'>) =>
-  <div className={cn('p-4', className)} {...p} />
+  <div className={cn('p-4 [&>*]:min-w-0', className)} {...p} />

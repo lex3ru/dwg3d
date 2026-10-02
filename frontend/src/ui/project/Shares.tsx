@@ -73,7 +73,7 @@ export default function Shares({ p }: { p: Project }) {
         )}
         {err && <p className="m-0 text-sm text-destructive">{err}</p>}
         {list && !list.length && <p className="m-0 text-sm text-muted-foreground">Ссылок пока нет.</p>}
-        <ul className="m-0 grid list-none gap-1 p-0">
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-1 p-0">
           {(list ?? []).map((x) => (
             <li key={x.id} className={`flex flex-wrap items-center gap-3 rounded-lg px-2 py-2 hover:bg-secondary/60 ${x.active ? '' : 'opacity-60'}`}>
               <div className="min-w-0 flex-1 basis-48">

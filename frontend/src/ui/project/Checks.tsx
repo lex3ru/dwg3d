@@ -20,7 +20,7 @@ export default function Checks({ c }: { c: ProjectChecks }) {
           Пожарная сигнализация: помещения, где извещателей меньше, чем нужно по площади (один дымовой защищает около 55 м², тепловой — около 27 м²).
           Уточняйте по нормам для высоты потолка.
         </p>
-        <ul className="m-0 grid list-none gap-1 p-0">
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-1 p-0">
           {c.fire.slice(0, 50).map((x) => (
             <li key={x.room_id} className="flex flex-wrap items-center gap-3 rounded-lg px-2 py-2 hover:bg-secondary/60">
               <Badge variant="destructive">{x.has} из {x.need}</Badge>

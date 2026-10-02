@@ -53,7 +53,7 @@ export default function Layers({ pid, editable }: { pid: string; editable: boole
         {layers && !layers.length && (
           <p className="m-0 text-sm text-muted-foreground">Слоёв пока нет: первый появится, когда на план поставят предмет из каталога, или создайте его здесь.</p>
         )}
-        <ul className="m-0 grid list-none gap-1 p-0">
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-1 p-0">
           {(layers ?? []).map((l) => {
             const g = groupOf(l)
             const variantOf = g ? g.find((x) => x.id === variantGroup(l))?.name ?? g[0].name : null

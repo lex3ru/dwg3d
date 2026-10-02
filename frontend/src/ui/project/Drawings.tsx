@@ -59,7 +59,7 @@ export default function Drawings({ p, editable, onChanged }: { p: Project; edita
             Чертежей пока нет.{editable ? ' Загрузите поэтажные планы — стены, окна, двери, лестницы и этажи распознаются автоматически.' : ''}
           </p>
         )}
-        <ul className="m-0 grid list-none gap-1 p-0">
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-1 p-0">
           {p.drawings.map((d) => <DrawingRow key={d.id} d={d} editable={editable} onChanged={onChanged} />)}
         </ul>
       </CardContent>
