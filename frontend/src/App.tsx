@@ -18,7 +18,7 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
-import { Armchair, DoorOpen, FileText, ListTree, PanelLeft, Waypoints } from 'lucide-react'
+import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Waypoints } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
@@ -32,7 +32,9 @@ import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import Progress from './ui/Progress'
 import SiteSettings from './ui/SiteSettings'
 import TopBar from './ui/TopBar'
-import FurniturePanel from './ui/FurniturePanel'
+import Catalog from './ui/furniture/Catalog'
+import FloorSummary from './ui/furniture/FloorSummary'
+import ItemInspector from './ui/furniture/ItemInspector'
 import RoutesPanel from './ui/RoutesPanel'
 import Compare from './ui/Compare'
 import { variantGroups } from './furniture/layers'
@@ -85,6 +87,7 @@ export default function App() {
   /** the layer being edited (its tools are in the context bar), and the drawing chosen in the tree */
   const [editLayerId, setEditLayerId] = useState<string | null>(null)
   const [drawingSel, setDrawingSel] = useState(false)
+  const [leftTab, setLeftTab] = useState<'tree' | 'catalog'>('tree')
   const [settings, setSettings] = useState<SettingsPane | null>(null)
   const [, setCatalogTick] = useState(0)
   const [editor, setEditor] = useState(false)
@@ -132,7 +135,7 @@ export default function App() {
   const projectId = shown?.project_id ?? job?.project_id ?? ''
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
-    layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer, showVariant, toggleLayer, setAllLayers,
+    layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
     layerFor, refuseLocked, syncLayers, patchLayer, showOnlyKinds,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
@@ -376,7 +379,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', on)
   }, [toggleLeft, toggleRight])
 
-  const leftContent = r ? (
+  const catalogOpen = tool === 'furniture'
+  const openLeft = leftDock.setOpen
+  useEffect(() => {
+    setLeftTab(catalogOpen ? 'catalog' : 'tree')
+    if (catalogOpen) openLeft(true)
+  }, [catalogOpen, openLeft])
+  const editKind = editLayer ? kinds.find((k) => k.kind === editLayer.kind) : null
+  const leftContent = leftTab === 'catalog' && catalogOpen ? (
+    <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
+      onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
+      locked={rebuilding} unplaced={unplaced} onUnplaced={resolveUnplaced} />
+  ) : r ? (
     <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
       drawingSelected={drawingSel} onFloor={selectFloor} onRoom={(f, rm) => { setDrawingSel(false); focusRoom(f, rm) }} onOpenJob={openJob}
       onDrawing={() => { setSelRoom(null); setDrawingSel(true) }}
@@ -388,16 +402,20 @@ export default function App() {
   ) : null
 
   const inspector: { key: string; title: string; icon: typeof Armchair; body: React.ReactNode } | null = !r ? null
-    : tool === 'furniture' ? {
-      key: 'furniture', title: 'Каталог и расстановка', icon: Armchair, body: (
-        <FurniturePanel floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} selected={furnSel}
-          placing={placing?.item ?? null} showZones={showZones} canUndo={furn.canUndo}
-          onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
-          onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
-          onDelete={deleteItem} onUndo={undoFurniture} onClose={() => editLayerTo(null)}
-          locked={rebuilding} readOnly={!canEdit()} unplaced={unplaced} onUnplaced={resolveUnplaced}
-          layers={layers} kinds={kinds} activeLayer={activeLayer} onActiveLayer={setActiveLayer} />
-      ) }
+    : tool === 'furniture' ? (() => {
+      const it = floorItems.find((x) => x.id === furnSel)
+      return it ? {
+        key: `item:${it.id}`, title: 'Предмет', icon: Armchair, body: (
+          <ItemInspector item={it} items={floorItems} plan={furnPlan} issues={issues.get(it.id) ?? []} layers={layers} kinds={kinds}
+            readOnly={!canEdit() || rebuilding} onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem}
+            onDuplicate={duplicateItem} onRow={rowItems} onDelete={deleteItem} />
+        ) } : {
+        key: 'furniture', title: 'Слой на этаже', icon: Armchair, body: editLayer ? (
+          <FloorSummary layer={editLayer} floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} roomCover={roomCover}
+            showZones={showZones} onZones={setShowZones} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })}
+            onSelect={setFurnSel} />
+        ) : null }
+    })()
     : tool === 'shapes' && rules && shown ? {
       key: 'routes', title: 'Маршруты, зоны, трассы', icon: Waypoints, body: (
         <RoutesPanel build={shown.build} floors={floors} activeFloor={activeFloor} layers={layers} rules={rules}
@@ -459,7 +477,8 @@ export default function App() {
       <div className={`app nav-${nav}`}>
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
-          <Dock side="left" label="Проект" tabs={[{ id: 'tree', label: 'Проект', icon: ListTree }]} tab="tree" onTab={() => {}} state={leftDock}>
+          <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
+            tabs={[{ id: 'tree', label: 'Проект', icon: ListTree }, ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen }] : [])]}>
             {leftContent}
           </Dock>
         )}
