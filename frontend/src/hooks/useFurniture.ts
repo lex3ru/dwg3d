@@ -144,6 +144,7 @@ export function useFurniture(p: {
           furniture: [...(v.furniture ?? []), ...res.items],
           furniture_unplaced: (v.furniture_unplaced ?? []).filter((u) => !ids.includes(u.id)),
         }))
+        p.syncLayers(res.items)
       } catch (e) {
         alert(conflictText(e, (i) => catalogItem(pick.find((x) => x.id === i)?.item ?? '').name))
         p.reload()

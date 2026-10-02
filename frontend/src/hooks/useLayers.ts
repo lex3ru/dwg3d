@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { layerKinds, listLayers, updateLayer, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
 import type { CatalogItem } from '../furniture/catalog'
 import { variantGroup, variantGroups } from '../furniture/layers'
@@ -78,10 +78,14 @@ export function useLayers(shown: Job | null, projectId: string) {
   const reloadLayers = useCallback(() => {
     if (projectId) listLayers(projectId).then(setLayers).catch(() => {})
   }, [projectId])
-  /** After a save: reload the layers when the server put objects into one this viewer does not know yet. */
-  const syncLayers = (items: { layer?: string }[]) => {
-    if (items.some((it) => it.layer && !layers.some((l) => l.id === it.layer))) reloadLayers()
-  }
+  /** After a save: reload the layers (their object counts, or one the server has just created), a moment
+   * after the last save of a burst (dragging saves often). */
+  const syncTimer = useRef<number | undefined>(undefined)
+  const syncLayers = useCallback(() => {
+    window.clearTimeout(syncTimer.current)
+    syncTimer.current = window.setTimeout(reloadLayers, 500)
+  }, [reloadLayers])
+  useEffect(() => () => window.clearTimeout(syncTimer.current), [])
   /** Lock or unlock a layer (editors); the server's answer replaces the list. */
   const patchLayer = async (l: Layer, patch: Partial<Layer>) => {
     try {

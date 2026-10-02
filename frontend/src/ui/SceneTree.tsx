@@ -1,5 +1,5 @@
 import {
-  Building, ChevronDown, ChevronRight, Download, ExternalLink, Eye, EyeOff, FileText, GitCompare, Layers as LayersIcon,
+  Building, ChevronDown, ChevronRight, DoorOpen, Download, ExternalLink, Eye, EyeOff, FileText, GitCompare, Layers as LayersIcon,
   Lock, LockOpen, MoreHorizontal, Pencil, PencilRuler, Plus, Search, Settings2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -13,7 +13,16 @@ import { variantGroups } from '@/furniture/layers'
 import { cn } from '@/lib/utils'
 import { jobColor } from '@/state'
 
-export interface TreeObject { id: string; name: string; sub: string; color?: string; floor: string; at: [number, number]; kind: 'item' | 'shape' }
+export interface TreeObject {
+  id: string; name: string; sub: string; color?: string; floor: string; at: [number, number]; kind: 'item' | 'shape'
+  layer: string
+  /** the room it stands in (rooms keep their id across builds); null outside rooms or for routes across rooms */
+  room: number | null
+}
+
+type GroupBy = 'layers' | 'rooms'
+const GROUP_KEY = 'dwg3d.tree.group'
+const readGroup = (): GroupBy => { try { return localStorage.getItem(GROUP_KEY) === 'rooms' ? 'rooms' : 'layers' } catch { return 'layers' } }
 
 const row = 'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary'
 const iconBtn = 'grid size-6 shrink-0 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-muted-foreground hover:bg-border hover:text-foreground [&_svg]:size-3.5'
@@ -77,6 +86,32 @@ export default function SceneTree(p: {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [openLayers, setOpenLayers] = useState<Set<string>>(new Set())
+  const [openRooms, setOpenRooms] = useState<Set<string>>(new Set())
+  const [group, setGroupState] = useState<GroupBy>(readGroup)
+  const setGroup = (g: GroupBy) => { setGroupState(g); try { localStorage.setItem(GROUP_KEY, g) } catch { /* storage blocked */ } }
+  // objects of the shown layers by floor and room ('-' outside rooms)
+  const byRoom = useMemo(() => {
+    const m = new Map<string, TreeObject[]>()
+    for (const [layer, list] of p.objects) {
+      if (p.hidden.has(layer)) continue
+      for (const o of list) {
+        const k = `${o.floor}|${o.room ?? '-'}`
+        m.set(k, [...(m.get(k) ?? []), o])
+      }
+    }
+    return m
+  }, [p.objects, p.hidden])
+  const toggleRoom = (k: string) => setOpenRooms((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const objectRow = (o: TreeObject) => (
+    <li key={o.id}>
+      <button className={cn(row, 'py-0.5 text-xs', p.selectedObject === o.id && 'bg-accent font-medium text-accent-foreground')}
+        title={p.editLayer === o.layer ? 'Выбрать' : 'Показать на плане'} onClick={() => p.onObject(o.layer, o)}>
+        <i className={cn('size-2 shrink-0', o.kind === 'item' ? 'rounded-[2px]' : 'rounded-full')} style={{ background: o.color ?? '#adb5bd' }} />
+        <span className="min-w-0 flex-1 truncate">{o.name}</span>
+        <small className="max-w-24 shrink-0 truncate text-muted-foreground">{group === 'rooms' ? p.layers.find((l) => l.id === o.layer)?.name : o.sub}</small>
+      </button>
+    </li>
+  )
   const toggleLayer = (id: string) => setOpenLayers((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [sec, setSec] = useState({ building: true, layers: true })
   useEffect(() => {
@@ -99,9 +134,21 @@ export default function SceneTree(p: {
     <div className="flex h-full min-h-0 flex-col">
       <div className="relative shrink-0 border-b border-border p-2">
         <Search className="pointer-events-none absolute top-4 left-4 size-3.5 text-muted-foreground" />
-        <Input className="h-7 pl-7 text-xs" placeholder="Помещение, этаж или слой" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="flex gap-1">
+          <Input className="h-7 pl-7 text-xs" placeholder="Помещение, этаж или слой" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div role="group" aria-label="Объекты в дереве" className="flex shrink-0 rounded-md bg-secondary p-0.5">
+            {([['layers', LayersIcon, 'Объекты — под своими слоями'], ['rooms', DoorOpen, 'Объекты — в помещениях, из всех показанных слоёв']] as const).map(([g, Icon, hint]) => (
+              <Tip key={g} label={hint} side="bottom">
+                <button aria-pressed={group === g} aria-label={hint} onClick={() => setGroup(g)}
+                  className={cn('grid size-6 cursor-pointer place-items-center rounded border-0 p-0', group === g ? 'bg-card text-foreground shadow-sm' : 'bg-transparent text-muted-foreground hover:text-foreground')}>
+                  <Icon className="size-3.5" />
+                </button>
+              </Tip>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-1.5">
         <Section title="Здание" icon={Building} open={sec.building} onOpen={(v) => setSec({ ...sec, building: v })}>
           {(jobs.length > 1 ? jobs : current ? [current] : []).filter(() => !s).map((j) => (
             <div key={j.id} className={cn('group flex items-center rounded-md hover:bg-secondary', j.id === p.jobId && p.drawingSelected && 'bg-accent')}>
@@ -132,7 +179,7 @@ export default function SceneTree(p: {
               <Building className="size-4 shrink-0" /> Всё здание
             </button>
           )}
-          <ul className="m-0 grid list-none gap-px p-0 pl-3">
+          <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-px p-0 pl-3">
             {floors.map((f) => {
               const rooms = f.rooms.filter(match)
               if (s && !rooms.length && !f.name.toLowerCase().includes(s)) return null
@@ -158,18 +205,52 @@ export default function SceneTree(p: {
                     )}
                   </div>
                   {expanded && (
-                    <ul className="m-0 mb-1 ml-6 grid list-none gap-px border-l border-border p-0 pl-1">
-                      {rooms.map((r) => (
-                        <li key={r.node}>
-                          <button className={cn(row, 'py-1 text-xs', p.selectedRoom === r.node && 'bg-accent font-medium text-accent-foreground')}
-                            onClick={() => p.onRoom(f, r)}>
-                            <i className="size-2.5 shrink-0 rounded-[3px] border border-black/10" style={{ background: types.get(r.type ?? '')?.color ?? '#adb5bd' }} />
-                            <span className="min-w-0 flex-1 truncate">{roomName(r)}</span>
-                            <small className="text-muted-foreground">{r.area.toFixed(0)} м²</small>
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="m-0 mb-1 ml-6 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">
+                      {rooms.map((r) => {
+                        const k = `${f.id}|${r.id ?? '-'}`
+                        const objs = group === 'rooms' && r.id != null ? byRoom.get(k) ?? [] : []
+                        const roomOpen = openRooms.has(k) || objs.some((o) => o.id === p.selectedObject)
+                        return (
+                          <li key={r.node}>
+                            <div className={cn('flex items-center rounded-md hover:bg-secondary', p.selectedRoom === r.node && 'bg-accent')}>
+                              {group === 'rooms' && (
+                                <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'}
+                                  onClick={() => toggleRoom(k)}>{roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
+                              )}
+                              <button className={cn(row, 'py-1 text-xs hover:bg-transparent', p.selectedRoom === r.node && 'font-medium text-accent-foreground')}
+                                onClick={() => p.onRoom(f, r)}>
+                                <i className="size-2.5 shrink-0 rounded-[3px] border border-black/10" style={{ background: types.get(r.type ?? '')?.color ?? '#adb5bd' }} />
+                                <span className="min-w-0 flex-1 truncate">{roomName(r)}</span>
+                                {objs.length > 0 && <span className="rounded-full bg-secondary px-1.5 text-[10px] text-muted-foreground">{objs.length}</span>}
+                                <small className="text-muted-foreground">{r.area.toFixed(0)} м²</small>
+                              </button>
+                            </div>
+                            {roomOpen && objs.length > 0 && (
+                              <ul className="m-0 mb-1 ml-5 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">{objs.map(objectRow)}</ul>
+                            )}
+                          </li>
+                        )
+                      })}
                       {!rooms.length && <li className="px-2 py-1 text-xs text-muted-foreground">Помещений нет</li>}
+                      {group === 'rooms' && !s && (() => {
+                        const k = `${f.id}|-`
+                        const objs = byRoom.get(k) ?? []
+                        if (!objs.length) return null
+                        const roomOpen = openRooms.has(k)
+                        return (
+                          <li>
+                            <div className="flex items-center rounded-md hover:bg-secondary">
+                              <button className={cn(iconBtn, 'hover:bg-transparent')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'} onClick={() => toggleRoom(k)}>
+                                {roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
+                              <button className={cn(row, 'py-1 text-xs text-muted-foreground hover:bg-transparent')} onClick={() => toggleRoom(k)}>
+                                <span className="min-w-0 flex-1 truncate">Вне помещений и между ними</span>
+                                <span className="rounded-full bg-secondary px-1.5 text-[10px]">{objs.length}</span>
+                              </button>
+                            </div>
+                            {roomOpen && <ul className="m-0 mb-1 ml-5 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">{objs.map(objectRow)}</ul>}
+                          </li>
+                        )
+                      })()}
                     </ul>
                   )}
                 </li>
@@ -208,7 +289,7 @@ export default function SceneTree(p: {
                 const off = p.hidden.has(l.id)
                 const variant = inVariants(l)
                 const editing = p.editLayer === l.id
-                const objs = p.objects.get(l.id) ?? []
+                const objs = group === 'layers' ? p.objects.get(l.id) ?? [] : []
                 const expanded = openLayers.has(l.id) || (editing && objs.some((o) => o.id === p.selectedObject))
                 return (
                   <li key={l.id}>
@@ -242,17 +323,8 @@ export default function SceneTree(p: {
                     ) : l.locked && <Lock className="mx-1.5 size-3.5 text-muted-foreground" />}
                   </div>
                   {expanded && objs.length > 0 && (
-                    <ul className="m-0 mb-1 ml-6 grid list-none gap-px border-l border-border p-0 pl-1">
-                      {objs.slice(0, 300).map((o) => (
-                        <li key={o.id}>
-                          <button className={cn(row, 'py-0.5 text-xs', p.selectedObject === o.id && 'bg-accent font-medium text-accent-foreground')}
-                            title={editing ? 'Выбрать' : 'Показать на плане'} onClick={() => p.onObject(l.id, o)}>
-                            <i className={cn('size-2 shrink-0', o.kind === 'item' ? 'rounded-[2px]' : 'rounded-full')} style={{ background: o.color ?? '#adb5bd' }} />
-                            <span className="min-w-0 flex-1 truncate">{o.name}</span>
-                            <small className="shrink-0 text-muted-foreground">{o.sub}</small>
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="m-0 mb-1 ml-6 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">
+                      {objs.slice(0, 300).map(objectRow)}
                       {objs.length > 300 && <li className="px-2 py-1 text-xs text-muted-foreground">…и ещё {objs.length - 300}</li>}
                     </ul>
                   )}

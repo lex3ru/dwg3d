@@ -412,13 +412,13 @@ export default function App() {
     const add = (layer: string | undefined, o: TreeObject) => { if (layer) m.set(layer, [...(m.get(layer) ?? []), o]) }
     for (const it of view.furniture ?? []) {
       const c = catalogItem(it.item)
-      add(it.layer, { id: it.id, name: c.name, sub: `эт. ${fname(it.floor)}`, color: catColor(c.cat), floor: it.floor, at: it.at, kind: 'item' })
+      add(it.layer, { id: it.id, name: c.name, sub: `эт. ${fname(it.floor)}`, color: catColor(c.cat), floor: it.floor, at: it.at, kind: 'item', layer: it.layer ?? '', room: it.room ?? null })
     }
     for (const x of view.shapes ?? []) {
       const pr = (x.props ?? {}) as { name?: string; flow?: string; zone?: string; cable?: string; stops?: { floor: string; at: XY }[] }
       const kind = x.geom === 'route' ? rules?.flows[pr.flow ?? ''] : x.geom === 'polygon' ? rules?.zone_kinds[pr.zone ?? ''] : rules?.cables[pr.cable ?? '']
       const at = pr.stops?.[0] ?? { floor: x.floor, at: x.at }
-      add(x.layer, { id: x.id, name: pr.name || kind?.name || 'Объект', sub: `эт. ${fname(at.floor)}`, color: kind?.color, floor: at.floor, at: at.at, kind: 'shape' })
+      add(x.layer, { id: x.id, name: pr.name || kind?.name || 'Объект', sub: `эт. ${fname(at.floor)}`, color: kind?.color, floor: at.floor, at: at.at, kind: 'shape', layer: x.layer ?? '', room: x.geom === 'route' ? null : x.room ?? null })
     }
     return m
   }, [view.furniture, view.shapes, floors, rules])
