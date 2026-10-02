@@ -1,4 +1,10 @@
-import { useState } from 'react'
+import { Armchair, FileBox, Trash2, Upload } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import { deleteDetail, putView, uploadDetail, type ViewSettings, type V3 } from '../api'
 import type { DetailInfo } from '../viewer/Viewer'
 import { TILE_ATTRIBUTION } from '../viewer/tiles'
@@ -31,6 +37,7 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
   })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const siteValue = (s = site): ViewSettings['site'] | null => (s.lat.trim() && s.lon.trim()
     ? {
@@ -87,69 +94,93 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
     try { onSaved(await deleteDetail(jobId)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
+  const h3 = 'm-0 text-sm font-semibold'
+  const hint = 'm-0 text-xs text-muted-foreground'
+  const code = 'rounded bg-secondary px-1 font-mono text-[11px]'
+  const grid = 'grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-5 gap-y-2'
+  const row = 'flex items-center justify-between gap-2 font-normal'
+  const numCls = 'w-20'
+
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal site-modal" onMouseDown={(e) => e.stopPropagation()} role="dialog">
-        <header><h2>Карта и детальная модель</h2><button className="ghost" onClick={onClose}>✕</button></header>
-        <div className="modal-body">
-          <h3>Здание</h3>
-          <div className="params">
-            <label><span>Название</span><input value={name} placeholder="как в списке зданий" onChange={(e) => setName(e.target.value)} /></label>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent aria-describedby={undefined} onKeyDown={(e) => e.stopPropagation()}
+        className="max-h-[85vh] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto]">
+        <DialogHeader><DialogTitle>Карта и детальная модель</DialogTitle></DialogHeader>
+        <div className="-mx-5 grid min-h-0 content-start gap-3 overflow-y-auto px-5 text-sm">
+          <h3 className={h3}>Здание</h3>
+          <div className={grid}>
+            <Label className={row}><span className="shrink-0">Название</span>
+              <Input value={name} placeholder="как в списке зданий" onChange={(e) => setName(e.target.value)} /></Label>
           </div>
 
-          <h3>Привязка к карте</h3>
-          <p className="hint">Точка — центр модели (начало координат). Азимут — поворот здания по часовой стрелке
+          <h3 className={cn(h3, 'mt-2')}>Привязка к карте</h3>
+          <p className={hint}>Точка — центр модели (начало координат). Азимут — поворот здания по часовой стрелке
             от севера: на сколько градусов ось Y плана отклонена от направления на север. Масштаб подложки — если план
             начерчен не в масштабе 1:1. Координаты можно вставить одной строкой «55.7539, 37.6208».</p>
-          <div className="params">
-            <label><span>Широта</span><input value={site.lat} placeholder="55.7539" onChange={(e) => updSite({ lat: e.target.value })} /></label>
-            <label><span>Долгота</span><input value={site.lon} placeholder="37.6208" onChange={(e) => updSite({ lon: e.target.value })} /></label>
-            <label><span>Азимут, °</span><input className="num" value={site.azimuth} onChange={(e) => updSite({ azimuth: e.target.value })} /></label>
-            <label><span>Масштаб подложки</span><input className="num" value={site.scale} onChange={(e) => updSite({ scale: e.target.value })} /></label>
+          <div className={grid}>
+            <Label className={row}><span className="flex-1">Широта</span>
+              <Input className="w-32" value={site.lat} placeholder="55.7539" onChange={(e) => updSite({ lat: e.target.value })} /></Label>
+            <Label className={row}><span className="flex-1">Долгота</span>
+              <Input className="w-32" value={site.lon} placeholder="37.6208" onChange={(e) => updSite({ lon: e.target.value })} /></Label>
+            <Label className={row}><span className="flex-1">Азимут, °</span>
+              <Input className={numCls} value={site.azimuth} onChange={(e) => updSite({ azimuth: e.target.value })} /></Label>
+            <Label className={row}><span className="flex-1">Масштаб подложки</span>
+              <Input className={numCls} value={site.scale} onChange={(e) => updSite({ scale: e.target.value })} /></Label>
           </div>
-          <div className="params">
-            <label><span>Тайлы (XYZ)</span><input value={site.tiles} placeholder="по умолчанию OpenStreetMap"
-              onChange={(e) => updSite({ tiles: e.target.value })} /></label>
-            <label><span>Атрибуция</span><input value={site.attribution} placeholder={TILE_ATTRIBUTION}
-              onChange={(e) => updSite({ attribution: e.target.value })} /></label>
+          <div className="grid gap-2">
+            <Label className={row}><span className="w-32 shrink-0">Тайлы (XYZ)</span>
+              <Input value={site.tiles} placeholder="по умолчанию OpenStreetMap" onChange={(e) => updSite({ tiles: e.target.value })} /></Label>
+            <Label className={row}><span className="w-32 shrink-0">Атрибуция</span>
+              <Input value={site.attribution} placeholder={TILE_ATTRIBUTION} onChange={(e) => updSite({ attribution: e.target.value })} /></Label>
           </div>
-          <p className="hint">По умолчанию — растровые тайлы OpenStreetMap ({TILE_ATTRIBUTION}), обесцвеченные
+          <p className={hint}>По умолчанию — растровые тайлы OpenStreetMap ({TILE_ATTRIBUTION}), обесцвеченные
             в просмотрщике; серверы OSM рассчитаны на небольшую нагрузку, для публичного сервиса укажите свой
-            источник: <code>https://…/{'{z}'}/{'{x}'}/{'{y}'}.png</code> и его атрибуцию. Без привязки под зданием —
+            источник: <code className={code}>https://…/{'{z}'}/{'{x}'}/{'{y}'}.png</code> и его атрибуцию. Без привязки под зданием —
             нейтральная сетка.</p>
 
-          <h3>Детальная модель (GLB)</h3>
-          <p className="hint">Фасад, мебель, оборудование — готовая модель поверх распознанной. Узлы с именем
-            <code> floor_&lt;номер этажа&gt;</code> попадают на этот этаж, остальные — по высоте; узлы выше полутора этажей —
-            фасад всего здания. Узлы с «furniture» / «мебель» в имени — мебель (кнопка 🛋 внизу).</p>
+          <h3 className={cn(h3, 'mt-2')}>Детальная модель (GLB)</h3>
+          <p className={hint}>Фасад, мебель, оборудование — готовая модель поверх распознанной. Узлы с именем
+            {' '}<code className={code}>floor_&lt;номер этажа&gt;</code> попадают на этот этаж, остальные — по высоте; узлы выше полутора этажей —
+            фасад всего здания. Узлы с «furniture» / «мебель» в имени — мебель (кнопка <Armchair className="inline size-3.5 align-[-2px]" aria-label="мебель" /> внизу).</p>
           {view.detail?.file ? (
             <>
-              <div className="detail-file">
-                <b>{view.detail.file}</b>
-                <span>{((view.detail.size ?? 0) / 1048576).toFixed(1)} МБ</span>
-                {detailInfo && <span>этажных узлов {detailInfo.floors}, фасад {detailInfo.building}, мебель {detailInfo.furniture}</span>}
-                <button className="small" disabled={busy} onClick={remove}>Удалить</button>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md bg-secondary px-2.5 py-2">
+                <FileBox className="size-4 shrink-0 text-muted-foreground" />
+                <b className="break-all">{view.detail.file}</b>
+                <span className="text-muted-foreground">{((view.detail.size ?? 0) / 1048576).toFixed(1)} МБ</span>
+                {detailInfo && <span className="text-muted-foreground">этажных узлов {detailInfo.floors}, фасад {detailInfo.building}, мебель {detailInfo.furniture}</span>}
+                <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive" disabled={busy} onClick={remove}>
+                  <Trash2 /> Удалить
+                </Button>
               </div>
-              <div className="params">
-                <label><span>Сдвиг X, м</span><input className="num" value={det.x} onChange={(e) => updDet({ x: e.target.value })} /></label>
-                <label><span>Сдвиг Y (вверх), м</span><input className="num" value={det.y} onChange={(e) => updDet({ y: e.target.value })} /></label>
-                <label><span>Сдвиг Z, м</span><input className="num" value={det.z} onChange={(e) => updDet({ z: e.target.value })} /></label>
-                <label><span>Поворот, °</span><input className="num" value={det.rotation} onChange={(e) => updDet({ rotation: e.target.value })} /></label>
-                <label><span>Масштаб</span><input className="num" value={det.scale} onChange={(e) => updDet({ scale: e.target.value })} /></label>
+              <div className={grid}>
+                <Label className={row}><span className="flex-1">Сдвиг X, м</span>
+                  <Input className={numCls} value={det.x} onChange={(e) => updDet({ x: e.target.value })} /></Label>
+                <Label className={row}><span className="flex-1">Сдвиг Y (вверх), м</span>
+                  <Input className={numCls} value={det.y} onChange={(e) => updDet({ y: e.target.value })} /></Label>
+                <Label className={row}><span className="flex-1">Сдвиг Z, м</span>
+                  <Input className={numCls} value={det.z} onChange={(e) => updDet({ z: e.target.value })} /></Label>
+                <Label className={row}><span className="flex-1">Поворот, °</span>
+                  <Input className={numCls} value={det.rotation} onChange={(e) => updDet({ rotation: e.target.value })} /></Label>
+                <Label className={row}><span className="flex-1">Масштаб</span>
+                  <Input className={numCls} value={det.scale} onChange={(e) => updDet({ scale: e.target.value })} /></Label>
               </div>
             </>
           ) : null}
-          <label className="file-btn">
-            <input type="file" accept=".glb" hidden disabled={busy} onChange={(e) => upload(e.target.files?.[0])} />
-            <span className="button small">{view.detail?.file ? 'Заменить GLB…' : 'Загрузить GLB…'}</span>
-          </label>
-          {err && <p className="error">{err}</p>}
+          <div>
+            <input ref={fileRef} type="file" accept=".glb" hidden disabled={busy}
+              onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} />
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>
+              <Upload /> {view.detail?.file ? 'Заменить GLB…' : 'Загрузить GLB…'}
+            </Button>
+          </div>
+          {err && <p className="m-0 text-sm text-destructive">{err}</p>}
         </div>
-        <footer>
-          <button onClick={onClose}>Отмена</button>
-          <button className="primary" disabled={busy} onClick={save}>Сохранить</button>
-        </footer>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>Отмена</Button>
+          <Button disabled={busy} onClick={save}>Сохранить</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -1,4 +1,12 @@
+import { BrickWall, Check, DoorOpen, Eraser, Maximize2, Minus, MousePointer2, PencilRuler, Plus, Trash2, Undo2, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { floatClass } from '@/components/ui/float'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Tip } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { getPlan, type FloorEdits, type FloorMeta, type Job, type OpeningKind, type PlanData, type XY } from './api'
 
 type EditTool = 'select' | 'wall' | 'erase' | 'opening'
@@ -14,12 +22,61 @@ const KIND_LABEL: Record<string, string> = {
 const KIND_COLOR: Record<string, string> = {
   door: '#e8590c', window: '#1c7ed6', vitrage: '#15aabf', passage: '#ae3ec9', wall: '#343a40',
 }
-const TOOLS: { id: EditTool; label: string; key: string; code: string }[] = [
-  { id: 'select', label: 'Выбор', key: 'V', code: 'KeyV' },
-  { id: 'wall', label: 'Стена', key: 'W', code: 'KeyW' },
-  { id: 'erase', label: 'Стереть', key: 'E', code: 'KeyE' },
-  { id: 'opening', label: 'Проём', key: 'O', code: 'KeyO' },
+const TOOLS: { id: EditTool; label: string; key: string; code: string; icon: LucideIcon }[] = [
+  { id: 'select', label: 'Выбор', key: 'V', code: 'KeyV', icon: MousePointer2 },
+  { id: 'wall', label: 'Стена', key: 'W', code: 'KeyW', icon: BrickWall },
+  { id: 'erase', label: 'Стереть', key: 'E', code: 'KeyE', icon: Eraser },
+  { id: 'opening', label: 'Проём', key: 'O', code: 'KeyO', icon: DoorOpen },
 ]
+
+/**
+ * The plan drawing itself. The canvas stays light in both themes: walls,
+ * room fills and label halos are drawn for a light paper, as in a printed plan.
+ * Scoped to the editor's <svg class="plan2d">.
+ */
+const PLAN_CSS = `
+.plan2d .p-footprint { fill: #f1f3f5; }
+.plan2d .p-room { fill: #fff9db; fill-opacity: .55; stroke: none; }
+.plan2d.tool-select .p-room { cursor: pointer; }
+.plan2d.tool-select .p-room:hover { fill: #d0ebff; }
+.plan2d .p-lines { fill: none; stroke: #adb5bd; stroke-width: 0.6; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .p-wall { fill: #343a40; fill-rule: evenodd; pointer-events: none; }
+.plan2d .p-partition { fill: #868e96; fill-rule: evenodd; pointer-events: none; }
+.plan2d .p-column { fill: #495057; pointer-events: none; }
+.plan2d .p-stair { fill: #ffd43b; fill-opacity: .7; stroke: #f08c00; stroke-width: 0.8; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .p-erased path { fill: #fa5252; fill-rule: nonzero; }
+.plan2d .p-opening { opacity: .9; stroke: rgba(0,0,0,0); stroke-width: 12; vector-effect: non-scaling-stroke; }
+.plan2d.tool-select .p-opening { cursor: pointer; }
+.plan2d.tool-select .p-opening:hover, .plan2d .p-opening.active { opacity: 1; stroke: rgba(28,126,214,.35); }
+.plan2d .p-opening.changed { stroke: rgba(43,138,62,.55); stroke-width: 6; }
+.plan2d:not(.tool-select) .p-opening, .plan2d:not(.tool-select) .p-room { pointer-events: none; }
+.plan2d .p-leaf { stroke: #e8590c; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .p-label { fill: #343a40; text-anchor: middle; pointer-events: none; font-family: inherit; paint-order: stroke; stroke: #fff; stroke-linejoin: round; }
+.plan2d .e-label { fill: #2b8a3e; font-weight: 600; }
+.plan2d .len-label { fill: #1c7ed6; font-weight: 600; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-linejoin: round; font-family: inherit; }
+.plan2d .e-add { fill: #40c057; fill-opacity: .6; stroke: #2b8a3e; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .e-add.applied { fill: none; stroke-dasharray: 4 3; stroke-opacity: .7; }
+.plan2d .e-erase { fill: #fa5252; fill-opacity: .12; stroke: #e03131; stroke-width: 1.5; stroke-dasharray: 6 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .e-erase.applied { fill: none; stroke: #adb5bd; }
+.plan2d .e-open { stroke-width: 6; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .e-open.applied { stroke-width: 3; stroke-dasharray: 4 3; }
+.plan2d .e-open-rect { fill-opacity: .75; stroke: #212529; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .e-add.hl, .plan2d .e-erase.hl, .plan2d .e-open.hl { stroke: #1c7ed6; stroke-width: 3; stroke-dasharray: none; }
+.plan2d .e-open-rect.hl { stroke: #1c7ed6; stroke-width: 3; }
+.plan2d .e-mark { fill: none; stroke: #1c7ed6; stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .preview { opacity: .85; }
+.plan2d .start-mark { fill: #1c7ed6; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.plan2d .snap-mark { pointer-events: none; fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.plan2d .snap-mark.vertex { stroke: #e8590c; }
+.plan2d .snap-mark.edge { stroke: #2b8a3e; }
+.plan2d .snap-mark.free line { stroke: #1c7ed6; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.plan2d .snap-mark.inter line { stroke: #d6336c; stroke-width: 2; vector-effect: non-scaling-stroke; }
+`
+
+/** A legend / popup colour chip. */
+const Swatch = ({ color }: { color: string }) => (
+  <i className="inline-block size-2.5 shrink-0 rounded-[2px] border border-black/15" style={{ background: color }} />
+)
 const SNAP_PX = 10          // snap radius in screen pixels
 const DRAG_PX = 4           // movement that turns a click into a pan
 
@@ -477,53 +534,64 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
   const hlOf = (key: EditKey, i: number) => hl === `${key}:${i}`
 
   return (
-    <div className="editor">
-      <div className="editor-bar">
-        <b className="editor-title">2D: {floor.name}</b>
-        <div className="seg small-seg">
-          {TOOLS.map((t) => (
-            <button key={t.id} className={tool === t.id ? 'on' : ''} title={`${t.label} (${t.key})`}
-              onClick={() => { setTool(t.id); setStart(null); setStartDir(null); setPopup(null) }}>
-              {t.label} <kbd>{t.key}</kbd>
+    <div className="absolute inset-0 z-[80] flex flex-col bg-background text-sm text-foreground">
+      <style>{PLAN_CSS}</style>
+      <div role="toolbar" aria-label="Редактор плана этажа"
+        className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-2">
+        <span className="inline-flex max-w-56 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
+          <PencilRuler className="size-3.5 shrink-0" /><span className="truncate">2D: {floor.name}</span>
+        </span>
+        <span className="mx-1 h-5 w-px shrink-0 bg-border" />
+        {TOOLS.map((t) => (
+          <Tip key={t.id} label={`${t.label} (${t.key})`} side="bottom">
+            <button aria-pressed={tool === t.id}
+              onClick={() => { setTool(t.id); setStart(null); setStartDir(null); setPopup(null) }}
+              className={cn('inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-2 text-xs font-medium transition-colors [&_svg]:size-4',
+                tool === t.id ? 'bg-accent text-accent-foreground' : 'bg-transparent text-foreground hover:bg-secondary')}>
+              <t.icon />{t.label}
+              <kbd className="rounded border border-border px-1 font-mono text-[10px] leading-4 text-muted-foreground">{t.key}</kbd>
             </button>
-          ))}
-        </div>
+          </Tip>
+        ))}
         {tool === 'wall' && (
-          <label className="opt">толщина
-            <select value={thickness} onChange={(e) => setThickness(Number(e.target.value))}>
+          <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">толщина
+            <Select className="h-7 text-xs" value={thickness} onChange={(e) => setThickness(Number(e.target.value))}>
               {[0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5].map((t) => <option key={t} value={t}>{t} м</option>)}
-            </select>
+            </Select>
           </label>
         )}
         {tool === 'opening' && (
-          <label className="opt">тип
-            <select value={newKind} onChange={(e) => setNewKind(e.target.value as OpeningKind)}>
+          <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">тип
+            <Select className="h-7 text-xs" value={newKind} onChange={(e) => setNewKind(e.target.value as OpeningKind)}>
               {(['door', 'window', 'vitrage', 'passage'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-            </select>
+            </Select>
           </label>
         )}
-        <span className="spacer" />
-        <button className="small" disabled={!history.length || busy} onClick={undo} title="Отменить последнюю правку (Ctrl+Z)">↶ Отменить</button>
-        <button className="ghost" onClick={requestClose}>Закрыть</button>
-        <button className="primary" disabled={!dirty || busy} onClick={apply}>
-          {busy ? 'Перестраивается…' : `Применить${pendingCount ? ` (${pendingCount})` : ''}`}
-        </button>
+        <span className="min-w-2 flex-1" />
+        <Tip label="Отменить последнюю правку (Ctrl+Z)" side="bottom">
+          <Button variant="ghost" size="sm" disabled={!history.length || busy} onClick={undo}><Undo2 /> Отменить</Button>
+        </Tip>
+        <Button variant="ghost" size="sm" onClick={requestClose}><X /> Закрыть</Button>
+        <Button size="sm" disabled={!dirty || busy} onClick={apply}>
+          <Check /> {busy ? 'Перестраивается…' : `Применить${pendingCount ? ` (${pendingCount})` : ''}`}
+        </Button>
       </div>
       {confirmClose && (
-        <div className="confirm-bar">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/40 bg-warning/15 px-3 py-2 text-sm">
           Есть неприменённые правки ({pendingCount}).
-          <button className="primary small" onClick={apply}>Применить</button>
-          <button className="small" onClick={() => { setConfirmClose(false); onClose() }}>Закрыть без применения</button>
-          <button className="ghost small" onClick={() => setConfirmClose(false)}>Остаться</button>
+          <Button size="sm" onClick={apply}>Применить</Button>
+          <Button variant="secondary" size="sm" onClick={() => { setConfirmClose(false); onClose() }}>Закрыть без применения</Button>
+          <Button variant="ghost" size="sm" onClick={() => setConfirmClose(false)}>Остаться</Button>
         </div>
       )}
-      <div className="editor-body">
-        <div className="editor-canvas">
-          {err && <div className="center-msg error">{err}</div>}
-          {!plan && !err && <div className="center-msg">Загрузка плана…</div>}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1 overflow-hidden">
+          {err && <div className="absolute inset-0 grid place-items-center text-destructive">{err}</div>}
+          {!plan && !err && <div className="absolute inset-0 grid place-items-center text-muted-foreground">Загрузка плана…</div>}
           {plan && vb && (
             <svg ref={svgRef} viewBox={vb.join(' ')} preserveAspectRatio="xMidYMid meet"
-              className={`plan-svg tool-${tool}`}
+              className={cn('plan2d block size-full touch-none bg-white select-none active:cursor-grabbing', `tool-${tool}`,
+                tool === 'select' ? 'cursor-default' : 'cursor-none')}
               onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
               onPointerLeave={() => setCursor(null)} onContextMenu={(e) => e.preventDefault()}>
               <defs>
@@ -619,27 +687,41 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
               )}
             </svg>
           )}
-          <div className={`status-line${start ? ' active' : ''}${notice ? ' warn' : ''}`}>{notice ?? status}</div>
-          <div className="zoom-btns">
-            <button onClick={() => zoom(1 / 1.4)} title="Приблизить">+</button>
-            <button onClick={() => zoom(1.4)} title="Отдалить">−</button>
-            <button onClick={() => plan && fit(plan)} title="Показать весь этаж">⤢</button>
+          <div className={cn('pointer-events-none absolute top-2.5 left-1/2 max-w-[calc(100%-140px)] -translate-x-1/2 rounded-full px-3.5 py-1.5 text-center text-sm shadow-md',
+            notice ? 'bg-warning text-background' : start ? 'bg-primary text-primary-foreground' : 'bg-foreground/85 text-background')}>
+            {notice ?? status}
+          </div>
+          <div className={cn(floatClass, 'absolute top-2.5 right-2.5 flex flex-col gap-0.5 rounded-lg p-0.5')}>
+            <Tip label="Приблизить" side="left">
+              <Button variant="ghost" size="icon" aria-label="Приблизить" onClick={() => zoom(1 / 1.4)}><Plus /></Button>
+            </Tip>
+            <Tip label="Отдалить" side="left">
+              <Button variant="ghost" size="icon" aria-label="Отдалить" onClick={() => zoom(1.4)}><Minus /></Button>
+            </Tip>
+            <Tip label="Показать весь этаж" side="left">
+              <Button variant="ghost" size="icon" aria-label="Показать весь этаж" onClick={() => plan && fit(plan)}><Maximize2 /></Button>
+            </Tip>
           </div>
           {vb && (
-            <div className="scale-bar">
-              <div style={{ width: scaleM / mpp }} />
+            <div className={cn(floatClass, 'pointer-events-none absolute bottom-10 left-2.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground')}>
+              <div className="h-1.5 border-2 border-t-0 border-current" style={{ width: scaleM / mpp }} />
               <span>{scaleM} м</span>
             </div>
           )}
-          {cursor && <div className="coords">{cursor.p[0].toFixed(2)}, {cursor.p[1].toFixed(2)} м
+          {cursor && <div className={cn(floatClass, 'pointer-events-none absolute bottom-2.5 left-2.5 rounded-md px-2 py-0.5 text-xs text-muted-foreground tabular-nums')}>{cursor.p[0].toFixed(2)}, {cursor.p[1].toFixed(2)} м
             {cursor.kind === 'vertex' ? ' · угол' : cursor.kind === 'edge' ? ' · грань' : cursor.kind === 'inter' ? ' · пересечение с гранью' : cursor.kind === 'ortho' ? ' · ортогонально' : ''}</div>}
-          {busy && <div className="busy-overlay"><div className="progress-card">Модель перестраивается с учётом правок…</div></div>}
+          {busy && (
+            <div className="absolute inset-0 z-[5] grid place-items-center bg-background/55">
+              <div className={cn(floatClass, 'w-full max-w-[420px] rounded-xl p-3')}>Модель перестраивается с учётом правок…</div>
+            </div>
+          )}
           {renaming && (
-            <form className="popup rename" style={{ left: renaming.screen[0], top: Math.min(renaming.screen[1], window.innerHeight - 80) }}
+            <form className="fixed z-20 flex translate-x-2 translate-y-2 gap-1.5 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg"
+              style={{ left: renaming.screen[0], top: Math.min(renaming.screen[1], window.innerHeight - 80) }}
               onSubmit={(e) => { e.preventDefault(); renameRoom(renaming.at, renaming.name.trim()) }}>
-              <input autoFocus value={renaming.name} placeholder="Название помещения"
+              <Input autoFocus className="w-[220px]" value={renaming.name} placeholder="Название помещения"
                 onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} />
-              <button type="submit" className="primary">OK</button>
+              <Button type="submit">OK</Button>
             </form>
           )}
           {popup && (() => {
@@ -647,49 +729,63 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
             const cur = pendingKind(o) ?? o.kind
             const mi = manualIdx(o)
             return (
-              <div className="popup" style={{ left: popup.screen[0], top: Math.min(popup.screen[1], window.innerHeight - 260) }}>
-                <div className="popup-title">{KIND_LABEL[o.kind]} · {o.width.toFixed(2)} м</div>
+              <div className="fixed z-20 flex min-w-[200px] translate-x-2 translate-y-2 flex-col rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                style={{ left: popup.screen[0], top: Math.min(popup.screen[1], window.innerHeight - 260) }}>
+                <div className="mb-0.5 border-b border-border px-2.5 pt-1 pb-1.5 text-xs text-muted-foreground">{KIND_LABEL[o.kind]} · {o.width.toFixed(2)} м</div>
                 {(['door', 'window', 'vitrage', 'passage', 'wall'] as const).map((k) => (
-                  <button key={k} className={cur === k ? 'on' : ''} onClick={() => setOpeningKind(o, k)}>
-                    <i style={{ background: KIND_COLOR[k] }} />{KIND_LABEL[k]}{cur === k ? ' ✓' : ''}
+                  <button key={k} aria-pressed={cur === k} onClick={() => setOpeningKind(o, k)}
+                    className={cn('flex cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary',
+                      cur === k && 'font-semibold')}>
+                    <Swatch color={KIND_COLOR[k]} />
+                    <span className="flex-1">{KIND_LABEL[k]}</span>
+                    {cur === k && <Check className="size-4 text-primary" />}
                   </button>
                 ))}
                 {mi >= 0 && (
-                  <button className="danger" onClick={() => { removeEdit('add_openings', mi); setPopup(null) }}>
-                    Удалить добавленный проём
+                  <button onClick={() => { removeEdit('add_openings', mi); setPopup(null) }}
+                    className="mt-0.5 flex cursor-pointer items-center gap-2 border-0 border-t border-border bg-transparent px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10">
+                    <Trash2 className="size-4" /> Удалить добавленный проём
                   </button>
                 )}
               </div>
             )
           })()}
         </div>
-        <aside className="editor-side">
-          <div className="legend">
-            <span><i style={{ background: '#343a40' }} />стены</span>
-            <span><i style={{ background: '#868e96' }} />перегородки</span>
+        <aside className="w-[270px] shrink-0 overflow-y-auto border-l border-border bg-card p-3 text-sm">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-1.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><Swatch color="#343a40" />стены</span>
+            <span className="inline-flex items-center gap-1"><Swatch color="#868e96" />перегородки</span>
             {(['door', 'window', 'vitrage', 'passage'] as const).map((k) => (
-              <span key={k}><i style={{ background: KIND_COLOR[k] }} />{KIND_LABEL[k].split(' ')[0].toLowerCase()}</span>
+              <span key={k} className="inline-flex items-center gap-1"><Swatch color={KIND_COLOR[k]} />{KIND_LABEL[k].split(' ')[0].toLowerCase()}</span>
             ))}
-            <span><i style={{ background: '#ffd43b' }} />лестницы</span>
+            <span className="inline-flex items-center gap-1"><Swatch color="#ffd43b" />лестницы</span>
           </div>
-          <h4>Правки этажа</h4>
+          <h4 className="mt-3.5 mb-1.5 text-sm font-semibold">Правки этажа</h4>
           {!rows.length && (
-            <p className="hint">Пока нет. Выберите инструмент сверху или кликните проём/помещение.</p>
+            <p className="text-xs text-muted-foreground">Пока нет. Выберите инструмент сверху или кликните проём/помещение.</p>
           )}
-          <ul className="edit-list">
-            {rows.map(({ key, i, item, at, label }) => (
-              <li key={key + i} className={hlOf(key, i) ? 'hl' : ''}
-                onMouseEnter={() => setHl(`${key}:${i}`)} onMouseLeave={() => setHl(null)}
-                onClick={() => centerOn(at)} title="Показать на плане">
-                <span className={`tag ${isApplied(key, item) ? (busy ? 'busy' : 'done') : 'new'}`}>
-                  {isApplied(key, item) ? (busy ? 'применяется…' : 'применено') : 'новое'}
-                </span>
-                <span className="txt">{label}</span>
-                <button title="Удалить правку" onClick={(e) => { e.stopPropagation(); removeEdit(key, i) }}>×</button>
-              </li>
-            ))}
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+            {rows.map(({ key, i, item, at, label }) => {
+              const done = isApplied(key, item)
+              return (
+                <li key={key + i}
+                  className={cn('flex cursor-pointer items-center gap-1.5 rounded-md border py-1 pr-1 pl-1.5 text-xs',
+                    hlOf(key, i) ? 'border-primary/60 bg-accent text-accent-foreground' : 'border-transparent bg-muted hover:bg-secondary')}
+                  onMouseEnter={() => setHl(`${key}:${i}`)} onMouseLeave={() => setHl(null)}
+                  onClick={() => centerOn(at)} title="Показать на плане">
+                  <Badge variant={done ? (busy ? 'warning' : 'default') : 'success'} className="px-1.5 text-[10px]">
+                    {done ? (busy ? 'применяется…' : 'применено') : 'новое'}
+                  </Badge>
+                  <span className="min-w-0 flex-1">{label}</span>
+                  <Tip label="Удалить правку" side="left">
+                    <Button variant="ghost" size="icon-sm" aria-label="Удалить правку" className="size-6 text-destructive hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); removeEdit(key, i) }}><X /></Button>
+                  </Tip>
+                </li>
+              )
+            })}
           </ul>
-          <p className="hint small-hint">
+          <p className="mt-3.5 text-[11.5px] leading-snug text-muted-foreground">
             Перетаскивание — панорама, колесо — масштаб. Привязка к углам (■) и граням (◆) стен,
             ортогональность от начальной точки. Ctrl+Z — отмена.
             Удалённая из списка «применённая» правка откатится при следующем «Применить».

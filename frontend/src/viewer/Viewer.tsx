@@ -179,7 +179,7 @@ export default function Viewer(p: ViewerProps) {
       shadows={quality !== 'eco'}
       dpr={dpr}
       gl={{ antialias: quality !== 'eco', powerPreference: 'high-performance', localClippingEnabled: true }}
-      className={p.tool !== 'none' ? 'cursor-cross' : p.nav === 'walk' ? 'cursor-none' : ''}
+      className={p.tool !== 'none' ? 'cursor-crosshair' : p.nav === 'walk' ? 'cursor-none' : ''}
     >
       <Scene {...p} quality={quality} setAuto={setAuto} />
     </Canvas>

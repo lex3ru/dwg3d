@@ -1,4 +1,11 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import { fileUrl, type Job, type Role } from './api'
 
 const ROLES: (Role | '')[] = ['', 'walls', 'columns', 'windows', 'doors', 'insulation', 'stairs', 'rooms', 'grid', 'ignore']
@@ -81,49 +88,56 @@ export default function Settings({ job, onRebuild, onClose }: {
     onRebuild(override)
   }
 
+  const th = 'border-b border-border px-1 py-1 text-left text-xs font-medium text-muted-foreground'
+  const td = 'border-b border-border/50 px-1 py-0.5'
+  const numCls = 'w-20'
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <header>
-          <h2>Настройка построения</h2>
-          <button className="ghost" onClick={onClose}>✕</button>
-        </header>
-        <div className="modal-body">
-          <section>
-            <h3>Этажи (листы чертежа)</h3>
-            <p className="hint">
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent aria-describedby={undefined} onKeyDown={(e) => e.stopPropagation()}
+        className="max-h-[85vh] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto]">
+        <DialogHeader><DialogTitle>Настройка построения</DialogTitle></DialogHeader>
+        <div className="-mx-5 grid min-h-0 gap-5 overflow-y-auto px-5 text-sm">
+          <section className="grid gap-2">
+            <h3 className="m-0 text-sm font-semibold">Этажи (листы чертежа)</h3>
+            <p className="m-0 text-xs text-muted-foreground">
               Отметьте, какие листы строить, и укажите номер этажа. Высоту и отметку можно
               задать вручную — иначе они берутся из высотных отметок на плане.
             </p>
-            <table className="grid-table">
+            <table className="w-full border-collapse text-sm">
               <thead>
-                <tr><th></th><th></th><th>Лист</th><th>Этаж №</th><th>Высота, м</th><th>Отметка, м</th><th>2D</th></tr>
+                <tr>
+                  <th className={th}></th><th className={th}></th><th className={th}>Лист</th><th className={th}>Этаж №</th>
+                  <th className={th}>Высота, м</th><th className={th}>Отметка, м</th><th className={th}>2D</th>
+                </tr>
               </thead>
               <tbody>
                 {rows.map((x, i) => (
-                  <tr key={x.candidate} className={x.include ? '' : 'muted'}>
-                    <td><input type="checkbox" checked={x.include} onChange={(e) => upd(i, { include: e.target.checked })} /></td>
-                    <td>{(() => {
+                  <tr key={x.candidate} className={cn(!x.include && '[&>td]:opacity-55')}>
+                    <td className={td}>
+                      <Switch checked={x.include} aria-label="Строить лист" onCheckedChange={(v) => upd(i, { include: v })} />
+                    </td>
+                    <td className={td}>{(() => {
                       const pv = r.candidates[i]?.preview
                       return pv ? (
-                        <svg className="thumb" viewBox={`0 0 ${pv.w} ${pv.h}`} preserveAspectRatio="xMidYMid meet">
-                          <path d={pv.d} />
+                        <svg className="block h-10 w-14 text-muted-foreground" viewBox={`0 0 ${pv.w} ${pv.h}`} preserveAspectRatio="xMidYMid meet">
+                          <path d={pv.d} fill="none" stroke="currentColor" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
                         </svg>
                       ) : null
                     })()}</td>
-                    <td><input value={x.name} onChange={(e) => upd(i, { name: e.target.value })} /></td>
-                    <td><input className="num" type="number" value={x.level} onChange={(e) => upd(i, { level: e.target.value })} /></td>
-                    <td>
-                      <input className="num" type="number" step="0.05" value={x.height}
+                    <td className={td}><Input value={x.name} onChange={(e) => upd(i, { name: e.target.value })} /></td>
+                    <td className={td}><Input className={numCls} type="number" value={x.level} onChange={(e) => upd(i, { level: e.target.value })} /></td>
+                    <td className={td}>
+                      <Input className={numCls} type="number" step="0.05" value={x.height}
                         onChange={(e) => { upd(i, { height: e.target.value }); setManualHeights((s) => new Set(s).add(x.candidate)) }} />
                     </td>
-                    <td>
-                      <input className="num" type="number" step="0.05" value={x.elevation}
+                    <td className={td}>
+                      <Input className={numCls} type="number" step="0.05" value={x.elevation}
                         onChange={(e) => { upd(i, { elevation: e.target.value }); setManualElev((s) => new Set(s).add(x.candidate)) }} />
                     </td>
-                    <td>
+                    <td className={td}>
                       {built.has(x.candidate)
-                        ? <a href={fileUrl(job.id, `debug/floor_${x.candidate}.png`, job.build)} target="_blank" rel="noreferrer">план</a>
+                        ? <a className="text-primary underline-offset-4 hover:underline" href={fileUrl(job.id, `debug/floor_${x.candidate}.png`, job.build)} target="_blank" rel="noreferrer">план</a>
                         : '—'}
                     </td>
                   </tr>
@@ -132,41 +146,41 @@ export default function Settings({ job, onRebuild, onClose }: {
             </table>
           </section>
 
-          <section>
-            <h3>Параметры</h3>
-            <div className="params">
+          <section className="grid gap-2">
+            <h3 className="m-0 text-sm font-semibold">Параметры</h3>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-5 gap-y-2">
               {([
                 ['floor_height', 'Высота этажа по умолчанию'],
                 ['door_height', 'Высота дверей'],
                 ['window_sill', 'Низ окна (подоконник)'],
                 ['window_head', 'Верх окна'],
               ] as const).map(([k, label]) => (
-                <label key={k}>
-                  <span>{label}, м</span>
-                  <input className="num" type="number" step="0.05" value={params[k]}
+                <Label key={k} className="flex items-center justify-between gap-2 font-normal">
+                  <span className="flex-1">{label}, м</span>
+                  <Input className={numCls} type="number" step="0.05" value={params[k]}
                     onChange={(e) => setParams((p) => ({ ...p, [k]: e.target.value }))} />
-                </label>
+                </Label>
               ))}
             </div>
           </section>
 
-          <section>
-            <h3>Слои</h3>
-            <p className="hint">Роль слоя определяет, как его геометрия попадёт в модель.</p>
-            <table className="grid-table">
-              <thead><tr><th>Слой</th><th>Объектов</th><th>Роль</th></tr></thead>
+          <section className="grid gap-2">
+            <h3 className="m-0 text-sm font-semibold">Слои</h3>
+            <p className="m-0 text-xs text-muted-foreground">Роль слоя определяет, как его геометрия попадёт в модель.</p>
+            <table className="w-full border-collapse text-sm">
+              <thead><tr><th className={th}>Слой</th><th className={cn(th, 'text-right')}>Объектов</th><th className={th}>Роль</th></tr></thead>
               <tbody>
                 {layerNames.map((n) => (
-                  <tr key={n} className={r.layers[n].count ? '' : 'muted'}>
-                    <td className="layer-name">{n}</td>
-                    <td className="num-cell">{r.layers[n].count}</td>
-                    <td>
-                      <select value={roles[n]} onChange={(e) => {
+                  <tr key={n} className={cn(!r.layers[n].count && '[&>td]:opacity-55')}>
+                    <td className={cn(td, 'break-all')}>{n}</td>
+                    <td className={cn(td, 'text-right text-muted-foreground tabular-nums')}>{r.layers[n].count}</td>
+                    <td className={td}>
+                      <Select value={roles[n]} aria-label={`Роль слоя ${n}`} onChange={(e) => {
                         setRoles((s) => ({ ...s, [n]: e.target.value as Role | '' }))
                         setLayersDirty(true)
                       }}>
                         {ROLES.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
-                      </select>
+                      </Select>
                     </td>
                   </tr>
                 ))}
@@ -174,11 +188,11 @@ export default function Settings({ job, onRebuild, onClose }: {
             </table>
           </section>
         </div>
-        <footer>
-          <button className="ghost" onClick={onClose}>Отмена</button>
-          <button className="primary" onClick={submit}>Перестроить модель</button>
-        </footer>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>Отмена</Button>
+          <Button onClick={submit}>Перестроить модель</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

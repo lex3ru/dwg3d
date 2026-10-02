@@ -62,7 +62,7 @@ export default function Shapes({ ctx, floors, center, visible, ...p }: ShapesPro
         ...(s.stops ?? []).filter((st) => on(st.floor)).map((st, i) => (
           <FloorFollower key={`${s.id}-p${i}`} ctx={ctx} floor={st.floor}>
             <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={g(st.floor, st.at, 0.1)} center zIndexRange={[21, 0]}>
-              <div className={`route-stop${p.selected === s.id ? '' : ' mini'}`} style={{ background: s.color }} title={st.label}>{p.selected === s.id ? i + 1 : ''}</div>
+              <div className={p.selected === s.id ? 'grid h-[18px] min-w-[18px] cursor-default place-items-center rounded-full border-2 border-white px-1 text-[11px] font-bold text-white shadow-[0_1px_4px_rgba(0,0,0,.3)]' : 'size-2.5 rounded-full border-[1.5px] border-white shadow-[0_1px_4px_rgba(0,0,0,.3)]'} style={{ background: s.color }} title={st.label}>{p.selected === s.id ? i + 1 : ''}</div>
             </Html>
           </FloorFollower>
         )),
@@ -84,7 +84,7 @@ export default function Shapes({ ctx, floors, center, visible, ...p }: ShapesPro
       {p.alerts.filter((a) => on(a.floor)).map((a, i) => (
         <FloorFollower key={`alert${i}`} ctx={ctx} floor={a.floor}>
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={g(a.floor, a.at, 0.15)} center zIndexRange={[23, 0]}>
-            <div className="flow-alert" title={a.text}>!</div>
+            <div className="grid size-5 place-items-center rounded-full border-2 border-white bg-destructive text-xs font-bold text-white shadow-[0_1px_6px_rgba(224,49,49,.5)]" title={a.text}>!</div>
           </Html>
         </FloorFollower>
       ))}

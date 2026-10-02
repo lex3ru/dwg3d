@@ -109,7 +109,7 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
         <>
           <Line points={[pts[0], probe]} color="#e03131" lineWidth={1.5} dashed dashSize={0.2} gapSize={0.1} depthTest={false} />
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={probe} style={{ pointerEvents: 'none' }}>
-            <div className="measure-label ghost">{pts[0].distanceTo(probe).toFixed(2)} м</div>
+            <div className="rounded-[5px] px-2 py-0.5 text-[13px] font-semibold whitespace-nowrap text-white bg-[#e03131]/75">{pts[0].distanceTo(probe).toFixed(2)} м</div>
           </Html>
         </>
       )}
@@ -117,7 +117,7 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
         <>
           <Line points={pts} color="#e03131" lineWidth={2} depthTest={false} />
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={pts[0].clone().add(pts[1]).multiplyScalar(0.5)} center style={{ pointerEvents: 'none' }}>
-            <div className="measure-label">{pts[0].distanceTo(pts[1]).toFixed(2)} м</div>
+            <div className="rounded-[5px] px-2 py-0.5 text-[13px] font-semibold whitespace-nowrap text-white bg-[#e03131]">{pts[0].distanceTo(pts[1]).toFixed(2)} м</div>
           </Html>
         </>
       )}
@@ -131,9 +131,9 @@ export function useMeasure(mode: MeasureMode, active: boolean) {
           )}
           {center && areaPts.length >= 3 && (
             <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={center} center style={{ pointerEvents: 'none' }}>
-              <div className={`measure-label${closed ? '' : ' ghost'}`}>
+              <div className={`rounded-[5px] px-2 py-0.5 text-[13px] font-semibold whitespace-nowrap text-white ${closed ? 'bg-[#e03131]' : 'bg-[#e03131]/75'}`}>
                 S {closed ? '=' : '≈'} {area.toFixed(2)} м²
-                <small>P = {perimeter.toFixed(2)} м · {areaPts.length} точ.</small>
+                <small className="block text-[11px] font-normal opacity-90">P = {perimeter.toFixed(2)} м · {areaPts.length} точ.</small>
               </div>
             </Html>
           )}

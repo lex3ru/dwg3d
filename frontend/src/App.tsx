@@ -19,6 +19,7 @@ import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
@@ -146,7 +147,7 @@ export default function App() {
     shown, view, setView, rebuilding, reload, onDone: () => setTool('none'),
   })
   const {
-    shapes, shapeSel, setShapeSel, shapeDraft, setShapeDraft, shapePicking, setShapePicking, shapePick,
+    shapes, shapeSel, setShapeSel, shapeDraft, setShapeDraft, setShapePicking, shapePick,
     conflicts, shapeViews, saveShapes, computeStops, flyToPlan,
   } = useShapes({ shown, view, setView, layers, rules, hiddenNow, syncLayers, rebuilding, reload, floors, loadGrid, ctx, cx, cy, setFloor, tool })
   const furn = useFurniture({
@@ -523,7 +524,7 @@ export default function App() {
 
   return (
     <>
-      <div className={`app nav-${nav}`}>
+      <div className="relative flex h-full flex-col overflow-hidden bg-background text-foreground">
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
           <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
@@ -539,7 +540,7 @@ export default function App() {
             onEdit={editLayerTo} canUndo={furn.canUndo} onUndo={undoFurniture} hint={toolHint} actions={shapeActions} />
         )}
         <div className="@container relative min-h-0 flex-1 overflow-hidden">
-        <main className="stage" onClick={() => {
+        <main className="absolute inset-0" onClick={() => {
           if (nav === 'walk' && !document.pointerLockElement) {
             // pointer lock may be refused (iframe policy, right after Esc): dragging then looks around
             try {
@@ -549,7 +550,7 @@ export default function App() {
           }
         }}>
           {shown?.model_url && r ? (
-            <Suspense fallback={<div className="center-msg">Загрузка модели…</div>}>
+            <Suspense fallback={<div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">Загрузка модели…</div>}>
               <Viewer key={shown.model_url} jobId={shown.id} url={shown.model_url} result={r} display={display}
                 floor={floor} proj={proj} nav={nav} speeds={speeds} tool={tool} measureMode={measureMode} cuts={cuts}
                 view={shownView} selectedRoom={selRoom?.room.node ?? null} route={routeView} openPin={openPin}
@@ -565,9 +566,9 @@ export default function App() {
                 shapes={{ items: shapeViews, selected: shapeSel, draft: shapeDraft, alerts: conflicts }} />
             </Suspense>
           ) : running ? (
-            <div className="center-msg"><Progress job={job!} /></div>
+            <div className="absolute inset-0 grid place-items-center p-4"><Progress job={job!} /></div>
           ) : null}
-          <div className="html-layer" ref={(el) => { htmlLayer.current = el }} />
+          <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" ref={(el) => { htmlLayer.current = el }} />
         </main>
 
         {r && (
@@ -579,7 +580,7 @@ export default function App() {
             )}
             {presenting && nav !== 'walk' && <TopBar jobId={jobId} projectId={shown?.project_id ?? job?.project_id ?? ''} name={name} result={r}
               onOpenJob={openJob} onRoom={focusRoom} />}
-            {running && shown && <div className="rebuild-progress"><Progress job={job!} /></div>}
+            {running && shown && <Progress job={job!} className="absolute top-16 left-1/2 z-15 w-[min(420px,calc(100%-2rem))] -translate-x-1/2" />}
             <TopRight
               displayMenu={<><ModeMenu mode={mode} onMode={applyMode} /><DisplayMenu display={display} set={patchDisplay} resolvedQuality={quality} cuts={cuts} setCuts={setCuts}
                 yRange={r.height_range} xRange={r.extent?.x ?? [-60, 60]} floorCut={floorCut} /></>}
@@ -601,45 +602,40 @@ export default function App() {
               }} />
             {!presenting && <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />}
             {tool !== 'none' && presenting && (
-              <div className="tool-hint">
-                {tool === 'measure' ? (measureMode === 'length' ? 'Рулетка: кликните две точки · Esc — сброс'
-                  : 'Площадь: кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
-                  : tool === 'route' ? (route.step === 'to' ? 'Маршрут: щёлкните конечную точку' : 'Маршрут: щёлкните начальную точку на полу')
-                  : tool === 'marker' ? 'Щёлкните место для метки'
-                  : tool === 'shapes' ? (shapePicking ? 'Маршруты и зоны: щёлкайте точки на плане' : 'Маршруты и зоны: выберите действие в панели')
-                  : tool === 'furniture' ? (placing ? `${placing.item.name}: щёлкните на плане · R / Q / E — повернуть · Alt — без привязки к стене · Esc — отмена`
-                    : 'Перетащите предмет из каталога на план · перетаскивание — двигать · R — поворот · Del — удалить · Ctrl+D — копия · Ctrl+Z — отмена')
-                  : 'Щёлкните место для комментария'}
-                <button className="link" onClick={() => setTool('none')}>готово</button>
+              <div className="absolute bottom-[76px] left-1/2 z-16 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-[#212529]/85 px-3.5 py-1.5 text-center text-[13px] text-white">
+                {toolHint}
+                <button className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#74c0fc] hover:underline" onClick={() => setTool('none')}>готово</button>
               </div>
             )}
             {pending && (
-              <div className="pin-editor menu-root">
-                <b>{pending.kind === 'markers' ? 'Новая метка' : 'Новый комментарий'}</b>
-                <textarea autoFocus value={pendingText} rows={pending.kind === 'markers' ? 1 : 3}
+              <div className="absolute top-[110px] left-1/2 z-30 grid w-[min(360px,calc(100%-2rem))] -translate-x-1/2 gap-2.5 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+                onKeyDown={(e) => e.stopPropagation()}>
+                <b className="text-sm">{pending.kind === 'markers' ? 'Новая метка' : 'Новый комментарий'}</b>
+                <Textarea autoFocus value={pendingText} rows={pending.kind === 'markers' ? 1 : 3}
                   placeholder={pending.kind === 'markers' ? 'Подпись (например, «Вход B»)' : 'Текст комментария'}
                   onChange={(e) => setPendingText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitPending() } }} />
-                <div className="row">
-                  <button onClick={() => setPending(null)}>Отмена</button>
-                  <button className="primary" disabled={pending.kind === 'comments' && !pendingText.trim()} onClick={commitPending}>Сохранить</button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setPending(null)}>Отмена</Button>
+                  <Button size="sm" disabled={pending.kind === 'comments' && !pendingText.trim()} onClick={commitPending}>Сохранить</Button>
                 </div>
               </div>
             )}
             {nav === 'walk' && (
               <>
-                <div className="walk-hint">{walkMsg}</div>
-                <div className="crosshair-dot" />
+                <div className="pointer-events-none absolute top-16 left-1/2 z-16 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full bg-[#212529]/80 px-4 py-2 text-center text-[13.5px] text-white">{walkMsg}</div>
+                <div className="pointer-events-none absolute top-1/2 left-1/2 z-16 -mt-1 -ml-1 size-2 rounded-full bg-white shadow-[0_0_0_1.5px_rgba(0,0,0,.55)]" />
               </>
             )}
-            {display.map && shownView.site && proj === '3d' && <div className="attribution">{shownView.site.tiles ? shownView.site.attribution || 'Источник карты не указан' : TILE_ATTRIBUTION}</div>}
+            {display.map && shownView.site && proj === '3d' && <div className="pointer-events-none absolute bottom-1 left-32 z-12 rounded bg-white/70 px-1.5 py-px text-[10.5px] text-[#495057] @max-3xl:bottom-16 @max-3xl:left-2.5">{shownView.site.tiles ? shownView.site.attribution || 'Источник карты не указан' : TILE_ATTRIBUTION}</div>}
           </>
         )}
         {job?.status === 'error' && (
-          <div className="error-card floating"><b>Ошибка обработки</b><p>{job.error}</p>
-            <a className="button small" href={`#/p/${job.project_id}`}>К проекту</a></div>
+          <div className="absolute top-[70px] left-1/2 z-40 grid w-[min(520px,calc(100%-2rem))] -translate-x-1/2 gap-1.5 rounded-xl border border-destructive/30 bg-card p-3 text-sm shadow-lg">
+            <b className="text-destructive">Ошибка обработки</b><p className="m-0 break-words text-muted-foreground">{job.error}</p>
+            <Button asChild variant="outline" size="sm" className="justify-self-start"><a href={`#/p/${job.project_id}`}>К проекту</a></Button></div>
         )}
-        {error && <div className="error-card floating">{error}</div>}
+        {error && <div className="absolute top-[70px] left-1/2 z-40 w-[min(520px,calc(100%-2rem))] -translate-x-1/2 rounded-xl border border-destructive/30 bg-card p-3 text-sm break-words text-destructive shadow-lg">{error}</div>}
         </div>
         </div>
         {inspector && !presenting && (

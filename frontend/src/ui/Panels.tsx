@@ -1,4 +1,5 @@
-import { CircleHelp, X } from 'lucide-react'
+import { CircleHelp } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { floatClass } from '@/components/ui/float'
 import { cn } from '@/lib/utils'
 
@@ -46,18 +47,20 @@ const HELP: [string, [string, string][]][] = [
 
 export function HelpOverlay({ onClose }: { onClose: () => void }) {
   return (
-    <div className="help-overlay" onClick={onClose}>
-      <div className="help-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Справка">
-        <header><h2>Управление</h2><button className="icon" onClick={onClose} aria-label="Закрыть"><X className="size-5" /></button></header>
-        <div className="help-grid">
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader><DialogTitle>Управление</DialogTitle></DialogHeader>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-6 gap-y-3">
           {HELP.map(([title, rows]) => (
             <section key={title}>
-              <h3>{title}</h3>
-              <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+              <h3 className="mt-1 mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
+              <dl className="m-0 grid gap-1.5 text-sm">
+                {rows.map(([k, v]) => <div key={k} className="grid grid-cols-2 gap-2"><dt className="font-medium">{k}</dt><dd className="m-0 text-muted-foreground">{v}</dd></div>)}
+              </dl>
             </section>
           ))}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

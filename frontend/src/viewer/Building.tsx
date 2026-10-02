@@ -178,8 +178,8 @@ export default function Building(p: Props) {
       ))}
       {hover && p.tool === 'none' && hover.room.node !== p.selectedRoom && (
         <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={hover.point} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
-          <div className="tooltip"><b>{hover.room.name || typeLabel(result, hover.room.type) || 'Помещение'}</b>
-            <span>{hover.room.area.toFixed(1)} м² · {hover.floor.name}</span></div>
+          <div className="flex translate-x-3 -translate-y-[110%] flex-col rounded-md bg-[#212529]/90 px-2.5 py-1.5 text-xs whitespace-nowrap text-white"><b>{hover.room.name || typeLabel(result, hover.room.type) || 'Помещение'}</b>
+            <span className="opacity-75">{hover.room.area.toFixed(1)} м² · {hover.floor.name}</span></div>
         </Html>
       )}
       {exploded && display.labels && floors.map((f, i) => {
@@ -188,7 +188,7 @@ export default function Building(p: Props) {
         return (
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} key={f.id} position={[b.min.x - 1.5, f.elevation! + i * display.explodeGap + 1.5, (b.min.z + b.max.z) / 2]}
             center style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
-            <div className={`floor-label${f.id === active ? ' on' : ''}`}>{f.name}</div>
+            <div className={`rounded-[5px] px-2 py-0.5 text-xs whitespace-nowrap text-white select-none ${f.id === active ? 'bg-[#e8590c]' : 'bg-[#1c7ed6]'}`}>{f.name}</div>
           </Html>
         )
       })}
