@@ -1,11 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { applyTheme } from './lib/theme'
 import { loadCatalog } from './furniture/catalog'
 import Root from './Root'
 import { loadMe, openShare } from './session'
 import Login from './ui/Login'
 
+applyTheme()
 const root = createRoot(document.getElementById('root')!)
 
 // the user and the catalog are small and read synchronously everywhere: fetch them before the first render
