@@ -4,7 +4,7 @@ import {
   createLayer, downloadDrawing, listLayers, rebuildJob,
   type FloorEdits, type FloorMeta, type Job, type RoomMeta, type V3, type ViewSettings,
 } from './api'
-import { canEdit, READ_ONLY } from './session'
+import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import CatalogEditor from './ui/CatalogEditor'
@@ -18,13 +18,15 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
-import { Armchair, Building2, DoorOpen, Layers as LayersIcon, ListTree, Route } from 'lucide-react'
+import { Armchair, Building2, DoorOpen, Layers as LayersIcon, ListTree, PanelLeft, Route } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Dock, { DockEmpty, type DockTab } from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
 import LayersPanel from './ui/LayersPanel'
 import SceneTree from './ui/SceneTree'
+import ModeMenu from './ui/ModeMenu'
+import { currentMode, MODES, type ModeDef } from './viewmodes'
 import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import Progress from './ui/Progress'
@@ -134,7 +136,7 @@ export default function App() {
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
     layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers, patchLayer,
+    layerFor, refuseLocked, syncLayers, patchLayer, showOnlyKinds,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
@@ -362,6 +364,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', on)
   }, [toggleLeft, toggleRight])
 
+  // ---- view modes: presets of the display and of the layers; "client" also hides the panels
+  const mode = currentMode(display, layers, hiddenNow)
+  const [presenting, setPresenting] = useState(() => !!me?.guest)
+  const applyMode = (m: ModeDef) => {
+    patchDisplay(m.patch)
+    if (m.kinds) showOnlyKinds(m.kinds)
+    setPresenting(!!m.presentation)
+  }
+  const applyModeRef = useRef(applyMode)
+  applyModeRef.current = applyMode
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT' || t?.isContentEditable) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const m = MODES.find((x) => x.key === e.key)
+      if (m) applyModeRef.current(m)
+      else if (e.key === 'Escape') setPresenting(false)
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [])
+
   const leftTabs: DockTab[] = [
     { id: 'tree', label: 'Здание', icon: ListTree },
     { id: 'layers', label: 'Слои', icon: LayersIcon },
@@ -421,7 +446,7 @@ export default function App() {
     <MenuCtx.Provider value={{ open: openMenu, setOpen: setOpenMenu }}>
       <div className={`app nav-${nav}`}>
         <div className="flex min-h-0 flex-1">
-        {r && (
+        {r && !presenting && (
           <Dock side="left" label="Проект" tabs={leftTabs} tab={leftTab} onTab={(t) => setLeftTab(t as 'tree' | 'layers')} state={leftDock}>
             {leftContent}
           </Dock>
@@ -461,6 +486,10 @@ export default function App() {
         {r && (
           <>
             <HelpButton onClick={() => setHelp(true)} />
+            {presenting && (
+              <Button variant="secondary" size="sm" className="absolute top-14 left-3.5 z-20 rounded-full border-0 bg-float shadow-md" onClick={() => setPresenting(false)}
+                title="Вернуть панели (Esc)"><PanelLeft /> Панели</Button>
+            )}
             <TopBar jobId={jobId} projectId={shown?.project_id ?? job?.project_id ?? ''} name={name} result={r}
               onOpenJob={openJob} onRoom={focusRoom} />
             {running && shown && <div className="rebuild-progress"><Progress job={job!} /></div>}
@@ -470,8 +499,8 @@ export default function App() {
                 if (mode) setMeasureMode(mode)
                 setToolSafe(on ? 'measure' : 'none')
               }}
-              displayMenu={<DisplayMenu display={display} set={patchDisplay} resolvedQuality={quality} cuts={cuts} setCuts={setCuts}
-                yRange={r.height_range} xRange={r.extent?.x ?? [-60, 60]} floorCut={floorCut} />}
+              displayMenu={<><ModeMenu mode={mode} onMode={applyMode} /><DisplayMenu display={display} set={patchDisplay} resolvedQuality={quality} cuts={cuts} setCuts={setCuts}
+                yRange={r.height_range} xRange={r.extent?.x ?? [-60, 60]} floorCut={floorCut} /></>}
               proj={proj} onProj={switchProj}
               map={display.map && !!shownView.site} mapAvailable={!!shownView.site}
               onMap={(v) => (shownView.site ? patchDisplay({ map: v }) : setSettings('site'))}
@@ -498,7 +527,7 @@ export default function App() {
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
               layersOpen={leftDock.open && leftTab === 'layers'} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={() => (leftDock.open && leftTab === 'layers' ? leftDock.setOpen(false) : (setLeftTab('layers'), leftDock.setOpen(true)))} />
-            <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
+            {!presenting && <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />}
             {tool !== 'none' && (
               <div className="tool-hint">
                 {tool === 'measure' ? (measureMode === 'length' ? 'Рулетка: кликните две точки · Esc — сброс'
@@ -540,13 +569,13 @@ export default function App() {
         )}
         {error && <div className="error-card floating">{error}</div>}
         </div>
-        {r && (
+        {r && !presenting && (
           <Dock side="right" label="Инспектор" tabs={inspectorTabs} tab={rightTab} onTab={(t) => setRightTab(t as InspectorTab)} state={rightDock}>
             {rightContent}
           </Dock>
         )}
         </div>
-        {r && (
+        {r && !presenting && (
           <StatusBar floor={activeFloor?.name ?? 'Всё здание'} nav={nav} proj={proj} objects={shownFurniture.length + shapes.length}
             rooms={activeFloor ? activeFloor.stats.rooms : null} conflicts={conflicts.length}
             busy={running ? { text: 'Сборка модели', progress: job!.progress } : null}

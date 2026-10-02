@@ -54,6 +54,8 @@ export function useLayers(shown: Job | null, projectId: string) {
     else n.add(id)
     return n
   })
+  /** Show only the layers of these kinds. */
+  const showOnlyKinds = (kinds: string[]) => setHiddenLayers(new Set(layers.filter((l) => !kinds.includes(l.kind)).map((l) => l.id)))
   const setAllLayers = (show: boolean) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))
   /** The layer for a new catalog item: the chosen one if it takes the item, else the first that does. */
   const layerFor = (c: CatalogItem): string | undefined => {
@@ -88,7 +90,7 @@ export function useLayers(shown: Job | null, projectId: string) {
     reloadLayers()
   }
   return {
-    patchLayer, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
+    patchLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
     showVariant, toggleLayer, setAllLayers, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }
