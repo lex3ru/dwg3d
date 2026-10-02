@@ -13,6 +13,8 @@ import { variantGroups } from '@/furniture/layers'
 import { cn } from '@/lib/utils'
 import { jobColor } from '@/state'
 
+export interface TreeObject { id: string; name: string; sub: string; color?: string; floor: string; at: [number, number]; kind: 'item' | 'shape' }
+
 const row = 'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary'
 const iconBtn = 'grid size-6 shrink-0 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-muted-foreground hover:bg-border hover:text-foreground [&_svg]:size-3.5'
 
@@ -66,10 +68,16 @@ export default function SceneTree(p: {
   onEdit: (id: string | null) => void
   onAddLayer: (kind: string) => void
   onCompare: () => void
+  /** the objects of each layer on this drawing */
+  objects: Map<string, TreeObject[]>
+  selectedObject: string | null
+  onObject: (layerId: string, o: TreeObject) => void
 }) {
   const [jobs, setJobs] = useState<JobSummary[]>([])
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [openLayers, setOpenLayers] = useState<Set<string>>(new Set())
+  const toggleLayer = (id: string) => setOpenLayers((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [sec, setSec] = useState({ building: true, layers: true })
   useEffect(() => {
     if (p.projectId) listJobs(p.projectId).then((j) => setJobs(j.filter((x) => x.status === 'done'))).catch(() => {})
@@ -200,8 +208,13 @@ export default function SceneTree(p: {
                 const off = p.hidden.has(l.id)
                 const variant = inVariants(l)
                 const editing = p.editLayer === l.id
+                const objs = p.objects.get(l.id) ?? []
+                const expanded = openLayers.has(l.id) || (editing && objs.some((o) => o.id === p.selectedObject))
                 return (
-                  <li key={l.id} className={cn('flex items-center gap-0.5 rounded-md px-1 hover:bg-secondary', editing && 'bg-accent ring-1 ring-primary/40')}>
+                  <li key={l.id}>
+                  <div className={cn('flex items-center gap-0.5 rounded-md pr-1 hover:bg-secondary', editing && 'bg-accent ring-1 ring-primary/40')}>
+                    <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={expanded ? 'Свернуть' : 'Показать объекты'}
+                      onClick={() => toggleLayer(l.id)}>{expanded ? <ChevronDown /> : <ChevronRight />}</button>
                     <Tip label={off ? (variant ? 'Показать этот вариант (остальные скроются)' : 'Показать слой') : 'Скрыть слой'} side="right">
                       <button className={iconBtn} aria-pressed={!off} aria-label={off ? 'Показать слой' : 'Скрыть слой'}
                         onClick={() => (variant && off ? p.onVariant(l.id) : p.onToggle(l.id))}>
@@ -227,6 +240,22 @@ export default function SceneTree(p: {
                         </Tip>
                       </>
                     ) : l.locked && <Lock className="mx-1.5 size-3.5 text-muted-foreground" />}
+                  </div>
+                  {expanded && objs.length > 0 && (
+                    <ul className="m-0 mb-1 ml-6 grid list-none gap-px border-l border-border p-0 pl-1">
+                      {objs.slice(0, 300).map((o) => (
+                        <li key={o.id}>
+                          <button className={cn(row, 'py-0.5 text-xs', p.selectedObject === o.id && 'bg-accent font-medium text-accent-foreground')}
+                            title={editing ? 'Выбрать' : 'Показать на плане'} onClick={() => p.onObject(l.id, o)}>
+                            <i className={cn('size-2 shrink-0', o.kind === 'item' ? 'rounded-[2px]' : 'rounded-full')} style={{ background: o.color ?? '#adb5bd' }} />
+                            <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                            <small className="shrink-0 text-muted-foreground">{o.sub}</small>
+                          </button>
+                        </li>
+                      ))}
+                      {objs.length > 300 && <li className="px-2 py-1 text-xs text-muted-foreground">…и ещё {objs.length - 300}</li>}
+                    </ul>
+                  )}
                   </li>
                 )
               })}

@@ -42,6 +42,8 @@ export default function ContextBar(p: {
   canUndo: boolean
   onUndo: () => void
   hint: ReactNode
+  /** the editing layer's own buttons (new route, zone, cable line) */
+  actions?: ReactNode
 }) {
   const kind = p.editLayer ? p.kinds.find((k) => k.kind === p.editLayer!.kind) : null
   const points = !!kind?.geoms.includes('point')
@@ -62,6 +64,7 @@ export default function ContextBar(p: {
             <Sep />
           </>
         )}
+        {p.actions}
         {p.tool === 'furniture' && <ToolBtn icon={Undo2} label="Отменить" disabled={!p.canUndo} onClick={p.onUndo} hint="Отменить последнее действие (Ctrl+Z)" />}
         <span className="min-w-0 flex-1 truncate px-2 text-xs text-muted-foreground">{p.hint}</span>
         <Button size="sm" onClick={() => p.onEdit(null)}><Check /> Готово</Button>

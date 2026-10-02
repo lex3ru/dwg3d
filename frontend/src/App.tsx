@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import * as THREE from 'three'
 import {
   createLayer, downloadDrawing, listLayers, rebuildJob,
-  type FloorEdits, type FloorMeta, type Job, type RoomMeta, type V3, type ViewSettings,
+  type FloorEdits, type FloorMeta, type Job, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
@@ -18,13 +18,15 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
-import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Waypoints } from 'lucide-react'
+import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
 import ContextBar from './ui/ContextBar'
-import SceneTree from './ui/SceneTree'
+import SceneTree, { type TreeObject } from './ui/SceneTree'
+import { catalogItem } from './furniture/catalog'
+import { catColor } from './ui/furniture/parts'
 import ModeMenu from './ui/ModeMenu'
 import { currentMode, MODES, type ModeDef } from './viewmodes'
 import NavPanel from './ui/NavPanel'
@@ -35,7 +37,8 @@ import TopBar from './ui/TopBar'
 import Catalog from './ui/furniture/Catalog'
 import FloorSummary from './ui/furniture/FloorSummary'
 import ItemInspector from './ui/furniture/ItemInspector'
-import RoutesPanel from './ui/RoutesPanel'
+import { DraftCard, LayerShapes, OutlineInspector, RouteInspector } from './ui/shapes/ShapeInspector'
+import { useShapeEditor } from './hooks/useShapeEditor'
 import Compare from './ui/Compare'
 import { variantGroups } from './furniture/layers'
 import Toolbar from './ui/Toolbar'
@@ -355,12 +358,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newLayer, layers])
 
+  const shapeEd = useShapeEditor({
+    active: tool === 'shapes', layer: editLayer, rules, routes: (view.shapes ?? []).filter((x) => x.geom === 'route'),
+    activeFloor, build: shown?.build ?? 0, editable: canEdit() && !rebuilding, save: saveShapes, compute: computeStops,
+    onSelect: setShapeSel, onDraft: setShapeDraft, pickRef: shapePick, onPicking: setShapePicking,
+  })
+  const selectShape = (x: ShapeObject) => {
+    setShapeSel(x.id)
+    const first = x.geom === 'route' ? ((x.props ?? {}) as { stops?: { floor: string; at: XY }[] }).stops?.[0] : null
+    if (first) flyToPlan(first.floor, first.at)
+    else flyToPlan(x.floor, x.at)
+  }
+  const shapeActions = tool !== 'shapes' || !editLayer || shapeEd.draft ? null
+    : editLayer.kind === 'routes' ? <Button size="sm" variant="outline" onClick={shapeEd.startRoute}><Plus /> Новый маршрут</Button>
+    : editLayer.kind === 'zones' ? <Button size="sm" variant="outline" onClick={shapeEd.startZone}><Plus /> Обвести зону</Button>
+    : <Button size="sm" variant="outline" onClick={shapeEd.startCable}><Plus /> Нарисовать трассу</Button>
+
   const toolHint = tool === 'measure' ? (measureMode === 'length' ? 'Кликните две точки · Esc — сброс'
     : 'Кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
     : tool === 'route' ? (route.step === 'to' ? 'Щёлкните конечную точку' : 'Щёлкните начальную точку на полу')
     : tool === 'marker' ? 'Щёлкните место для метки · Esc — отмена'
     : tool === 'comment' ? 'Щёлкните место для комментария · Esc — отмена'
-    : tool === 'shapes' ? (shapePicking ? 'Щёлкайте точки на плане' : 'Выберите действие в панели справа')
+    : tool === 'shapes' ? (shapeEd.hint ?? 'Выберите объект справа или начните новый')
     : tool === 'furniture' ? (placing ? `${placing.item.name}: щёлкните на плане · R / Q / E — повернуть · Alt — без привязки к стене · Esc — отмена`
       : 'Перетащите предмет из каталога на план · R — поворот · Del — удалить · Ctrl+D — копия')
     : ''
@@ -386,6 +405,29 @@ export default function App() {
     if (catalogOpen) openLeft(true)
   }, [catalogOpen, openLeft])
   const editKind = editLayer ? kinds.find((k) => k.kind === editLayer.kind) : null
+  // the objects of each layer for the tree: placed items and routes, zones, lines
+  const treeObjects = useMemo(() => {
+    const m = new Map<string, TreeObject[]>()
+    const fname = (id: string) => floors.find((f) => f.id === id)?.level ?? ''
+    const add = (layer: string | undefined, o: TreeObject) => { if (layer) m.set(layer, [...(m.get(layer) ?? []), o]) }
+    for (const it of view.furniture ?? []) {
+      const c = catalogItem(it.item)
+      add(it.layer, { id: it.id, name: c.name, sub: `эт. ${fname(it.floor)}`, color: catColor(c.cat), floor: it.floor, at: it.at, kind: 'item' })
+    }
+    for (const x of view.shapes ?? []) {
+      const pr = (x.props ?? {}) as { name?: string; flow?: string; zone?: string; cable?: string; stops?: { floor: string; at: XY }[] }
+      const kind = x.geom === 'route' ? rules?.flows[pr.flow ?? ''] : x.geom === 'polygon' ? rules?.zone_kinds[pr.zone ?? ''] : rules?.cables[pr.cable ?? '']
+      const at = pr.stops?.[0] ?? { floor: x.floor, at: x.at }
+      add(x.layer, { id: x.id, name: pr.name || kind?.name || 'Объект', sub: `эт. ${fname(at.floor)}`, color: kind?.color, floor: at.floor, at: at.at, kind: 'shape' })
+    }
+    return m
+  }, [view.furniture, view.shapes, floors, rules])
+  const onTreeObject = (layerId: string, o: TreeObject) => {
+    flyToPlan(o.floor, o.at)
+    if (editLayerId !== layerId) return
+    if (o.kind === 'item') setTimeout(() => setFurnSel(o.id), 120)      // after the floor change has reset the selection
+    else setShapeSel(o.id)
+  }
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
     <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
@@ -398,7 +440,8 @@ export default function App() {
       onExport={(fmt) => saveDrawing(fmt, true)} onFloorSettings={() => setSettings('floors')}
       layers={layers} kinds={kinds} hidden={hiddenNow} editLayer={editLayerId} editable={canEdit()}
       onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onLock={patchLayer} onEdit={editLayerTo}
-      onAddLayer={addLayer} onCompare={() => setComparing(true)} />
+      onAddLayer={addLayer} onCompare={() => setComparing(true)}
+      objects={treeObjects} selectedObject={tool === 'furniture' ? furnSel : tool === 'shapes' ? shapeSel : null} onObject={onTreeObject} />
   ) : null
 
   const inspector: { key: string; title: string; icon: typeof Armchair; body: React.ReactNode } | null = !r ? null
@@ -416,16 +459,20 @@ export default function App() {
             onSelect={setFurnSel} />
         ) : null }
     })()
-    : tool === 'shapes' && rules && shown ? {
-      key: 'routes', title: 'Маршруты, зоны, трассы', icon: Waypoints, body: (
-        <RoutesPanel build={shown.build} floors={floors} activeFloor={activeFloor} layers={layers} rules={rules}
-          shapes={shapes} conflicts={conflicts} editable={canEdit() && !rebuilding} selected={shapeSel} onSelect={setShapeSel}
-          onDraft={setShapeDraft} pickRef={shapePick} onPicking={setShapePicking} save={saveShapes} compute={computeStops}
-          createLayer={async (kind) => {
-            try { await createLayer(projectId, kind); setLayers(await listLayers(projectId)) } catch (e) { alert((e as Error).message) }
-          }}
-          flyTo={flyToPlan} planOf={(v) => toPlan(v)} onClose={() => editLayerTo(null)} />
-      ) }
+    : tool === 'shapes' && rules && shown ? (() => {
+      const d = shapeEd.draft
+      if (d) return { key: 'draft', title: d.what === 'route' ? 'Новый маршрут' : d.what === 'zone' ? 'Новая зона' : 'Новая трасса', icon: Waypoints,
+        body: <DraftCard ed={shapeEd} draft={d} rules={rules} floors={floors} planOf={(v) => toPlan(v)} /> }
+      const sel = shapes.find((x) => x.id === shapeSel)
+      if (sel) return { key: `shape:${sel.id}`, title: sel.geom === 'route' ? 'Маршрут' : sel.geom === 'polygon' ? 'Зона' : 'Трасса', icon: Waypoints,
+        body: sel.geom === 'route'
+          ? <RouteInspector key={sel.id} ed={shapeEd} r={sel} rules={rules} floors={floors} conflicts={conflicts} editable={canEdit() && !rebuilding}
+            planOf={(v) => toPlan(v)} flyTo={flyToPlan} onClose={() => setShapeSel(null)} />
+          : <OutlineInspector key={sel.id} ed={shapeEd} s={sel} rules={rules} floors={floors} editable={canEdit() && !rebuilding} onClose={() => setShapeSel(null)} /> }
+      return editLayer ? { key: 'shapes', title: 'Слой', icon: Waypoints,
+        body: <LayerShapes ed={shapeEd} layer={editLayer} shapes={shapes} rules={rules} floors={floors} conflicts={conflicts}
+          editable={canEdit() && !rebuilding} onSelect={selectShape} /> } : null
+    })()
     : selRoom && nav !== 'walk' ? {
       key: `room:${selRoom.room.node}`, title: 'Помещение', icon: DoorOpen, body: (
         <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
@@ -487,7 +534,7 @@ export default function App() {
           <ContextBar tool={tool} measureMode={measureMode} onTool={setToolSafe}
             onMeasure={(m) => { setMeasureMode(m); setToolSafe('measure') }} route={route} onClearRoute={clearRoute}
             editable={canEdit()} layers={layers} kinds={kinds} editLayer={editLayer} floorName={activeFloor?.name ?? null}
-            onEdit={editLayerTo} canUndo={furn.canUndo} onUndo={undoFurniture} hint={toolHint} />
+            onEdit={editLayerTo} canUndo={furn.canUndo} onUndo={undoFurniture} hint={toolHint} actions={shapeActions} />
         )}
         <div className="@container relative min-h-0 flex-1 overflow-hidden">
         <main className="stage" onClick={() => {
