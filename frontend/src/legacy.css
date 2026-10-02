@@ -646,3 +646,4 @@ tr.muted td { color: var(--l-muted); }
   position: static; width: auto; height: 100%; max-height: none; box-shadow: none; border-radius: 0; background: transparent;
 }
 .dock-body .room-card { height: auto; padding: 12px; }
+.route-stop.mini { min-width: 10px; height: 10px; padding: 0; border-width: 1.5px; }

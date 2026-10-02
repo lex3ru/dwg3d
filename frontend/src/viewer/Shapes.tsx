@@ -62,7 +62,7 @@ export default function Shapes({ ctx, floors, center, visible, ...p }: ShapesPro
         ...(s.stops ?? []).filter((st) => on(st.floor)).map((st, i) => (
           <FloorFollower key={`${s.id}-p${i}`} ctx={ctx} floor={st.floor}>
             <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={g(st.floor, st.at, 0.1)} center zIndexRange={[21, 0]}>
-              <div className="route-stop" style={{ background: s.color }} title={st.label}>{i + 1}</div>
+              <div className={`route-stop${p.selected === s.id ? '' : ' mini'}`} style={{ background: s.color }} title={st.label}>{p.selected === s.id ? i + 1 : ''}</div>
             </Html>
           </FloorFollower>
         )),

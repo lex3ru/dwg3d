@@ -2,9 +2,10 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { ViewSettings } from '../api'
+import { useDarkClass } from '../lib/theme'
 import type { DayTime } from '../state'
 import type { SceneCtx } from './scene'
-import { DAY_TINT, MAP_BG, SKY, TILE_SUBDOMAINS, TILE_URL } from './tiles'
+import { DAY_TINT, GROUND, MAP_BG, skyColors, TILE_SUBDOMAINS, TILE_URL } from './tiles'
 
 const lon2x = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z
 const lat2y = (lat: number, z: number) => {
@@ -114,7 +115,8 @@ export default function Ground({ ctx, site, showMap, dayTime, extent }: {
     if (group.current) group.current.position.y = ctx.groundY - 0.02
   })
 
-  const bg = new THREE.Color(mapOn ? MAP_BG : '#e9ecef').multiply(new THREE.Color(tint))
+  const dark = useDarkClass() && dayTime === 'day' && !mapOn
+  const bg = new THREE.Color(mapOn ? MAP_BG : dark ? GROUND.dark : GROUND.light).multiply(new THREE.Color(tint))
   return (
     <group ref={group}>
       <mesh ref={plane} rotation-x={-Math.PI / 2} receiveShadow renderOrder={-3} position={[0, -0.08, 0]}>
@@ -127,7 +129,7 @@ export default function Ground({ ctx, site, showMap, dayTime, extent }: {
         </group>
       ) : (
         <gridHelper args={[Math.max(200, Math.ceil(extent * 4 / 10) * 10), Math.max(20, Math.ceil(extent * 4 / 10) * 2),
-          dayTime === 'day' ? '#ced4da' : '#556', dayTime === 'day' ? '#dee2e6' : '#445']} position={[0, -0.05, 0]} />
+          dark ? '#3d4554' : dayTime === 'day' ? '#ced4da' : '#556', dark ? '#333a47' : dayTime === 'day' ? '#dee2e6' : '#445']} position={[0, -0.05, 0]} />
       )}
     </group>
   )
@@ -135,6 +137,7 @@ export default function Ground({ ctx, site, showMap, dayTime, extent }: {
 
 /** Gradient sky dome that follows the camera. */
 export function Sky({ dayTime }: { dayTime: DayTime }) {
+  const dark = useDarkClass()
   const ref = useRef<THREE.Mesh>(null)
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } },
@@ -143,10 +146,10 @@ export function Sky({ dayTime }: { dayTime: DayTime }) {
     side: THREE.BackSide, depthWrite: false, depthTest: false,
   }), [])
   useEffect(() => {
-    const [t, h] = SKY[dayTime]
+    const [t, h] = skyColors(dayTime, dark)
     mat.uniforms.top.value.set(t)
     mat.uniforms.horizon.value.set(h)
-  }, [dayTime, mat])
+  }, [dayTime, dark, mat])
   useFrame(({ camera }) => { ref.current?.position.copy(camera.position) })
   return (
     <mesh ref={ref} material={mat} renderOrder={-10} frustumCulled={false} raycast={() => null}>

@@ -20,3 +20,10 @@ export const SKY: Record<DayTime, [string, string]> = {
   evening: ['#2f3a66', '#f2a36a'],
   night: ['#060a18', '#1c2544'],
 }
+
+/** The scene in a dark page: a dusk-grey day. Evening and night are dark already. */
+export function skyColors(dayTime: DayTime, dark: boolean): [string, string] {
+  return dark && dayTime === 'day' ? ['#1c2230', '#3b465c'] : SKY[dayTime]
+}
+export const GROUND = { light: '#e9ecef', dark: '#2a303c' }
+export const PAGE_2D = { light: '#f4f5f7', dark: '#1a1d23' }

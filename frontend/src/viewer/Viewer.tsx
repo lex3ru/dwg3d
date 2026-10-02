@@ -11,7 +11,8 @@ import Building, { type Pick, type RoomHit } from './Building'
 import Detail, { type DetailInfo } from './Detail'
 import { FlyControls, WalkControls } from './FlyWalk'
 import Ground, { Sky } from './MapLayer'
-import { SKY } from './tiles'
+import { useDarkClass } from '../lib/theme'
+import { PAGE_2D, skyColors } from './tiles'
 import Furniture from './Furniture'
 import Markers, { type RouteView } from './Markers'
 import Shapes, { type ShapesProps } from './Shapes'
@@ -96,6 +97,7 @@ function AutoQuality({ onQuality }: { onQuality: (q: 'high' | 'eco') => void }) 
 
 function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q: 'high' | 'eco') => void }) {
   const { ctx, result, display } = p
+  const dark = useDarkClass()
   const measure = useMeasure(p.measureMode, p.tool === 'measure')
   const active = ctx.setCuts(p.cuts.h, p.cuts.v)
   const floors = useMemo(() => [...result.floors].sort((a, b) => a.elevation! - b.elevation!), [result.floors])
@@ -115,8 +117,8 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
   const detail = p.view.detail?.file ? p.view.detail : null
   return (
     <>
-      {p.proj === '3d' ? <Sky dayTime={display.dayTime} /> : <color attach="background" args={['#f4f5f7']} />}
-      {p.proj === '3d' && <fog attach="fog" args={[SKY[display.dayTime][1], 2500, 9000]} />}
+      {p.proj === '3d' ? <Sky dayTime={display.dayTime} /> : <color attach="background" args={[dark ? PAGE_2D.dark : PAGE_2D.light]} />}
+      {p.proj === '3d' && <fog attach="fog" args={[skyColors(display.dayTime, dark)[1], 2500, 9000]} />}
       <Lights dayTime={display.dayTime} shadows={p.quality !== 'eco'} extent={extent} real={p.quality === 'real'} />
       {p.quality === 'real' && (
         <>

@@ -40,7 +40,7 @@ export interface Speeds {
 }
 
 export const DEFAULT_DISPLAY: Display = {
-  xray: false, onlyActive: false, roomColors: true, explode: false, highlight: false,
+  xray: false, onlyActive: false, roomColors: true, explode: false, highlight: true,
   quality: 'auto', facade: 'auto', dayTime: 'day', map: true,
   roof: true, glass: true, rooms: true, labels: true,
   pois: true, poiKinds: { entrance: true, stair: false, lift: true, marker: true },

@@ -34,3 +34,16 @@ export function useTheme() {
   }
   return { theme, setTheme, isDark: dark(theme) }
 }
+
+/** Whether the page is dark now (the `dark` class on <html>), following changes. */
+export function useDarkClass() {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+  useEffect(() => {
+    const el = document.documentElement
+    const on = () => setDark(el.classList.contains('dark'))
+    const mo = new MutationObserver(on)
+    mo.observe(el, { attributes: true, attributeFilter: ['class'] })
+    return () => mo.disconnect()
+  }, [])
+  return dark
+}

@@ -22,7 +22,7 @@ export interface ModeDef {
   presentation?: boolean
 }
 
-const OFF: Partial<Display> = { furniture: false, camViews: false, pois: false, comments: false, xray: false }
+const OFF: Partial<Display> = { highlight: true, furniture: false, camViews: false, pois: false, comments: false, xray: false }
 
 export const MODES: ModeDef[] = [
   { id: 'architecture', label: 'Архитектура', key: '1', icon: Building, kinds: [],
@@ -39,7 +39,7 @@ export const MODES: ModeDef[] = [
     patch: { ...OFF, roomColors: true, labels: true, pois: true } },
   { id: 'client', label: 'Заказчику', key: '5', icon: Briefcase, kinds: null, presentation: true,
     hint: 'Без панелей: модель, этажи и комментарии',
-    patch: { roomColors: true, labels: true, furniture: true, camViews: false, pois: true, comments: true, xray: false } },
+    patch: { highlight: true, roomColors: true, labels: true, furniture: true, camViews: false, pois: true, comments: true, xray: false } },
 ]
 
 export const CUSTOM = { label: 'Свой вид', icon: SlidersHorizontal }
