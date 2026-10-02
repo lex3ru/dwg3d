@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Result } from '../api'
+import { useTheme, type Theme } from '../lib/theme'
 import { can } from '../session'
 import type { DayTime, MeasureMode, Projection } from '../state'
 import { Icon } from './icons'
@@ -23,6 +24,9 @@ export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj,
 }) {
   const ruler = useMenu('ruler')
   const gear = useMenu('gear')
+  const { theme, setTheme } = useTheme()
+  const NEXT: Record<Theme, Theme> = { light: 'dark', dark: 'system', system: 'light' }
+  const THEME_NAME: Record<Theme, string> = { light: 'светлая', dark: 'тёмная', system: 'как в системе' }
   return (
     <div className="top-right">
       <div className="menu-root split">
@@ -63,6 +67,7 @@ export function TopRight({ measuring, measureMode, onMeasure, displayMenu, proj,
             {can('catalog_admin') && (
               <button className="menu-item" onClick={() => { gear.close(); onSettings('catalog') }}>Каталог оборудования…</button>
             )}
+            <button className="menu-item" onClick={() => setTheme(NEXT[theme])}>Тема: {THEME_NAME[theme]}</button>
           </div>
         )}
       </div>

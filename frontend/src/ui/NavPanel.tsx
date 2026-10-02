@@ -26,7 +26,11 @@ function Stepper({ label, value, steps, onChange }: { label: string; value: numb
 
 /** Bottom-right panel of the current navigation mode: speed, hint, reset. */
 export default function NavPanel({ nav, speeds, onSpeeds }: { nav: NavMode; speeds: Speeds; onSpeeds: (s: Speeds) => void }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('dwg3d.navpanel') === '1' } catch { return false } })
+  const toggle = () => {
+    try { localStorage.setItem('dwg3d.navpanel', open ? '0' : '1') } catch { /* storage blocked */ }
+    setOpen(!open)
+  }
   const reset = () => onSpeeds(nav === 'walk'
     ? { ...speeds, walk: DEFAULT_SPEEDS.walk, eye: DEFAULT_SPEEDS.eye }
     : { ...speeds, [nav]: DEFAULT_SPEEDS[nav] })
@@ -35,7 +39,7 @@ export default function NavPanel({ nav, speeds, onSpeeds }: { nav: NavMode; spee
       <header>
         <b>{TITLE[nav].toUpperCase()}</b>
         <button className="link" onClick={reset}>сброс</button>
-        <button className="icon" onClick={() => setOpen(!open)} aria-label={open ? 'Свернуть' : 'Развернуть'}>
+        <button className="icon" onClick={toggle} aria-label={open ? 'Свернуть' : 'Развернуть'}>
           <Icon name="chevron" size={14} className={open ? '' : 'flip'} />
         </button>
       </header>

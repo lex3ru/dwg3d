@@ -1,6 +1,5 @@
-import type { FloorMeta, Layer, Pin } from '../api'
+import type { FloorMeta, Pin } from '../api'
 import type { Display, NavMode, Tool } from '../state'
-import { variantGroups } from '../furniture/layers'
 import { Icon, type IconName } from './icons'
 import { Check } from './menu'
 import { useMenu } from './menuCtx'
@@ -43,14 +42,10 @@ interface Props {
   onShapes: () => void
   shapesCount: number
   conflictCount: number
-  layers: Layer[]
-  hiddenLayers: Set<string>
-  onToggleLayer: (id: string) => void
-  onAllLayers: (show: boolean) => void
-  /** show this variant of a layer and hide the other variants */
-  onVariant: (id: string) => void
-  onCompare: () => void
-  projectId: string
+  /** the layers panel: open now, and whether any layer is shown */
+  layersOpen: boolean
+  layersShown: boolean
+  onLayers: () => void
 }
 
 function Group({ id, icon, label, on, onClick, children, title }: {
@@ -138,24 +133,7 @@ export default function Toolbar(p: Props) {
       <Group id="shapes" icon="flows" on={p.shapesOpen} title="Маршруты людей, зоны и кабельные трассы: пути по помещениям и этажам, проверка потоков"
         onClick={p.onShapes} />
       {p.conflictCount > 0 && <span className="tb-badge" title="Конфликты потоков и зон">{p.conflictCount}</span>}
-      <Group id="layers" icon="layers" on={p.layers.some((l) => !p.hiddenLayers.has(l.id))} title="Слои проекта: мебель, видеонаблюдение…"
-        onClick={() => p.onAllLayers(p.layers.every((l) => p.hiddenLayers.has(l.id)))}>
-        <div className="menu-title">Слои проекта</div>
-        {!p.layers.length && <p className="menu-note">Слоёв пока нет: первый появится с первым предметом на плане.</p>}
-        {p.layers.map((l) => {
-          const variants = variantGroups(p.layers).some((g) => g.some((x) => x.id === l.id))
-          return (
-            <Check key={l.id} on={!p.hiddenLayers.has(l.id)}
-              label={`${l.name}${l.locked ? ' 🔒' : ''}${l.count != null ? ` · ${l.count}` : ''}`}
-              hint={variants ? 'Вариант: показывается один из вариантов слоя' : undefined}
-              onChange={() => (variants && p.hiddenLayers.has(l.id) ? p.onVariant(l.id) : p.onToggleLayer(l.id))} />
-          )
-        })}
-        {variantGroups(p.layers).length > 0 && (
-          <button className="menu-item" data-close="1" onClick={p.onCompare}>Сравнить варианты…</button>
-        )}
-        {p.projectId && <a className="menu-item" href={`#/p/${p.projectId}`}>Настроить слои проекта…</a>}
-      </Group>
+      <Group id="layers" icon="layers" on={p.layersOpen || p.layersShown} title="Слои проекта: мебель, видеонаблюдение…" onClick={p.onLayers} />
       <Group id="comments" icon="comment" on={d.comments || p.tool === 'comment'} title="Комментарии"
         onClick={() => p.set({ comments: !d.comments })}>
         <div className="menu-title">Комментарии</div>

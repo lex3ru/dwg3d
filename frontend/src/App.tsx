@@ -18,6 +18,7 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
+import LayersPanel from './ui/LayersPanel'
 import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
 import Progress from './ui/Progress'
@@ -120,9 +121,10 @@ export default function App() {
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
     layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers,
+    layerFor, refuseLocked, syncLayers, patchLayer,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
+  const [layersOpen, setLayersOpen] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
   const { openPin, setOpenPin, pending, setPending, pendingText, setPendingText, commitPending, deletePin, startPin } = usePins({
     shown, view, setView, rebuilding, reload, onDone: () => setTool('none'),
@@ -400,10 +402,12 @@ export default function App() {
               }}
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
-              layers={layers} hiddenLayers={hiddenNow} onToggleLayer={toggleLayer}
-              onAllLayers={setAllLayers}
-              onVariant={showVariant} onCompare={() => setComparing(true)}
-              projectId={projectId} />
+              layersOpen={layersOpen} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={() => setLayersOpen((v) => !v)} />
+            {layersOpen && (
+              <LayersPanel layers={layers} kinds={kinds} hidden={hiddenNow} activeLayer={activeLayer} projectId={projectId}
+                editable={canEdit()} onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onActive={setActiveLayer}
+                onLock={patchLayer} onCompare={() => setComparing(true)} onClose={() => setLayersOpen(false)} />
+            )}
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
             {buildingOpen && job && shown && (
               <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount}
@@ -430,7 +434,7 @@ export default function App() {
                 flyTo={flyToPlan} planOf={(v) => toPlan(v)} onClose={() => setTool('none')} />
             )}
             {selRoom && nav !== 'walk' && (
-              <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
+              <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} beside={buildingOpen || tool === 'furniture' || tool === 'shapes'} onClose={() => setSelRoom(null)}
                 onFly={() => focusRoom(selRoom.floor, selRoom.room)}
                 onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }} />
             )}

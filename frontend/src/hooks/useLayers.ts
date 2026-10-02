@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { layerKinds, listLayers, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
+import { layerKinds, listLayers, updateLayer, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
 import type { CatalogItem } from '../furniture/catalog'
 import { variantGroup, variantGroups } from '../furniture/layers'
 import type { Rules } from '../viewer/routing'
@@ -80,8 +80,15 @@ export function useLayers(shown: Job | null, projectId: string) {
   const syncLayers = (items: { layer?: string }[]) => {
     if (items.some((it) => it.layer && !layers.some((l) => l.id === it.layer))) reloadLayers()
   }
+  /** Lock or unlock a layer (editors); the server's answer replaces the list. */
+  const patchLayer = async (l: Layer, patch: Partial<Layer>) => {
+    try {
+      await updateLayer(projectId, l.id, { ...patch, version: l.version })
+    } catch (e) { alert((e as Error).message) }
+    reloadLayers()
+  }
   return {
-    layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
+    patchLayer, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
     showVariant, toggleLayer, setAllLayers, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }

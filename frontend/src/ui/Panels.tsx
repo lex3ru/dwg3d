@@ -58,17 +58,19 @@ export function HelpOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function RoomCard({ room, floor, result, onClose, onRoute, onFly }: {
+export function RoomCard({ room, floor, result, beside, onClose, onRoute, onFly }: {
   room: RoomMeta
   floor: FloorMeta
   result: Result
+  /** a panel is open at the left edge: stand next to it */
+  beside?: boolean
   onClose: () => void
   onRoute: (end: 'from' | 'to') => void
   onFly: () => void
 }) {
   const t = result.room_types?.find((x) => x.type === (room.type ?? 'other'))
   return (
-    <div className="room-card" role="dialog">
+    <div className={`room-card${beside ? ' beside' : ''}`} role="dialog">
       <header>
         <b>{room.name || t?.label || 'Помещение'}</b>
         <button className="icon" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={16} /></button>
