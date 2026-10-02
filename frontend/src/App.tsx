@@ -18,6 +18,11 @@ import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
 import { MenuCtx, useOutsideClose } from './ui/menuCtx'
+import { Armchair, Building2, DoorOpen, Layers as LayersIcon, Route } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import Dock, { DockEmpty, type DockTab } from './dock/Dock'
+import StatusBar from './dock/StatusBar'
+import { useDockState } from './dock/useDockState'
 import LayersPanel from './ui/LayersPanel'
 import NavPanel from './ui/NavPanel'
 import { BuildingPanel, HelpButton, HelpOverlay, RoomCard } from './ui/Panels'
@@ -44,6 +49,8 @@ const introKey = (id: string) => `dwg3d.intro.${id}`
 const seenIntro = (id: string | null) => {
   try { return !id || !!sessionStorage.getItem(introKey(id)) } catch { return true }
 }
+
+type InspectorTab = 'room' | 'furniture' | 'routes' | 'building'
 
 export default function App() {
   const initial = useMemo(() => parseHash(), [])
@@ -72,7 +79,11 @@ export default function App() {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   useOutsideClose(setOpenMenu)
   const [help, setHelp] = useState(false)
-  const [buildingOpen, setBuildingOpen] = useState(false)
+  const leftDock = useDockState('left', 280)
+  const rightDock = useDockState('right', 340)
+  const [rightTab, setRightTab] = useState<InspectorTab>('room')
+  const buildingOpen = rightDock.open && rightTab === 'building'
+  const showInspector = (tab: InspectorTab) => { setRightTab(tab); rightDock.setOpen(true) }
   const [settings, setSettings] = useState<SettingsPane | null>(null)
   const [, setCatalogTick] = useState(0)
   const [editor, setEditor] = useState(false)
@@ -124,7 +135,6 @@ export default function App() {
     layerFor, refuseLocked, syncLayers, patchLayer,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
-  const [layersOpen, setLayersOpen] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
   const { openPin, setOpenPin, pending, setPending, pendingText, setPendingText, commitPending, deletePin, startPin } = usePins({
     shown, view, setView, rebuilding, reload, onDone: () => setTool('none'),
@@ -256,7 +266,6 @@ export default function App() {
     else if (nav === 'fly') setNav('orbit')
     if (!floor) setFloor(entranceFloor?.id ?? null)
     setSelRoom(null)
-    setBuildingOpen(false)
     setTool('shapes')
   }
 
@@ -269,7 +278,6 @@ export default function App() {
     else if (nav === 'fly') setNav('orbit')
     if (!floor) setFloor(entranceFloor?.id ?? null)
     setSelRoom(null)
-    setBuildingOpen(false)
     setTool('furniture')
   }
 
@@ -324,14 +332,92 @@ export default function App() {
 
   const floorCut = activeFloor ? () => setCuts((c) => ({ ...c, h: { on: true, y: activeFloor.elevation! + 1.2 } })) : null
 
+  const running = !!job && (job.status === 'queued' || job.status === 'running')
+
+  // ---- the docks: layers on the left; room, furniture, routes and building on the right
+  const wasTool = useRef<Tool>('none')
+  useEffect(() => {
+    if (tool === wasTool.current) return
+    wasTool.current = tool
+    if (tool === 'furniture') showInspector('furniture')
+    else if (tool === 'shapes') showInspector('routes')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool])
+  useEffect(() => {
+    if (selRoom) showInspector('room')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selRoom])
+  const toggleLeft = leftDock.toggle, toggleRight = rightDock.toggle
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT' || t?.isContentEditable) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === '[') toggleLeft()
+      else if (e.key === ']') toggleRight()
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [toggleLeft, toggleRight])
+
+  const leftContent = (
+    <LayersPanel layers={layers} kinds={kinds} hidden={hiddenNow} activeLayer={activeLayer} projectId={projectId}
+      editable={canEdit()} onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onActive={setActiveLayer}
+      onLock={patchLayer} onCompare={() => setComparing(true)} />
+  )
+  const inspectorTabs: DockTab[] = [
+    { id: 'room', label: 'Помещение', icon: DoorOpen },
+    { id: 'furniture', label: 'Мебель', icon: Armchair },
+    { id: 'routes', label: 'Маршруты', icon: Route, badge: conflicts.length || undefined },
+    { id: 'building', label: 'Здание', icon: Building2 },
+  ]
+  const rightContent = !r ? null : rightTab === 'room' ? (
+    selRoom && nav !== 'walk' ? (
+      <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} onClose={() => setSelRoom(null)}
+        onFly={() => focusRoom(selRoom.floor, selRoom.room)}
+        onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }} />
+    ) : <DockEmpty icon={DoorOpen} title="Помещение не выбрано" text="Щёлкните по помещению на плане: здесь появятся его площадь, тип и действия." />
+  ) : rightTab === 'furniture' ? (
+    tool === 'furniture' ? (
+      <FurniturePanel floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} selected={furnSel}
+        placing={placing?.item ?? null} showZones={showZones} canUndo={furn.canUndo}
+        onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
+        onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
+        onDelete={deleteItem} onUndo={undoFurniture} onClose={() => setTool('none')}
+        locked={rebuilding} readOnly={!canEdit()} unplaced={unplaced} onUnplaced={resolveUnplaced}
+        layers={layers} kinds={kinds} activeLayer={activeLayer} onActiveLayer={setActiveLayer} />
+    ) : <DockEmpty icon={Armchair} title="Мебель и оборудование" text="Каталог и расстановка по этажу." action={<Button size="sm" onClick={openFurniture}>Начать расстановку</Button>} />
+  ) : rightTab === 'routes' ? (
+    tool === 'shapes' && rules && shown ? (
+      <RoutesPanel build={shown.build} floors={floors} activeFloor={activeFloor} layers={layers} rules={rules}
+        shapes={shapes} conflicts={conflicts} editable={canEdit() && !rebuilding} selected={shapeSel} onSelect={setShapeSel}
+        onDraft={setShapeDraft} pickRef={shapePick} onPicking={setShapePicking} save={saveShapes} compute={computeStops}
+        createLayer={async (kind) => {
+          try { await createLayer(projectId, kind); setLayers(await listLayers(projectId)) } catch (e) { alert((e as Error).message) }
+        }}
+        flyTo={flyToPlan} planOf={(v) => toPlan(v)} onClose={() => setTool('none')} />
+    ) : <DockEmpty icon={Route} title="Маршруты, зоны, трассы" text="Пути людей по помещениям и этажам, зоны, кабельные трассы, проверка потоков." action={<Button size="sm" onClick={openShapes}>Открыть редактор</Button>} />
+  ) : job && shown ? (
+    <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount}
+      objectCount={shownFurniture.length + shapes.length} saving={saving}
+      saveErr={saveErr} onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
+      onClose={() => rightDock.setOpen(false)} />
+  ) : null
+
   if (!jobId) return null
 
-  const running = !!job && (job.status === 'queued' || job.status === 'running')
   const name = shownView.name || (job?.filename ?? '').replace(/\.(dwg|dxf)$/i, '')
 
   return (
     <MenuCtx.Provider value={{ open: openMenu, setOpen: setOpenMenu }}>
       <div className={`app nav-${nav}`}>
+        <div className="flex min-h-0 flex-1">
+        {r && (
+          <Dock side="left" label="Слои" tabs={[{ id: 'layers', label: 'Слои', icon: LayersIcon }]} tab="layers" onTab={() => {}} state={leftDock}>
+            {leftContent}
+          </Dock>
+        )}
+        <div className="relative min-w-0 flex-1 overflow-hidden">
         <main className="stage" onClick={() => {
           if (nav === 'walk' && !document.pointerLockElement) {
             // pointer lock may be refused (iframe policy, right after Esc): dragging then looks around
@@ -393,7 +479,7 @@ export default function App() {
                 const room = f?.rooms.find((rm) => rm.node === node)
                 if (f && room) routeRoom(end, f, room)
               }}
-              onClearRoute={clearRoute} buildingOpen={buildingOpen} onBuilding={() => setBuildingOpen(!buildingOpen)}
+              onClearRoute={clearRoute} buildingOpen={buildingOpen} onBuilding={() => (buildingOpen ? rightDock.setOpen(false) : showInspector('building'))}
               display={display} set={patchDisplay} markers={view.markers ?? []} comments={view.comments ?? []}
               onFlyToPin={(pin) => {
                 if (pin.floor) setFloor(pin.floor)
@@ -402,42 +488,8 @@ export default function App() {
               }}
               furnitureCount={detailInfo?.furniture ?? null} placedCount={furniture.length} onFurniture={openFurniture}
               shapesOpen={tool === 'shapes'} onShapes={openShapes} shapesCount={shapes.length} conflictCount={conflicts.length}
-              layersOpen={layersOpen} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={() => setLayersOpen((v) => !v)} />
-            {layersOpen && (
-              <LayersPanel layers={layers} kinds={kinds} hidden={hiddenNow} activeLayer={activeLayer} projectId={projectId}
-                editable={canEdit()} onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onActive={setActiveLayer}
-                onLock={patchLayer} onCompare={() => setComparing(true)} onClose={() => setLayersOpen(false)} />
-            )}
+              layersOpen={leftDock.open} layersShown={layers.some((l) => !hiddenNow.has(l.id))} onLayers={leftDock.toggle} />
             <NavPanel nav={nav} speeds={speeds} onSpeeds={setSpeeds} />
-            {buildingOpen && job && shown && (
-              <BuildingPanel job={job} shown={shown} active={floor} running={running} editCount={editCount}
-                objectCount={shownFurniture.length + shapes.length} saving={saving}
-                saveErr={saveErr} onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
-                onClose={() => setBuildingOpen(false)} />
-            )}
-            {tool === 'furniture' && (
-              <FurniturePanel floor={furnFloor} items={floorItems} plan={furnPlan} issues={issues} selected={furnSel}
-                placing={placing?.item ?? null} showZones={showZones} canUndo={furn.canUndo}
-                onZones={setShowZones} roomCover={roomCover} camViews={display.camViews} onCamViews={(v) => patchDisplay({ camViews: v })} onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
-                onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem} onDuplicate={duplicateItem} onRow={rowItems}
-                onDelete={deleteItem} onUndo={undoFurniture} onClose={() => setTool('none')}
-                locked={rebuilding} readOnly={!canEdit()} unplaced={unplaced} onUnplaced={resolveUnplaced}
-                layers={layers} kinds={kinds} activeLayer={activeLayer} onActiveLayer={setActiveLayer} />
-            )}
-            {tool === 'shapes' && rules && shown && (
-              <RoutesPanel build={shown.build} floors={floors} activeFloor={activeFloor} layers={layers} rules={rules}
-                shapes={shapes} conflicts={conflicts} editable={canEdit() && !rebuilding} selected={shapeSel} onSelect={setShapeSel}
-                onDraft={setShapeDraft} pickRef={shapePick} onPicking={setShapePicking} save={saveShapes} compute={computeStops}
-                createLayer={async (kind) => {
-                  try { await createLayer(projectId, kind); setLayers(await listLayers(projectId)) } catch (e) { alert((e as Error).message) }
-                }}
-                flyTo={flyToPlan} planOf={(v) => toPlan(v)} onClose={() => setTool('none')} />
-            )}
-            {selRoom && nav !== 'walk' && (
-              <RoomCard room={selRoom.room} floor={selRoom.floor} result={r} beside={buildingOpen || tool === 'furniture' || tool === 'shapes'} onClose={() => setSelRoom(null)}
-                onFly={() => focusRoom(selRoom.floor, selRoom.room)}
-                onRoute={(end) => { setTool('route'); routeRoom(end, selRoom.floor, selRoom.room) }} />
-            )}
             {tool !== 'none' && (
               <div className="tool-hint">
                 {tool === 'measure' ? (measureMode === 'length' ? 'Рулетка: кликните две точки · Esc — сброс'
@@ -478,6 +530,19 @@ export default function App() {
             <a className="button small" href={`#/p/${job.project_id}`}>К проекту</a></div>
         )}
         {error && <div className="error-card floating">{error}</div>}
+        </div>
+        {r && (
+          <Dock side="right" label="Инспектор" tabs={inspectorTabs} tab={rightTab} onTab={(t) => setRightTab(t as InspectorTab)} state={rightDock}>
+            {rightContent}
+          </Dock>
+        )}
+        </div>
+        {r && (
+          <StatusBar floor={activeFloor?.name ?? 'Всё здание'} nav={nav} proj={proj} objects={shownFurniture.length + shapes.length}
+            rooms={activeFloor ? activeFloor.stats.rooms : null} conflicts={conflicts.length}
+            busy={running ? { text: 'Сборка модели', progress: job!.progress } : null}
+            onConflicts={() => showInspector('routes')} />
+        )}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
         {editor && job && shown && activeFloor && (
           <Editor2D key={activeFloor.id} job={job.status === 'done' ? job : { ...shown, config: job.config }}

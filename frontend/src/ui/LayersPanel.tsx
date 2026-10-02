@@ -1,4 +1,4 @@
-import { Crosshair, Eye, EyeOff, GitCompare, Lock, LockOpen, Settings2, X } from 'lucide-react'
+import { Crosshair, Eye, EyeOff, GitCompare, Lock, LockOpen, Settings2 } from 'lucide-react'
 import type { Layer, LayerKindInfo } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
@@ -22,23 +22,20 @@ export default function LayersPanel(p: {
   onActive: (id: string | null) => void
   onLock: (l: Layer, patch: Partial<Layer>) => void
   onCompare: () => void
-  onClose: () => void
 }) {
   const groups = variantGroups(p.layers)
   const inVariants = (l: Layer) => groups.some((g) => g.some((x) => x.id === l.id))
   const takesItems = (l: Layer) => !!p.kinds.find((k) => k.kind === l.kind)?.geoms.includes('point')
   const allShown = p.layers.length > 0 && p.layers.every((l) => !p.hidden.has(l.id))
   return (
-    <section aria-label="Слои проекта"
-      className="absolute top-16 right-16 z-20 flex max-h-[calc(100%-9rem)] w-80 flex-col rounded-xl border border-float-border bg-float text-foreground shadow-lg backdrop-blur max-sm:right-3 max-sm:left-3 max-sm:w-auto">
-      <header className="flex items-center gap-1 border-b border-border px-3 py-2">
+    <section aria-label="Слои проекта" className="flex h-full min-h-0 flex-col">
+      <header className="flex items-center gap-1 border-b border-border px-3 py-1.5">
         <b className="mr-auto text-sm">Слои проекта</b>
         {p.layers.length > 1 && (
           <Button variant="ghost" size="sm" onClick={() => p.onAll(!allShown)}>{allShown ? 'Скрыть все' : 'Показать все'}</Button>
         )}
-        <Button variant="ghost" size="icon-sm" aria-label="Закрыть" onClick={p.onClose}><X /></Button>
       </header>
-      <div className="overflow-x-hidden overflow-y-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-1.5">
         {!p.layers.length && (
           <p className="m-0 px-2 py-3 text-sm text-muted-foreground">Слоёв пока нет: первый появится с первым предметом на плане.</p>
         )}

@@ -32,7 +32,7 @@ input, select { font: inherit; border: 1px solid var(--input-line); border-radiu
 .menu-user { padding: 8px 12px 4px; border-top: 1px solid var(--line); margin-top: 4px; font-size: 12.5px; }
 .menu-user small { color: var(--l-muted); display: block; }
 
-.app { position: relative; height: 100%; overflow: hidden; }
+.app { position: relative; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
 .sidebar { width: 300px; flex: none; overflow-x: hidden; background: var(--panel); border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .sidebar > * { flex-shrink: 0; }
 .brand { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 16px; }
@@ -425,7 +425,6 @@ button.link:hover { text-decoration: underline; }
 /* room card */
 .room-card { position: absolute; left: 70px; top: 70px; z-index: 18; width: 270px; background: var(--panel); border-radius: var(--l-radius); box-shadow: 0 10px 34px rgba(16,24,40,.18); padding: 10px 12px 12px; }
 .room-card header { display: flex; justify-content: space-between; gap: 6px; font-size: 15px; }
-.room-card.beside { left: 414px; }
 .room-card dl { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .room-card dl > div { display: flex; justify-content: space-between; gap: 10px; }
 .room-card dt { color: var(--l-muted); }
@@ -434,7 +433,7 @@ button.link:hover { text-decoration: underline; }
 .rc-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* hints over the scene */
-.tool-hint { position: absolute; bottom: 76px; left: 50%; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.85); color: #fff; padding: 6px 14px; border-radius: 18px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
+.tool-hint { position: absolute; bottom: 76px; left: 50%; width: max-content; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.85); color: #fff; padding: 6px 14px; border-radius: 18px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
 .tool-hint .link { color: #74c0fc; margin-left: 8px; }
 .walk-hint { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 16; background: rgba(33,37,41,.82); color: #fff; padding: 8px 16px; border-radius: 18px; font-size: 13.5px; max-width: calc(100% - 32px); text-align: center; pointer-events: none; }
 .nav-walk .topbar { display: none; }
@@ -641,3 +640,9 @@ tr.muted td { color: var(--l-muted); }
 .cmp-list .row { padding: 6px 2px; }
 .variant-of { font-size: 11.5px; color: #7048e8; }
 .sd-layers { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--l-muted); margin: 4px 0; cursor: pointer; }
+
+/* panels that live in a dock instead of floating over the scene */
+.dock-body .building-panel, .dock-body .furniture-panel, .dock-body .room-card {
+  position: static; width: auto; height: 100%; max-height: none; box-shadow: none; border-radius: 0; background: transparent;
+}
+.dock-body .room-card { height: auto; padding: 12px; }
