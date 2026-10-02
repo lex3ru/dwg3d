@@ -423,7 +423,7 @@ export default function App() {
     return m
   }, [view.furniture, view.shapes, floors, rules])
   const onTreeObject = (layerId: string, o: TreeObject) => {
-    flyToPlan(o.floor, o.at)
+    flyToPlan(o.floor, o.at, o.kind === 'item' ? 7 : 12)
     if (editLayerId !== layerId) return
     if (o.kind === 'item') setTimeout(() => setFurnSel(o.id), 120)      // after the floor change has reset the selection
     else setShapeSel(o.id)

@@ -93,12 +93,12 @@ export function useShapes(p: {
   const computeStops = (stops: RouteStop[]) => computeRoute(stops, floors, shown?.result ? connectors(shown.result) : [],
     async (fid) => { const f = floors.find((x) => x.id === fid); return f ? p.loadGrid(f) : null },
     (st, i) => st.label || `остановка ${i + 1}`)
-  const flyToPlan = (fid: string, [x, y]: XY) => {
+  const flyToPlan = (fid: string, [x, y]: XY, dist = 16) => {
     const f = floors.find((q) => q.id === fid)
     if (!f) return
     p.setFloor(fid)
     const pt = new THREE.Vector3(x - p.cx, (f.elevation ?? 0) + (p.ctx.offset.get(fid) ?? 0), -(y - p.cy))
-    setTimeout(() => p.ctx.api?.flyToPoint(pt, 16), 60)
+    setTimeout(() => p.ctx.api?.flyToPoint(pt, dist), 60)
   }
   useEffect(() => { if (p.tool !== 'shapes') { setShapeDraft(null); setShapePicking(false) } }, [p.tool])
   return {
