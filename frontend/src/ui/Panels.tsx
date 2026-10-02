@@ -1,7 +1,14 @@
-import { Icon } from './icons'
+import { CircleHelp, X } from 'lucide-react'
+import { floatClass } from '@/components/ui/float'
+import { cn } from '@/lib/utils'
 
 export function HelpButton({ onClick }: { onClick: () => void }) {
-  return <button className="help-btn round" onClick={onClick} title="Справка по управлению"><Icon name="help" /></button>
+  return (
+    <button aria-label="Справка по управлению" title="Справка по управлению" onClick={onClick}
+      className={cn(floatClass, 'absolute top-3.5 left-3.5 z-20 grid size-10 cursor-pointer place-items-center rounded-full p-0 hover:text-primary')}>
+      <CircleHelp className="size-[18px]" />
+    </button>
+  )
 }
 
 const HELP: [string, [string, string][]][] = [
@@ -41,7 +48,7 @@ export function HelpOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div className="help-overlay" onClick={onClose}>
       <div className="help-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Справка">
-        <header><h2>Управление</h2><button className="icon" onClick={onClose} aria-label="Закрыть"><Icon name="close" /></button></header>
+        <header><h2>Управление</h2><button className="icon" onClick={onClose} aria-label="Закрыть"><X className="size-5" /></button></header>
         <div className="help-grid">
           {HELP.map(([title, rows]) => (
             <section key={title}>

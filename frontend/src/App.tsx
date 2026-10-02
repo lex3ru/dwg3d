@@ -17,7 +17,6 @@ import {
 import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
-import { MenuCtx, useOutsideClose } from './ui/menuCtx'
 import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Dock from './dock/Dock'
@@ -84,8 +83,6 @@ export default function App() {
   const [nav, setNav] = useState<NavMode>('orbit')
   const [tool, setTool] = useState<Tool>('none')
   const [measureMode, setMeasureMode] = useState<MeasureMode>('length')
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
-  useOutsideClose(setOpenMenu)
   const [help, setHelp] = useState(false)
   const leftDock = useDockState('left', 280)
   const rightDock = useDockState('right', 340)
@@ -525,7 +522,7 @@ export default function App() {
   const name = shownView.name || (job?.filename ?? '').replace(/\.(dwg|dxf)$/i, '')
 
   return (
-    <MenuCtx.Provider value={{ open: openMenu, setOpen: setOpenMenu }}>
+    <>
       <div className={`app nav-${nav}`}>
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
@@ -689,6 +686,6 @@ export default function App() {
             onSaved={(v) => { adoptView(v); setPreview(null) }} onClose={() => { setPreview(null); setSettings(null) }} />
         )}
       </div>
-    </MenuCtx.Provider>
+    </>
   )
 }

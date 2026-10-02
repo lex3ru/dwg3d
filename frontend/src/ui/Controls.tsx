@@ -1,4 +1,4 @@
-import { Building2, FileSpreadsheet, Map as MapIcon, Monitor, Moon, Package, Settings, Sun } from 'lucide-react'
+import { BookOpen, Building2, FileSpreadsheet, Map as MapIcon, Maximize, Minus, Monitor, Moon, Package, Plus, Settings, Sun, Sunset } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -6,14 +6,14 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { floatClass } from '@/components/ui/float'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
 import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { Result } from '../api'
 import { useTheme, type Theme } from '../lib/theme'
 import { can } from '../session'
 import type { DayTime, Projection } from '../state'
-import { Icon } from './icons'
-import { useMenu } from './menuCtx'
 
 /** Settings dialogs opened from the gear menu */
 export type SettingsPane = 'floors' | 'site' | 'report' | 'catalog'
@@ -71,9 +71,14 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
   )
 }
 
-const DAY_ICON = { day: 'sun', evening: 'sunset', night: 'moon' } as const
+const DAY_ICON = { day: Sun, evening: Sunset, night: Moon } as const
 const DAY_LABEL = { day: 'день', evening: 'вечер', night: 'ночь' }
 const NEXT_DAY: Record<DayTime, DayTime> = { day: 'evening', evening: 'night', night: 'day' }
+const roundBase = 'grid size-10 cursor-pointer place-items-center rounded-full p-0 text-foreground transition-colors hover:text-primary [&_svg]:size-[18px]'
+/** a button inside the zoom stack */
+const roundBtn = `${roundBase} border-0 bg-transparent hover:bg-secondary`
+/** a button on its own */
+const roundFloat = cn(floatClass, roundBase)
 
 /** Right column: time of day, zoom in, fit the building, zoom out, legend. */
 export function SideControls({ dayTime, onDayTime, onZoom, onFit, legend }: {
@@ -83,49 +88,56 @@ export function SideControls({ dayTime, onDayTime, onZoom, onFit, legend }: {
   onFit: () => void
   legend: ReactNode
 }) {
+  const Day = DAY_ICON[dayTime]
   return (
-    <div className="side-controls">
-      <button className="round" onClick={() => onDayTime(NEXT_DAY[dayTime])}
-        title={`Время суток: ${DAY_LABEL[dayTime]} (сменить)`}><Icon name={DAY_ICON[dayTime]} /></button>
-      <div className="stack">
-        <button className="round" onClick={() => onZoom(1)} title="Приблизить"><Icon name="plus" /></button>
-        <button className="round" onClick={onFit} title="Вписать здание"><Icon name="fit" /></button>
-        <button className="round" onClick={() => onZoom(-1)} title="Отдалить"><Icon name="minus" /></button>
+    <div className="absolute top-1/2 right-3.5 z-15 flex -translate-y-1/2 flex-col items-center gap-2.5">
+      <Tip label={`Время суток: ${DAY_LABEL[dayTime]} — сменить`} side="left">
+        <button aria-label={`Время суток: ${DAY_LABEL[dayTime]} (сменить)`} className={roundFloat} onClick={() => onDayTime(NEXT_DAY[dayTime])}><Day /></button>
+      </Tip>
+      <div className={cn(floatClass, 'flex flex-col rounded-full')}>
+        <Tip label="Приблизить" side="left"><button aria-label="Приблизить" className={roundBtn} onClick={() => onZoom(1)}><Plus /></button></Tip>
+        <Tip label="Вписать здание" side="left"><button aria-label="Вписать здание" className={roundBtn} onClick={onFit}><Maximize /></button></Tip>
+        <Tip label="Отдалить" side="left"><button aria-label="Отдалить" className={roundBtn} onClick={() => onZoom(-1)}><Minus /></button></Tip>
       </div>
       {legend}
     </div>
   )
 }
 
-/** Legend of room-type colours (library button). */
+const ELEMENTS: [string, string][] = [['Стены', '#ede8de'], ['Перегородки', '#dbe3ed'], ['Двери', '#a8805c'], ['Остекление', '#8cbff2'], ['Лестницы', '#c7bdad']]
+const Swatch = ({ color }: { color: string }) => <i className="size-3.5 shrink-0 rounded-[4px] border border-black/10" style={{ background: color }} />
+
+/** Legend of room-type colours and building elements. */
 export function Legend({ result, on, onToggleColors }: { result: Result; on: boolean; onToggleColors: (v: boolean) => void }) {
-  const m = useMenu('legend')
   const counts = new Map<string, number>()
   result.floors.forEach((f) => f.rooms.forEach((r) => counts.set(r.type ?? 'other', (counts.get(r.type ?? 'other') ?? 0) + 1)))
   const types = (result.room_types ?? []).filter((t) => counts.has(t.type))
   return (
-    <div className="menu-root">
-      <button className={`round${m.isOpen ? ' on' : ''}`} onClick={m.toggle} title="Легенда: типы помещений"><Icon name="book" /></button>
-      {m.isOpen && (
-        <div className="menu drop-side legend-menu" role="dialog">
-          <div className="menu-title">Типы помещений</div>
-          {types.length === 0 && <p className="menu-note">Нет данных о типах — пересоберите модель.</p>}
+    <Popover>
+      <Tip label="Легенда: типы помещений" side="left">
+        <PopoverTrigger asChild>
+          <button aria-label="Легенда: типы помещений" className={roundFloat}><BookOpen /></button>
+        </PopoverTrigger>
+      </Tip>
+      <PopoverContent side="left" align="center" sideOffset={10} className="w-64 p-2">
+        <div className="px-1 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Типы помещений</div>
+        {types.length === 0 && <p className="m-0 px-1 py-1 text-xs text-muted-foreground">Нет данных о типах — пересоберите модель.</p>}
+        <ul className="m-0 grid list-none gap-0.5 p-0">
           {types.map((t) => (
-            <div key={t.type} className="legend-row">
-              <i style={{ background: t.color }} /><span>{t.label}</span><small>{counts.get(t.type)}</small>
-            </div>
+            <li key={t.type} className="flex items-center gap-2 px-1 py-0.5 text-sm">
+              <Swatch color={t.color} /><span className="flex-1">{t.label}</span><small className="text-muted-foreground">{counts.get(t.type)}</small>
+            </li>
           ))}
-          <label className="legend-toggle">
-            <input type="checkbox" checked={on} onChange={(e) => onToggleColors(e.target.checked)} /> Окрашивать полы по типу
-          </label>
-          <div className="menu-title">Элементы</div>
-          <div className="legend-row"><i style={{ background: '#ede8de' }} /><span>Стены</span></div>
-          <div className="legend-row"><i style={{ background: '#dbe3ed' }} /><span>Перегородки</span></div>
-          <div className="legend-row"><i style={{ background: '#a8805c' }} /><span>Двери</span></div>
-          <div className="legend-row"><i style={{ background: '#8cbff2' }} /><span>Остекление</span></div>
-          <div className="legend-row"><i style={{ background: '#c7bdad' }} /><span>Лестницы</span></div>
-        </div>
-      )}
-    </div>
+        </ul>
+        <label className="mt-1 flex cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-secondary">
+          <span className="flex-1">Окрашивать полы по типу</span>
+          <Switch checked={on} onCheckedChange={onToggleColors} />
+        </label>
+        <div className="px-1 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Элементы</div>
+        <ul className="m-0 grid list-none gap-0.5 p-0">
+          {ELEMENTS.map(([name, color]) => <li key={name} className="flex items-center gap-2 px-1 py-0.5 text-sm"><Swatch color={color} />{name}</li>)}
+        </ul>
+      </PopoverContent>
+    </Popover>
   )
 }
