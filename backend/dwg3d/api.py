@@ -36,6 +36,7 @@ build queue into a 3D model.
                                          sign-in (session cookie), see auth.py
   GET/POST /api/projects/{id}/agent-tokens, DELETE .../agent-tokens/{tid}
                                          tokens of AI agents (Authorization: Bearer), see tokens.py
+  /api/mcp                               MCP (Streamable HTTP) for AI agents with a token, see agent_mcp.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
@@ -68,6 +69,7 @@ import os
 import time
 import urllib.parse
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -75,9 +77,10 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import access, auth, catalog, db, files, layers, reports, rooms, store, tokens, viewdata, worker
+from . import access, agent_mcp, auth, catalog, db, files, layers, reports, rooms, store, tokens, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -89,7 +92,17 @@ ROOT = Path(__file__).resolve().parents[2]
 MAX_UPLOAD = int(os.environ.get("DWG3D_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 RETENTION_DAYS = float(os.environ.get("DWG3D_RETENTION_DAYS", "0"))
 
-app = FastAPI(title="dwg3d")
+
+
+@asynccontextmanager
+async def _lifespan(_):
+    async with agent_mcp.running():
+        yield
+
+
+app = FastAPI(title="dwg3d", lifespan=_lifespan)
+# MCP for AI agents (agent_mcp.py): first, before the UI's catch-all mount
+app.router.routes.insert(0, Route(agent_mcp.PATH, endpoint=agent_mcp.Endpoint(), methods=["GET", "POST", "DELETE"]))
 if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
@@ -124,6 +137,9 @@ async def _authenticate(request: Request, call_next):
     me = await run_in_threadpool(_whoami, request)
     if me is None:
         return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
+    if path == agent_mcp.PATH and me.agent is None:
+        return JSONResponse({"detail": "MCP — для ИИ-агентов: нужен токен (Authorization: Bearer dwg3d_…)"},
+                            status_code=401)
     if me.share is not None and (request.method not in READ or path in GUEST_DENIED
                                  or path.endswith(("/members", "/shares", "/audit"))):
         return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра проекта"}, status_code=403)

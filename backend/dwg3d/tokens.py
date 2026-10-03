@@ -53,6 +53,8 @@ def agent_may(method: str, path: str, mode: str) -> bool:
     (the role in the project is checked by the endpoint, as for everyone)."""
     if AGENT_HIDDEN.fullmatch(path):
         return False
+    if path == "/api/mcp":               # JSON-RPC over POST: each tool checks for itself (agent_mcp.py)
+        return True
     if method in ("GET", "HEAD", "OPTIONS"):
         return True
     return mode == "write" and any(method in m and rx.fullmatch(path) for m, rx in AGENT_WRITES)

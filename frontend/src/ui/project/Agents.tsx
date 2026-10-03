@@ -17,6 +17,10 @@ const MODES: { id: AgentMode; label: string; hint: string }[] = [
   { id: 'write', label: 'Изменение', hint: 'Агент расставляет, меняет и удаляет объекты, создаёт слои — как редактор. Удалять слои и чертежи, менять участников он не может.' },
 ]
 
+/** The command that connects Claude Code to this site's MCP endpoint with a token. */
+const mcpCommand = (token: string) =>
+  `claude mcp add --transport http dwg3d ${window.location.origin}/api/mcp --header "Authorization: Bearer ${token}"`
+
 /** Tokens of AI agents: access to the project for an MCP client or a script, acting for the user. */
 export default function Agents({ p, editor, owner }: { p: Project; editor: boolean; owner: boolean }) {
   const [list, setList] = useState<AgentToken[] | null>(null)
@@ -57,6 +61,11 @@ export default function Agents({ p, editor, owner }: { p: Project; editor: boole
             <div className="flex gap-2">
               <Input readOnly className="font-mono" value={made.token} onFocus={(e) => e.target.select()} />
               <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(made.token!)}><Copy /> Копировать</Button>
+            </div>
+            <span>Подключение к Claude Code (MCP):</span>
+            <div className="flex gap-2">
+              <Input readOnly className="font-mono" value={mcpCommand(made.token)} onFocus={(e) => e.target.select()} />
+              <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(mcpCommand(made.token!))}><Copy /> Копировать</Button>
             </div>
           </div>
         )}
