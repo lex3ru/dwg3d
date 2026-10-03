@@ -119,7 +119,7 @@ def test_sse_stream(kc, api, live, monkeypatch):  # noqa: F811
             t0 = time.monotonic()
             rest = list(lines)
             assert time.monotonic() - t0 < 5 and "event: change" not in rest
-        assert ": ping" in got or "event: change" in got
+        assert "event: ping" in got or "event: change" in got
         data = json.loads(got[-1][5:])
         assert data["project"] == pid and data["actor"] == "tok-editor"
         assert data["changes"] == [{"drawing": None, "entity": "layer", "id": layer, "action": "update"}]

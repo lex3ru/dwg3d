@@ -36,7 +36,7 @@ from pydantic import Field
 from shapely.geometry import box
 from sqlalchemy import func, select
 
-from . import access, auth, db, layers, proposals, reports, rooms, store, tokens, viewdata
+from . import access, auth, db, layers, planning, proposals, reports, rooms, store, tokens, viewdata
 from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Proposal, Room
 
 PATH = "/api/mcp"
@@ -53,7 +53,10 @@ INSTRUCTIONS = """\
 (id вида doc.couch) ищутся search_catalog. С токеном «предложения» или «изменение»
 (token_mode в project_overview) можно предложить изменения объектов —
 propose_changes: человек увидит их на плане и примет или отклонит (proposal_status).
-Это предпочтительный путь для заметных правок. Изменять напрямую можно только с
+Это предпочтительный путь для заметных правок. Чтобы не считать координаты самому:
+place_in_room (расставить в помещении у стен / в центре / по углам / сеткой),
+place_row (ряд), camera_coverage (что видят камеры) — у расстановки then="propose"
+сразу создаёт предложение. Изменять напрямую можно только с
 токеном «изменение»: apply_changes, create_layer, update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
 в журнал под вашим токеном —
 перед массовыми правками опишите пользователю, что собираетесь сделать."""
@@ -109,7 +112,7 @@ def _agent(ctx: Context, write: bool = False, propose: bool = False):
         yield me, me.agent["project_id"]
     except access.Denied as ex:
         raise ToolError(str(ex)) from ex
-    except (viewdata.Invalid, layers.LayerError) as ex:
+    except (viewdata.Invalid, layers.LayerError, planning.PlanError) as ex:
         raise ToolError(f"Ничего не изменено: {ex}") from ex
     except viewdata.Conflict as ex:
         raise ToolError(f"Ничего не изменено: {ex}. Текущее состояние: "
@@ -505,6 +508,96 @@ def proposal_status(ctx: Context,
         if p is None:
             raise ToolError(f"Предложение {id!r} не найдено")
         return proposals.proposal_json(p, proposals._users(s, [p]), s.get(Drawing, p.drawing_id))
+
+
+# ---------------------------------------------------------- planning tools ---
+Then = Literal["return", "propose", "apply"]
+THEN_HELP = ("return — только вернуть операции (передать их в propose_changes / apply_changes); "
+             "propose — сразу создать предложение (нужен summary); apply — сразу применить (токен «изменение»)")
+
+
+def _then(ctx: Context, then: str):
+    return _agent(ctx, write=then == "apply", propose=then == "propose")
+
+
+def _finish(s, pid: str, d: Drawing, plan: dict, ops: list[dict], then: str, summary: str | None) -> dict[str, Any]:
+    out = {**plan, "ops": ops}
+    if not ops or then == "return":
+        return out
+    if then == "propose":
+        if not summary:
+            raise ToolError("then=propose: нужен summary — что и зачем, для человека")
+        p = proposals.create(s, d, summary, ops, None)
+        viewdata.audit_entry(s, pid, "proposal", p.id, "create", None,
+                             {"summary": p.summary, "counts": proposals.counts(p.ops)}, d.id)
+        return {**out, "proposal": proposals.proposal_json(p, drawing=d)}
+    res = viewdata.apply(s, d.id, "object", ops)
+    return {**out, "created": [r["id"] for r in res["items"]]}
+
+
+def _creates(plan: dict, item: str, layer: str | None) -> list[dict]:
+    return [{"op": "create", "id": uuid.uuid4().hex[:8], "floor": plan["floor"], "item": item,
+             "at": p["at"], "angle": p["angle"], **({"layer": layer} if layer else {})} for p in plan["places"]]
+
+
+@mcp.tool(annotations=WRITE)
+def place_in_room(ctx: Context,
+                  drawing: Annotated[str, Field(description="id чертежа")],
+                  room: Annotated[int, Field(description="id помещения из list_rooms")],
+                  item: Annotated[str, Field(description="id позиции каталога")],
+                  count: Annotated[int, Field(ge=1, le=planning.MAX_ITEMS)] = 1,
+                  where: Annotated[Literal["along_wall", "center", "corners", "grid"],
+                                   Field(description="along_wall — спиной к стенам вдоль них; center — ближе к центру; "
+                                                     "corners — в углы; grid — рядами по всему помещению")] = "along_wall",
+                  gap: Annotated[float, Field(ge=0, le=5, description="зазор между предметами, м")] = 0.2,
+                  layer: Annotated[str | None, Field(description="id слоя; по умолчанию — подходящий для позиции")] = None,
+                  then: Annotated[Then, Field(description=THEN_HELP)] = "return",
+                  summary: Annotated[str | None, Field(description="для then=propose: что и зачем", max_length=2000)] = None) -> dict[str, Any]:
+    """Найти места для предметов каталога в помещении: внутри контура, не на других
+    предметах, с зоной обслуживания перед предметом внутри помещения и свободной.
+    Возвращает места (at, angle), операции создания и замечания (если поместилось меньше)."""
+    with _then(ctx, then) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        plan = planning.place_in_room(s, d.id, room, item, count, where, gap)
+        return _finish(s, pid, d, plan, _creates(plan, item, layer), then, summary)
+
+
+@mcp.tool(annotations=WRITE)
+def place_row(ctx: Context,
+              drawing: Annotated[str, Field(description="id чертежа")],
+              floor: Annotated[str, Field(description="id этажа (c0…)")],
+              item: Annotated[str, Field(description="id позиции каталога")],
+              start: Annotated[list[float], Field(description="[x, y] первого предмета, м", min_length=2, max_length=2)],
+              end: Annotated[list[float], Field(description="[x, y] последнего предмета, м", min_length=2, max_length=2)],
+              count: Annotated[int | None, Field(ge=1, le=planning.MAX_ITEMS, description="сколько предметов")] = None,
+              step: Annotated[float | None, Field(gt=0, le=100, description="или шаг между центрами, м")] = None,
+              angle: Annotated[float | None, Field(description="поворот, °; по умолчанию ширина — вдоль ряда")] = None,
+              layer: Annotated[str | None, Field(description="id слоя")] = None,
+              then: Annotated[Then, Field(description=THEN_HELP)] = "return",
+              summary: Annotated[str | None, Field(description="для then=propose: что и зачем", max_length=2000)] = None) -> dict[str, Any]:
+    """Ряд одинаковых предметов от start до end (кресла в ожидании, светильники, датчики).
+    Пересечения с другими предметами и выход за помещение — в замечаниях, не отказ."""
+    with _then(ctx, then) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        plan = planning.place_row(s, d.id, _floor(s, d.id, floor), item, start, end, count, step, angle)
+        return _finish(s, pid, d, plan, _creates(plan, item, layer), then, summary)
+
+
+@mcp.tool(annotations=READ)
+def camera_coverage(ctx: Context,
+                    drawing: Annotated[str, Field(description="id чертежа")],
+                    floor: Annotated[str, Field(description="id этажа (c0…)")],
+                    room: Annotated[int | None, Field(description="только это помещение")] = None,
+                    layer: Annotated[str | None, Field(description="только камеры этого слоя (вариант)")] = None) -> dict[str, Any]:
+    """Что видят камеры: по каждому помещению этажа — доля площади в поле зрения камер,
+    стоящих в нём, и доля, где различимо лицо; самые большие невидимые участки (габариты).
+    Приближённо: обзор ограничен стенами помещения, мебель и перегородки не учитываются."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        lay = _shown_layers(s, me, pid)
+        if layer is not None and layer not in lay:
+            raise ToolError(f"Слой {layer!r} не найден: см. project_overview")
+        return planning.camera_coverage(s, _floor(s, d.id, floor), room, {layer} if layer else set(lay))
 
 # --------------------------------------------------------------- HTTP app ---
 @asynccontextmanager

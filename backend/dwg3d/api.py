@@ -520,7 +520,8 @@ def get_audit(pid: str, limit: int = 100, drawing: str | None = None):
 async def project_events(pid: str, request: Request):
     """Changes in the project as they happen (Server-Sent Events, see events.py):
     `event: change` with what changed, or `entity: resync` — read everything
-    again. Every HEARTBEAT seconds a keep-alive comment, and the access is
+    again. Every HEARTBEAT seconds `event: ping` (windows reopen a stream that
+    stays silent longer: a proxy may keep a dead one open), and the access is
     checked again (signed out, removed from the project, link or token revoked:
     the stream ends)."""
     def allowed() -> auth.Me | None:
@@ -550,7 +551,7 @@ async def project_events(pid: str, request: Request):
                 except TimeoutError:
                     if await run_in_threadpool(allowed) is None:
                         return
-                    yield ": ping\n\n"
+                    yield "event: ping\ndata: {}\n\n"          # an event, not a comment: windows watch for it
                     continue
                 ev = visible(ev)
                 if "changes" not in ev or ev["changes"] or ev.get("more"):
