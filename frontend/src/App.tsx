@@ -1,8 +1,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  createLayer, downloadDrawing, listLayers, rebuildJob,
-  type FloorEdits, type FloorMeta, type Job, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
+  createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob,
+  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
@@ -51,6 +51,7 @@ import { useFurniture } from './hooks/useFurniture'
 import { useJobPolling } from './hooks/useJob'
 import { useLayers } from './hooks/useLayers'
 import { usePins } from './hooks/usePins'
+import { useProjectEvents } from './hooks/useProjectEvents'
 import { usePlans } from './hooks/usePlans'
 import { useRoute } from './hooks/useRoute'
 import { useShapes } from './hooks/useShapes'
@@ -139,7 +140,7 @@ export default function App() {
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
     layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers, patchLayer, showOnlyKinds,
+    layerFor, refuseLocked, syncLayers, patchLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
@@ -157,7 +158,7 @@ export default function App() {
   const {
     shownFurniture, furnFloor, floorItems, furnPlan, issues, allCoverage, roomCover, furnSel, setFurnSel, placing, setPlacing,
     showZones, setShowZones, unplaced, resolveUnplaced, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems,
-    deleteItem, moveItem, resetSaved, reset: resetFurn,
+    deleteItem, moveItem, resetSaved, reset: resetFurn, mergeRemote,
   } = furn
 
   // job settings stored on the server
@@ -166,6 +167,48 @@ export default function App() {
     setView(v)
   }, [resetSaved])
   useEffect(() => { adoptView(shown?.view ?? {}) }, [shown?.id, shown?.view, adoptView])
+
+  const shownRef = useRef(shown)
+  const rebuildingRef = useRef(rebuilding)
+  useEffect(() => { shownRef.current = shown; rebuildingRef.current = rebuilding }, [shown, rebuilding])
+  // ---- changes made elsewhere (another window, an agent): read them in, a moment after the last one
+  const [notice, setNotice] = useState<string | null>(null)
+  const live = useRef({ objects: false, layers: false, drawing: false, count: 0, who: new Set<string>(), timer: 0 })
+  const refreshObjects = async (id: string) => {
+    const [objs, pins] = await Promise.all([listObjects(id), listPins(id)])
+    if (shownRef.current?.id !== id || objs.build !== shownRef.current?.build) return
+    mergeRemote(objs.items.filter((x): x is PlacedItem => x.geom == null || x.geom === 'point'), objs.unplaced)
+    setView((v) => ({ ...v, shapes: objs.items.filter((x) => x.geom != null && x.geom !== 'point') as ShapeObject[],
+      markers: pins.markers, comments: pins.comments }))
+  }
+  useProjectEvents(projectId, (ev) => {
+    const cur = shownRef.current
+    const l = live.current
+    const mine = !ev.agent && ev.user_id != null && ev.user_id === me?.id      // this user, another window or this one
+    const here = (ev.changes ?? []).filter((c) => (c.entity === 'object' || c.entity === 'pin') && c.drawing === cur?.id)
+    if (ev.entity === 'resync' || ev.more) l.objects = l.layers = true
+    if (here.length) l.objects = true
+    if ((ev.changes ?? []).some((c) => c.entity === 'layer' || c.entity === 'object')) l.layers = true
+    if (!mine && (ev.changes ?? []).some((c) => c.entity === 'drawing' && c.drawing === cur?.id)) l.drawing = true
+    if (!mine && (ev.actor || ev.agent) && (here.length || (ev.changes ?? []).some((c) => c.entity === 'layer'))) {
+      l.count += here.length + (ev.more ?? 0)
+      l.who.add(ev.actor || `агент «${ev.agent}»`)
+    }
+    window.clearTimeout(l.timer)
+    l.timer = window.setTimeout(() => {
+      const { objects, layers: lays, drawing, count, who } = l
+      live.current = { objects: false, layers: false, drawing: false, count: 0, who: new Set(), timer: 0 }
+      if (drawing) reload()
+      else if (objects && cur && !rebuildingRef.current) refreshObjects(cur.id).catch(() => {})
+      if (lays) reloadLayers()
+      if (who.size) setNotice(`Изменения: ${[...who].join(', ')}${count ? ` · объектов: ${count}` : ''}`)
+    }, 300)
+  })
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [notice])
 
   // ---- URL hash <-> state
   useEffect(() => {
@@ -653,6 +696,11 @@ export default function App() {
               const l = layers.find((x) => x.kind === 'routes' && !x.locked)
               if (l) editLayerTo(l.id)
             }} />
+        )}
+        {notice && (
+          <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-50 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-lg">
+            {notice}
+          </div>
         )}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
         {editor && job && shown && activeFloor && (

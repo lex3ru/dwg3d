@@ -570,6 +570,33 @@ export type RowOp = { op: 'create' | 'update' | 'delete'; id: string; version?: 
 export interface RowConflict { id: string; current: (PlacedItem & Pin) | null }
 export interface BatchResult<T> { items: T[]; deleted: string[] }
 
+/** The layer objects of a drawing as the server has them now: placed items and shapes (`items`), and
+ * catalog items whose floor is gone (`unplaced`). */
+export async function listObjects(id: string): Promise<{ build: number; items: (PlacedItem | ShapeObject)[]; unplaced: PlacedItem[] }> {
+  return check(await fetch(`/api/drawings/${id}/objects`))
+}
+
+export async function listPins(id: string): Promise<{ build: number; markers: Pin[]; comments: Pin[] }> {
+  return check(await fetch(`/api/drawings/${id}/pins`))
+}
+
+/** One change of a committed transaction (GET /api/projects/{id}/events). */
+export interface ProjectChange { drawing: string | null; entity: string; id: string; action: string }
+
+/** Changes in a project made by someone (a person in another window, or an agent with a token);
+ * `entity: 'resync'` — changes were lost: read everything again. */
+export interface ProjectEvent {
+  project?: string
+  user_id?: number | null
+  actor?: string | null
+  /** the name of the agent's token, when an agent made the change */
+  agent?: string | null
+  changes?: ProjectChange[]
+  /** changes left out of a big transaction */
+  more?: number
+  entity?: 'resync'
+}
+
 /** Apply changes to layer objects (furniture, cameras, lines...) or pins as one transaction: all or none.
  * Throws ApiError 409 with body.conflicts when rows were changed by someone else,
  * or when the model was rebuilt since `build`. */

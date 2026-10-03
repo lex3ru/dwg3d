@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, layers, shapes
+from . import auth, events, layers, shapes
 from .models import AuditLog, CatalogItem, Drawing, Floor, Layer, LayerObject, Pin, Project
 from .rooms import Locator
 
@@ -201,11 +201,17 @@ def _me_id() -> int | None:
 
 
 def audit_entry(s, pid, entity, eid, action, before, after, drawing_id=None):
-    """Record a change by the user of the current request."""
+    """Record a change by the user of the current request, and tell the open
+    windows of the project once it commits (events.py)."""
     me = auth.current.get()
+    actor = me.actor() if me else None
     s.add(AuditLog(project_id=pid, drawing_id=drawing_id, entity=entity, entity_id=eid, action=action,
-                   user_id=me.id if me else None, actor=me.actor() if me else None,
+                   user_id=me.id if me else None, actor=actor,
                    before=_strip(before), after=_strip(after)))
+    if pid:
+        events.publish(s, pid, {"drawing": drawing_id, "entity": entity, "id": eid, "action": action},
+                       {"user_id": me.id if me else None, "actor": actor,
+                        "agent": me.agent["name"] or me.agent["id"] if me and me.agent else None})
 
 
 def layer_kind(layer: Layer) -> str:

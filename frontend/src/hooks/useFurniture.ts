@@ -4,7 +4,7 @@ import { catalogItem, type CatalogItem } from '../furniture/catalog'
 import {
   axes, cameraCoverage, checkFloor, indexPlan, itemSize, roomCoverage, systemsCoverage, type PlanIndex, type Pose,
 } from '../furniture/geom'
-import { conflictText, furnitureOps } from '../furniture/sync'
+import { conflictText, furnitureOps, sameItem } from '../furniture/sync'
 import { canEdit, READ_ONLY } from '../session'
 import type { Tool } from '../state'
 import type { Placing } from '../viewer/Furniture'
@@ -47,6 +47,9 @@ export function useFurniture(p: {
   const [, setUndoTick] = useState(0)
 
   const furniture = useMemo(() => view.furniture ?? [], [view.furniture])
+  /** the list as rendered last: what a merge of remote changes starts from */
+  const furnNow = useRef(furniture)
+  useEffect(() => { furnNow.current = furniture }, [furniture])
   const shownFurniture = useMemo(() => furniture.filter((it) => !it.layer || !p.hiddenNow.has(it.layer)), [furniture, p.hiddenNow])
   /** the view came from the server: its items are the base of the next diff */
   const resetSaved = useCallback((v: ViewSettings) => { furnSaved.current = new Map((v.furniture ?? []).map((it) => [it.id, it])) }, [])
@@ -150,6 +153,28 @@ export function useFurniture(p: {
         p.reload()
       }
     })
+  }
+  /** Rows changed by someone else (another window, an agent): take the server's rows except
+   * where this window has a change not saved yet (its save then meets the conflict as usual).
+   * Undo steps are dropped: they could put back what the other one changed. */
+  const mergeRemote = (rows: PlacedItem[], unplacedRows: PlacedItem[]) => {
+    const saved = furnSaved.current
+    const local = furnNow.current
+    const server = new Map(rows.map((it) => [it.id, it]))
+    // a change of this window not on the server yet: a new item, a deleted one, edited fields
+    const dirty = new Set([...local.map((it) => it.id), ...saved.keys()].filter((id) => {
+      const l = local.find((x) => x.id === id), sv = saved.get(id)
+      return sv ? !l || !sameItem(l, sv) : !!l
+    }))
+    const localIds = new Set(local.map((it) => it.id))
+    const next = local.flatMap((l) => (dirty.has(l.id) ? [l] : server.has(l.id) ? [server.get(l.id)!] : []))
+    for (const r of rows) if (!localIds.has(r.id) && !saved.has(r.id)) next.push(r)
+    for (const r of rows) if (!dirty.has(r.id)) saved.set(r.id, r)
+    for (const id of [...saved.keys()]) if (!server.has(id) && !dirty.has(id)) saved.delete(id)
+    furnHistory.current = []
+    setUndoTick((n) => n + 1)
+    setView((v) => ({ ...v, furniture: next, furniture_unplaced: unplacedRows }))
+    if (furnSel && !next.some((x) => x.id === furnSel)) setFurnSel(null)
   }
   const undoFurniture = () => {
     const prev = furnHistory.current.pop()
@@ -257,6 +282,6 @@ export function useFurniture(p: {
     furniture, shownFurniture, furnFloor, floorItems, furnPlan, issues, allCoverage, roomCover,
     furnSel, setFurnSel, placing, setPlacing, showZones, setShowZones, canUndo: furnHistory.current.length > 0,
     unplaced, resolveUnplaced, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems, deleteItem, moveItem,
-    resetSaved, reset,
+    resetSaved, reset, mergeRemote,
   }
 }

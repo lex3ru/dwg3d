@@ -7,6 +7,7 @@ build queue into a 3D model.
   GET/PATCH/DELETE /api/projects/{id}    one project; name, description
   POST /api/projects/{id}/drawings       multipart: file, name, config (optional JSON string)
   GET  /api/projects/{id}/audit          who changed what (?drawing=)
+  GET  /api/projects/{id}/events         changes as they happen (Server-Sent Events), see events.py
   GET  /api/drawings?project=            drawings (building switcher)
   GET/DELETE /api/drawings/{id}          status / progress / result
   POST /api/drawings/{id}/revision       multipart: a new revision of the DWG; floors,
@@ -62,6 +63,7 @@ several uvicorn processes and hosts can serve the same projects.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -80,7 +82,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import access, agent_mcp, auth, catalog, db, files, layers, reports, rooms, store, tokens, viewdata, worker
+from . import access, agent_mcp, auth, catalog, db, events, files, layers, reports, rooms, store, tokens, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -510,6 +512,52 @@ def get_audit(pid: str, limit: int = 100, drawing: str | None = None):
     with db.session() as s:
         _project(s, pid)
         return viewdata.audit(s, pid, limit, drawing)
+
+
+@app.get("/api/projects/{pid}/events")
+async def project_events(pid: str, request: Request):
+    """Changes in the project as they happen (Server-Sent Events, see events.py):
+    `event: change` with what changed, or `entity: resync` — read everything
+    again. Every HEARTBEAT seconds a keep-alive comment, and the access is
+    checked again (signed out, removed from the project, link or token revoked:
+    the stream ends)."""
+    def allowed() -> auth.Me | None:
+        who = _whoami(request)
+        with db.session() as s:
+            return who if store.get_project(s, pid) is not None and access.project_role(s, who, pid) else None
+
+    me = await run_in_threadpool(allowed)
+    if me is None:
+        raise HTTPException(404, "Проект не найден")
+    q = events.subscribe(pid)
+
+    def visible(ev: dict) -> dict:
+        if me.share is None:
+            return ev
+        # a guest: no names; only the drawings of the link
+        drawings = me.share["drawings"]
+        changes = [c for c in ev.get("changes", []) if drawings is None or c.get("drawing") in (None, *drawings)]
+        return {"project": pid, "changes": changes, "more": ev.get("more", 0)} if "changes" in ev else ev
+
+    async def stream():
+        try:
+            yield "retry: 3000\n\n"
+            while True:
+                try:
+                    ev = await asyncio.wait_for(q.get(), events.HEARTBEAT)
+                except TimeoutError:
+                    if await run_in_threadpool(allowed) is None:
+                        return
+                    yield ": ping\n\n"
+                    continue
+                ev = visible(ev)
+                if "changes" not in ev or ev["changes"] or ev.get("more"):
+                    yield f"event: change\ndata: {json.dumps(ev, ensure_ascii=False, default=str)}\n\n"
+        finally:
+            events.unsubscribe(pid, q)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
 
 
 # ------------------------------------------------ members and share links ---

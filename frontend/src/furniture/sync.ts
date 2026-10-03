@@ -10,6 +10,10 @@ const LABEL: Record<string, string> = {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
+/** Whether two versions of a placed item have the same saved fields. */
+export const sameItem = (a: PlacedItem | undefined, b: PlacedItem | undefined) =>
+  !!a && !!b && FIELDS.every((k) => same(a[k], b[k]))
+
 /** Create / update / delete operations turning `saved` into `list`; updates carry
  * only the changed fields (null removes an override) and the saved version. */
 export function furnitureOps(saved: Map<string, PlacedItem>, list: PlacedItem[]): RowOp[] {
