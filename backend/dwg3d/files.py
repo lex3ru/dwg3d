@@ -2,8 +2,9 @@
 (development, tests) or S3-compatible object storage (the containers).
 
 Keys:
-  drawings/<id>/<path>   input*.dwg|dxf, out/... (model, plans, exports,
-                         converted DXF, caches), detail.glb, export/<key>/...
+  drawings/<id>/<path>   input*.dwg|dxf, builds/<job>/... (one tree per build:
+                         model, plans, exports, converted DXF, caches; builds
+                         before versioning have out/...), detail.glb, export/<key>/...
   catalog/<file>         uploaded catalog models (GLB)
 
 Local mode keeps the old layout under DWG3D_DATA: jobs/<id>/<path>, catalog/<file>.
@@ -13,6 +14,11 @@ of a drawing. In local mode it is the drawing's own directory; in S3 mode it
 is a working copy under DWG3D_SCRATCH that `pull()` brings up to date and
 `push()` sends back. A manifest (sha256 per file) keeps both transfers to
 the files that changed.
+
+A build's tree is written once, under a new name, before the build becomes
+current (Build.out_dir), and is never changed afterwards: readers of the
+current build never see files of the next one, and a build that fails to
+commit leaves only an orphan tree (`prune()` removes it).
 
   DWG3D_S3_ENDPOINT     http://s3:9000 — S3 mode when set
   DWG3D_S3_BUCKET       bucket (dwg3d; created when missing)
@@ -49,6 +55,14 @@ def _sha256(p: Path) -> str:
         while chunk := f.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
+
+
+# a tree to pull: its name in the store, or (name in the store, local directory)
+Tree = str | tuple[str, str]
+
+
+def _tree_names(t: Tree) -> tuple[str, str]:
+    return (t, t) if isinstance(t, str) else t
 
 
 def _tree(base: Path) -> dict[str, Path]:
@@ -134,12 +148,31 @@ class LocalStore:
     def workdir(self, did: str) -> Path:
         return self.path(drawing_key(did).rstrip("/"))
 
-    def pull(self, did: str, paths: list[str] = (), trees: list[str] = (),
+    def pull(self, did: str, paths: list[str] = (), trees: list[Tree] = (),
              include: Callable[[str], bool] | None = None) -> Path:
-        return self.workdir(did)
+        """The files are here already; a stored tree wanted under another
+        local name (a build's tree as the working out/) is copied there
+        when that directory does not exist yet."""
+        wd = self.workdir(did)
+        for stored, local in map(_tree_names, trees):
+            src, dst = wd / stored, wd / local
+            if stored != local and src.is_dir() and not dst.exists():
+                shutil.copytree(src, dst)
+        return wd
 
-    def push(self, did: str, tree: str):
-        pass
+    def push(self, did: str, tree: str, to: str | None = None, base: str | None = None):
+        """Store a working tree as `to` (a new build's tree: a full copy)."""
+        if to is None or to == tree:
+            return
+        wd = self.workdir(did)
+        tmp = wd / f"{to}.{uuid.uuid4().hex[:8]}.part"
+        if (wd / tree).is_dir():
+            shutil.copytree(wd / tree, tmp, ignore=shutil.ignore_patterns("*.part"))
+        else:
+            tmp.mkdir(parents=True)
+        dst = wd / to
+        shutil.rmtree(dst, ignore_errors=True)
+        tmp.replace(dst)
 
 
 class S3Store:
@@ -254,11 +287,12 @@ class S3Store:
         raw = self.get_bytes(drawing_key(did, f"{tree}/{MANIFEST}"))
         return json.loads(raw) if raw else {}
 
-    def pull(self, did: str, paths: list[str] = (), trees: list[str] = (),
+    def pull(self, did: str, paths: list[str] = (), trees: list[Tree] = (),
              include: Callable[[str], bool] | None = None) -> Path:
         """Bring the working copy up to date: single files (downloaded when
         missing or of another size) and whole trees (by the manifest; local
-        files the manifest does not list are removed)."""
+        files the manifest does not list are removed). A tree may land under
+        another local name: ("builds/12", "out")."""
         wd = self.workdir(did)
         for rel in paths:
             local = wd / rel
@@ -267,9 +301,9 @@ class S3Store:
                 local.unlink(missing_ok=True)
             elif not local.is_file() or local.stat().st_size != remote:
                 self.download(drawing_key(did, rel), local)
-        for tree in trees:
-            want = self._manifest(did, tree)
-            base = wd / tree
+        for stored, local in map(_tree_names, trees):
+            want = self._manifest(did, stored)
+            base = wd / local
             have = _tree(base) if base.is_dir() else {}
             for rel, p in have.items():
                 if rel not in want and (include is None or include(rel)):
@@ -279,23 +313,55 @@ class S3Store:
                     continue
                 p = base / rel
                 if not p.is_file() or _sha256(p) != digest:
-                    self.download(drawing_key(did, f"{tree}/{rel}"), p)
+                    self.download(drawing_key(did, f"{stored}/{rel}"), p)
         return wd
 
-    def push(self, did: str, tree: str):
+    def push(self, did: str, tree: str, to: str | None = None, base: str | None = None):
         """Upload the files of a working-copy tree that changed, remove the
-        stored ones that are gone locally, then write the manifest."""
-        base = self.workdir(did) / tree
-        old = self._manifest(did, tree)
-        new = {rel: _sha256(p) for rel, p in _tree(base).items()} if base.is_dir() else {}
-        prefix = drawing_key(did, f"{tree}/")
+        stored ones that are gone locally, then write the manifest. `to`
+        stores it under another name (a new build's tree); files equal to
+        those of the stored tree `base` are copied inside the store."""
+        to = to or tree
+        src = self.workdir(did) / tree
+        old = self._manifest(did, to)
+        same = self._manifest(did, base) if base and base != to else {}
+        new = {rel: _sha256(p) for rel, p in _tree(src).items()} if src.is_dir() else {}
+        prefix = drawing_key(did, f"{to}/")
         stored = {k[len(prefix):] for k in self.list(prefix)} - {MANIFEST}
         for rel, digest in new.items():
-            if old.get(rel) != digest or rel not in stored:
-                self.put_file(drawing_key(did, f"{tree}/{rel}"), base / rel)
+            if old.get(rel) == digest and rel in stored:
+                continue
+            key = drawing_key(did, f"{to}/{rel}")
+            if same.get(rel) == digest and self.copy(drawing_key(did, f"{base}/{rel}"), key):
+                continue
+            self.put_file(key, src / rel)
         for rel in stored - set(new):
-            self.delete(drawing_key(did, f"{tree}/{rel}"))
-        self.put_bytes(drawing_key(did, f"{tree}/{MANIFEST}"), json.dumps(new).encode(), "application/json")
+            self.delete(drawing_key(did, f"{to}/{rel}"))
+        self.put_bytes(drawing_key(did, f"{to}/{MANIFEST}"), json.dumps(new).encode(), "application/json")
+
+    def copy(self, src: str, dst: str) -> bool:
+        """Copy an object inside the bucket (False when `src` is missing)."""
+        from botocore.exceptions import ClientError
+        try:
+            self.client.copy({"Bucket": self._bucket(), "Key": src}, self._bucket(), dst)
+        except ClientError as ex:
+            if self._missing(ex):
+                return False
+            raise
+        return True
+
+
+def prune(st: LocalStore | S3Store, did: str, keep: set[str]):
+    """Remove the stored build trees of a drawing other than `keep` (the
+    current and the previous build): old builds and orphans of builds that
+    failed to commit. The legacy out/ tree is the working copy itself in
+    local mode, so it goes only from S3."""
+    prefix = drawing_key(did, "builds/")
+    trees = {k[len(prefix):].split("/", 1)[0] for k in st.list(prefix)}
+    for t in trees - {k.split("/", 1)[1] for k in keep if k.startswith("builds/")}:
+        st.delete_prefix(drawing_key(did, f"builds/{t}/"))
+    if st.s3 and "out" not in keep:
+        st.delete_prefix(drawing_key(did, "out/"))
 
 
 _store: LocalStore | S3Store | None = None

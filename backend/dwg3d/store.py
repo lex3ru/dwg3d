@@ -1,7 +1,7 @@
 """Projects, drawings, builds, floors and the job queue in PostgreSQL.
 
 A project holds drawings; a drawing is one uploaded DWG/DXF with its builds.
-Its files (the upload, out/ with the model, plans, exports and converted
+Its files (the upload, a tree per build with the model, plans, exports and converted
 DXF, detail.glb) are in the file store under drawings/<id>/ (files.py).
 
 The API describes a drawing with job-shaped JSON (`public()`), assembled
@@ -56,6 +56,12 @@ def latest_job(s: Session, did: str) -> Job | None:
 
 def current_build(s: Session, d: Drawing) -> Build | None:
     return s.get(Build, (d.id, d.current_build)) if d.current_build else None
+
+
+def out_dir(s: Session, d: Drawing) -> str:
+    """The stored tree of the drawing's current build (files.py); "out" before the first."""
+    b = current_build(s, d)
+    return b.out_dir if b else "out"
 
 
 def view_of(s: Session, d: Drawing) -> dict:

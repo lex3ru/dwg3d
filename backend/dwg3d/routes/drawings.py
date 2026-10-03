@@ -272,15 +272,17 @@ def export_drawing(did: str, fmt: str, layers_: str | None = Query(None, alias="
     with db.session() as s:
         p = common.drawing(s, did)
         cfg, input_path, filename = p.config or {}, p.input_path, p.filename
+        out_dir = store.out_dir(s, p)
         payload = _layers_payload(s, p, layers_)
     if not has_edits(cfg) and not payload:
         raise HTTPException(400, "Нет ни правок, ни объектов слоёв — сохранять нечего")
     src_rel = input_path
     if Path(input_path).suffix.lower() == ".dwg":
-        src_rel = f"out/{Path(input_path).stem}.dxf"
+        src_rel = f"{out_dir}/{Path(input_path).stem}.dxf"
     stem = Path(filename).stem + ("_правки" if has_edits(cfg) else "") + ("_слои" if payload else "")
-    # cache per configuration (edits, layer mapping, floors) and layer objects actually applied
-    key = hashlib.sha1(json.dumps([cfg, payload], sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
+    # cache per source (a new build may bring another DXF), configuration (edits,
+    # layer mapping, floors) and layer objects actually applied
+    key = hashlib.sha1(json.dumps([src_rel, cfg, payload], sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
     st = files.store()
     ekey = lambda name: files.drawing_key(did, f"export/{key}/{name}")  # noqa: E731
     out_name, media = ("edited.dxf", "image/vnd.dxf") if fmt == "dxf" else ("edited.dwg", "application/acad")
@@ -325,18 +327,19 @@ def get_file(did: str, path: str):
         p = common.drawing(s, did)
         filename = p.filename
         busy = store.has_active(s, did)
+        out_dir = store.out_dir(s, p)
     rel = PurePosixPath(path)
     ext = rel.suffix.lower()
     if rel.is_absolute() or ".." in rel.parts or not rel.parts or ext not in FILE_TYPES \
             or rel.name == files.MANIFEST or rel.parts[0] == "cache":
         raise HTTPException(404)
-    key = files.drawing_key(did, f"out/{rel}")
+    key = files.drawing_key(did, f"{out_dir}/{rel}")
     st = files.store()
     if len(rel.parts) == 2 and rel.parts[0] == "debug" and ext == ".png" and not busy and st.size(key) is None:
         # rendered on demand from the cached plans
         with files.lock(did):
-            wd = st.pull(did, trees=["out"], include=lambda r: r.startswith("cache/"))
-            if (png := render_debug(wd / "out", rel.name)) is not None:
+            wd = st.pull(did, trees=[out_dir], include=lambda r: r.startswith("cache/"))
+            if (png := render_debug(wd / out_dir, rel.name)) is not None:
                 st.put_file(key, png)
     if ext in (".ifc", ".zip"):
         stem = Path(filename).stem

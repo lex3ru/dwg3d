@@ -120,8 +120,8 @@ class Project(Base):
 
 class Drawing(Base):
     """An uploaded DWG/DXF and everything the user set on it (builds, floors,
-    map binding, detail model). Model files live on disk in
-    <DWG3D_DATA>/jobs/<id>/ (see Build.out_dir)."""
+    map binding, detail model). Its files are in the file store under
+    drawings/<id>/ (files.py; see Build.out_dir)."""
     __tablename__ = "drawings"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)        # 12 hex chars, as in data/jobs/<id>
@@ -148,7 +148,8 @@ class Build(Base):
     n: Mapped[int] = mapped_column(Integer, primary_key=True)
     result: Mapped[dict] = mapped_column(JSONB)                     # floors, rooms, entrances, warnings...
     config: Mapped[dict] = mapped_column(JSONB)                     # overrides as re-anchored by this build
-    out_dir: Mapped[str] = mapped_column(Text)                      # model.glb, plans/, exports
+    out_dir: Mapped[str] = mapped_column(Text)                      # its own tree in the file store:
+                                                                    # builds/<job> (out before versioning)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

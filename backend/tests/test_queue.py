@@ -117,6 +117,55 @@ def test_build_keeps_floor_rows_across_rebuilds(data, tmp_path):
     assert listed[pid]["floors"] == len(j2["result"]["floors"]) and listed[pid]["status"] == "done"
 
 
+def _out_dir(pid) -> str:
+    with db.session() as s:
+        return store.out_dir(s, store.get_drawing(s, pid))
+
+
+def _rebuild(pid, tolerance):
+    with db.session() as s:
+        p = store.get_drawing(s, pid, lock=True)
+        p.config = {**p.config, "geometry": {"snap_tolerance": tolerance}}
+        store.enqueue(s, p)
+
+
+def test_build_that_fails_to_commit_leaves_the_current_files(data, tmp_path, monkeypatch):
+    """The files of a build go to a tree of their own: when its transaction
+    fails, the current build still points to its own, unchanged files."""
+    pid = _project(make(tmp_path / "sample.dxf"))
+    _build(pid)
+    cur = _out_dir(pid)
+    assert cur.startswith("builds/")
+    st = files.store()
+    model = st.get_bytes(files.drawing_key(pid, f"{cur}/model.glb"))
+    meta = st.get_bytes(files.drawing_key(pid, f"{cur}/metadata.json"))
+
+    def broken(*a, **kw):
+        raise RuntimeError("commit failed")
+
+    _rebuild(pid, 0.011)
+    with monkeypatch.context() as m:
+        m.setattr(worker.rooms, "sync", broken)
+        worker.process(*worker.claim())
+    with db.session() as s:
+        assert store.latest_job(s, pid).status == "error"
+    assert _out_dir(pid) == cur
+    assert st.get_bytes(files.drawing_key(pid, f"{cur}/model.glb")) == model
+    assert st.get_bytes(files.drawing_key(pid, f"{cur}/metadata.json")) == meta
+
+    # the next good build becomes current; the orphan tree goes, the previous one stays
+    _rebuild(pid, 0.012)
+    j = _build(pid)
+    new = _out_dir(pid)
+    assert j["build"] == 2 and new not in (cur, "out")
+    trees = {k.split("/")[3] for k in st.list(files.drawing_key(pid, "builds/"))}
+    assert trees == {cur.split("/")[1], new.split("/")[1]}
+    _rebuild(pid, 0.013)
+    _build(pid)
+    trees = {k.split("/")[3] for k in st.list(files.drawing_key(pid, "builds/"))}
+    assert trees == {new.split("/")[1], _out_dir(pid).split("/")[1]}
+
+
 def test_failed_build_is_reported(data):
     pid = _project()
     (files.store().workdir(pid) / "input.dxf").write_text("0\nSECTION\n2\nGARBAGE\n")

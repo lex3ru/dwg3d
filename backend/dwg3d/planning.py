@@ -134,7 +134,7 @@ def plan_obstacles(s: Session, did: str, floor: Floor) -> tuple[list[Polygon], l
     b = s.get(Build, (did, d.current_build)) if d and d.current_build else None
     meta = next((f for f in ((b.result or {}).get("floors") or []) if f.get("id") == floor.candidate), None) if b else None
     try:
-        raw = files.store().get_bytes(files.drawing_key(did, f"out/{meta['plan']}")) if meta and meta.get("plan") else None
+        raw = files.store().get_bytes(files.drawing_key(did, f"{b.out_dir}/{meta['plan']}")) if meta and meta.get("plan") else None
         plan = json.loads(raw) if raw else None
     except Exception:
         plan = None

@@ -80,6 +80,32 @@ def test_working_copies_follow_the_manifest(s3, tmp_path, monkeypatch):
     assert (wd / "out" / "model.glb").read_bytes() == b"glb2" and not (wd / "out" / "plans" / "floor_c0.json").exists()
 
 
+def test_build_trees(s3, tmp_path, monkeypatch):
+    """A build's files go to a new tree; unchanged ones are copied inside the store."""
+    monkeypatch.setenv("DWG3D_SCRATCH", str(tmp_path / "a"))
+    wd = s3.pull("d", trees=[])
+    (wd / "out").mkdir(parents=True)
+    (wd / "out" / "model.glb").write_bytes(b"glb1")
+    (wd / "out" / "big.dxf").write_bytes(b"dxf")
+    s3.push("d", "out", to="builds/1")
+    copied = []
+    real = s3.copy
+    monkeypatch.setattr(s3, "copy", lambda a, b: copied.append(b) or real(a, b))
+    (wd / "out" / "model.glb").write_bytes(b"glb2")
+    s3.push("d", "out", to="builds/2", base="builds/1")
+    assert copied == ["drawings/d/builds/2/big.dxf"]
+    assert s3.get_bytes("drawings/d/builds/1/model.glb") == b"glb1"
+    assert s3.get_bytes("drawings/d/builds/2/model.glb") == b"glb2"
+    # another host takes build 2 as its working out/
+    monkeypatch.setenv("DWG3D_SCRATCH", str(tmp_path / "b"))
+    wd_b = s3.pull("d", trees=[("builds/2", "out")])
+    assert (wd_b / "out" / "model.glb").read_bytes() == b"glb2" and (wd_b / "out" / "big.dxf").exists()
+    s3.put_bytes("drawings/d/out/model.glb", b"legacy")
+    files.prune(s3, "d", keep={"builds/2"})
+    assert set(s3.list("drawings/d/")) == {"drawings/d/builds/2/model.glb", "drawings/d/builds/2/big.dxf",
+                                           "drawings/d/builds/2/.manifest.json"}
+
+
 def test_api_on_s3(s3, pg, tmp_path):
     """Upload, build, files, detail model, export and a catalog model — all through S3."""
     from fastapi.testclient import TestClient
@@ -97,12 +123,14 @@ def test_api_on_s3(s3, pg, tmp_path):
     assert d["status"] == "done", d.get("error")
     glb = c.get(d["model_url"])
     assert glb.status_code == 200 and glb.content[:4] == b"glTF"
-    assert glb.content == s3.get_bytes(files.drawing_key(did, "out/model.glb"))
+    trees = lambda: {k.split("/")[3] for k in s3.list(files.drawing_key(did, "builds/"))}  # noqa: E731
+    (b1,) = trees()
+    assert glb.content == s3.get_bytes(files.drawing_key(did, f"builds/{b1}/model.glb"))
     fid = d["result"]["floors"][0]["id"]
     assert c.get(f"/api/drawings/{did}/files/plans/floor_{fid}.json").json()["walls"]
     png = c.get(f"/api/drawings/{did}/files/debug/floor_{fid}.png")
     assert png.status_code == 200 and png.content[:4] == b"\x89PNG"
-    assert s3.size(files.drawing_key(did, f"out/debug/floor_{fid}.png"))
+    assert s3.size(files.drawing_key(did, f"builds/{b1}/debug/floor_{fid}.png"))
     for bad in ("../input.dxf", "cache/debug_index.json", ".manifest.json", "nope.glb"):
         assert c.get(f"/api/drawings/{did}/files/{bad}").status_code == 404, bad
 
@@ -114,6 +142,7 @@ def test_api_on_s3(s3, pg, tmp_path):
     while (d := c.get(f"/api/drawings/{did}").json())["status"] not in ("done", "error"):
         time.sleep(0.2)
     assert d["status"] == "done" and d["build"] == 2
+    assert len(trees()) == 2 and s3.get_bytes(files.drawing_key(did, f"builds/{b1}/model.glb")) == glb.content
     dxf = c.get(f"/api/drawings/{did}/drawing.dxf")
     assert dxf.status_code == 200 and b"SECTION" in dxf.content[:200]
     assert any(k.endswith("/edited.dxf") for k in s3.list(files.drawing_key(did, "export/")))

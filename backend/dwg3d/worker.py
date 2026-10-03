@@ -71,11 +71,12 @@ def process(jid: int, did: str):
         cfg_in, input_path = dict(d.config or {}), d.input_path
         old = store.current_build(s, d)
         old_converter = (old.result or {}).get("converter") if old else None
+        old_dir = old.out_dir if old else None
     with files.lock(did):
-        _build(jid, did, cfg_in, input_path, old_converter)
+        _build(jid, did, cfg_in, input_path, old_converter, old_dir)
 
 
-def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str | None):
+def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str | None, old_dir: str | None):
     st = files.store()
     last = {"stage": "start", "t": 0.0}
 
@@ -87,8 +88,8 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
             _set(jid, stage=stage, progress=round(frac, 3), message=msg)
 
     try:
-        # the working copy: the input and the previous out/ (converted DXF, plan caches)
-        ddir = st.pull(did, paths=[input_path], trees=["out"])
+        # the working copy: the input and the previous build as out/ (converted DXF, plan caches)
+        ddir = st.pull(did, paths=[input_path], trees=[(old_dir, "out")] if old_dir else [])
         src = ddir / input_path
         if not src.is_file():
             raise RuntimeError("Исходный файл чертежа не найден в хранилище")
@@ -111,7 +112,10 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
         if (cfg.get("floors") or {}).get("items"):
             cfg["floors"] = {**cfg["floors"], "items": cfg_used["floors"]["items"]}
         _set(jid, stage="export", progress=0.99, message="Сохранение файлов")
-        st.push(did, "out")                  # the files first: the build becomes current below
+        # the files first, as a tree of their own: the build becomes current below,
+        # until then readers keep getting the files of the current one
+        out_dir = f"builds/{jid}"
+        st.push(did, "out", to=out_dir, base=old_dir)
         with db.session() as s:
             d = store.get_drawing(s, did, lock=True)
             if d is None:
@@ -125,7 +129,7 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
             rooms.sync(s, did, result, _plans(ddir / "out", result), moves)
             rooms.relocate(s, did)
             n = d.current_build + 1
-            s.add(Build(drawing_id=did, n=n, result=result, config=cfg, out_dir="out"))
+            s.add(Build(drawing_id=did, n=n, result=result, config=cfg, out_dir=out_dir))
             s.flush()
             d.current_build = n
             d.config = cfg
@@ -137,6 +141,13 @@ def _build(jid: int, did: str, cfg_in: dict, input_path: str, old_converter: str
         msg = str(ex) if isinstance(ex, (RuntimeError, ValueError, OSError)) else f"{type(ex).__name__}: {ex}"
         _set(jid, status="error", stage="error", error=msg[:1000], trace=traceback.format_exc()[-3000:],
              finished_at=func.now())
+        return
+    # the trees of older builds and of builds that failed to commit; the previous
+    # build's stays for a while, for readers that looked it up just before the switch
+    try:
+        files.prune(st, did, keep={out_dir, *([old_dir] if old_dir else [])})
+    except Exception:
+        log.exception("old build files of %s not removed", did)
 
 
 def _plans(out, result: dict) -> dict[str, dict]:

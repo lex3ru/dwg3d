@@ -154,7 +154,7 @@ def backfill(s: Session, did: str) -> int:
     result = b.result
     plans = {}
     for f in result.get("floors") or []:
-        raw = files.store().get_bytes(files.drawing_key(did, f"out/{f['plan']}")) if f.get("plan") else None
+        raw = files.store().get_bytes(files.drawing_key(did, f"{b.out_dir}/{f['plan']}")) if f.get("plan") else None
         if raw:
             plans[f["id"]] = json.loads(raw)
     sync(s, did, result, plans, {})
