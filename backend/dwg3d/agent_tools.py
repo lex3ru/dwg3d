@@ -140,7 +140,8 @@ def project_overview(ctx: Context) -> dict[str, Any]:
                              "floors": floors})
         shown = access.visible_layers(me)
         lays = [{"id": x["id"], "kind": x["kind"], "kind_name": layers.KINDS.get(x["kind"], {}).get("name", x["kind"]),
-                 "name": x["name"], "visible": x["visible"], "locked": x["locked"], "objects": x["count"]}
+                 "name": x["name"], "visible": x["visible"], "locked": x["locked"], "objects": x["count"],
+                 **({"variant_group": x["props"]["variant_group"]} if (x.get("props") or {}).get("variant_group") else {})}
                 for x in layers.list_layers(s, pid) if shown is None or x["id"] in shown]
         return {"project": {"id": p.id, "name": p.name, "description": p.description},
                 "my_role": access.project_role(s, me, pid), "mode": me.agent["mode"],
@@ -369,7 +370,15 @@ OPS_HELP = """\
   "flow"?, "name"?}} — путь между остановками пересчитает редактор;
 - изменить: {"op": "update", "id", "version", …только меняемые поля};
 - удалить: {"op": "delete", "id", "version"}.
-version — из query_objects / get_object."""
+version — из query_objects / get_object.
+Слои (выполняются раньше операций с объектами):
+- новый слой: {"op": "create_layer", "kind", "name"?, "id"?} — объекты этого же предложения
+  могут ссылаться на него по id ("layer": "<id>");
+- вариант (копия слоя со всеми объектами — для сравнения): {"op": "copy_layer", "layer", "name"?,
+  "id"?}; копии объектов получают id "<id исходного>-<первые 6 символов id копии>", их можно
+  менять в этом же предложении (update / delete с "version": 1);
+- переименовать / показать / скрыть: {"op": "update_layer", "layer", "name"?, "visible"?};
+- удалить слой со всеми объектами: {"op": "delete_layer", "layer"} (не заблокированный)."""
 
 
 # --------------------------------------------------------------- proposals ---
@@ -393,6 +402,23 @@ def propose_changes(ctx: Context,
                              {"summary": p.summary, "counts": proposals.counts(p.ops)}, d.id)
         return {**proposals.proposal_json(p, drawing=d),
                 "next": "Предложение ждёт решения человека; узнать его — proposal_status"}
+
+
+@mcp.tool(annotations=READ)
+def compare_variants(ctx: Context,
+                     a: Annotated[str, Field(description="id слоя — исходный вариант")],
+                     b: Annotated[str, Field(description="id слоя — сравниваемый вариант")]) -> dict[str, Any]:
+    """Сравнить два слоя (варианта расстановки): сколько объектов добавлено, удалено,
+    перемещено, изменено от a к b (первые 100 — с названием, этажом, помещением) и
+    спецификация обоих: количество и сумма по позициям, разница."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        lay = _shown_layers(s, me, pid)
+        if a not in lay or b not in lay:
+            raise ToolError("Слой не найден: см. project_overview")
+        res = layers.compare(s, lay[a], lay[b])
+        objs = res["objects"]
+        return {**res, "objects": [{k: v for k, v in o.items() if k not in ("key", "id_a", "drawing_id")} for o in objs[:100]],
+                "objects_left_out": max(0, len(objs) - 100)}
 
 
 @mcp.tool(annotations=READ)

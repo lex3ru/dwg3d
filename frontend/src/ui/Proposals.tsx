@@ -1,7 +1,7 @@
 import { Bot, Check, ChevronDown, ChevronUp, Eye, EyeOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
-  applyProposal, getProposal, listProposals, rejectProposal, type PlacedItem, type Proposal, type ProposalFull, type ShapeObject,
+  applyProposal, getProposal, listProposals, rejectProposal, type PlacedItem, type Proposal, type ProposalFull, type ProposalLayerOp, type ShapeObject,
 } from '@/api'
 import { useConfirm } from '@/components/confirm'
 import { Button } from '@/components/ui/button'
@@ -14,8 +14,18 @@ type Row = PlacedItem | ShapeObject
 const rowName = (r: Row) => ('item' in r && r.item ? catalogItem(r.item).name : ('props' in r && (r.props?.name as string)) || 'линия или зона')
 
 /** What a proposal does, line by line (a few of each). */
+function layerOpText(o: ProposalLayerOp): string {
+  if (o.op === 'create_layer') return `новый слой «${o.name}»`
+  if (o.op === 'copy_layer') return `вариант «${o.name}» — копия «${o.of}» (${o.objects ?? 0} об.)`
+  if (o.op === 'delete_layer') return `удалить слой «${o.name}» (${o.objects ?? 0} об.)`
+  const c = o.changes ?? {}
+  return [c.name != null && `переименовать в «${c.name}»`, c.visible != null && (c.visible ? 'показать' : 'скрыть')]
+    .filter(Boolean).join(', ').replace(/^/, `слой «${o.name}»: `) || `слой «${o.name}»: без изменений`
+}
+
 function Changes({ p }: { p: ProposalFull }) {
   const lines = [
+    ...(p.preview.layers ?? []).map((o) => ({ c: o.op === 'delete_layer' ? MARK_COLOR.removed : MARK_COLOR.changed, t: `▤ ${layerOpText(o)}` })),
     ...p.preview.created.map((r) => ({ c: MARK_COLOR.new, t: `+ ${rowName(r)}` })),
     ...p.preview.updated.map((u) => ({ c: MARK_COLOR.changed, t: `~ ${rowName(u.after)}` })),
     ...p.preview.deleted.map((r) => ({ c: MARK_COLOR.removed, t: `− ${rowName(r)}` })),
@@ -105,6 +115,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
                   <span style={{ color: MARK_COLOR.new }}>+{n.create}</span>{' '}
                   <span style={{ color: MARK_COLOR.changed }}>~{n.update}</span>{' '}
                   <span style={{ color: MARK_COLOR.removed }}>−{n.delete}</span>
+                  {!!n.layers && <span>{' · '}слоёв: {n.layers}</span>}
                 </div>
                 {on && preview && <Changes p={preview} />}
                 {rejecting === p.id ? (
@@ -124,7 +135,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
                     {editable && (
                       <>
                         <Button size="sm" disabled={busy === p.id} onClick={async () => {
-                          const total = n.create + n.update + n.delete
+                          const total = n.create + n.update + n.delete + (n.layers ?? 0)
                           if (await ask({ title: 'Применить предложение?', text: `${p.summary}\n\nИзменений: ${total}. В журнале они будут записаны от вашего имени с пометкой копилота.`, confirm: 'Применить' })) {
                             run(p.id, () => applyProposal(p.id))
                           }

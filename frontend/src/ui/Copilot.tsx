@@ -15,10 +15,10 @@ const TOOL_LABEL: Record<string, string> = {
   search_catalog: 'ищу в каталоге', query_objects: 'ищу объекты', get_object: 'смотрю объект', report: 'считаю спецификацию',
   recent_changes: 'смотрю журнал', proposal_status: 'проверяю предложение', propose_changes: 'готовлю предложение',
   place_in_room: 'подбираю места', place_row: 'рассчитываю ряд', camera_coverage: 'считаю обзор камер',
-  get_ui_context: 'смотрю, что открыто', show_in_viewer: 'показываю на плане',
+  get_ui_context: 'смотрю, что открыто', show_in_viewer: 'показываю на плане', compare_variants: 'сравниваю варианты',
 }
 
-const EXAMPLES = ['Что на этом этаже?', 'Сколько кушеток в проекте по этажам?', 'Где камеры не видят помещения?', 'Предложи расстановку кресел ожидания здесь']
+const EXAMPLES = ['Что на этом этаже?', 'Где камеры не видят помещения?', 'Предложи расстановку кресел ожидания здесь', 'Сделай вариант мебели и сравни с текущим']
 
 function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable: boolean; onPreview: (p: ProposalFull | null) => void }) {
   const [state, setState] = useState<string | null>(null)
@@ -32,6 +32,7 @@ function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable
           <span style={{ color: MARK_COLOR.new }}>+{n.create}</span>{' '}
           <span style={{ color: MARK_COLOR.changed }}>~{n.update}</span>{' '}
           <span style={{ color: MARK_COLOR.removed }}>−{n.delete}</span>
+          {!!n.layers && <span>{' · '}слоёв: {n.layers}</span>}
         </div>
       )}
       {state ? <div className="text-xs text-muted-foreground">{state}</div> : (

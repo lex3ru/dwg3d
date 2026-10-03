@@ -1,7 +1,9 @@
 """Proposals of AI agents: changes a person applies or rejects.
 
 The copilot (agent_tools.propose_changes) proposes operations on the layer objects of a
-drawing — the same as viewdata.apply takes. They are checked at once against
+drawing — the same as viewdata.apply takes — and on layers (LAYER_OPS: a new layer, a
+variant, renaming or showing, deleting), which run first, so that objects may go to a
+layer made in the same proposal. They are checked at once against
 the current rows (a dry run in a savepoint, rolled back) and kept; a person
 sees what they would do (preview: the rows created, the rows before and after
 an update, the rows deleted — again a dry run, on the rows as they are now)
@@ -20,8 +22,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, viewdata
-from .models import Drawing, LayerObject, Proposal, User
+from . import auth, layers, viewdata
+from .models import Drawing, Layer, LayerObject, Project, Proposal, User
 
 STATUSES = ("open", "applied", "rejected", "stale")
 STATUS_NAMES = {"open": "ждёт решения", "applied": "применено", "rejected": "отклонено", "stale": "устарело"}
@@ -60,8 +62,12 @@ def dry_run(s: Session):
     return savepoint(s, keep=False)
 
 
+LAYER_OPS = ("create_layer", "copy_layer", "update_layer", "delete_layer")
+
+
 def counts(ops: list) -> dict:
-    return {k: sum(1 for o in ops if o.get("op") == k) for k in ("create", "update", "delete")}
+    return {**{k: sum(1 for o in ops if o.get("op") == k) for k in ("create", "update", "delete")},
+            "layers": sum(1 for o in ops if o.get("op") in LAYER_OPS)}
 
 
 def proposal_json(p: Proposal, users: dict[int, User] | None = None, drawing: Drawing | None = None) -> dict:
@@ -113,7 +119,73 @@ def _ids(ops: list) -> list[dict]:
         raise viewdata.Invalid(f"ops: от 1 до {MAX_OPS} операций")
     if any(not isinstance(o, dict) for o in ops):
         raise viewdata.Invalid("ops: список объектов-операций")
-    return [{**o, "id": o.get("id") or uuid.uuid4().hex[:8]} if o.get("op") == "create" else o for o in ops]
+    out = []
+    for o in ops:
+        if o.get("op") == "create":
+            o = {**o, "id": o.get("id") or uuid.uuid4().hex[:8]}
+        elif o.get("op") in ("create_layer", "copy_layer"):
+            lid = o.get("id") or uuid.uuid4().hex[:12]
+            if not isinstance(lid, str) or not lid.isalnum() or not 6 <= len(lid) <= 24:
+                raise viewdata.Invalid(f"{o['op']}.id: 6–24 латинских букв и цифр")
+            o = {**o, "id": lid}
+        out.append(o)
+    return out
+
+
+def _layer(s: Session, pid: str, lid) -> Layer:
+    layer = s.get(Layer, lid) if isinstance(lid, str) else None
+    if layer is None or layer.project_id != pid:
+        raise viewdata.Invalid(f"слоя «{lid}» нет в проекте")
+    return layer
+
+
+def _layer_op(s: Session, pid: str, o: dict) -> dict:
+    """One operation on layers (audited like the HTTP API's): what it did, for the preview."""
+    op = o["op"]
+    if op == "create_layer":
+        layer = layers.create(s, pid, {"kind": o.get("kind"), "name": o.get("name")}, o["id"])
+        viewdata.audit_entry(s, pid, "layer", layer.id, "create", None, layers.layer_json(layer))
+        out = {"op": op, "id": layer.id, "name": layer.name, "kind": layer.kind}
+    elif op == "copy_layer":
+        src = _layer(s, pid, o.get("layer"))
+        layer = layers.copy_layer(s, src, o.get("name"), o["id"], derived_ids=True)
+        n = s.scalar(select(func.count()).select_from(LayerObject).where(LayerObject.layer_id == layer.id))
+        viewdata.audit_entry(s, pid, "layer", layer.id, "create", None, {**layers.layer_json(layer), "copy_of": src.id})
+        out = {"op": op, "id": layer.id, "name": layer.name, "kind": layer.kind, "of": src.name, "objects": n}
+    elif op == "update_layer":
+        layer = _layer(s, pid, o.get("layer"))
+        if "locked" in o:
+            raise viewdata.Invalid("блокировку слоя меняет только человек")
+        changes = layers.update(layer, {k: o[k] for k in ("name", "visible") if k in o})
+        if changes:
+            viewdata.audit_entry(s, pid, "layer", layer.id, "update", {k: b for k, (b, _) in changes.items()},
+                                 {k: a for k, (_, a) in changes.items()})
+        out = {"op": op, "id": layer.id, "name": layer.name, "changes": {k: a for k, (_, a) in changes.items()}}
+    else:
+        layer = _layer(s, pid, o.get("layer"))
+        if layer.locked:
+            raise viewdata.Invalid(f"слой «{layer.name}» заблокирован")
+        n = s.scalar(select(func.count()).select_from(LayerObject).where(LayerObject.layer_id == layer.id))
+        viewdata.audit_entry(s, pid, "layer", layer.id, "delete", layers.layer_json(layer), None)
+        out = {"op": op, "id": layer.id, "name": layer.name, "objects": n}
+        s.delete(layer)
+    s.flush()
+    s.execute(Project.__table__.update().where(Project.id == pid).values(updated_at=func.now()))
+    return out
+
+
+def _run(s: Session, pid: str, did: str, ops: list, build: int | None) -> tuple[list[dict], dict]:
+    """The layer operations, then the objects' (viewdata.apply): (what the layer ones did, apply's answer)."""
+    done = []
+    try:
+        for o in ops:
+            if o.get("op") in LAYER_OPS:
+                done.append(_layer_op(s, pid, o))
+    except layers.LayerError as ex:
+        raise viewdata.Invalid(str(ex)) from ex
+    objs = [o for o in ops if o.get("op") not in LAYER_OPS]
+    res = viewdata.apply(s, did, "object", objs, build=build) if objs else {"items": [], "deleted": []}
+    return done, res
 
 
 def create(s: Session, d: Drawing, summary: str, ops: list, build: int | None) -> Proposal:
@@ -128,7 +200,7 @@ def create(s: Session, d: Drawing, summary: str, ops: list, build: int | None) -
                                                                  Proposal.status == "open")) >= MAX_OPEN:
         raise viewdata.Invalid(f"в проекте уже {MAX_OPEN} предложений ждут решения")
     with dry_run(s):
-        viewdata.apply(s, d.id, "object", ops, build=build)
+        _run(s, d.project_id, d.id, ops, build)
     p = Proposal(id=uuid.uuid4().hex[:12], project_id=d.project_id, drawing_id=d.id,
                  agent=(me.agent["name"] or me.agent["id"]) if me and me.agent else "",
                  user_id=me.id if me else None, summary=summary, ops=ops, build=d.current_build)
@@ -143,18 +215,19 @@ def _stale(p: Proposal, why: str):
 
 
 def preview(s: Session, p: Proposal) -> dict:
-    """What the proposal would do now: {created: [rows], updated: [{before, after}], deleted: [rows]}.
+    """What the proposal would do now: {layers: [what each layer operation does],
+    created: [rows], updated: [{before, after}], deleted: [rows]}.
     An open proposal that no longer applies becomes stale (with the reason)."""
     floors = viewdata._floors(s, p.drawing_id)
     ids = [o["id"] for o in p.ops if o.get("op") in ("update", "delete") and isinstance(o.get("id"), str)]
     before = {r.id: viewdata.object_json(r, floors) for r in s.scalars(
         select(LayerObject).where(LayerObject.project_id == p.project_id, LayerObject.id.in_(ids)))}
-    out: dict = {"created": [], "updated": [], "deleted": []}
+    out: dict = {"layers": [], "created": [], "updated": [], "deleted": []}
     if p.status != "open":
         return out
     try:
         with dry_run(s):
-            res = viewdata.apply(s, p.drawing_id, "object", p.ops, build=p.build)
+            out["layers"], res = _run(s, p.project_id, p.drawing_id, p.ops, p.build)
     except (viewdata.Invalid, viewdata.Conflict, LookupError) as ex:
         _stale(p, str(ex) or "чертёж удалён")
         return out
@@ -177,7 +250,7 @@ def apply(s: Session, p: Proposal) -> dict:
     token = viewdata.audit_via.set("по предложению копилота")
     try:
         with savepoint(s, keep=True):       # a failure leaves nothing half done, only the status
-            res = viewdata.apply(s, p.drawing_id, "object", p.ops, build=p.build)
+            done, res = _run(s, p.project_id, p.drawing_id, p.ops, p.build)
     except (viewdata.Invalid, viewdata.Conflict, LookupError) as ex:
         _stale(p, str(ex) or "чертёж удалён")
         raise viewdata.Conflict(f"Предложение устарело: {p.reason}", []) from ex
@@ -185,7 +258,7 @@ def apply(s: Session, p: Proposal) -> dict:
         viewdata.audit_via.reset(token)
     me = auth.current.get()
     p.status, p.decided_at, p.decided_by = "applied", datetime.now(timezone.utc), me.id if me else None
-    return res
+    return {**res, "layers": done}
 
 
 def reject(s: Session, p: Proposal, reason: str | None):

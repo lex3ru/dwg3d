@@ -560,15 +560,32 @@ export interface Proposal {
   /** who proposed: «Копилот» */
   agent: string
   user: { id: number; login: string; name: string } | null
-  counts: { create: number; update: number; delete: number }
+  counts: ProposalCounts
   created: number | null
   decided: number | null
   decided_by: { id: number; login: string; name: string } | null
 }
 
+/** Objects created / updated / deleted, and operations on layers. */
+export interface ProposalCounts { create: number; update: number; delete: number; layers?: number }
+
+/** What an operation on layers of a proposal does (a new layer, a variant, renaming or showing, deleting). */
+export interface ProposalLayerOp {
+  op: 'create_layer' | 'copy_layer' | 'update_layer' | 'delete_layer'
+  id: string
+  name: string
+  kind?: string
+  /** copy_layer: the layer copied */
+  of?: string
+  /** copy_layer / delete_layer: its objects */
+  objects?: number
+  changes?: { name?: string; visible?: boolean }
+}
+
 /** A proposal with what it would do now (rows as the server would have them). */
 export interface ProposalFull extends Proposal {
   preview: {
+    layers?: ProposalLayerOp[]
     created: (PlacedItem | ShapeObject)[]
     updated: { before: PlacedItem | ShapeObject | null; after: PlacedItem | ShapeObject }[]
     deleted: (PlacedItem | ShapeObject)[]
@@ -658,7 +675,7 @@ export async function copilotStatus(): Promise<CopilotStatus> {
   return get('/api/copilot/status')
 }
 
-export interface CopilotProposal { id: string; summary: string; status: string; counts?: { create: number; update: number; delete: number }; drawing_id?: string }
+export interface CopilotProposal { id: string; summary: string; status: string; counts?: ProposalCounts; drawing_id?: string }
 
 /** One line of a copilot answer as it comes, or of a kept conversation. */
 export type CopilotEvent =

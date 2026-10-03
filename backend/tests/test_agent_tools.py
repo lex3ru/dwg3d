@@ -95,7 +95,8 @@ def test_read_tools(world):
     a = Tools("tok-editor", pid)
     tools = {t.name: t for t in asyncio.run(agent_tools.mcp.list_tools())}
     reading = {"project_overview", "list_rooms", "layer_kinds", "search_catalog", "query_objects",
-               "get_object", "report", "recent_changes", "proposal_status", "camera_coverage", "get_ui_context"}
+               "get_object", "report", "recent_changes", "proposal_status", "camera_coverage", "get_ui_context",
+               "compare_variants"}
     assert set(tools) == reading | {"propose_changes", "place_in_room", "place_row", "show_in_viewer"}
     assert all(t.annotations.read_only_hint == (n in reading) for n, t in tools.items())
     assert "ctx" not in tools["list_rooms"].input_schema["properties"]

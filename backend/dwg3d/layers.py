@@ -69,7 +69,8 @@ def _name(v, required: bool) -> str | None:
     return v.strip()
 
 
-def create(s: Session, pid: str, v: dict) -> Layer:
+def create(s: Session, pid: str, v: dict, lid: str | None = None) -> Layer:
+    """A new layer ({kind, name?, sort?}); `lid`: its id, when given in advance (a proposal)."""
     kind = v.get("kind")
     if kind not in KINDS:
         raise LayerError(f"kind: {', '.join(KINDS)}")
@@ -79,7 +80,9 @@ def create(s: Session, pid: str, v: dict) -> Layer:
     sort = v.get("sort")
     if sort is None:
         sort = (s.scalar(select(func.max(Layer.sort)).where(Layer.project_id == pid)) or 0) + 1
-    layer = Layer(id=uuid.uuid4().hex[:12], project_id=pid, kind=kind, name=name, sort=int(sort))
+    if lid is not None and s.get(Layer, lid) is not None:
+        raise LayerError(f"слой {lid} уже есть")
+    layer = Layer(id=lid or uuid.uuid4().hex[:12], project_id=pid, kind=kind, name=name, sort=int(sort))
     s.add(layer)
     s.flush()
     return layer
@@ -156,7 +159,10 @@ def variant_group(layer: Layer) -> str:
     return (layer.props or {}).get("variant_group") or layer.id
 
 
-def copy_layer(s: Session, layer: Layer, name: str | None) -> Layer:
+def copy_layer(s: Session, layer: Layer, name: str | None, lid: str | None = None, derived_ids: bool = False) -> Layer:
+    """A variant: a copy of the layer with its objects. `lid`: the copy's id when given in
+    advance; `derived_ids`: the copied objects get "<original id>-<the copy's id[:6]>" (a
+    proposal changes them in the same breath), else random ids."""
     from .viewdata import MAX_OBJECTS
 
     objs = list(s.scalars(select(LayerObject).where(LayerObject.layer_id == layer.id)))
@@ -176,11 +182,13 @@ def copy_layer(s: Session, layer: Layer, name: str | None) -> Layer:
         Layer.project_id == layer.project_id, (Layer.id == group) | (Layer.props["variant_group"].astext == group)))
     base = layer.name.split(" — вариант")[0]
     copy = create(s, layer.project_id, {"kind": layer.kind, "name": _name(name, False) or f"{base} — вариант {n_variants + 1}",
-                                        "sort": layer.sort})
+                                        "sort": layer.sort}, lid)
     copy.props = {**(layer.props or {}), "variant_group": group}
     taken = set(s.scalars(select(LayerObject.id).where(LayerObject.project_id == layer.project_id)))
     for o in objs:
-        oid = uuid.uuid4().hex[:8]
+        oid = f"{o.id}-{copy.id[:6]}" if derived_ids else uuid.uuid4().hex[:8]
+        if len(oid) > 40:
+            oid = uuid.uuid4().hex[:8]
         while oid in taken:
             oid = uuid.uuid4().hex[:8]
         taken.add(oid)
