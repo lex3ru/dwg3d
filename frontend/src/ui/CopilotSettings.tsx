@@ -85,8 +85,8 @@ export default function CopilotSettings({ onClose }: { onClose: () => void }) {
                 <Input value={cfg.model} list="copilot-models" placeholder="имя модели у провайдера" onChange={(e) => set({ model: e.target.value })} />
                 <datalist id="copilot-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
                 <span className="text-xs font-normal text-muted-foreground">
-                  Нужна модель с вызовом функций (tools) и окном контекста от 16 тыс. токенов; «Проверить» подскажет доступные.
-                  Ollama по умолчанию даёт 4 тыс. — задайте <code>OLLAMA_CONTEXT_LENGTH=16384</code> или больше. На процессоре без видеокарты
+                  Нужна модель с вызовом функций (tools) и окном контекста от 32 тыс. токенов; «Проверить» подскажет доступные.
+                  Ollama по умолчанию даёт 4 тыс. — задайте <code>OLLAMA_CONTEXT_LENGTH=32768</code> или больше. На процессоре без видеокарты
                   крупные модели отвечают минутами.
                 </span>
               </Label>
