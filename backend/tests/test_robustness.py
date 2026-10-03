@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from dwg3d import files as file_store
 from dwg3d.config import ConfigError, load_config, validate_config
 from dwg3d.pipeline import render_debug, run
 
@@ -241,7 +242,7 @@ def test_api_view_settings_and_detail_model(client, sample):
     assert [x["id"] for x in c.get(f"/api/drawings/{jid}/view").json()["furniture"]] == ["a1", "k1"]
     # detail model: only GLB is accepted
     assert c.post(f"/api/drawings/{jid}/detail", files={"file": ("x.glb", b"not a glb at all")}).status_code == 400
-    glb = (api.files.store().workdir(jid) / "out" / "model.glb").read_bytes()
+    glb = (file_store.store().workdir(jid) / "out" / "model.glb").read_bytes()
     v = c.post(f"/api/drawings/{jid}/detail", files={"file": ("facade.glb", glb)}).json()
     assert v["detail"]["file"] == "facade.glb" and v["detail"]["version"] == 1
     assert c.get(f"/api/drawings/{jid}/detail.glb").content == glb

@@ -85,6 +85,11 @@ def _users(s: Session, ps: list[Proposal]) -> dict[int, User]:
     return {u.id: u for u in s.scalars(select(User).where(User.id.in_(ids)))} if ids else {}
 
 
+def one_json(s: Session, p: Proposal) -> dict:
+    """proposal_json of one proposal, with its people and drawing looked up."""
+    return proposal_json(p, _users(s, [p]), s.get(Drawing, p.drawing_id))
+
+
 def listing(s: Session, pid: str, status: str | None = None, drawing: str | None = None,
             user_id: int | None = None, agent: str | None = None, limit: int = 100) -> list[dict]:
     """Proposals of a project, newest first; of one user's agent when `agent` is given."""

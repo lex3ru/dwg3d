@@ -247,7 +247,7 @@ def test_drawing_export_with_layers(c, built):
     assert attrs["NOTE"] == "KS-1" and attrs["NAME"]
     assert any(e.dxf.name == "3D_sec.dome" for e in msp.query("INSERT"))
     assert any(abs(a.dxf.radius * s - 6) < 1e-6 for a in msp.query("ARC"))           # the camera view
-    assert msp.query(f'LWPOLYLINE[layer=="3D_Экспорт_ маршруты"]') and msp.query("HATCH")
+    assert msp.query('LWPOLYLINE[layer=="3D_Экспорт_ маршруты"]') and msp.query("HATCH")
     # only some layers / none
     only = c.get(f"/api/drawings/{did}/drawing.dxf?layers={zones['id']}")
     assert only.status_code == 200 and b"3D_doc.couch" not in only.content

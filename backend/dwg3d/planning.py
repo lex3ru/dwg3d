@@ -21,8 +21,7 @@ from __future__ import annotations
 
 import math
 
-from shapely import affinity
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 from sqlalchemy import select

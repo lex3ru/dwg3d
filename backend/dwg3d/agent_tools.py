@@ -407,7 +407,7 @@ def proposal_status(ctx: Context,
         p = s.scalar(select(Proposal).where(Proposal.id == id, Proposal.project_id == pid))
         if p is None:
             raise ToolError(f"Предложение {id!r} не найдено")
-        return proposals.proposal_json(p, proposals._users(s, [p]), s.get(Drawing, p.drawing_id))
+        return proposals.one_json(s, p)
 
 
 # ---------------------------------------------------------- planning tools ---

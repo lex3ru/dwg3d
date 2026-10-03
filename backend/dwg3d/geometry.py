@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
