@@ -4,14 +4,74 @@
     {
       "name": "api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--directory", "backend", "uvicorn", "dwg3d.api:app", "--port", "8765"],
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "backend",
+        "uvicorn",
+        "dwg3d.api:app",
+        "--port",
+        "8765"
+      ],
       "port": 8765
     },
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5174", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
       "port": 5174
+    },
+    {
+      "name": "api-alt",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "backend",
+        "uvicorn",
+        "dwg3d.api:app",
+        "--port",
+        "8766",
+        "--workers",
+        "2"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "api-noauth",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export DWG3D_AUTH=off DWG3D_S3_ENDPOINT=http://127.0.0.1:9000 DWG3D_WORKERS=0; exec uv run --directory backend uvicorn dwg3d.api:app --port 8766"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "web-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "env": {
+        "DWG3D_API": "http://127.0.0.1:8766"
+      },
+      "port": 5175
     }
   ]
 }
