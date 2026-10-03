@@ -8,6 +8,7 @@ build queue into a 3D model.
   POST /api/projects/{id}/drawings       multipart: file, name, config (optional JSON string)
   GET  /api/projects/{id}/audit          who changed what (?drawing=)
   GET  /api/projects/{id}/events         changes as they happen (Server-Sent Events), see events.py
+  POST /api/projects/{id}/ui-context     what a viewer window shows, for the user's agents (uicontext.py)
   GET  /api/drawings?project=            drawings (building switcher)
   GET/DELETE /api/drawings/{id}          status / progress / result
   POST /api/drawings/{id}/revision       multipart: a new revision of the DWG; floors,
@@ -84,7 +85,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import access, agent_mcp, auth, catalog, db, events, files, layers, proposals, reports, rooms, store, tokens, viewdata, worker
+from . import (access, agent_mcp, auth, catalog, db, events, files, layers, proposals, reports, rooms, store, tokens,
+               uicontext, viewdata, worker)
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -534,7 +536,10 @@ async def project_events(pid: str, request: Request):
         raise HTTPException(404, "Проект не найден")
     q = events.subscribe(pid)
 
-    def visible(ev: dict) -> dict:
+    def visible(ev: dict) -> dict | None:
+        if "to_user" in ev:                 # a command to one user's windows (uicontext.py)
+            mine = me.share is None and me.agent is None and me.id == ev["to_user"]
+            return ev if mine else None
         if me.share is None:
             return ev
         # a guest: no names; only the drawings of the link
@@ -554,13 +559,26 @@ async def project_events(pid: str, request: Request):
                     yield "event: ping\ndata: {}\n\n"          # an event, not a comment: windows watch for it
                     continue
                 ev = visible(ev)
-                if "changes" not in ev or ev["changes"] or ev.get("more"):
+                if ev is not None and "changes" not in ev or ev["changes"] or ev.get("more"):
                     yield f"event: change\ndata: {json.dumps(ev, ensure_ascii=False, default=str)}\n\n"
         finally:
             events.unsubscribe(pid, q)
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/projects/{pid}/ui-context", status_code=204)
+def report_ui_context(pid: str, v: dict):
+    """What this window shows ({client, drawing, floor, view, selected, room, proposal, tool}, or
+    {client, closed: true}), for the user's agents (uicontext.py)."""
+    me = auth.current.get()
+    with db.session() as s:
+        _project(s, pid, need="viewer")
+        try:
+            uicontext.report(s, pid, me.id if me else None, v.get("client"), v)
+        except uicontext.ContextError as ex:
+            raise HTTPException(400, str(ex))
 
 
 # ------------------------------------------------ members and share links ---

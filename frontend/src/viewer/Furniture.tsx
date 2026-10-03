@@ -44,8 +44,9 @@ interface Props {
   marks?: Map<string, ProposalMark>
 }
 
-export type ProposalMark = 'new' | 'changed' | 'removed'
-export const MARK_COLOR: Record<ProposalMark, string> = { new: '#2f9e44', changed: '#1c7ed6', removed: '#e03131' }
+/** outlines: a proposal's new, changed, to be removed items; `focus` — what an agent shows */
+export type ProposalMark = 'new' | 'changed' | 'removed' | 'focus'
+export const MARK_COLOR: Record<ProposalMark, string> = { new: '#2f9e44', changed: '#1c7ed6', removed: '#e03131', focus: '#f59f00' }
 
 const CLICK_PX = 5
 const Z_ZONE = 0.03, Z_LINE = 0.045

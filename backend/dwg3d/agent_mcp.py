@@ -36,7 +36,7 @@ from pydantic import Field
 from shapely.geometry import box
 from sqlalchemy import func, select
 
-from . import access, auth, db, layers, planning, proposals, reports, rooms, store, tokens, viewdata
+from . import access, auth, db, layers, planning, proposals, reports, rooms, store, tokens, uicontext, viewdata
 from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Proposal, Room
 
 PATH = "/api/mcp"
@@ -56,7 +56,10 @@ propose_changes: человек увидит их на плане и приме�
 Это предпочтительный путь для заметных правок. Чтобы не считать координаты самому:
 place_in_room (расставить в помещении у стен / в центре / по углам / сеткой),
 place_row (ряд), camera_coverage (что видят камеры) — у расстановки then="propose"
-сразу создаёт предложение. Изменять напрямую можно только с
+сразу создаёт предложение. Что сейчас открыто у пользователя (чертёж, этаж,
+выделенные объекты, помещение) — get_ui_context: «это», «здесь», «на этом этаже»
+относятся к нему. Показать пользователю этаж, помещение или объекты (перелететь к
+ним и обвести) — show_in_viewer; данные это не меняет. Изменять напрямую можно только с
 токеном «изменение»: apply_changes, create_layer, update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
 в журнал под вашим токеном —
 перед массовыми правками опишите пользователю, что собираетесь сделать."""
@@ -598,6 +601,79 @@ def camera_coverage(ctx: Context,
         if layer is not None and layer not in lay:
             raise ToolError(f"Слой {layer!r} не найден: см. project_overview")
         return planning.camera_coverage(s, _floor(s, d.id, floor), room, {layer} if layer else set(lay))
+
+
+# ---------------------------------------------------------- the user's view ---
+VIEW = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+
+
+@mcp.tool(annotations=READ)
+def get_ui_context(ctx: Context) -> dict[str, Any]:
+    """Что сейчас открыто у пользователя (того, кто выпустил токен) в этом проекте:
+    окна вьювера, последнее активное первым — чертёж, этаж, 2D/3D, инструмент,
+    выделенные объекты (с названиями), выбранное помещение, просматриваемое
+    предложение. «Это», «здесь», «на этом этаже» в просьбах пользователя — отсюда."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        access.check(s, pid)
+        ws = uicontext.windows(s, pid, me.id)
+        return {"windows": ws, **({} if ws else {"note": "у пользователя нет открытого окна проекта"})}
+
+
+@mcp.tool(annotations=VIEW)
+def show_in_viewer(ctx: Context,
+                   drawing: Annotated[str | None, Field(description="id чертежа; по умолчанию — открытый у пользователя")] = None,
+                   floor: Annotated[str | None, Field(description="id этажа (c0…)")] = None,
+                   room: Annotated[int | None, Field(description="id помещения: перелететь к нему")] = None,
+                   objects: Annotated[list[str] | None, Field(description="id объектов: перелететь к первому, обвести все",
+                                                              max_length=200)] = None,
+                   view: Annotated[Literal["2d", "3d"] | None, Field(description="план (2d) или модель (3d)")] = None,
+                   label: Annotated[str | None, Field(description="подпись для пользователя: что и зачем показано", max_length=200)] = None) -> dict[str, Any]:
+    """Показать пользователю в его открытых окнах проекта: этаж, помещение или объекты
+    (вид перелетает к ним, объекты обводятся), переключить план / модель. Данные не
+    меняются. Работает, если у пользователя открыт вьювер (см. get_ui_context)."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        access.check(s, pid)
+        ws = uicontext.windows(s, pid, me.id)
+        if not drawing and not objects and room is None and ws and ws[0].get("drawing"):
+            drawing = ws[0]["drawing"]["id"]
+        cmd: dict[str, Any] = {}
+        if objects:
+            lay = _shown_layers(s, me, pid)
+            rows = list(s.scalars(select(LayerObject).where(LayerObject.project_id == pid, LayerObject.id.in_(objects),
+                                                            LayerObject.layer_id.in_(list(lay)))))
+            if not rows:
+                raise ToolError("Объекты не найдены: см. query_objects")
+            first = next(r for i in objects for r in rows if r.id == i)
+            d = _drawing(s, pid, drawing or first.drawing_id)
+            floors = viewdata._floors(s, d.id)
+            cmd |= {"drawing": d.id, "floor": viewdata._cand(floors, first.floor_id) or None,
+                    "at": [round(first.x, 2), round(first.y, 2)], "highlight": [r.id for r in rows if r.drawing_id == d.id]}
+        elif room is not None:
+            if not drawing:
+                did = s.scalar(select(Room.drawing_id).where(Room.id == room))
+                drawing = did if did else None
+            if not drawing:
+                raise ToolError(f"Помещение {room} не найдено: см. list_rooms")
+            d = _drawing(s, pid, drawing)
+            r, f, poly = planning.room_of(s, d.id, room)
+            c = poly.representative_point()
+            cmd |= {"drawing": d.id, "floor": f.candidate, "at": [round(c.x, 2), round(c.y, 2)], "room": r.id}
+        elif drawing:
+            d = _drawing(s, pid, drawing)
+            cmd["drawing"] = d.id
+            if floor:
+                cmd["floor"] = _floor(s, d.id, floor).candidate
+        elif floor:
+            raise ToolError("floor задаётся вместе с drawing (у пользователя нет открытого чертежа)")
+        if view:
+            cmd["view"] = view
+        if not cmd:
+            raise ToolError("Что показать: drawing / floor / room / objects / view")
+        if label:
+            cmd["label"] = label.strip()
+        uicontext.command(s, pid, me.id, cmd, me.agent["name"] or me.agent["id"])
+        return {"sent": cmd, "windows": len(ws),
+                **({} if ws else {"note": "у пользователя сейчас нет открытого окна проекта — команду никто не увидит"})}
 
 # --------------------------------------------------------------- HTTP app ---
 @asynccontextmanager

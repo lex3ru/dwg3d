@@ -640,7 +640,45 @@ export interface ProjectEvent {
   changes?: ProjectChange[]
   /** changes left out of a big transaction */
   more?: number
-  entity?: 'resync'
+  /** 'view': an agent's command to this user's windows (`command`) */
+  entity?: 'resync' | 'view'
+  command?: ViewCommand
+}
+
+/** What an agent asks the user's windows to show (MCP show_in_viewer); changes no data. */
+export interface ViewCommand {
+  drawing?: string
+  floor?: string | null
+  /** plan point to fly to */
+  at?: XY
+  room?: number
+  /** objects to outline */
+  highlight?: string[]
+  view?: '2d' | '3d'
+  label?: string
+}
+
+/** What this window shows, for the user's agents (or `closed`). */
+export interface UIContext {
+  client: string
+  drawing?: string | null
+  floor?: string | null
+  view?: '2d' | '3d'
+  selected?: string[]
+  room?: number | null
+  proposal?: string | null
+  tool?: string
+  closed?: boolean
+}
+
+export async function reportUIContext(projectId: string, ctx: UIContext): Promise<void> {
+  await fetch(`/api/projects/${projectId}/ui-context`, jsonBody('POST', ctx))
+}
+
+/** The window is going away: tell it even while the page unloads. */
+export function closeUIContext(projectId: string, client: string) {
+  navigator.sendBeacon?.(`/api/projects/${projectId}/ui-context`,
+    new Blob([JSON.stringify({ client, closed: true })], { type: 'application/json' }))
 }
 
 /** Apply changes to layer objects (furniture, cameras, lines...) or pins as one transaction: all or none.

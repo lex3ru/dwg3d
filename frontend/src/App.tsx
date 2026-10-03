@@ -1,8 +1,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob,
-  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
+  closeUIContext, createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob, reportUIContext,
+  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ViewCommand, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
@@ -185,6 +185,10 @@ export default function App() {
       markers: pins.markers, comments: pins.comments }))
   }
   useProjectEvents(projectId, (ev) => {
+    if (ev.entity === 'view') {               // an agent shows something to this user (only their windows get it)
+      if (ev.command) commandRef.current(ev.command, ev.agent ?? '')
+      return
+    }
     const cur = shownRef.current
     const l = live.current
     const mine = !ev.agent && ev.user_id != null && ev.user_id === me?.id      // this user, another window or this one
@@ -209,17 +213,57 @@ export default function App() {
       if (who.size) setNotice(`Изменения: ${[...who].join(', ')}${count ? ` · объектов: ${count}` : ''}`)
     }, 300)
   })
+  // ---- for the user's agents: what this window shows; their commands to it
+  const [focus, setFocus] = useState<string[]>([])
+  const commandRef = useRef<(cmd: ViewCommand, agent: string) => void>(() => {})
+  const pendingCommand = useRef<{ cmd: ViewCommand; agent: string } | null>(null)
+  const client = useMemo(() => {
+    try {
+      const k = 'dwg3d.client'
+      const v = sessionStorage.getItem(k) ?? `tab-${Math.random().toString(36).slice(2, 14)}`
+      sessionStorage.setItem(k, v)
+      return v
+    } catch { return `tab-${Math.random().toString(36).slice(2, 14)}` }
+  }, [])
+  const uiState = useMemo(() => ({
+    client, drawing: shown?.id ?? null, floor, view: proj,
+    selected: [furnSel, shapeSel].filter((x): x is string => !!x), room: selRoom?.room.id ?? null,
+    proposal: proposal?.id ?? null, tool,
+  }), [client, shown?.id, floor, proj, furnSel, shapeSel, selRoom, proposal?.id, tool])
+  useEffect(() => {
+    if (!projectId || me?.guest) return
+    const send = () => { if (document.visibilityState === 'visible') reportUIContext(projectId, uiState).catch(() => {}) }
+    const t = window.setTimeout(send, 500)
+    const every = window.setInterval(send, 60000)
+    const bye = () => closeUIContext(projectId, client)
+    window.addEventListener('pagehide', bye)
+    return () => { window.clearTimeout(t); window.clearInterval(every); window.removeEventListener('pagehide', bye) }
+  }, [projectId, uiState, client])
+  useEffect(() => {
+    if (!focus.length) return
+    const t = window.setTimeout(() => setFocus([]), 20000)
+    return () => window.clearTimeout(t)
+  }, [focus])
+  // a command for another drawing waits until it opens
+  useEffect(() => {
+    const p = pendingCommand.current
+    if (p && shown?.id === p.cmd.drawing && r) { pendingCommand.current = null; commandRef.current(p.cmd, p.agent) }
+  }, [shown?.id, r])
+
   // a proposal being looked at: the scene shows its result, its items outlined
   const proposalView = useMemo(() => {
-    if (!proposal || proposal.drawing_id !== shown?.id) return null
+    if (!proposal || proposal.drawing_id !== shown?.id) {
+      if (!focus.length) return null
+      return { items: shownFurniture, marks: new Map(focus.map((id) => [id, 'focus' as const])) }
+    }
     const point = (r: { geom?: string }) => r.geom == null || r.geom === 'point'
     const items = new Map(shownFurniture.map((it) => [it.id, it]))
-    const marks = new Map<string, 'new' | 'changed' | 'removed'>()
+    const marks = new Map<string, 'new' | 'changed' | 'removed' | 'focus'>()
     for (const r of proposal.preview.created) if (point(r)) { items.set(r.id, r as PlacedItem); marks.set(r.id, 'new') }
     for (const u of proposal.preview.updated) if (point(u.after)) { items.set(u.after.id, u.after as PlacedItem); marks.set(u.after.id, 'changed') }
     for (const r of proposal.preview.deleted) if (point(r)) { if (!items.has(r.id)) items.set(r.id, r as PlacedItem); marks.set(r.id, 'removed') }
     return { items: [...items.values()], marks }
-  }, [proposal, shown?.id, shownFurniture])
+  }, [proposal, shown?.id, shownFurniture, focus])
   // looking at a proposal: go to the floor of its first change
   useEffect(() => {
     const first = proposal && [...proposal.preview.created, ...proposal.preview.updated.map((u) => u.after), ...proposal.preview.deleted][0]
@@ -293,6 +337,19 @@ export default function App() {
       if (!floor) setFloor(entranceFloor?.id ?? null)
     }
     setProj(p)
+  }
+  commandRef.current = (cmd, agent) => {
+    if (cmd.drawing && cmd.drawing !== shown?.id) {
+      pendingCommand.current = { cmd, agent }
+      location.hash = `#/f/${cmd.drawing}`
+      return
+    }
+    setProposal(null)
+    if (cmd.view) switchProj(cmd.view)
+    if (cmd.floor && floors.some((f) => f.id === cmd.floor)) setFloor(cmd.floor)
+    if (cmd.floor && cmd.at) flyToPlan(cmd.floor, cmd.at, 12)
+    setFocus(cmd.highlight ?? [])
+    setNotice(`Агент «${agent || 'без названия'}»${cmd.label ? `: ${cmd.label}` : ' показывает'}`)
   }
   const startWalk = () => {
     if (!r) return
@@ -625,7 +682,7 @@ export default function App() {
                 onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo}
                 furniture={{
                   items: proposalView?.items ?? shownFurniture, marks: proposalView?.marks,
-                  editing: tool === 'furniture' && !proposalView, active: furnFloor?.id ?? null, plan: furnPlan, issues,
+                  editing: tool === 'furniture' && !(proposal && proposal.drawing_id === shown?.id), active: furnFloor?.id ?? null, plan: furnPlan, issues,
                   selected: furnSel, placing, showZones, coverage: allCoverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
                   onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
                   onPlacing: setPlacing, onMove: moveItem,

@@ -369,6 +369,18 @@ class Proposal(Base):
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
+class UIContext(Base):
+    """What an open viewer window shows (uicontext.py): kept while it reports."""
+    __tablename__ = "ui_contexts"
+    __table_args__ = (Index("ui_contexts_project", "project_id", "user_id"),)
+
+    client: Mapped[str] = mapped_column(Text, primary_key=True)       # random per browser tab
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    data: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AuditLog(Base):
     """Who changed what. No FK to projects: the history outlives a deleted project."""
     __tablename__ = "audit_log"
