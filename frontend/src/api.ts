@@ -290,60 +290,65 @@ const jsonBody = (method: string, body: unknown): RequestInit => ({
   method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 })
 
+const get = async <T>(url: string): Promise<T> => check(await fetch(url))
+
+/** A request without a body (DELETE, POST of an action), or with a JSON one. */
+const send = async <T>(method: string, url: string, body?: unknown): Promise<T> =>
+  check(await fetch(url, body === undefined ? { method } : jsonBody(method, body)))
+
+/** POST a file (multipart `file`, plus string fields). */
+const upload = async <T>(url: string, file: File, fields: Record<string, string | undefined> = {}): Promise<T> => {
+  const fd = new FormData()
+  fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) if (v) fd.append(k, v)
+  return check(await fetch(url, { method: 'POST', body: fd }))
+}
+
 export async function listProjects(): Promise<Project[]> {
-  return check(await fetch('/api/projects'))
+  return get('/api/projects')
 }
 
 export async function getProject(id: string): Promise<Project> {
-  return check(await fetch(`/api/projects/${id}`))
+  return get(`/api/projects/${id}`)
 }
 
 export async function createProject(name: string, description = ''): Promise<Project> {
-  return check(await fetch('/api/projects', jsonBody('POST', { name, description })))
+  return send('POST', '/api/projects', { name, description })
 }
 
 export async function updateProject(id: string, patch: { name?: string; description?: string }): Promise<Project> {
-  return check(await fetch(`/api/projects/${id}`, jsonBody('PATCH', patch)))
+  return send('PATCH', `/api/projects/${id}`, patch)
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  return check(await fetch(`/api/projects/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/projects/${id}`)
 }
 
 /** Upload a DWG/DXF into a project (a new project named after the file when none is given). */
 export async function uploadFile(file: File, projectId?: string, name?: string): Promise<Job> {
   const pid = projectId ?? (await createProject(file.name.replace(/\.[^.]+$/, ''))).id
-  const fd = new FormData()
-  fd.append('file', file)
-  if (name) fd.append('name', name)
-  return check(await fetch(`/api/projects/${pid}/drawings`, { method: 'POST', body: fd }))
+  return upload(`/api/projects/${pid}/drawings`, file, { name })
 }
 
 /** A new revision of a drawing's DWG: floors, corrections and furniture follow it. */
 export async function uploadRevision(id: string, file: File): Promise<Job> {
-  const fd = new FormData()
-  fd.append('file', file)
-  return check(await fetch(`/api/drawings/${id}/revision`, { method: 'POST', body: fd }))
+  return upload(`/api/drawings/${id}/revision`, file)
 }
 
 export async function deleteDrawing(id: string): Promise<void> {
-  return check(await fetch(`/api/drawings/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/drawings/${id}`)
 }
 
 export async function getJob(id: string): Promise<Job> {
-  return check(await fetch(`/api/drawings/${id}`))
+  return get(`/api/drawings/${id}`)
 }
 
 export async function rebuildJob(id: string, override: Record<string, unknown>): Promise<Job> {
-  return check(await fetch(`/api/drawings/${id}/rebuild`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(override),
-  }))
+  return send('POST', `/api/drawings/${id}/rebuild`, override)
 }
 
 export async function getPlan(id: string, path: string, v: number): Promise<PlanData> {
-  return check(await fetch(fileUrl(id, path, v)))
+  return get(fileUrl(id, path, v))
 }
 
 export const fileUrl = (id: string, path: string, v = 0) => `/api/drawings/${id}/files/${path}?v=${v}`
@@ -353,11 +358,7 @@ export const fileUrl = (id: string, path: string, v = 0) => `/api/drawings/${id}
 export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg', layers: string[] | 'none' = 'none'): Promise<void> {
   const q = layers === 'none' ? 'none' : layers.join(',') || 'none'
   const r = await fetch(`/api/drawings/${id}/drawing.${fmt}?layers=${encodeURIComponent(q)}`)
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try { msg = (await r.json()).detail ?? msg } catch { /* not json */ }
-    throw new Error(msg)
-  }
+  if (!r.ok) await check(r)
   const cd = r.headers.get('content-disposition') ?? ''
   const m = /filename\*=utf-8''([^;]+)/i.exec(cd) ?? /filename="?([^";]+)"?/i.exec(cd)
   const name = m ? decodeURIComponent(m[1]) : `drawing.${fmt}`
@@ -369,9 +370,8 @@ export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg', layers: st
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
-/** Drawings of one project (or all), newest first. */
 export async function listLayers(projectId: string): Promise<Layer[]> {
-  return check(await fetch(`/api/projects/${projectId}/layers`))
+  return get(`/api/projects/${projectId}/layers`)
 }
 
 export interface LayerKinds {
@@ -385,21 +385,21 @@ export interface LayerKinds {
 }
 
 export async function layerKinds(): Promise<LayerKinds> {
-  return check(await fetch('/api/layer-kinds'))
+  return get('/api/layer-kinds')
 }
 
 export async function createLayer(projectId: string, kind: LayerKind, name?: string): Promise<Layer> {
-  return check(await fetch(`/api/projects/${projectId}/layers`, jsonBody('POST', { kind, name })))
+  return send('POST', `/api/projects/${projectId}/layers`, { kind, name })
 }
 
 /** name / visible / locked / sort; `version` makes it fail (409) when someone changed the layer meanwhile. */
 export async function updateLayer(projectId: string, id: string, patch: Partial<Pick<Layer, 'name' | 'visible' | 'locked' | 'sort' | 'props' | 'version'>>): Promise<Layer> {
-  return check(await fetch(`/api/projects/${projectId}/layers/${id}`, jsonBody('PATCH', patch)))
+  return send('PATCH', `/api/projects/${projectId}/layers/${id}`, patch)
 }
 
 /** A copy of a layer with its objects: a variant (props.variant_group ties the variants of a layer). */
 export async function copyLayer(projectId: string, id: string, name?: string): Promise<Layer> {
-  return check(await fetch(`/api/projects/${projectId}/layers/${id}/copy`, jsonBody('POST', { name })))
+  return send('POST', `/api/projects/${projectId}/layers/${id}/copy`, { name })
 }
 
 export interface CompareObject {
@@ -431,7 +431,7 @@ export interface LayerComparison {
 }
 
 export async function compareLayers(projectId: string, a: string, b: string): Promise<LayerComparison> {
-  return check(await fetch(`/api/projects/${projectId}/layers/compare?a=${a}&b=${b}`))
+  return get(`/api/projects/${projectId}/layers/compare?a=${a}&b=${b}`)
 }
 
 export interface ProjectChecks {
@@ -440,11 +440,11 @@ export interface ProjectChecks {
 }
 
 export async function projectChecks(projectId: string): Promise<ProjectChecks> {
-  return check(await fetch(`/api/projects/${projectId}/checks`))
+  return get(`/api/projects/${projectId}/checks`)
 }
 
 export async function deleteLayer(projectId: string, id: string): Promise<void> {
-  return check(await fetch(`/api/projects/${projectId}/layers/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/projects/${projectId}/layers/${id}`)
 }
 
 export type ProjectRole = 'viewer' | 'editor' | 'owner'
@@ -462,24 +462,24 @@ export interface Member {
 export interface UserInfo { id: number; login: string; name: string; email: string | null; role: string }
 
 export async function listMembers(projectId: string): Promise<Member[]> {
-  return check(await fetch(`/api/projects/${projectId}/members`))
+  return get(`/api/projects/${projectId}/members`)
 }
 
 /** `who`: a login or an e-mail (an e-mail of someone who has not signed in yet is an invitation). */
 export async function addMember(projectId: string, who: string, role: ProjectRole): Promise<Member> {
-  return check(await fetch(`/api/projects/${projectId}/members`, jsonBody('POST', { who, role })))
+  return send('POST', `/api/projects/${projectId}/members`, { who, role })
 }
 
 export async function setMemberRole(projectId: string, id: number, role: ProjectRole): Promise<Member> {
-  return check(await fetch(`/api/projects/${projectId}/members/${id}`, jsonBody('PATCH', { role })))
+  return send('PATCH', `/api/projects/${projectId}/members/${id}`, { role })
 }
 
 export async function removeMember(projectId: string, id: number): Promise<void> {
-  return check(await fetch(`/api/projects/${projectId}/members/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/projects/${projectId}/members/${id}`)
 }
 
 export async function searchUsers(q: string): Promise<UserInfo[]> {
-  return check(await fetch(`/api/users?q=${encodeURIComponent(q)}`))
+  return get(`/api/users?q=${encodeURIComponent(q)}`)
 }
 
 export interface ShareLink {
@@ -499,39 +499,36 @@ export interface ShareLink {
 }
 
 export async function listShares(projectId: string): Promise<ShareLink[]> {
-  return check(await fetch(`/api/projects/${projectId}/shares`))
+  return get(`/api/projects/${projectId}/shares`)
 }
 
 export async function createShare(projectId: string, v: { name?: string; days?: number | null; drawings?: string[] | null; layers?: string[] | null }): Promise<ShareLink> {
-  return check(await fetch(`/api/projects/${projectId}/shares`, jsonBody('POST', v)))
+  return send('POST', `/api/projects/${projectId}/shares`, v)
 }
 
 export async function revokeShare(projectId: string, id: string): Promise<ShareLink> {
-  return check(await fetch(`/api/projects/${projectId}/shares/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/projects/${projectId}/shares/${id}`)
 }
 
 export async function renameDrawing(id: string, name: string): Promise<ViewSettings> {
   return putView(id, { name })
 }
 
+/** Drawings of one project (or all), newest first. */
 export async function listJobs(projectId?: string): Promise<JobSummary[]> {
-  return check(await fetch(projectId ? `/api/drawings?project=${projectId}` : '/api/drawings'))
+  return get(projectId ? `/api/drawings?project=${projectId}` : '/api/drawings')
 }
 
 export async function putView(id: string, v: Partial<ViewSettings> | Record<string, unknown>): Promise<ViewSettings> {
-  return check(await fetch(`/api/drawings/${id}/view`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v),
-  }))
+  return send('PUT', `/api/drawings/${id}/view`, v)
 }
 
 export async function uploadDetail(id: string, file: File): Promise<ViewSettings> {
-  const fd = new FormData()
-  fd.append('file', file)
-  return check(await fetch(`/api/drawings/${id}/detail`, { method: 'POST', body: fd }))
+  return upload(`/api/drawings/${id}/detail`, file)
 }
 
 export async function deleteDetail(id: string): Promise<ViewSettings> {
-  return check(await fetch(`/api/drawings/${id}/detail`, { method: 'DELETE' }))
+  return send('DELETE', `/api/drawings/${id}/detail`)
 }
 
 /** One change of a placed item or pin; updates and deletes carry the row version they were made against. */
@@ -542,11 +539,11 @@ export interface BatchResult<T> { items: T[]; deleted: string[] }
 /** The layer objects of a drawing as the server has them now: placed items and shapes (`items`), and
  * catalog items whose floor is gone (`unplaced`). */
 export async function listObjects(id: string): Promise<{ build: number; items: (PlacedItem | ShapeObject)[]; unplaced: PlacedItem[] }> {
-  return check(await fetch(`/api/drawings/${id}/objects`))
+  return get(`/api/drawings/${id}/objects`)
 }
 
 export async function listPins(id: string): Promise<{ build: number; markers: Pin[]; comments: Pin[] }> {
-  return check(await fetch(`/api/drawings/${id}/pins`))
+  return get(`/api/drawings/${id}/pins`)
 }
 
 /** Changes of layer objects proposed by the copilot, waiting for a person (or decided). */
@@ -580,19 +577,19 @@ export interface ProposalFull extends Proposal {
 
 export async function listProposals(projectId: string, q: { status?: string; drawing?: string } = {}): Promise<Proposal[]> {
   const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])
-  return check(await fetch(`/api/projects/${projectId}/proposals?${qs}`))
+  return get(`/api/projects/${projectId}/proposals?${qs}`)
 }
 
 export async function getProposal(id: string): Promise<ProposalFull> {
-  return check(await fetch(`/api/proposals/${id}`))
+  return get(`/api/proposals/${id}`)
 }
 
 export async function applyProposal(id: string): Promise<{ proposal: Proposal }> {
-  return check(await fetch(`/api/proposals/${id}/apply`, { method: 'POST' }))
+  return send('POST', `/api/proposals/${id}/apply`)
 }
 
 export async function rejectProposal(id: string, reason: string): Promise<Proposal> {
-  return check(await fetch(`/api/proposals/${id}/reject`, jsonBody('POST', { reason })))
+  return send('POST', `/api/proposals/${id}/reject`, { reason })
 }
 
 /** One change of a committed transaction (GET /api/projects/{id}/events). */
@@ -642,23 +639,23 @@ export interface CopilotSettings {
 }
 
 export async function getCopilotSettings(): Promise<CopilotSettings> {
-  return check(await fetch('/api/copilot/settings'))
+  return get('/api/copilot/settings')
 }
 
 /** api_key: a new key; '' removes it; left out — kept. */
 export async function saveCopilotSettings(v: Partial<Omit<CopilotSettings, 'api_key_set' | 'api_key_hint'>> & { api_key?: string }): Promise<CopilotSettings> {
-  return check(await fetch('/api/copilot/settings', jsonBody('PUT', v)))
+  return send('PUT', '/api/copilot/settings', v)
 }
 
 export async function checkCopilot(v: { base_url?: string; api_key?: string; model?: string }):
   Promise<{ ok: boolean; error?: string; models?: string[]; answer?: string; prompt_tokens?: number }> {
-  return check(await fetch('/api/copilot/settings/check', jsonBody('POST', v)))
+  return send('POST', '/api/copilot/settings/check', v)
 }
 
 export interface CopilotStatus { enabled: boolean; model: string | null; daily_limit: number; used_today: number }
 
 export async function copilotStatus(): Promise<CopilotStatus> {
-  return check(await fetch('/api/copilot/status'))
+  return get('/api/copilot/status')
 }
 
 export interface CopilotProposal { id: string; summary: string; status: string; counts?: { create: number; update: number; delete: number }; drawing_id?: string }
@@ -703,15 +700,15 @@ export async function askCopilot(projectId: string, body: { message: string; cha
 }
 
 export async function listCopilotChats(projectId: string): Promise<{ id: string; title: string; updated: number }[]> {
-  return check(await fetch(`/api/projects/${projectId}/copilot/chats`))
+  return get(`/api/projects/${projectId}/copilot/chats`)
 }
 
 export async function getCopilotChat(projectId: string, id: string): Promise<{ id: string; title: string; items: CopilotItem[] }> {
-  return check(await fetch(`/api/projects/${projectId}/copilot/chats/${id}`))
+  return get(`/api/projects/${projectId}/copilot/chats/${id}`)
 }
 
 export async function deleteCopilotChat(projectId: string, id: string): Promise<void> {
-  return check(await fetch(`/api/projects/${projectId}/copilot/chats/${id}`, { method: 'DELETE' }))
+  return send('DELETE', `/api/projects/${projectId}/copilot/chats/${id}`)
 }
 
 /** What this window shows, for the user's copilot (or `closed`). */
@@ -741,35 +738,27 @@ export function closeUIContext(projectId: string, client: string) {
  * Throws ApiError 409 with body.conflicts when rows were changed by someone else,
  * or when the model was rebuilt since `build`. */
 export async function batchRows<T = PlacedItem>(id: string, kind: 'objects' | 'pins', build: number, ops: RowOp[]): Promise<BatchResult<T>> {
-  return check(await fetch(`/api/drawings/${id}/${kind}:batch`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build, ops }),
-  }))
+  return send('POST', `/api/drawings/${id}/${kind}:batch`, { build, ops })
 }
 
 // ---- catalog editing (catalog_admin) and reports
 
-const json = (method: string, body: unknown): RequestInit => ({
-  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-})
-
 export async function createCatalogItem(item: Partial<CatalogItem>): Promise<CatalogItem> {
-  return check(await fetch('/api/catalog/items', json('POST', item)))
+  return send('POST', '/api/catalog/items', item)
 }
 
 /** Fields given replace the stored ones; null clears an optional field. */
 export async function updateCatalogItem(id: string, patch: Record<string, unknown>): Promise<CatalogItem> {
-  return check(await fetch(`/api/catalog/items/${encodeURIComponent(id)}`, json('PATCH', patch)))
+  return send('PATCH', `/api/catalog/items/${encodeURIComponent(id)}`, patch)
 }
 
 export async function uploadCatalogModel(id: string, file: File): Promise<CatalogItem> {
-  const fd = new FormData()
-  fd.append('file', file)
-  return check(await fetch(`/api/catalog/items/${encodeURIComponent(id)}/model`, { method: 'POST', body: fd }))
+  return upload(`/api/catalog/items/${encodeURIComponent(id)}/model`, file)
 }
 
 export async function saveCategory(c: Category, create: boolean): Promise<Category> {
-  return check(await fetch(create ? '/api/catalog/categories' : `/api/catalog/categories/${encodeURIComponent(c.id)}`,
-    json(create ? 'POST' : 'PATCH', c)))
+  return create ? send('POST', '/api/catalog/categories', c)
+    : send('PATCH', `/api/catalog/categories/${encodeURIComponent(c.id)}`, c)
 }
 
 export interface ReportRow {
@@ -801,7 +790,7 @@ export async function equipmentReport(project: string | null, layer?: string | n
   const q = new URLSearchParams()
   if (project) q.set('project', project)
   if (layer) q.set('layer', layer)
-  return check(await fetch(`/api/reports/equipment?${q}`))
+  return get(`/api/reports/equipment?${q}`)
 }
 
 export interface RoomReport {
@@ -818,7 +807,7 @@ export interface RoomReport {
 export async function roomReport(project: string, layer?: string | null): Promise<RoomReport> {
   const q = new URLSearchParams({ project, by: 'room' })
   if (layer) q.set('layer', layer)
-  return check(await fetch(`/api/reports/equipment?${q}`))
+  return get(`/api/reports/equipment?${q}`)
 }
 
 export const equipmentReportXlsx = (project: string | null, by: 'floor' | 'room' = 'floor', layer?: string | null) => {

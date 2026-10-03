@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  closeUIContext, copilotStatus, createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob, reportUIContext,
+  copilotStatus, createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob,
   type CopilotStatus, type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ViewCommand, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
@@ -58,6 +58,8 @@ import { useProjectEvents } from './hooks/useProjectEvents'
 import { usePlans } from './hooks/usePlans'
 import { useRoute } from './hooks/useRoute'
 import { useShapes } from './hooks/useShapes'
+import { useExpiring } from './hooks/useExpiring'
+import { useUIContext } from './hooks/useUIContext'
 
 const introKey = (id: string) => `dwg3d.intro.${id}`
 const seenIntro = (id: string | null) => {
@@ -175,7 +177,7 @@ export default function App() {
   const rebuildingRef = useRef(rebuilding)
   useEffect(() => { shownRef.current = shown; rebuildingRef.current = rebuilding }, [shown, rebuilding])
   // ---- changes made elsewhere (another window, the copilot): read them in, a moment after the last one
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useExpiring<string | null>(null, 6000)
   const [proposalNonce, setProposalNonce] = useState(0)
   const [proposal, setProposal] = useState<ProposalFull | null>(null)
   const live = useRef({ objects: false, layers: false, drawing: false, proposals: false, count: 0, who: new Set<string>(), timer: 0 })
@@ -216,7 +218,7 @@ export default function App() {
     }, 300)
   })
   // ---- for the user's copilot: what this window shows; its commands to it
-  const [focus, setFocus] = useState<string[]>([])
+  const [focus, setFocus] = useExpiring<string[]>([], 20000)
   // the built-in copilot: shown when an admin has set up its model
   const [copilot, setCopilot] = useState<CopilotStatus | null>(null)
   const [copilotOpen, setCopilotOpen] = useState(false)
@@ -226,33 +228,10 @@ export default function App() {
   }, [copilotOpen, settings])
   const commandRef = useRef<(cmd: ViewCommand, agent: string) => void>(() => {})
   const pendingCommand = useRef<{ cmd: ViewCommand; agent: string } | null>(null)
-  const client = useMemo(() => {
-    try {
-      const k = 'dwg3d.client'
-      const v = sessionStorage.getItem(k) ?? `tab-${Math.random().toString(36).slice(2, 14)}`
-      sessionStorage.setItem(k, v)
-      return v
-    } catch { return `tab-${Math.random().toString(36).slice(2, 14)}` }
-  }, [])
-  const uiState = useMemo(() => ({
-    client, drawing: shown?.id ?? null, floor, view: proj,
-    selected: [furnSel, shapeSel].filter((x): x is string => !!x), room: selRoom?.room.id ?? null,
-    proposal: proposal?.id ?? null, tool,
-  }), [client, shown?.id, floor, proj, furnSel, shapeSel, selRoom, proposal?.id, tool])
-  useEffect(() => {
-    if (!projectId || me?.guest) return
-    const send = () => { if (document.visibilityState === 'visible') reportUIContext(projectId, uiState).catch(() => {}) }
-    const t = window.setTimeout(send, 500)
-    const every = window.setInterval(send, 60000)
-    const bye = () => closeUIContext(projectId, client)
-    window.addEventListener('pagehide', bye)
-    return () => { window.clearTimeout(t); window.clearInterval(every); window.removeEventListener('pagehide', bye) }
-  }, [projectId, uiState, client])
-  useEffect(() => {
-    if (!focus.length) return
-    const t = window.setTimeout(() => setFocus([]), 20000)
-    return () => window.clearTimeout(t)
-  }, [focus])
+  const uiState = useUIContext(projectId, {
+    drawing: shown?.id ?? null, floor, view: proj, selected: [furnSel, shapeSel].filter((x): x is string => !!x),
+    room: selRoom?.room.id ?? null, proposal: proposal?.id ?? null, tool,
+  })
   // a command for another drawing waits until it opens
   useEffect(() => {
     const p = pendingCommand.current
@@ -280,11 +259,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposal?.id])
   useEffect(() => { setProposal(null) }, [shown?.id])
-  useEffect(() => {
-    if (!notice) return
-    const t = window.setTimeout(() => setNotice(null), 6000)
-    return () => window.clearTimeout(t)
-  }, [notice])
 
   // ---- URL hash <-> state
   useEffect(() => {
