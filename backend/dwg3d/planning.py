@@ -122,9 +122,8 @@ def _swing(hinge, tip, center) -> Polygon:
                                      for i in range(7)])
 
 
-def plan_obstacles(s: Session, did: str, floor: Floor) -> tuple[list[Polygon], list[Polygon]]:
-    """(partitions and columns, door ways and swings) of the floor from its plan
-    in the file store; empty when the plan cannot be read."""
+def load_plan(s: Session, did: str, floor: Floor) -> dict | None:
+    """The floor's plan (pipeline output: walls, openings, rooms...) from the file store, or None."""
     import json
 
     from . import files
@@ -135,9 +134,15 @@ def plan_obstacles(s: Session, did: str, floor: Floor) -> tuple[list[Polygon], l
     meta = next((f for f in ((b.result or {}).get("floors") or []) if f.get("id") == floor.candidate), None) if b else None
     try:
         raw = files.store().get_bytes(files.drawing_key(did, f"{b.out_dir}/{meta['plan']}")) if meta and meta.get("plan") else None
-        plan = json.loads(raw) if raw else None
+        return json.loads(raw) if raw else None
     except Exception:
-        plan = None
+        return None
+
+
+def plan_obstacles(s: Session, did: str, floor: Floor) -> tuple[list[Polygon], list[Polygon]]:
+    """(partitions and columns, door ways and swings) of the floor from its plan
+    in the file store; empty when the plan cannot be read."""
+    plan = load_plan(s, did, floor)
     return obstacles_from_plan(plan) if plan else ([], [])
 
 

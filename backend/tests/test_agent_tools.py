@@ -98,7 +98,7 @@ def test_read_tools(world):
                "get_object", "report", "recent_changes", "proposal_status", "camera_coverage", "get_ui_context",
                "compare_variants", "list_comments", "check_project"}
     assert set(tools) == reading | {"propose_changes", "place_in_room", "place_row", "show_in_viewer", "add_comment",
-                                    "place_in_rooms", "place_detectors"}
+                                    "place_in_rooms", "place_detectors", "plan_route"}
     assert all(t.annotations.read_only_hint == (n in reading) for n, t in tools.items())
     assert "ctx" not in tools["list_rooms"].input_schema["properties"]
 

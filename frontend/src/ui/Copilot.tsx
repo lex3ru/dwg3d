@@ -18,6 +18,7 @@ const TOOL_LABEL: Record<string, string> = {
   get_ui_context: 'смотрю, что открыто', show_in_viewer: 'показываю на плане', compare_variants: 'сравниваю варианты',
   list_comments: 'читаю комментарии', add_comment: 'оставляю комментарий',
   place_in_rooms: 'расставляю по помещениям', place_detectors: 'считаю извещатели', check_project: 'проверяю проект',
+  plan_route: 'прокладываю маршрут',
 }
 
 const EXAMPLES = ['Проверь этот этаж', 'Где камеры не видят помещения?', 'Добавь пожарные извещатели, где не хватает', 'Сделай вариант мебели и сравни с текущим']

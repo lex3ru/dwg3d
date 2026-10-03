@@ -50,6 +50,9 @@ import Toolbar from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
 import { SceneCtx, entrancePose, htmlLayer } from './viewer/scene'
 import Viewer, { type Cuts, type DetailInfo, type Pick, type RoomHit } from './viewer/Viewer'
+import { MARK_COLOR } from './viewer/Furniture'
+import type { RouteProps } from './viewer/routing'
+import type { ShapeView } from './viewer/Shapes'
 import { useFurniture } from './hooks/useFurniture'
 import { useJobPolling } from './hooks/useJob'
 import { useLayers } from './hooks/useLayers'
@@ -252,6 +255,25 @@ export default function App() {
     for (const r of proposal.preview.deleted) if (point(r)) { if (!items.has(r.id)) items.set(r.id, r as PlacedItem); marks.set(r.id, 'removed') }
     return { items: [...items.values()], marks }
   }, [proposal, shown?.id, shownFurniture, focus])
+  // ...and its routes, zones and lines over the scene's
+  const previewShapes = useMemo<ShapeView[]>(() => {
+    if (!proposal || proposal.drawing_id !== shown?.id) return []
+    const rows: [ShapeObject, string][] = [
+      ...proposal.preview.created.map((r) => [r as ShapeObject, MARK_COLOR.new] as [ShapeObject, string]),
+      ...proposal.preview.updated.map((u) => [u.after as ShapeObject, MARK_COLOR.changed] as [ShapeObject, string])]
+    return rows.flatMap(([x, color]): ShapeView[] => {
+      if (x.geom === 'route') {
+        const pr = (x.props ?? {}) as unknown as RouteProps
+        return [{ id: x.id, kind: 'route', color, segments: pr.path ?? [], label: `${pr.name || 'Маршрут'} (предложение)`,
+          stops: (pr.stops ?? []).map((st, i) => ({ floor: st.floor, at: st.at, label: st.label || `Остановка ${i + 1}` })) }]
+      }
+      if (x.geom === 'polygon' || x.geom === 'polyline') {
+        return [{ id: x.id, kind: x.geom === 'polygon' ? 'zone' : 'line', color, segments: [{ floor: x.floor, pts: x.points ?? [] }],
+          label: `${(x.props?.name as string) || ''} (предложение)` }]
+      }
+      return []
+    })
+  }, [proposal, shown?.id])
   // looking at a proposal: go to the floor of its first change
   useEffect(() => {
     const first = proposal && [...proposal.preview.created, ...proposal.preview.updated.map((u) => u.after), ...proposal.preview.deleted][0]
@@ -670,7 +692,8 @@ export default function App() {
                   onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
                   onPlacing: setPlacing, onMove: moveItem,
                 }}
-                shapes={{ items: shapeViews, selected: shapeSel, draft: shapeDraft, alerts: conflicts }} />
+                shapes={{ items: previewShapes.length ? [...shapeViews.filter((v) => !previewShapes.some((x) => x.id === v.id)), ...previewShapes] : shapeViews,
+                  selected: shapeSel, draft: shapeDraft, alerts: conflicts }} />
             </Suspense>
           ) : running ? (
             <div className="absolute inset-0 grid place-items-center p-4"><Progress job={job!} /></div>

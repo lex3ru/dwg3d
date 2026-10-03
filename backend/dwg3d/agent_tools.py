@@ -29,7 +29,7 @@ from pydantic import Field
 from shapely.geometry import box
 from sqlalchemy import func, select
 
-from . import access, auth, db, layers, planning, proposals, reports, rooms, store, uicontext, viewdata
+from . import access, auth, db, layers, planning, proposals, reports, rooms, routing, shapes, store, uicontext, viewdata
 from .models import Build, CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Pin, Project, Proposal, Room
 
 MAX_OBJECTS = 500
@@ -563,7 +563,8 @@ def check_project(ctx: Context,
                   drawing: Annotated[str, Field(description="id чертежа")],
                   floor: Annotated[str | None, Field(description="только этот этаж")] = None) -> dict[str, Any]:
     """Проверить чертёж: fire — помещения, где не хватает пожарных извещателей; blocked — предметы
-    в дверях и проходах, на перегородках и колоннах, друг на друге, за стенами; cameras — помещения,
+    в дверях и проходах, на перегородках и колоннах, друг на друге, за стенами; flows — маршруты
+    потоков, которым нельзя встречаться, пересекаются или заходят в запретные зоны; cameras — помещения,
     которые камеры видят меньше чем наполовину (на этажах с камерами); wifi — помещения со слабым
     сигналом (на этажах с точками доступа); empty — пустые помещения, предназначенные для работы.
     Расчёты приближённые: стены — границы помещений."""
@@ -576,7 +577,57 @@ def check_project(ctx: Context,
                 and (floor is None or x.get("floor") == next((f.name for f in viewdata._floors(s, d.id).values()
                                                               if f.candidate == floor), None))]
         res["fire"], res["counts"]["fire"] = fire[:50], len(fire)
+        flows = [x for x in routing.flows_of(s, d) if floor is None or x["floor"] == floor]
+        res["flows"], res["counts"]["flows"] = flows[:50], len(flows)
         return res
+
+
+@mcp.tool(annotations=WRITE)
+def plan_route(ctx: Context,
+               drawing: Annotated[str, Field(description="id чертежа")],
+               stops: Annotated[list[dict[str, Any]], Field(
+                   description="остановки по порядку, от 2: {room: id помещения} (его центр) или {floor, at: [x, y]}; "
+                               "label? — подпись", min_length=2, max_length=shapes.MAX_STOPS)],
+               flow: Annotated[str, Field(description="поток: " + ", ".join(f"{k} — {v['name']}" for k, v in shapes.FLOWS.items()))] = "patients",
+               name: Annotated[str | None, Field(description="название маршрута", max_length=200)] = None,
+               layer: Annotated[str | None, Field(description="id слоя маршрутов; по умолчанию — первый такой")] = None,
+               then: Annotated[Then, Field(description=THEN_HELP)] = "return",
+               summary: Annotated[str | None, Field(description="для then=propose", max_length=2000)] = None) -> dict[str, Any]:
+    """Проложить маршрут людей через остановки — по коридорам, через двери, между этажами по
+    лестницам и лифтам (как во вьювере): длина, время, сколько этажей, путь по этажам;
+    и проверка: с какими маршрутами несовместимых потоков он пересекается, в какие запретные
+    зоны заходит. С then="propose" — предложение с маршрутом."""
+    with _then(ctx, then) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if flow not in shapes.FLOWS:
+            raise ToolError(f"flow: {', '.join(shapes.FLOWS)}")
+        st = []
+        for k, x in enumerate(stops):
+            if not isinstance(x, dict):
+                raise ToolError("stops: {room} или {floor, at}")
+            if x.get("room") is not None:
+                r, f, poly = planning.room_of(s, d.id, x["room"])
+                c = poly.representative_point()
+                st.append({"floor": f.candidate, "at": [round(c.x, 2), round(c.y, 2)], "room": r.id,
+                           "label": str(x.get("label") or r.name or f"остановка {k + 1}")[:120]})
+            elif x.get("floor") and isinstance(x.get("at"), list) and len(x["at"]) == 2:
+                _floor(s, d.id, str(x["floor"]))
+                st.append({"floor": str(x["floor"]), "at": [float(x["at"][0]), float(x["at"][1])],
+                           "label": str(x.get("label") or f"остановка {k + 1}")[:120]})
+            else:
+                raise ToolError(f"stops[{k}]: {{room}} или {{floor, at: [x, y]}}")
+        res = routing.Router(s, d).compute(st)
+        if res.get("problem"):
+            return {"stops": st, "problem": res["problem"], "ops": []}
+        props = {"flow": flow, "name": (name or "").strip(), "stops": st, "path": res["path"], "length": res["length"],
+                 "time": res["time"], "floors_changed": res["floors_changed"], "build": d.current_build}
+        routes, zones = routing.routes_and_zones(s, d)
+        new = {"id": "new-route", "name": props["name"], "flow": flow, "path": res["path"]}
+        mine = [x for x in routing.check_flows([new, *routes], zones) if "new-route" in (x["a"], x["b"])]
+        op = {"op": "create", "geom": "route", "props": props, **({"layer": layer} if layer else {})}
+        plan = {"stops": st, "length": res["length"], "time": res["time"], "floors_changed": res["floors_changed"],
+                "floors": [sg["floor"] for sg in res["path"]], "conflicts": mine}
+        return _finish(s, pid, d, plan, [op], then, summary)
 
 
 @mcp.tool(annotations=READ)
