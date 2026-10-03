@@ -2,13 +2,14 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import * as THREE from 'three'
 import {
   createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob,
-  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
+  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import CatalogEditor from './ui/CatalogEditor'
 import type { SettingsPane } from './ui/Controls'
+import Proposals from './ui/Proposals'
 import Report from './ui/Report'
 import {
   formatHash, loadPrefs, parseHash, savePrefs,
@@ -173,7 +174,9 @@ export default function App() {
   useEffect(() => { shownRef.current = shown; rebuildingRef.current = rebuilding }, [shown, rebuilding])
   // ---- changes made elsewhere (another window, an agent): read them in, a moment after the last one
   const [notice, setNotice] = useState<string | null>(null)
-  const live = useRef({ objects: false, layers: false, drawing: false, count: 0, who: new Set<string>(), timer: 0 })
+  const [proposalNonce, setProposalNonce] = useState(0)
+  const [proposal, setProposal] = useState<ProposalFull | null>(null)
+  const live = useRef({ objects: false, layers: false, drawing: false, proposals: false, count: 0, who: new Set<string>(), timer: 0 })
   const refreshObjects = async (id: string) => {
     const [objs, pins] = await Promise.all([listObjects(id), listPins(id)])
     if (shownRef.current?.id !== id || objs.build !== shownRef.current?.build) return
@@ -190,20 +193,40 @@ export default function App() {
     if (here.length) l.objects = true
     if ((ev.changes ?? []).some((c) => c.entity === 'layer' || c.entity === 'object')) l.layers = true
     if (!mine && (ev.changes ?? []).some((c) => c.entity === 'drawing' && c.drawing === cur?.id)) l.drawing = true
+    if (ev.entity === 'resync' || here.length || (ev.changes ?? []).some((c) => c.entity === 'proposal')) l.proposals = true
     if (!mine && (ev.actor || ev.agent) && (here.length || (ev.changes ?? []).some((c) => c.entity === 'layer'))) {
       l.count += here.length + (ev.more ?? 0)
       l.who.add(ev.actor || `агент «${ev.agent}»`)
     }
     window.clearTimeout(l.timer)
     l.timer = window.setTimeout(() => {
-      const { objects, layers: lays, drawing, count, who } = l
-      live.current = { objects: false, layers: false, drawing: false, count: 0, who: new Set(), timer: 0 }
+      const { objects, layers: lays, drawing, proposals, count, who } = l
+      live.current = { objects: false, layers: false, drawing: false, proposals: false, count: 0, who: new Set(), timer: 0 }
+      if (proposals) setProposalNonce((n) => n + 1)
       if (drawing) reload()
       else if (objects && cur && !rebuildingRef.current) refreshObjects(cur.id).catch(() => {})
       if (lays) reloadLayers()
       if (who.size) setNotice(`Изменения: ${[...who].join(', ')}${count ? ` · объектов: ${count}` : ''}`)
     }, 300)
   })
+  // a proposal being looked at: the scene shows its result, its items outlined
+  const proposalView = useMemo(() => {
+    if (!proposal || proposal.drawing_id !== shown?.id) return null
+    const point = (r: { geom?: string }) => r.geom == null || r.geom === 'point'
+    const items = new Map(shownFurniture.map((it) => [it.id, it]))
+    const marks = new Map<string, 'new' | 'changed' | 'removed'>()
+    for (const r of proposal.preview.created) if (point(r)) { items.set(r.id, r as PlacedItem); marks.set(r.id, 'new') }
+    for (const u of proposal.preview.updated) if (point(u.after)) { items.set(u.after.id, u.after as PlacedItem); marks.set(u.after.id, 'changed') }
+    for (const r of proposal.preview.deleted) if (point(r)) { if (!items.has(r.id)) items.set(r.id, r as PlacedItem); marks.set(r.id, 'removed') }
+    return { items: [...items.values()], marks }
+  }, [proposal, shown?.id, shownFurniture])
+  // looking at a proposal: go to the floor of its first change
+  useEffect(() => {
+    const first = proposal && [...proposal.preview.created, ...proposal.preview.updated.map((u) => u.after), ...proposal.preview.deleted][0]
+    if (first?.floor && floors.some((f) => f.id === first.floor)) setFloor(first.floor)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposal?.id])
+  useEffect(() => { setProposal(null) }, [shown?.id])
   useEffect(() => {
     if (!notice) return
     const t = window.setTimeout(() => setNotice(null), 6000)
@@ -601,7 +624,8 @@ export default function App() {
                 onRoomClick={onRoomClick} onPick={onPick} onExitWalk={exitWalk} onWalkFloor={onWalkFloor}
                 onPin={setOpenPin} onDeletePin={deletePin} onQuality={setQuality} onDetailInfo={setDetailInfo}
                 furniture={{
-                  items: shownFurniture, editing: tool === 'furniture', active: furnFloor?.id ?? null, plan: furnPlan, issues,
+                  items: proposalView?.items ?? shownFurniture, marks: proposalView?.marks,
+                  editing: tool === 'furniture' && !proposalView, active: furnFloor?.id ?? null, plan: furnPlan, issues,
                   selected: furnSel, placing, showZones, coverage: allCoverage, showViews: display.camViews, onSelect: (id) => { setFurnSel(id); setPlacing(null) },
                   onPlace: (pose) => { if (placing) placeItem(placing.item, pose); setPlacing(null) },
                   onPlacing: setPlacing, onMove: moveItem,
@@ -696,6 +720,10 @@ export default function App() {
               const l = layers.find((x) => x.kind === 'routes' && !x.locked)
               if (l) editLayerTo(l.id)
             }} />
+        )}
+        {shown && projectId && !presenting && !me?.guest && (
+          <Proposals projectId={projectId} drawingId={shown.id} nonce={proposalNonce} editable={canEdit()}
+            preview={proposal} onPreview={setProposal} />
         )}
         {notice && (
           <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-50 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-lg">

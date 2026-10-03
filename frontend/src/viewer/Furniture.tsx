@@ -40,7 +40,12 @@ interface Props {
   onPlace: (pose: Pose) => void
   onPlacing: (p: Placing | null) => void
   onMove: (id: string, pose: Pose, done: boolean) => void
+  /** items of a proposal being looked at: outlined in its colour (new, changed, to be removed) */
+  marks?: Map<string, ProposalMark>
 }
+
+export type ProposalMark = 'new' | 'changed' | 'removed'
+export const MARK_COLOR: Record<ProposalMark, string> = { new: '#2f9e44', changed: '#1c7ed6', removed: '#e03131' }
 
 const CLICK_PX = 5
 const Z_ZONE = 0.03, Z_LINE = 0.045
@@ -224,7 +229,7 @@ export default function Furniture(p: Props) {
     return buildModel(c.kind, c.color, c.w, c.d, c.h, mats, true)
   }, [p.placing?.item, mats])        // eslint-disable-line react-hooks/exhaustive-deps
 
-  const showAll = p.display.furniture || p.editing
+  const showAll = p.display.furniture || p.editing || !!p.marks?.size
   const outlines = p.editing || p.proj === '2d'
   return (
     <>
@@ -240,6 +245,7 @@ export default function Furniture(p: Props) {
               const editable = p.editing && fid === p.active
               const y0 = elev.get(fid) ?? 0
               const zone = (sel || p.showZones) && editable ? serviceZone(it.at, it.angle, w, d, c.clear ?? 0) : null
+              const mark = p.marks?.get(it.id)
               return (
                 <group key={it.id}>
                   <group position={toLocal(it.at, y0 + itemElev(it, c))} rotation-y={(it.angle * Math.PI) / 180}
@@ -247,7 +253,8 @@ export default function Furniture(p: Props) {
                     ref={(g) => { if (g) groups.current.set(it.id, g); else groups.current.delete(it.id) }}>
                     <ItemModel c={c} w={w} d={d} h={h} mats={mats} />
                   </group>
-                  {(outlines || sel || (editable && iss.length > 0)) && (
+                  {mark && <Outline quad={footprint(it.at, it.angle, w + 0.2, d + 0.2)} y={y0 + Z_LINE} center={center} color={MARK_COLOR[mark]} width={3} />}
+                  {!mark && (outlines || sel || (editable && iss.length > 0)) && (
                     <Outline quad={footprint(it.at, it.angle, w, d)} y={y0 + Z_LINE} center={center}
                       color={bad && editable ? '#e03131' : iss.length && editable ? '#f08c00' : sel ? '#1c7ed6' : '#495057'}
                       width={sel ? 2.5 : editable && iss.length ? 2 : 1} />

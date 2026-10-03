@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -195,6 +196,9 @@ def _strip(o: dict | None) -> dict | None:
 
 
 # ---------------------------------------------------------------- writes ---
+# why the current changes are made, added to the audit log's actor (e.g. applying an agent's proposal)
+audit_via: ContextVar[str | None] = ContextVar("dwg3d_audit_via", default=None)
+
 def _me_id() -> int | None:
     me = auth.current.get()
     return me.id if me else None
@@ -205,6 +209,8 @@ def audit_entry(s, pid, entity, eid, action, before, after, drawing_id=None):
     windows of the project once it commits (events.py)."""
     me = auth.current.get()
     actor = me.actor() if me else None
+    if (via := audit_via.get()) is not None:
+        actor = f"{actor} · {via}" if actor else via
     s.add(AuditLog(project_id=pid, drawing_id=drawing_id, entity=entity, entity_id=eid, action=action,
                    user_id=me.id if me else None, actor=actor,
                    before=_strip(before), after=_strip(after)))

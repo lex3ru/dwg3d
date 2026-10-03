@@ -345,6 +345,30 @@ class AgentToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Proposal(Base):
+    """Changes of layer objects on a drawing proposed by an AI agent (`ops` as
+    viewdata.apply takes them), waiting for a person: open → applied |
+    rejected | stale (the rows or the build changed since)."""
+    __tablename__ = "proposals"
+    __table_args__ = (CheckConstraint("status IN ('open', 'applied', 'rejected', 'stale')", name="proposals_status"),
+                      Index("proposals_project", "project_id", "status"))
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    drawing_id: Mapped[str] = mapped_column(ForeignKey("drawings.id", ondelete="CASCADE"))
+    token_id: Mapped[str | None] = mapped_column(ForeignKey("agent_tokens.id", ondelete="SET NULL"))
+    agent: Mapped[str] = mapped_column(Text, server_default="")          # the token's name at the time
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    summary: Mapped[str] = mapped_column(Text, server_default="")
+    ops: Mapped[list] = mapped_column(JSONB)
+    build: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, server_default="open")
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
 class AuditLog(Base):
     """Who changed what. No FK to projects: the history outlives a deleted project."""
     __tablename__ = "audit_log"

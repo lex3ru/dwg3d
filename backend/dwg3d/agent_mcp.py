@@ -1,8 +1,10 @@
 """MCP server for AI agents (Streamable HTTP at /api/mcp).
 
-Reading tools for every token; writing tools (objects through viewdata.apply,
-creating and changing layers) for tokens of the "write" mode only, limited
-in size and rate (MAX_OPS operations a call, WRITES_PER_MINUTE calls).
+Reading tools for every token; proposals (proposals.py: changes a person
+applies or rejects) for tokens of the "propose" and "write" modes; writing
+tools (objects through viewdata.apply, creating and changing layers) for
+tokens of the "write" mode only. Proposing and writing are limited in size
+and rate (MAX_OPS operations a call, WRITES_PER_MINUTE calls).
 
 The agent connects with its token (tokens.py) in `Authorization: Bearer`.
 Every tool call resolves the token again and runs as its user, through the
@@ -34,8 +36,8 @@ from pydantic import Field
 from shapely.geometry import box
 from sqlalchemy import func, select
 
-from . import access, auth, db, layers, reports, rooms, store, tokens, viewdata
-from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Room
+from . import access, auth, db, layers, proposals, reports, rooms, store, tokens, viewdata
+from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Proposal, Room
 
 PATH = "/api/mcp"
 MAX_OBJECTS = 500
@@ -48,9 +50,11 @@ INSTRUCTIONS = """\
 сигнализация, СКУД, Wi-Fi, СКС, маршруты людей, зоны) и объекты на слоях.
 Начните с project_overview. Координаты — метры в плане этажа; этаж задаётся id
 (c0, c1…) внутри чертежа; помещения — числовые id из list_rooms. Позиции каталога
-(id вида doc.couch) ищутся search_catalog. Изменять можно только с токеном в режиме
-«изменение» (см. token_mode в project_overview): apply_changes, create_layer,
-update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
+(id вида doc.couch) ищутся search_catalog. С токеном «предложения» или «изменение»
+(token_mode в project_overview) можно предложить изменения объектов —
+propose_changes: человек увидит их на плане и примет или отклонит (proposal_status).
+Это предпочтительный путь для заметных правок. Изменять напрямую можно только с
+токеном «изменение»: apply_changes, create_layer, update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
 в журнал под вашим токеном —
 перед массовыми правками опишите пользователю, что собираетесь сделать."""
 
@@ -80,11 +84,12 @@ def _rate(token_id: str):
 
 
 @contextmanager
-def _agent(ctx: Context, write: bool = False):
+def _agent(ctx: Context, write: bool = False, propose: bool = False):
     """The token's agent as the current user of this call, and its project id.
     `write`: a change — the token must be of the write mode, access checks
-    take an editor (as for a POST of the HTTP API); errors of the data become
-    tool errors, the transaction rolled back."""
+    take an editor (as for a POST of the HTTP API); `propose`: a proposal — a
+    token of the propose or write mode, reading access. Errors of the data
+    become tool errors, the transaction rolled back."""
     h = (ctx.headers or {}).get("authorization", "")
     me = tokens.resolve(h[7:].strip()) if h[:7].lower() == "bearer " else None
     if me is None or me.agent is None:
@@ -93,6 +98,11 @@ def _agent(ctx: Context, write: bool = False):
         if me.agent["mode"] != "write":
             raise ToolError(f"Токен в режиме «{tokens.MODE_NAMES[me.agent['mode']]}»: изменять нельзя. "
                             "Нужен токен в режиме «изменение» (проект → «ИИ-агенты»)")
+        _rate(me.agent["id"])
+    elif propose:
+        if me.agent["mode"] not in ("propose", "write"):
+            raise ToolError("Токен «только чтение»: предлагать изменения нельзя. "
+                            "Нужен токен в режиме «предложения» или «изменение» (проект → «ИИ-агенты»)")
         _rate(me.agent["id"])
     t_user, t_method = auth.current.set(me), auth.method.set("POST" if write else "GET")
     try:
@@ -457,6 +467,44 @@ def update_layer(ctx: Context,
             store.touch_project(s, pid)
         return layers.layer_json(layer)
 
+
+
+# --------------------------------------------------------------- proposals ---
+@mcp.tool(annotations=WRITE, description=f"""Предложить изменения объектов на чертеже: человек увидит их
+на плане (новые, изменённые, удаляемые) и применит или отклонит. Ничего не меняется,
+пока он не решит. Токен «предложения» или «изменение». Операции проверяются сразу
+(как в apply_changes) — с ошибкой предложение не создаётся. До {proposals.MAX_OPS} операций.
+summary — для человека: что и зачем, кратко.
+
+{OPS_HELP}""")
+def propose_changes(ctx: Context,
+                    drawing: Annotated[str, Field(description="id чертежа")],
+                    summary: Annotated[str, Field(description="что и зачем меняется — увидит человек", min_length=1, max_length=2000)],
+                    ops: Annotated[list[dict[str, Any]], Field(description="операции, как в apply_changes",
+                                                               min_length=1, max_length=proposals.MAX_OPS)],
+                    build: Annotated[int | None, Field(description="номер сборки из project_overview")] = None) -> dict[str, Any]:
+    with _agent(ctx, propose=True) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        p = proposals.create(s, d, summary, ops, build)
+        viewdata.audit_entry(s, pid, "proposal", p.id, "create", None,
+                             {"summary": p.summary, "counts": proposals.counts(p.ops)}, d.id)
+        return {**proposals.proposal_json(p, drawing=d),
+                "next": "Предложение ждёт решения человека; узнать его — proposal_status"}
+
+
+@mcp.tool(annotations=READ)
+def proposal_status(ctx: Context,
+                    id: Annotated[str | None, Field(description="id предложения; без него — последние предложения этого токена")] = None) -> dict[str, Any]:
+    """Решение по предложению: ждёт решения, применено, отклонено (с причиной, если
+    человек её указал) или устарело (объекты или модель изменились — предложите заново)."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        access.check(s, pid)
+        if id is None:
+            return {"proposals": proposals.listing(s, pid, token=me.agent["id"], limit=20)}
+        p = s.scalar(select(Proposal).where(Proposal.id == id, Proposal.project_id == pid))
+        if p is None:
+            raise ToolError(f"Предложение {id!r} не найдено")
+        return proposals.proposal_json(p, proposals._users(s, [p]), s.get(Drawing, p.drawing_id))
 
 # --------------------------------------------------------------- HTTP app ---
 @asynccontextmanager

@@ -37,6 +37,8 @@ build queue into a 3D model.
                                          sign-in (session cookie), see auth.py
   GET/POST /api/projects/{id}/agent-tokens, DELETE .../agent-tokens/{tid}
                                          tokens of AI agents (Authorization: Bearer), see tokens.py
+  GET  /api/projects/{id}/proposals, GET /api/proposals/{pid}, POST .../apply, .../reject
+                                         changes proposed by AI agents, see proposals.py
   /api/mcp                               MCP (Streamable HTTP) for AI agents with a token, see agent_mcp.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
@@ -82,11 +84,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import access, agent_mcp, auth, catalog, db, events, files, layers, reports, rooms, store, tokens, viewdata, worker
+from . import access, agent_mcp, auth, catalog, db, events, files, layers, proposals, reports, rooms, store, tokens, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
-from .models import Drawing, Layer, LayerObject, Project, ProjectMember
+from .models import Drawing, Layer, LayerObject, Project, ProjectMember, Proposal
 from .pipeline import render_debug
 
 log = logging.getLogger("dwg3d.api")
@@ -142,8 +144,8 @@ async def _authenticate(request: Request, call_next):
     if path == agent_mcp.PATH and me.agent is None:
         return JSONResponse({"detail": "MCP — для ИИ-агентов: нужен токен (Authorization: Bearer dwg3d_…)"},
                             status_code=401)
-    if me.share is not None and (request.method not in READ or path in GUEST_DENIED
-                                 or path.endswith(("/members", "/shares", "/audit"))):
+    if me.share is not None and (request.method not in READ or path in GUEST_DENIED or path.startswith("/api/proposals/")
+                                 or path.endswith(("/members", "/shares", "/audit", "/proposals"))):
         return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра проекта"}, status_code=403)
     if me.agent is not None and not tokens.agent_may(request.method, path, me.agent["mode"]):
         return JSONResponse({"detail": f"Токен агента ({tokens.MODE_NAMES[me.agent['mode']]}) не даёт этого делать"},
@@ -628,6 +630,69 @@ def revoke_share(pid: str, sid: str):
         x = _bad(access.revoke_share, s, pid, sid)
         viewdata.audit_entry(s, pid, "share", sid, "revoke", None, x)
         return x
+
+
+# ------------------------------------------------------ agents' proposals ---
+@app.get("/api/projects/{pid}/proposals")
+def list_proposals(pid: str, status: str | None = None, drawing: str | None = None, limit: int = 100):
+    """Proposals of AI agents (newest first; ?status=open, ?drawing=)."""
+    if status is not None and status not in proposals.STATUSES:
+        raise HTTPException(400, f"status: {', '.join(proposals.STATUSES)}")
+    with db.session() as s:
+        _project(s, pid)
+        return proposals.listing(s, pid, status, drawing, limit=limit)
+
+
+def _proposal(s, prid: str, need: str | None = None) -> Proposal:
+    p = s.scalar(select(Proposal).where(Proposal.id == prid).with_for_update())
+    if p is None or store.get_drawing(s, p.drawing_id) is None:
+        raise HTTPException(404, "Предложение не найдено")
+    access.check(s, p.project_id, need, "Предложение не найдено")
+    return p
+
+
+def _proposal_out(s, p: Proposal) -> dict:
+    return proposals.proposal_json(p, proposals._users(s, [p]), s.get(Drawing, p.drawing_id))
+
+
+@app.get("/api/proposals/{prid}")
+def get_proposal(prid: str):
+    """The proposal and what it would do now (preview: created, updated {before, after},
+    deleted rows); one that no longer applies turns stale here."""
+    with db.session() as s:
+        p = _proposal(s, prid, need="viewer")
+        was = p.status
+        pv = proposals.preview(s, p)
+        if p.status != was:
+            viewdata.audit_entry(s, p.project_id, "proposal", p.id, "stale", None, {"reason": p.reason}, p.drawing_id)
+        return {**_proposal_out(s, p), "ops": p.ops, "preview": pv}
+
+
+@app.post("/api/proposals/{prid}/apply")
+def apply_proposal(prid: str):
+    """Apply as the current user's change (an editor); 409 when it no longer applies (it turns stale)."""
+    with db.session() as s:
+        p = _proposal(s, prid, need="editor")
+        try:
+            res = proposals.apply(s, p)
+        except viewdata.Conflict as ex:
+            viewdata.audit_entry(s, p.project_id, "proposal", p.id, "stale", None, {"reason": p.reason}, p.drawing_id)
+            out = JSONResponse({"detail": str(ex), "proposal": _proposal_out(s, p)}, status_code=409)
+        else:
+            viewdata.audit_entry(s, p.project_id, "proposal", p.id, "apply", None, {"summary": p.summary}, p.drawing_id)
+            return {"proposal": _proposal_out(s, p), **res}
+    return out
+
+
+@app.post("/api/proposals/{prid}/reject")
+def reject_proposal(prid: str, v: dict | None = None):
+    """{reason?}: the agent sees it with proposal_status."""
+    with db.session() as s:
+        p = _proposal(s, prid, need="editor")
+        reason = (v or {}).get("reason")
+        proposals.reject(s, p, reason if isinstance(reason, str) else None)
+        viewdata.audit_entry(s, p.project_id, "proposal", p.id, "reject", None, {"reason": p.reason}, p.drawing_id)
+        return _proposal_out(s, p)
 
 
 # --------------------------------------------------------- agent tokens ---

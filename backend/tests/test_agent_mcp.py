@@ -66,8 +66,8 @@ def test_mcp_read_tools(world, api):  # noqa: F811
         a = Agent(c, world["token"])
         tools = {t["name"]: t for t in a.rpc("tools/list").json()["result"]["tools"]}
         reading = {"project_overview", "list_rooms", "layer_kinds", "search_catalog", "query_objects",
-                   "get_object", "report", "recent_changes"}
-        assert set(tools) == reading | {"apply_changes", "create_layer", "update_layer"}
+                   "get_object", "report", "recent_changes", "proposal_status"}
+        assert set(tools) == reading | {"apply_changes", "create_layer", "update_layer", "propose_changes"}
         assert all(t["annotations"]["readOnlyHint"] == (n in reading) for n, t in tools.items())
         assert tools["apply_changes"]["annotations"]["destructiveHint"]
         assert "ctx" not in tools["list_rooms"]["inputSchema"]["properties"]

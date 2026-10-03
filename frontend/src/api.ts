@@ -580,6 +580,52 @@ export async function listPins(id: string): Promise<{ build: number; markers: Pi
   return check(await fetch(`/api/drawings/${id}/pins`))
 }
 
+/** Changes of layer objects proposed by an AI agent, waiting for a person (or decided). */
+export interface Proposal {
+  id: string
+  project_id: string
+  drawing_id: string
+  drawing?: string
+  summary: string
+  status: 'open' | 'applied' | 'rejected' | 'stale'
+  status_name: string
+  /** why it was rejected, or why it no longer applies */
+  reason: string | null
+  /** the name of the agent's token */
+  agent: string
+  user: { id: number; login: string; name: string } | null
+  counts: { create: number; update: number; delete: number }
+  created: number | null
+  decided: number | null
+  decided_by: { id: number; login: string; name: string } | null
+}
+
+/** A proposal with what it would do now (rows as the server would have them). */
+export interface ProposalFull extends Proposal {
+  preview: {
+    created: (PlacedItem | ShapeObject)[]
+    updated: { before: PlacedItem | ShapeObject | null; after: PlacedItem | ShapeObject }[]
+    deleted: (PlacedItem | ShapeObject)[]
+  }
+}
+
+export async function listProposals(projectId: string, q: { status?: string; drawing?: string } = {}): Promise<Proposal[]> {
+  const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])
+  return check(await fetch(`/api/projects/${projectId}/proposals?${qs}`))
+}
+
+export async function getProposal(id: string): Promise<ProposalFull> {
+  return check(await fetch(`/api/proposals/${id}`))
+}
+
+export async function applyProposal(id: string): Promise<{ proposal: Proposal }> {
+  return check(await fetch(`/api/proposals/${id}/apply`, { method: 'POST' }))
+}
+
+export async function rejectProposal(id: string, reason: string): Promise<Proposal> {
+  return check(await fetch(`/api/proposals/${id}/reject`, jsonBody('POST', { reason })))
+}
+
 /** One change of a committed transaction (GET /api/projects/{id}/events). */
 export interface ProjectChange { drawing: string | null; entity: string; id: string; action: string }
 
