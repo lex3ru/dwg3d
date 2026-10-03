@@ -3,10 +3,10 @@
 A window reports (POST /api/projects/{id}/ui-context, debounced, and every
 minute while open) what it shows: the drawing, floor, 2D / 3D, the selected
 objects and room, the proposal being looked at; closing it sends `closed`.
-An agent acting for the same user (tokens.py) reads that (MCP
-get_ui_context) to understand "this", "on this floor".
+The copilot acting for the user reads that (agent_tools.get_ui_context) to
+understand "this", "on this floor".
 
-The agent may also move the user's view (MCP show_in_viewer): a command goes
+It may also move the user's view (agent_tools.show_in_viewer): a command goes
 as an event addressed to the user (events.py: "to_user"); the user's windows
 of the project fly to the floor / room / objects and outline them. Commands
 change nothing in the data.

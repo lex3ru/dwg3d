@@ -36,14 +36,11 @@ build queue into a 3D model.
   GET  /api/health                       converter availability, database, queue
   POST /api/auth/login, /api/auth/logout, GET /api/auth/me
                                          sign-in (session cookie), see auth.py
-  GET/POST /api/projects/{id}/agent-tokens, DELETE .../agent-tokens/{tid}
-                                         tokens of AI agents (Authorization: Bearer), see tokens.py
   GET  /api/projects/{id}/proposals, GET /api/proposals/{pid}, POST .../apply, .../reject
-                                         changes proposed by AI agents, see proposals.py
+                                         changes proposed by the copilot, see proposals.py
   GET/PUT /api/copilot/settings, POST .../check, GET /api/copilot/status
   POST /api/projects/{id}/copilot, GET/DELETE .../copilot/chats[/{cid}]
                                          the built-in copilot (an external OpenAI-compatible model), see copilot.py
-  /api/mcp                               MCP (Streamable HTTP) for AI agents with a token, see agent_mcp.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
@@ -77,7 +74,6 @@ import os
 import time
 import urllib.parse
 import uuid
-from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -85,11 +81,10 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import (access, agent_mcp, auth, catalog, copilot, db, events, files, layers, proposals, reports, rooms, store, tokens,
-               uicontext, viewdata, worker)
+from . import (access, auth, catalog, copilot, db, events, files, layers, proposals, reports, rooms, store, uicontext,
+               viewdata, worker)
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -101,17 +96,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MAX_UPLOAD = int(os.environ.get("DWG3D_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 RETENTION_DAYS = float(os.environ.get("DWG3D_RETENTION_DAYS", "0"))
 
-
-
-@asynccontextmanager
-async def _lifespan(_):
-    async with agent_mcp.running():
-        yield
-
-
-app = FastAPI(title="dwg3d", lifespan=_lifespan)
-# MCP for AI agents (agent_mcp.py): first, before the UI's catch-all mount
-app.router.routes.insert(0, Route(agent_mcp.PATH, endpoint=agent_mcp.Endpoint(), methods=["GET", "POST", "DELETE"]))
+app = FastAPI(title="dwg3d")
 if origins := [o.strip() for o in os.environ.get("DWG3D_CORS_ORIGINS", "").split(",") if o.strip()]:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"])
@@ -123,12 +108,7 @@ GUEST_DENIED = {"/api/users"}
 
 
 def _whoami(request: Request) -> auth.Me | None:
-    """The agent of a bearer token; else the user of the session cookie, else
-    the guest of a share-link cookie. A token counts with sign-in off too:
-    its limits hold anyway."""
-    h = request.headers.get("authorization", "")
-    if h[:7].lower() == "bearer ":
-        return tokens.resolve(h[7:].strip())
+    """The user of the session cookie, else the guest of a share-link cookie."""
     if not auth.enabled():
         return auth.ANONYMOUS_ADMIN
     return (auth.resolve(request.cookies.get(auth.COOKIE))
@@ -146,15 +126,9 @@ async def _authenticate(request: Request, call_next):
     me = await run_in_threadpool(_whoami, request)
     if me is None:
         return JSONResponse({"detail": "Войдите, чтобы продолжить", "login": True}, status_code=401)
-    if path == agent_mcp.PATH and me.agent is None:
-        return JSONResponse({"detail": "MCP — для ИИ-агентов: нужен токен (Authorization: Bearer dwg3d_…)"},
-                            status_code=401)
     if me.share is not None and (request.method not in READ or path in GUEST_DENIED or path.startswith("/api/proposals/")
                                  or path.endswith(("/members", "/shares", "/audit", "/proposals"))):
         return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра проекта"}, status_code=403)
-    if me.agent is not None and not tokens.agent_may(request.method, path, me.agent["mode"]):
-        return JSONResponse({"detail": f"Токен агента ({tokens.MODE_NAMES[me.agent['mode']]}) не даёт этого делать"},
-                            status_code=403)
     if path.startswith("/api/catalog") and request.method not in READ and not me.can("catalog_admin"):
         return JSONResponse({"detail": "Недостаточно прав: нужна роль «администратор каталога»"}, status_code=403)
     token, mtoken = auth.current.set(me), auth.method.set(request.method)
@@ -541,7 +515,7 @@ async def project_events(pid: str, request: Request):
 
     def visible(ev: dict) -> dict | None:
         if "to_user" in ev:                 # a command to one user's windows (uicontext.py)
-            mine = me.share is None and me.agent is None and me.id == ev["to_user"]
+            mine = me.share is None and me.id == ev["to_user"]
             return ev if mine else None
         if me.share is None:
             return ev
@@ -657,7 +631,7 @@ def revoke_share(pid: str, sid: str):
 # ---------------------------------------------------------------- copilot ---
 def _admin():
     me = auth.current.get()
-    if me is None or me.share is not None or me.agent is not None or not me.can("admin"):
+    if me is None or me.share is not None or not me.can("admin"):
         raise HTTPException(403, "Недостаточно прав: нужна роль «администратор»")
 
 
@@ -710,7 +684,7 @@ def copilot_status():
 
 def _copilot_user(s, pid: str) -> tuple[auth.Me, str]:
     me = auth.current.get()
-    if me is None or me.share is not None or me.agent is not None:
+    if me is None or me.share is not None:
         raise HTTPException(403, "Копилот доступен участникам проекта")
     _project(s, pid, need="viewer")
     return me, access.project_role(s, me, pid)
@@ -820,55 +794,13 @@ def apply_proposal(prid: str):
 
 @app.post("/api/proposals/{prid}/reject")
 def reject_proposal(prid: str, v: dict | None = None):
-    """{reason?}: the agent sees it with proposal_status."""
+    """{reason?}: the copilot sees it with proposal_status."""
     with db.session() as s:
         p = _proposal(s, prid, need="editor")
         reason = (v or {}).get("reason")
         proposals.reject(s, p, reason if isinstance(reason, str) else None)
         viewdata.audit_entry(s, p.project_id, "proposal", p.id, "reject", None, {"reason": p.reason}, p.drawing_id)
         return _proposal_out(s, p)
-
-
-# --------------------------------------------------------- agent tokens ---
-def _token_role(s, pid: str, need: str = "viewer") -> str:
-    """The user's role in the project, for their tokens (not for guests)."""
-    me = auth.current.get()
-    if me is not None and me.share is not None:
-        raise HTTPException(403, "Токены агентов недоступны по ссылке")
-    _project(s, pid, need=need)
-    return access.project_role(s, me, pid)
-
-
-@app.get("/api/projects/{pid}/agent-tokens")
-def list_agent_tokens(pid: str):
-    """The user's tokens in the project (an owner: everyone's)."""
-    with db.session() as s:
-        role = _token_role(s, pid)
-        return tokens.list_tokens(s, pid, auth.current.get(), role == "owner")
-
-
-@app.post("/api/projects/{pid}/agent-tokens", status_code=201)
-def create_agent_token(pid: str, v: dict):
-    """{name?, mode: read | propose | write, days?} -> the token (shown only now)."""
-    with db.session() as s:
-        role = _token_role(s, pid)
-        try:
-            x, token = tokens.create(s, pid, v if isinstance(v, dict) else {}, role)
-        except PermissionError as ex:
-            raise HTTPException(403, str(ex))
-        except ValueError as ex:
-            raise HTTPException(400, str(ex))
-        viewdata.audit_entry(s, pid, "agent_token", x["id"], "create", None, x)
-    return {**x, "token": token}
-
-
-@app.delete("/api/projects/{pid}/agent-tokens/{tid}")
-def revoke_agent_token(pid: str, tid: str):
-    with db.session() as s:
-        role = _token_role(s, pid)
-        x = _bad(tokens.revoke, s, pid, tid, role == "owner")
-        viewdata.audit_entry(s, pid, "agent_token", tid, "revoke", None, x)
-        return x
 
 
 # ------------------------------------------------------------ drawings ---
@@ -1199,9 +1131,6 @@ def update_layer(pid: str, lid: str, v: dict):
     with db.session() as s:
         _project(s, pid)
         layer = _layer(s, pid, lid)
-        me = auth.current.get()
-        if me is not None and me.agent is not None and "locked" in v and v["locked"] != layer.locked:
-            raise HTTPException(403, "Блокировку слоя меняет только человек")
         if "version" in v and v["version"] != layer.version:
             raise viewdata.Conflict("Слой изменён другим пользователем: обновите данные и повторите",
                                     [{"id": lid, "current": layers.layer_json(layer)}])

@@ -13,8 +13,8 @@ optionally to some of its drawings and layers only; it may expire and be
 revoked. Opening it (POST /api/share/{token}) puts the token in a cookie;
 requests with it act as a guest (auth.Me.share).
 
-An agent's token (tokens.py) acts for its user in one project only, with
-the user's role there capped by the token's mode (AGENT_CAP).
+The copilot (copilot.identity) acts for its user in one project only, with
+the user's role there capped by its mode (AGENT_CAP).
 """
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ from .models import Drawing, Layer, Project, ProjectMember, ShareLink, User
 
 ROLES = ("viewer", "editor", "owner")
 ROLE_NAMES = {"viewer": "просмотр", "editor": "редактор", "owner": "владелец"}
-# the highest role an agent's token gives in its project (tokens.py); never owner
-AGENT_CAP = {"read": "viewer", "propose": "viewer", "write": "editor"}
+# the highest role the copilot has in its project (proposals need only reading); never owner
+AGENT_CAP = {"read": "viewer", "propose": "viewer"}
 SHARE_COOKIE = "dwg3d_share"
 MAX_MEMBERS = 500
 MAX_SHARES = 100

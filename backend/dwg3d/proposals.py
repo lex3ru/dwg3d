@@ -1,6 +1,6 @@
 """Proposals of AI agents: changes a person applies or rejects.
 
-An agent (MCP propose_changes) proposes operations on the layer objects of a
+The copilot (agent_tools.propose_changes) proposes operations on the layer objects of a
 drawing — the same as viewdata.apply takes. They are checked at once against
 the current rows (a dry run in a savepoint, rolled back) and kept; a person
 sees what they would do (preview: the rows created, the rows before and after
@@ -86,14 +86,16 @@ def _users(s: Session, ps: list[Proposal]) -> dict[int, User]:
 
 
 def listing(s: Session, pid: str, status: str | None = None, drawing: str | None = None,
-            token: str | None = None, limit: int = 100) -> list[dict]:
+            user_id: int | None = None, agent: str | None = None, limit: int = 100) -> list[dict]:
+    """Proposals of a project, newest first; of one user's agent when `agent` is given."""
     q = select(Proposal).where(Proposal.project_id == pid).order_by(Proposal.created_at.desc()).limit(min(max(limit, 1), 500))
     if status:
         q = q.where(Proposal.status == status)
     if drawing:
         q = q.where(Proposal.drawing_id == drawing)
-    if token:
-        q = q.where(Proposal.token_id == token)
+    if agent is not None:
+        q = q.where(Proposal.agent == agent,
+                    Proposal.user_id.is_(None) if user_id is None else Proposal.user_id == user_id)
     ps = list(s.scalars(q))
     users = _users(s, ps)
     names = {d.id: d for d in s.scalars(select(Drawing).where(Drawing.id.in_({p.drawing_id for p in ps})))}
@@ -123,7 +125,6 @@ def create(s: Session, d: Drawing, summary: str, ops: list, build: int | None) -
     with dry_run(s):
         viewdata.apply(s, d.id, "object", ops, build=build)
     p = Proposal(id=uuid.uuid4().hex[:12], project_id=d.project_id, drawing_id=d.id,
-                 token_id=me.agent["id"] if me and me.agent and not me.agent.get("copilot") else None,
                  agent=(me.agent["name"] or me.agent["id"]) if me and me.agent else "",
                  user_id=me.id if me else None, summary=summary, ops=ops, build=d.current_build)
     s.add(p)
@@ -163,12 +164,12 @@ def preview(s: Session, p: Proposal) -> dict:
 
 
 def apply(s: Session, p: Proposal) -> dict:
-    """Apply as the current user's change ("по предложению агента" in the audit log).
+    """Apply as the current user's change ("по предложению копилота" in the audit log).
     Returns viewdata.apply's answer; a proposal that no longer applies becomes stale
     and viewdata.Conflict is raised (the caller commits the status)."""
     if p.status != "open":
         raise viewdata.Invalid(f"предложение {STATUS_NAMES[p.status]}")
-    token = viewdata.audit_via.set(f"по предложению агента «{p.agent or 'агент'}»")
+    token = viewdata.audit_via.set("по предложению копилота")
     try:
         with savepoint(s, keep=True):       # a failure leaves nothing half done, only the status
             res = viewdata.apply(s, p.drawing_id, "object", p.ops, build=p.build)

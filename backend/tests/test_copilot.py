@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dwg3d import copilot
-from test_agent_mcp import world  # noqa: F401  (fixture)
+from test_agent_tools import world  # noqa: F401  (fixture)
 from test_auth import api, kc, sign_in  # noqa: F401  (fixtures)
 
 
@@ -105,7 +105,7 @@ def test_copilot_turn(world, api, kc, model):  # noqa: F811
     kinds = [e["type"] for e in ev]
     assert kinds[0] == "chat" and kinds[-1] == "done" and "error" not in kinds
     assert [e["name"] for e in ev if e["type"] == "tool"] == ["project_overview", "place_in_room", "apply_changes"]
-    assert "недоступен" in next(e for e in ev if e["type"] == "tool" and e["name"] == "apply_changes")["error"]
+    assert next(e for e in ev if e["type"] == "tool" and e["name"] == "apply_changes")["error"]      # no such tool
     prop = next(e for e in ev if e["type"] == "proposal")["proposal"]
     assert prop["status"] == "open" and prop["agent"] == "Копилот"
     assert "".join(e["text"] for e in ev if e["type"] == "text").startswith("Смотрю проект")
@@ -117,7 +117,7 @@ def test_copilot_turn(world, api, kc, model):  # noqa: F811
     user = first["messages"][1]["content"]
     assert "Сейчас у пользователя открыто" in user and "Кабинет врача" in user and "couch1" in user and user.endswith("Поставь сюда кушетку")
     names = {t["function"]["name"] for t in first["tools"]}
-    assert {"place_in_room", "propose_changes", "show_in_viewer"} <= names and not names & copilot.WRITE_TOOLS
+    assert {"place_in_room", "propose_changes", "show_in_viewer"} <= names and "apply_changes" not in names
     # the tool results went back with their call ids, in order
     third = fake.requests[2]["body"]["messages"]
     assert [m["role"] for m in third[1:]] == ["user", "assistant", "tool", "assistant", "tool", "tool"]
@@ -127,7 +127,7 @@ def test_copilot_turn(world, api, kc, model):  # noqa: F811
     pr = editor.get(f"/api/projects/{pid}/proposals?status=open").json()
     assert [x["agent"] for x in pr] == ["Копилот"] and pr[0]["user"]["login"] == "tok-editor"
     log = owner.get(f"/api/projects/{pid}/audit").json()
-    assert any(x["entity"] == "proposal" and x["actor"] == "tok-editor · агент «Копилот»" for x in log)
+    assert any(x["entity"] == "proposal" and x["actor"] == "tok-editor · Копилот" for x in log)
 
     # the chat is kept, for its owner only
     cid = ev[0]["id"]
@@ -166,7 +166,7 @@ def test_copilot_limits_and_rights(world, api, kc, model):  # noqa: F811
         ev = _events(c.post(f"/api/projects/{pid}/copilot", json={"message": "Что тут?"}))
     assert ev[-1]["type"] == "done"
     body = fake.requests[0]["body"]
-    assert "propose_changes" not in {t["function"]["name"] for t in body["tools"]}
+    assert not {"propose_changes", "place_in_room", "place_row"} & {t["function"]["name"] for t in body["tools"]}
     assert "только на просмотр" in body["messages"][0]["content"]
     # the daily limit
     with TestClient(api.app) as c:
@@ -188,10 +188,11 @@ def test_copilot_limits_and_rights(world, api, kc, model):  # noqa: F811
         ev = _events(c.post(f"/api/projects/{pid}/copilot", json={"message": "Ещё?"}))
     assert [e for e in ev if e["type"] == "text"] == [{"type": "text", "text": "Без потока"}] and ev[-1]["type"] == "done"
 
-    # not for agents' tokens, guests, or strangers
-    agent = TestClient(api.app)
-    agent.headers["Authorization"] = f"Bearer {world['write']}"
-    assert agent.post(f"/api/projects/{pid}/copilot", json={"message": "?"}).status_code == 403
-    assert agent.get("/api/copilot/status").status_code == 403
+    # not for guests of links or strangers
+    sh = world["owner"].post(f"/api/projects/{pid}/shares", json={}).json()
+    guest = TestClient(api.app)
+    guest.post(f"/api/share/{sh['token']}")
+    assert guest.post(f"/api/projects/{pid}/copilot", json={"message": "?"}).status_code == 403
+    assert guest.get(f"/api/projects/{pid}/copilot/chats").status_code == 403
     stranger = sign_in(api, kc, "cop-stranger")
     assert stranger.post(f"/api/projects/{pid}/copilot", json={"message": "?"}).status_code == 404

@@ -74,7 +74,7 @@ class Me:
     share: dict | None = field(default=None, compare=False)
     # the application's roles from Keycloak, full names: ("dwg3d.user", "dwg3d.nurse", ...)
     roles: tuple[str, ...] = field(default=(), compare=False)
-    # an AI agent acting for this user by a token (tokens.py): {"id", "name", "project_id", "mode"}
+    # the copilot acting for this user (copilot.identity): {"id", "name", "project_id", "mode", "copilot"}
     agent: dict | None = field(default=None, compare=False)
 
     def can(self, role: str) -> bool:
@@ -85,10 +85,10 @@ class Me:
         return f"{ROLE_PREFIX}{role}" in self.roles
 
     def actor(self) -> str | None:
-        """Who made a change, for the audit log: the login, and the agent's token if by one."""
+        """Who made a change, for the audit log: the login, and «Копилот» when it acted for the user."""
         if self.agent is None:
             return self.login or None
-        return " · ".join(x for x in (self.login, f"агент «{self.agent['name'] or self.agent['id']}»") if x)
+        return " · ".join(x for x in (self.login, self.agent["name"] or self.agent["id"]) if x)
 
     def json(self) -> dict:
         o = {"id": self.id, "login": self.login, "name": self.name, "role": self.role,

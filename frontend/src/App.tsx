@@ -174,7 +174,7 @@ export default function App() {
   const shownRef = useRef(shown)
   const rebuildingRef = useRef(rebuilding)
   useEffect(() => { shownRef.current = shown; rebuildingRef.current = rebuilding }, [shown, rebuilding])
-  // ---- changes made elsewhere (another window, an agent): read them in, a moment after the last one
+  // ---- changes made elsewhere (another window, the copilot): read them in, a moment after the last one
   const [notice, setNotice] = useState<string | null>(null)
   const [proposalNonce, setProposalNonce] = useState(0)
   const [proposal, setProposal] = useState<ProposalFull | null>(null)
@@ -187,7 +187,7 @@ export default function App() {
       markers: pins.markers, comments: pins.comments }))
   }
   useProjectEvents(projectId, (ev) => {
-    if (ev.entity === 'view') {               // an agent shows something to this user (only their windows get it)
+    if (ev.entity === 'view') {               // the copilot shows something to this user (only their windows get it)
       if (ev.command) commandRef.current(ev.command, ev.agent ?? '')
       return
     }
@@ -202,7 +202,7 @@ export default function App() {
     if (ev.entity === 'resync' || here.length || (ev.changes ?? []).some((c) => c.entity === 'proposal')) l.proposals = true
     if (!mine && (ev.actor || ev.agent) && (here.length || (ev.changes ?? []).some((c) => c.entity === 'layer'))) {
       l.count += here.length + (ev.more ?? 0)
-      l.who.add(ev.actor || `агент «${ev.agent}»`)
+      l.who.add(ev.actor || ev.agent || '')
     }
     window.clearTimeout(l.timer)
     l.timer = window.setTimeout(() => {
@@ -215,7 +215,7 @@ export default function App() {
       if (who.size) setNotice(`Изменения: ${[...who].join(', ')}${count ? ` · объектов: ${count}` : ''}`)
     }, 300)
   })
-  // ---- for the user's agents: what this window shows; their commands to it
+  // ---- for the user's copilot: what this window shows; its commands to it
   const [focus, setFocus] = useState<string[]>([])
   // the built-in copilot: shown when an admin has set up its model
   const [copilot, setCopilot] = useState<CopilotStatus | null>(null)
@@ -358,7 +358,7 @@ export default function App() {
     if (cmd.floor && floors.some((f) => f.id === cmd.floor)) setFloor(cmd.floor)
     if (cmd.floor && cmd.at) flyToPlan(cmd.floor, cmd.at, 12)
     setFocus(cmd.highlight ?? [])
-    setNotice(`Агент «${agent || 'без названия'}»${cmd.label ? `: ${cmd.label}` : ' показывает'}`)
+    setNotice(`${agent || 'Копилот'}${cmd.label ? `: ${cmd.label}` : ' показывает'}`)
   }
   const startWalk = () => {
     if (!r) return

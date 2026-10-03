@@ -1,4 +1,4 @@
-import { Bot, FileSpreadsheet, FolderOpen, Layers as LayersIcon, Link2, ListChecks, Settings as SettingsIcon, Users, type LucideIcon } from 'lucide-react'
+import { FileSpreadsheet, FolderOpen, Layers as LayersIcon, Link2, ListChecks, Settings as SettingsIcon, Users, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { getProject, type Project } from '@/api'
 import { Page } from '@/components/AppHeader'
@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { hasProjectRole, me, PROJECT_ROLE_NAMES, setProjectRole } from '@/session'
 import Report from '../Report'
-import Agents from './Agents'
 import Checks, { useChecks } from './Checks'
 import Drawings from './Drawings'
 import Layers from './Layers'
@@ -16,7 +15,7 @@ import Members from './Members'
 import ProjectSettings from './Settings'
 import Shares from './Shares'
 
-type Section = 'drawings' | 'layers' | 'spec' | 'checks' | 'members' | 'shares' | 'agents' | 'settings'
+type Section = 'drawings' | 'layers' | 'spec' | 'checks' | 'members' | 'shares' | 'settings'
 
 const NAV: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'drawings', label: 'Чертежи', icon: FolderOpen },
@@ -25,11 +24,10 @@ const NAV: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: 'checks', label: 'Проверки', icon: ListChecks },
   { id: 'members', label: 'Участники', icon: Users },
   { id: 'shares', label: 'Ссылки', icon: Link2 },
-  { id: 'agents', label: 'ИИ-агенты', icon: Bot },
   { id: 'settings', label: 'Настройки', icon: SettingsIcon },
 ]
 
-/** A project: its drawings, layers, specification, checks, members, share links and agents' tokens, one section at a time. */
+/** A project: its drawings, layers, specification, checks, members and share links, one section at a time. */
 export default function ProjectPage({ pid, section }: { pid: string; section?: string }) {
   const [p, setP] = useState<Project | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -57,7 +55,6 @@ export default function ProjectPage({ pid, section }: { pid: string; section?: s
   const hasChecks = !!checks && checks.fire.length > 0
   const items = NAV.filter((n) => {
     if (n.id === 'checks') return hasChecks
-    if (n.id === 'agents') return !guest && !!p?.my_role
     if (n.id === 'members' || n.id === 'shares' || n.id === 'settings') return !guest && (n.id === 'members' || n.id === 'settings' || owner)
     return true
   })
@@ -110,7 +107,6 @@ export default function ProjectPage({ pid, section }: { pid: string; section?: s
           {current === 'checks' && checks && <Checks c={checks} />}
           {current === 'members' && <Members pid={pid} owner={owner} />}
           {current === 'shares' && <Shares p={p} />}
-          {current === 'agents' && <Agents p={p} editor={editor} owner={owner} />}
           {current === 'settings' && <ProjectSettings p={p} editable={editor} owner={owner} onSaved={setP} />}
         </main>
       </div>

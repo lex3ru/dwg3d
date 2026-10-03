@@ -1,123 +1,81 @@
-"""MCP server for AI agents (Streamable HTTP at /api/mcp).
+"""The copilot's tools: what it may read and do in a project (copilot.py).
 
-Reading tools for every token; proposals (proposals.py: changes a person
-applies or rejects) for tokens of the "propose" and "write" modes; writing
-tools (objects through viewdata.apply, creating and changing layers) for
-tokens of the "write" mode only. Proposing and writing are limited in size
-and rate (MAX_OPS operations a call, WRITES_PER_MINUTE calls).
-
-The agent connects with its token (tokens.py) in `Authorization: Bearer`.
-Every tool call resolves the token again and runs as its user, through the
-same functions and access checks as the HTTP API (the MCP session runs in
-its own task, so the request's auth.current does not reach the tools).
+The tools are registered in an in-process MCPServer of the `mcp` library — it
+gives each tool its JSON schema (from the type hints) and validates the
+arguments; nothing is served over HTTP. The copilot calls them as the
+signed-in user (acting_as): reading for everyone, proposals (proposals.py:
+changes a person applies or rejects) for users who may edit, limited in rate
+(WRITES_PER_MINUTE calls).
 
 Answers are compact for a language model: plan coordinates in metres rounded
 to centimetres, floors by id (c0, c1... — what objects refer to) with their
 names, rooms by id with names and areas, catalog items with their names.
-
-  claude mcp add --transport http dwg3d https://<site>/api/mcp \\
-      --header "Authorization: Bearer dwg3d_..."
 """
 from __future__ import annotations
 
 import json
 import threading
-from contextvars import ContextVar
 import time
 import uuid
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from shapely.geometry import box
 from sqlalchemy import func, select
 
-from . import access, auth, db, layers, planning, proposals, reports, rooms, store, tokens, uicontext, viewdata
+from . import access, auth, db, layers, planning, proposals, reports, rooms, store, uicontext, viewdata
 from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Proposal, Room
 
-PATH = "/api/mcp"
 MAX_OBJECTS = 500
-MAX_OPS = 200                   # operations in one apply_changes
-WRITES_PER_MINUTE = 30          # writing calls of one token (per API process)
-
-INSTRUCTIONS = """\
-Проект из программы «Поэтажные планы → 3D»: DWG-чертежи зданий (корпуса), их этажи
-и помещения, слои проектных данных (мебель и оборудование, видеонаблюдение, пожарная
-сигнализация, СКУД, Wi-Fi, СКС, маршруты людей, зоны) и объекты на слоях.
-Начните с project_overview. Координаты — метры в плане этажа; этаж задаётся id
-(c0, c1…) внутри чертежа; помещения — числовые id из list_rooms. Позиции каталога
-(id вида doc.couch) ищутся search_catalog. С токеном «предложения» или «изменение»
-(token_mode в project_overview) можно предложить изменения объектов —
-propose_changes: человек увидит их на плане и примет или отклонит (proposal_status).
-Это предпочтительный путь для заметных правок. Чтобы не считать координаты самому:
-place_in_room (расставить в помещении у стен / в центре / по углам / сеткой),
-place_row (ряд), camera_coverage (что видят камеры) — у расстановки then="propose"
-сразу создаёт предложение. Что сейчас открыто у пользователя (чертёж, этаж,
-выделенные объекты, помещение) — get_ui_context: «это», «здесь», «на этом этаже»
-относятся к нему. Показать пользователю этаж, помещение или объекты (перелететь к
-ним и обвести) — show_in_viewer; данные это не меняет. Изменять напрямую можно только с
-токеном «изменение»: apply_changes, create_layer, update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
-в журнал под вашим токеном —
-перед массовыми правками опишите пользователю, что собираетесь сделать."""
+WRITES_PER_MINUTE = 30          # proposing calls of one user (per API process)
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
-CHANGE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 
-mcp = MCPServer("dwg3d", title="Поэтажные планы → 3D", instructions=INSTRUCTIONS)
+mcp = MCPServer("dwg3d", title="Поэтажные планы → 3D")
 
 
 # ------------------------------------------------------------------ access ---
-# the built-in copilot (copilot.py) calls the tools in-process as the signed-in user: it sets
-# this instead of sending a token (never set by an HTTP request, so MCP clients need a token)
+# the user the copilot acts for in this call (copilot.identity): set by copilot.call_tool
 acting_as: ContextVar[auth.Me | None] = ContextVar("dwg3d_acting_as", default=None)
 
 _writes: dict[str, deque] = defaultdict(deque)
 _writes_lock = threading.Lock()
 
 
-def _rate(token_id: str):
-    """At most WRITES_PER_MINUTE writing calls of a token a minute (in this process)."""
+def _rate(key: str):
+    """At most WRITES_PER_MINUTE proposing calls a minute (in this process)."""
     now = time.monotonic()
     with _writes_lock:
-        q = _writes[token_id]
+        q = _writes[key]
         while q and q[0] < now - 60:
             q.popleft()
         if len(q) >= WRITES_PER_MINUTE:
-            raise ToolError(f"Слишком часто: не больше {WRITES_PER_MINUTE} изменений в минуту — "
-                            "объединяйте операции в один apply_changes")
+            raise ToolError(f"Слишком часто: не больше {WRITES_PER_MINUTE} предложений в минуту — "
+                            "объединяйте операции в одно предложение")
         q.append(now)
 
 
 @contextmanager
-def _agent(ctx: Context, write: bool = False, propose: bool = False):
-    """The token's agent as the current user of this call, and its project id.
-    `write`: a change — the token must be of the write mode, access checks
-    take an editor (as for a POST of the HTTP API); `propose`: a proposal — a
-    token of the propose or write mode, reading access. Errors of the data
-    become tool errors, the transaction rolled back."""
+def _agent(ctx: Context, propose: bool = False):
+    """The copilot's user as the current user of this call, and the project id.
+    `propose`: making a proposal — only for users who may edit (mode
+    "propose"). Errors of the data become tool errors, the transaction
+    rolled back."""
     me = acting_as.get()
-    if me is None:
-        h = (ctx.headers or {}).get("authorization", "")
-        me = tokens.resolve(h[7:].strip()) if h[:7].lower() == "bearer " else None
     if me is None or me.agent is None:
-        raise ToolError("Нужен действующий токен агента (Authorization: Bearer dwg3d_…)")
-    if write:
-        if me.agent["mode"] != "write":
-            raise ToolError(f"Токен в режиме «{tokens.MODE_NAMES[me.agent['mode']]}»: изменять нельзя. "
-                            "Нужен токен в режиме «изменение» (проект → «ИИ-агенты»)")
+        raise ToolError("Инструменты доступны только копилоту")
+    if propose:
+        if me.agent["mode"] != "propose":
+            raise ToolError("У пользователя права только на просмотр: предлагать изменения нельзя")
         _rate(me.agent["id"])
-    elif propose:
-        if me.agent["mode"] not in ("propose", "write"):
-            raise ToolError("Токен «только чтение»: предлагать изменения нельзя. "
-                            "Нужен токен в режиме «предложения» или «изменение» (проект → «ИИ-агенты»)")
-        _rate(me.agent["id"])
-    t_user, t_method = auth.current.set(me), auth.method.set("POST" if write else "GET")
+    t_user, t_method = auth.current.set(me), auth.method.set("GET")
     try:
         yield me, me.agent["project_id"]
     except access.Denied as ex:
@@ -164,7 +122,7 @@ def _shown_layers(s, me, pid: str) -> dict[str, Layer]:
 # ------------------------------------------------------------------- tools ---
 @mcp.tool(annotations=READ)
 def project_overview(ctx: Context) -> dict[str, Any]:
-    """Проект целиком: название, ваша роль и режим токена, чертежи с этажами
+    """Проект целиком: название, роль пользователя и режим (propose / read), чертежи с этажами
     (id этажа, название, уровень, отметка и высота, число помещений) и слои
     (id, тип, название, видимость, блокировка, число объектов). Начинайте с него."""
     with _agent(ctx) as (me, pid), db.session() as s:
@@ -185,7 +143,7 @@ def project_overview(ctx: Context) -> dict[str, Any]:
                  "name": x["name"], "visible": x["visible"], "locked": x["locked"], "objects": x["count"]}
                 for x in layers.list_layers(s, pid) if shown is None or x["id"] in shown]
         return {"project": {"id": p.id, "name": p.name, "description": p.description},
-                "my_role": access.project_role(s, me, pid), "token_mode": me.agent["mode"],
+                "my_role": access.project_role(s, me, pid), "mode": me.agent["mode"],
                 "drawings": drawings, "layers": lays}
 
 
@@ -392,15 +350,15 @@ def report(ctx: Context,
 def recent_changes(ctx: Context,
                    limit: Annotated[int, Field(ge=1, le=200)] = 30,
                    drawing: Annotated[str | None, Field(description="только изменения в этом чертеже")] = None) -> dict[str, Any]:
-    """Последние изменения в проекте (журнал): когда, кто (у агента — с названием
-    токена), что (объект, слой, чертёж…) и действие; поля до и после."""
+    """Последние изменения в проекте (журнал): когда, кто (правки копилота — с пометкой
+    «· Копилот»), что (объект, слой, чертёж…) и действие; поля до и после."""
     with _agent(ctx) as (_, pid), db.session() as s:
         access.check(s, pid)
         return {"changes": [{k: a[k] for k in ("at", "actor", "entity", "entity_id", "action", "drawing_id", "before", "after")}
                             for a in viewdata.audit(s, pid, limit, drawing)]}
 
 
-# ------------------------------------------------------------------ writes ---
+# ------------------------------------------------------------- operations ---
 OPS_HELP = """\
 Операции (все или ни одной):
 - создать точку каталога: {"op": "create", "layer", "floor", "item", "at": [x, y], "angle"?,
@@ -411,89 +369,21 @@ OPS_HELP = """\
   "flow"?, "name"?}} — путь между остановками пересчитает редактор;
 - изменить: {"op": "update", "id", "version", …только меняемые поля};
 - удалить: {"op": "delete", "id", "version"}.
-version — из query_objects / get_object (у созданных этим вызовом — в ответе)."""
-
-
-def _changed(res: dict, ops: list[dict], d: Drawing, s, me, pid: str) -> dict[str, Any]:
-    created = {o.get("id") for o in ops if o.get("op") == "create"}
-    lay = _shown_layers(s, me, pid)
-    rnames, inames = _names(s, res["items"])
-    objs = [_object(o, d, lay, rnames, inames, False) | {"version": o["version"]} for o in res["items"]]
-    return {"created": [o["id"] for o in objs if o["id"] in created],
-            "updated": [o["id"] for o in objs if o["id"] not in created],
-            "deleted": res["deleted"], "objects": objs}
-
-
-@mcp.tool(annotations=CHANGE, description=f"""Изменить объекты слоёв на чертеже одним пакетом: создать,
-изменить, удалить. Только с токеном «изменение». Не больше {MAX_OPS} операций за вызов.
-Объекты заблокированных слоёв не меняются. Если строку уже изменил кто-то другой
-(version не совпадает) — ничего не записывается, в ошибке текущее состояние.
-
-{OPS_HELP}""")
-def apply_changes(ctx: Context,
-                  drawing: Annotated[str, Field(description="id чертежа")],
-                  ops: Annotated[list[dict[str, Any]], Field(description="операции, см. описание инструмента",
-                                                             min_length=1, max_length=MAX_OPS)],
-                  build: Annotated[int | None, Field(description="номер сборки чертежа из project_overview: "
-                                                                 "если модель с тех пор перестроили — отказ")] = None) -> dict[str, Any]:
-    with _agent(ctx, write=True) as (me, pid), db.session() as s:
-        d = _drawing(s, pid, drawing)
-        if any(not isinstance(o, dict) for o in ops):
-            raise ToolError("ops: список объектов-операций")
-        # the agent may leave out ids of new objects: give them here, to tell them in the answer
-        ops = [{**o, "id": o.get("id") or uuid.uuid4().hex[:8]} if o.get("op") == "create" else o for o in ops]
-        res = viewdata.apply(s, d.id, "object", ops, build=build)
-        return _changed(res, ops, d, s, me, pid)
-
-
-@mcp.tool(annotations=WRITE)
-def create_layer(ctx: Context,
-                 kind: Annotated[str, Field(description="тип слоя из layer_kinds (furniture, cctv, fire, routes, zones…)")],
-                 name: Annotated[str | None, Field(description="название; по умолчанию — название типа", max_length=120)] = None) -> dict[str, Any]:
-    """Создать слой проекта (например, вариант расстановки). Только с токеном «изменение»."""
-    with _agent(ctx, write=True) as (_, pid), db.session() as s:
-        store.get_project(s, pid, lock=True)
-        access.check(s, pid)
-        layer = layers.create(s, pid, {"kind": kind, "name": name})
-        viewdata.audit_entry(s, pid, "layer", layer.id, "create", None, layers.layer_json(layer))
-        store.touch_project(s, pid)
-        return layers.layer_json(layer, 0)
-
-
-@mcp.tool(annotations=WRITE)
-def update_layer(ctx: Context,
-                 id: Annotated[str, Field(description="id слоя")],
-                 name: Annotated[str | None, Field(description="новое название", max_length=120)] = None,
-                 visible: Annotated[bool | None, Field(description="показывать ли слой")] = None) -> dict[str, Any]:
-    """Переименовать слой или включить / выключить его видимость. Блокировку слоя
-    меняет только человек; удалить слой агент не может. Только с токеном «изменение»."""
-    with _agent(ctx, write=True) as (me, pid), db.session() as s:
-        access.check(s, pid)
-        layer = s.scalar(select(Layer).where(Layer.id == id, Layer.project_id == pid).with_for_update())
-        if layer is None or id not in _shown_layers(s, me, pid):
-            raise ToolError(f"Слой {id!r} не найден: см. project_overview")
-        v = {k: x for k, x in (("name", name), ("visible", visible)) if x is not None}
-        changes = layers.update(layer, v)
-        if changes:
-            viewdata.audit_entry(s, pid, "layer", id, "update", {k: b for k, (b, _) in changes.items()},
-                                 {k: a for k, (_, a) in changes.items()})
-            store.touch_project(s, pid)
-        return layers.layer_json(layer)
-
+version — из query_objects / get_object."""
 
 
 # --------------------------------------------------------------- proposals ---
 @mcp.tool(annotations=WRITE, description=f"""Предложить изменения объектов на чертеже: человек увидит их
 на плане (новые, изменённые, удаляемые) и применит или отклонит. Ничего не меняется,
-пока он не решит. Токен «предложения» или «изменение». Операции проверяются сразу
-(как в apply_changes) — с ошибкой предложение не создаётся. До {proposals.MAX_OPS} операций.
+пока он не решит (только для пользователей с правом редактирования). Операции
+проверяются сразу — с ошибкой предложение не создаётся. До {proposals.MAX_OPS} операций.
 summary — для человека: что и зачем, кратко.
 
 {OPS_HELP}""")
 def propose_changes(ctx: Context,
                     drawing: Annotated[str, Field(description="id чертежа")],
                     summary: Annotated[str, Field(description="что и зачем меняется — увидит человек", min_length=1, max_length=2000)],
-                    ops: Annotated[list[dict[str, Any]], Field(description="операции, как в apply_changes",
+                    ops: Annotated[list[dict[str, Any]], Field(description="операции, см. описание инструмента",
                                                                min_length=1, max_length=proposals.MAX_OPS)],
                     build: Annotated[int | None, Field(description="номер сборки из project_overview")] = None) -> dict[str, Any]:
     with _agent(ctx, propose=True) as (_, pid), db.session() as s:
@@ -507,13 +397,13 @@ def propose_changes(ctx: Context,
 
 @mcp.tool(annotations=READ)
 def proposal_status(ctx: Context,
-                    id: Annotated[str | None, Field(description="id предложения; без него — последние предложения этого токена")] = None) -> dict[str, Any]:
+                    id: Annotated[str | None, Field(description="id предложения; без него — последние предложения копилота этому пользователю")] = None) -> dict[str, Any]:
     """Решение по предложению: ждёт решения, применено, отклонено (с причиной, если
     человек её указал) или устарело (объекты или модель изменились — предложите заново)."""
     with _agent(ctx) as (me, pid), db.session() as s:
         access.check(s, pid)
         if id is None:
-            return {"proposals": proposals.listing(s, pid, token=me.agent["id"], limit=20)}
+            return {"proposals": proposals.listing(s, pid, user_id=me.id, agent=me.agent["name"], limit=20)}
         p = s.scalar(select(Proposal).where(Proposal.id == id, Proposal.project_id == pid))
         if p is None:
             raise ToolError(f"Предложение {id!r} не найдено")
@@ -521,13 +411,13 @@ def proposal_status(ctx: Context,
 
 
 # ---------------------------------------------------------- planning tools ---
-Then = Literal["return", "propose", "apply"]
-THEN_HELP = ("return — только вернуть операции (передать их в propose_changes / apply_changes); "
-             "propose — сразу создать предложение (нужен summary); apply — сразу применить (токен «изменение»)")
+Then = Literal["return", "propose"]
+THEN_HELP = ("return — только вернуть операции (передать их в propose_changes); "
+             "propose — сразу создать предложение (нужен summary)")
 
 
 def _then(ctx: Context, then: str):
-    return _agent(ctx, write=then == "apply", propose=then == "propose")
+    return _agent(ctx, propose=then == "propose")
 
 
 def _finish(s, pid: str, d: Drawing, plan: dict, ops: list[dict], then: str, summary: str | None) -> dict[str, Any]:
@@ -541,8 +431,7 @@ def _finish(s, pid: str, d: Drawing, plan: dict, ops: list[dict], then: str, sum
         viewdata.audit_entry(s, pid, "proposal", p.id, "create", None,
                              {"summary": p.summary, "counts": proposals.counts(p.ops)}, d.id)
         return {**out, "proposal": proposals.proposal_json(p, drawing=d)}
-    res = viewdata.apply(s, d.id, "object", ops)
-    return {**out, "created": [r["id"] for r in res["items"]]}
+    return out
 
 
 def _creates(plan: dict, item: str, layer: str | None) -> list[dict]:
@@ -616,7 +505,7 @@ VIEW = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint
 
 @mcp.tool(annotations=READ)
 def get_ui_context(ctx: Context) -> dict[str, Any]:
-    """Что сейчас открыто у пользователя (того, кто выпустил токен) в этом проекте:
+    """Что сейчас открыто у пользователя в этом проекте (во всех его окнах):
     окна вьювера, последнее активное первым — чертёж, этаж, 2D/3D, инструмент,
     выделенные объекты (с названиями), выбранное помещение, просматриваемое
     предложение. «Это», «здесь», «на этом этаже» в просьбах пользователя — отсюда."""
@@ -681,21 +570,3 @@ def show_in_viewer(ctx: Context,
         uicontext.command(s, pid, me.id, cmd, me.agent["name"] or me.agent["id"])
         return {"sent": cmd, "windows": len(ws),
                 **({} if ws else {"note": "у пользователя сейчас нет открытого окна проекта — команду никто не увидит"})}
-
-# --------------------------------------------------------------- HTTP app ---
-@asynccontextmanager
-async def running():
-    """For the API's lifespan: a fresh session manager (each runs only once),
-    stateless (any API process answers any request), plain JSON answers.
-    DNS-rebinding protection is off: requests carry a token, not cookies."""
-    mcp.streamable_http_app(streamable_http_path=PATH, stateless_http=True, json_response=True,
-                            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
-    async with mcp.session_manager.run():
-        yield
-
-
-class Endpoint:
-    """The ASGI app of PATH (a class, so that Starlette's Route passes it the raw ASGI call)."""
-
-    async def __call__(self, scope, receive, send):
-        await mcp.session_manager.handle_request(scope, receive, send)

@@ -1,5 +1,5 @@
 """The built-in copilot: a chat in the viewer with a language model that works
-with the project through the same tools as external agents (agent_mcp.py).
+with the project through its tools (agent_tools.py).
 
 The model is external, behind an OpenAI-compatible endpoint (POST
 {base_url}/chat/completions with function calling: Ollama, vLLM, LM Studio,
@@ -7,11 +7,11 @@ OpenRouter, cloud providers); its address, key, model and limits are set by
 an admin in the UI and kept in app_settings (the key is never sent back to
 browsers, only its last characters).
 
-The copilot acts for the signed-in user (agent_mcp.acting_as), as an agent
+The copilot acts for the signed-in user (agent_tools.acting_as), as an agent
 named «Копилот»: no more than the user's role in the project, capped like a
 token's mode — "propose" for editors and owners (changes go as proposals the
 user applies in one click), "read" for viewers. Its changes and proposals are
-in the audit log as "<login> · агент «Копилот»".
+in the audit log as "<login> · Копилот".
 
 A conversation is kept per user and project (copilot_chats) in the endpoint's
 message format; each request sends a fixed system prompt, the history (the
@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from . import access, agent_mcp, auth, db, uicontext
+from . import access, agent_tools, auth, db, uicontext
 from .models import AppSetting, CopilotChat, CopilotUsage
 
 log = logging.getLogger("dwg3d.copilot")
@@ -45,7 +45,6 @@ DEFAULTS = {"enabled": False, "base_url": "", "api_key": "", "model": "", "daily
 NAME = "Копилот"
 MAX_HISTORY = 80                    # messages sent back to the model
 MAX_RESULT = 20000                  # characters of a tool result
-WRITE_TOOLS = {"apply_changes", "create_layer", "update_layer"}       # never offered: the copilot proposes
 
 SYSTEM = """\
 Ты — Копилот, встроенный помощник программы «Поэтажные планы → 3D». Программа строит
@@ -189,13 +188,13 @@ _specs: list[dict] | None = None
 
 
 async def tool_specs(mode: str) -> list[dict]:
-    """The MCP server's tools as OpenAI functions (no direct writing; no proposing for readers)."""
+    """The tools as OpenAI functions (no proposing for users who may only read)."""
     global _specs
     if _specs is None:
         _specs = [{"type": "function", "function": {"name": t.name, "description": t.description or "",
                                                     "parameters": t.input_schema}}
-                  for t in await agent_mcp.mcp.list_tools() if t.name not in WRITE_TOOLS]
-    hidden = {"propose_changes"} if mode == "read" else set()
+                  for t in await agent_tools.mcp.list_tools()]
+    hidden = {"propose_changes", "place_in_room", "place_row"} if mode == "read" else set()
     return [x for x in _specs if x["function"]["name"] not in hidden]
 
 
@@ -207,18 +206,16 @@ async def prompt_size() -> int:
 
 async def call_tool(me: auth.Me, name: str, args: dict) -> tuple[str, bool, dict | None]:
     """Run a tool as the copilot: (result text, is error, structured result)."""
-    if name in WRITE_TOOLS:
-        return "Этот инструмент копилоту недоступен: предлагайте изменения (propose_changes)", True, None
-    token = agent_mcp.acting_as.set(me)
+    token = agent_tools.acting_as.set(me)
     try:
-        res = await agent_mcp.mcp.call_tool(name, args)
+        res = await agent_tools.mcp.call_tool(name, args)
     except ToolError as ex:
         return str(ex), True, None
     except Exception as ex:                       # a tool crashed: the model is told, the log has the rest
         log.exception("copilot tool %s failed", name)
         return f"Ошибка инструмента {name}: {ex.__class__.__name__}", True, None
     finally:
-        agent_mcp.acting_as.reset(token)
+        agent_tools.acting_as.reset(token)
     data = getattr(res, "structured_content", None)
     if data is not None:
         text = json.dumps(data, ensure_ascii=False, default=str)

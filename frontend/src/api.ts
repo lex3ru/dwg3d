@@ -510,37 +510,6 @@ export async function revokeShare(projectId: string, id: string): Promise<ShareL
   return check(await fetch(`/api/projects/${projectId}/shares/${id}`, { method: 'DELETE' }))
 }
 
-export type AgentMode = 'read' | 'propose' | 'write'
-
-export interface AgentToken {
-  id: string
-  name: string
-  mode: AgentMode
-  mode_name: string
-  /** the user the agent acts for */
-  user: { id: number; login: string; name: string } | null
-  mine: boolean
-  expires: number
-  revoked: boolean
-  active: boolean
-  created: number | null
-  last_used: number | null
-  /** only in the answer to its creation */
-  token?: string
-}
-
-export async function listAgentTokens(projectId: string): Promise<AgentToken[]> {
-  return check(await fetch(`/api/projects/${projectId}/agent-tokens`))
-}
-
-export async function createAgentToken(projectId: string, v: { name?: string; mode: AgentMode; days: number }): Promise<AgentToken> {
-  return check(await fetch(`/api/projects/${projectId}/agent-tokens`, jsonBody('POST', v)))
-}
-
-export async function revokeAgentToken(projectId: string, id: string): Promise<AgentToken> {
-  return check(await fetch(`/api/projects/${projectId}/agent-tokens/${id}`, { method: 'DELETE' }))
-}
-
 export async function renameDrawing(id: string, name: string): Promise<ViewSettings> {
   return putView(id, { name })
 }
@@ -580,7 +549,7 @@ export async function listPins(id: string): Promise<{ build: number; markers: Pi
   return check(await fetch(`/api/drawings/${id}/pins`))
 }
 
-/** Changes of layer objects proposed by an AI agent, waiting for a person (or decided). */
+/** Changes of layer objects proposed by the copilot, waiting for a person (or decided). */
 export interface Proposal {
   id: string
   project_id: string
@@ -591,7 +560,7 @@ export interface Proposal {
   status_name: string
   /** why it was rejected, or why it no longer applies */
   reason: string | null
-  /** the name of the agent's token */
+  /** who proposed: «Копилот» */
   agent: string
   user: { id: number; login: string; name: string } | null
   counts: { create: number; update: number; delete: number }
@@ -629,23 +598,23 @@ export async function rejectProposal(id: string, reason: string): Promise<Propos
 /** One change of a committed transaction (GET /api/projects/{id}/events). */
 export interface ProjectChange { drawing: string | null; entity: string; id: string; action: string }
 
-/** Changes in a project made by someone (a person in another window, or an agent with a token);
+/** Changes in a project made by someone (a person in another window, or the copilot);
  * `entity: 'resync'` — changes were lost: read everything again. */
 export interface ProjectEvent {
   project?: string
   user_id?: number | null
   actor?: string | null
-  /** the name of the agent's token, when an agent made the change */
+  /** «Копилот» when the copilot made the change */
   agent?: string | null
   changes?: ProjectChange[]
   /** changes left out of a big transaction */
   more?: number
-  /** 'view': an agent's command to this user's windows (`command`) */
+  /** 'view': the copilot's command to this user's windows (`command`) */
   entity?: 'resync' | 'view'
   command?: ViewCommand
 }
 
-/** What an agent asks the user's windows to show (MCP show_in_viewer); changes no data. */
+/** What the copilot asks the user's windows to show (show_in_viewer); changes no data. */
 export interface ViewCommand {
   drawing?: string
   floor?: string | null
@@ -745,7 +714,7 @@ export async function deleteCopilotChat(projectId: string, id: string): Promise<
   return check(await fetch(`/api/projects/${projectId}/copilot/chats/${id}`, { method: 'DELETE' }))
 }
 
-/** What this window shows, for the user's agents (or `closed`). */
+/** What this window shows, for the user's copilot (or `closed`). */
 export interface UIContext {
   client: string
   drawing?: string | null

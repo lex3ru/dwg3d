@@ -29,8 +29,8 @@ function Changes({ p }: { p: ProposalFull }) {
 }
 
 /**
- * Changes proposed by AI agents on this drawing: shown on the plan (new, changed, to be removed —
- * outlined), applied by an editor as their own change, or rejected with a reason for the agent.
+ * Changes proposed by the copilot on this drawing: shown on the plan (new, changed, to be removed —
+ * outlined), applied by an editor as their own change, or rejected with a reason for the copilot.
  */
 export default function Proposals({ projectId, drawingId, nonce, editable, preview, onPreview, shifted }: {
   projectId: string
@@ -87,7 +87,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
       <div className="max-w-[calc(100vw-32px)] rounded-lg border border-border bg-card text-card-foreground shadow-lg">
       <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)}>
         <Bot className="size-4 text-primary" />
-        <span className="flex-1">Предложения агентов: {list.length}</span>
+        <span className="flex-1">Предложения копилота: {list.length}</span>
         {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
       </button>
       {open && (
@@ -100,7 +100,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
               <div key={p.id} className={`grid gap-1.5 rounded-md p-2 ${on ? 'bg-accent' : 'hover:bg-secondary/60'}`}>
                 <div className="text-sm">{p.summary}</div>
                 <div className="text-xs text-muted-foreground">
-                  агент «{p.agent || 'без названия'}»{p.user ? ` · ${p.user.name || p.user.login}` : ''}
+                  {p.agent || 'Копилот'}{p.user ? ` · для ${p.user.name || p.user.login}` : ''}
                   {' · '}
                   <span style={{ color: MARK_COLOR.new }}>+{n.create}</span>{' '}
                   <span style={{ color: MARK_COLOR.changed }}>~{n.update}</span>{' '}
@@ -113,7 +113,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
                     run(p.id, () => rejectProposal(p.id, reason.trim()))
                     setRejecting(null)
                   }}>
-                    <Input autoFocus className="h-8 text-xs" value={reason} placeholder="Причина — увидит агент" maxLength={2000}
+                    <Input autoFocus className="h-8 text-xs" value={reason} placeholder="Причина — увидит копилот" maxLength={2000}
                       onChange={(e) => setReason(e.target.value)} />
                     <Button size="sm" variant="destructive" disabled={busy === p.id}>Отклонить</Button>
                     <Button size="sm" type="button" variant="ghost" onClick={() => setRejecting(null)}>Отмена</Button>
@@ -125,7 +125,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
                       <>
                         <Button size="sm" disabled={busy === p.id} onClick={async () => {
                           const total = n.create + n.update + n.delete
-                          if (await ask({ title: 'Применить предложение?', text: `${p.summary}\n\nИзменений: ${total}. В журнале они будут записаны от вашего имени с пометкой агента.`, confirm: 'Применить' })) {
+                          if (await ask({ title: 'Применить предложение?', text: `${p.summary}\n\nИзменений: ${total}. В журнале они будут записаны от вашего имени с пометкой копилота.`, confirm: 'Применить' })) {
                             run(p.id, () => applyProposal(p.id))
                           }
                         }}><Check /> Применить</Button>

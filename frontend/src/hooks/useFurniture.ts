@@ -154,7 +154,7 @@ export function useFurniture(p: {
       }
     })
   }
-  /** Rows changed by someone else (another window, an agent): take the server's rows except
+  /** Rows changed by someone else (another window, the copilot): take the server's rows except
    * where this window has a change not saved yet (its save then meets the conflict as usual).
    * Undo steps are dropped: they could put back what the other one changed. */
   const mergeRemote = (rows: PlacedItem[], unplacedRows: PlacedItem[]) => {

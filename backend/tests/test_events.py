@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from dwg3d import auth, db, events, viewdata
 from test_auth import api, kc, sign_in  # noqa: F401  (fixtures)
-from test_tokens import _setup
+from test_agent_tools import _setup
 
 
 def _collect(pid: str, act, wait: float = 3.0) -> list[dict]:
@@ -53,7 +53,7 @@ def test_one_event_per_transaction(pg):
     assert len(got) == 1
     ev = got[0]
     assert ev["project"] == "evproj" and ev["user_id"] is None and ev["agent"] == "Claude"
-    assert ev["actor"] == "olga · агент «Claude»"
+    assert ev["actor"] == "olga · Claude"
     assert [c["id"] for c in ev["changes"]] == ["o0", "o1", "o2"] and ev["changes"][0]["drawing"] == "d1"
 
 
