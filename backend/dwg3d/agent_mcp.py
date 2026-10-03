@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextvars import ContextVar
 import time
 import uuid
 from collections import defaultdict, deque
@@ -72,6 +73,10 @@ mcp = MCPServer("dwg3d", title="Поэтажные планы → 3D", instructi
 
 
 # ------------------------------------------------------------------ access ---
+# the built-in copilot (copilot.py) calls the tools in-process as the signed-in user: it sets
+# this instead of sending a token (never set by an HTTP request, so MCP clients need a token)
+acting_as: ContextVar[auth.Me | None] = ContextVar("dwg3d_acting_as", default=None)
+
 _writes: dict[str, deque] = defaultdict(deque)
 _writes_lock = threading.Lock()
 
@@ -96,8 +101,10 @@ def _agent(ctx: Context, write: bool = False, propose: bool = False):
     take an editor (as for a POST of the HTTP API); `propose`: a proposal — a
     token of the propose or write mode, reading access. Errors of the data
     become tool errors, the transaction rolled back."""
-    h = (ctx.headers or {}).get("authorization", "")
-    me = tokens.resolve(h[7:].strip()) if h[:7].lower() == "bearer " else None
+    me = acting_as.get()
+    if me is None:
+        h = (ctx.headers or {}).get("authorization", "")
+        me = tokens.resolve(h[7:].strip()) if h[:7].lower() == "bearer " else None
     if me is None or me.agent is None:
         raise ToolError("Нужен действующий токен агента (Authorization: Bearer dwg3d_…)")
     if write:

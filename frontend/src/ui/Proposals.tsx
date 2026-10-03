@@ -32,7 +32,7 @@ function Changes({ p }: { p: ProposalFull }) {
  * Changes proposed by AI agents on this drawing: shown on the plan (new, changed, to be removed —
  * outlined), applied by an editor as their own change, or rejected with a reason for the agent.
  */
-export default function Proposals({ projectId, drawingId, nonce, editable, preview, onPreview }: {
+export default function Proposals({ projectId, drawingId, nonce, editable, preview, onPreview, shifted }: {
   projectId: string
   drawingId: string
   /** changes elsewhere: read the list again */
@@ -40,6 +40,8 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
   editable: boolean
   preview: ProposalFull | null
   onPreview: (p: ProposalFull | null) => void
+  /** the copilot's panel is open on the right: stand left of it */
+  shifted?: boolean
 }) {
   const [list, setList] = useState<Proposal[]>([])
   const [open, setOpen] = useState(true)
@@ -81,7 +83,8 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
     } catch (e) { setErr((e as Error).message) }
   }
   return (
-    <div className="fixed top-28 right-4 z-40 w-80 max-w-[calc(100vw-32px)] rounded-lg border border-border bg-card text-card-foreground shadow-lg">
+    <div className={`fixed top-28 z-40 w-80 ${shifted ? 'right-[432px] max-[900px]:hidden' : 'right-4'}`}>
+      <div className="max-w-[calc(100vw-32px)] rounded-lg border border-border bg-card text-card-foreground shadow-lg">
       <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)}>
         <Bot className="size-4 text-primary" />
         <span className="flex-1">Предложения агентов: {list.length}</span>
@@ -136,6 +139,7 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
           })}
         </div>
       )}
+      </div>
       {dialog}
     </div>
   )

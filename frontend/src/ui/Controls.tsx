@@ -1,4 +1,4 @@
-import { BookOpen, Building2, FileSpreadsheet, Map as MapIcon, Maximize, Minus, Monitor, Moon, Package, Plus, Settings, Sun, Sunset } from 'lucide-react'
+import { BookOpen, Bot, Building2, FileSpreadsheet, Map as MapIcon, Maximize, Minus, Monitor, Moon, Package, Plus, Settings, Sun, Sunset } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,7 +16,7 @@ import { can } from '../session'
 import type { DayTime, Projection } from '../state'
 
 /** Settings dialogs opened from the gear menu */
-export type SettingsPane = 'floors' | 'site' | 'report' | 'catalog'
+export type SettingsPane = 'floors' | 'site' | 'report' | 'catalog' | 'copilot'
 
 const pill = 'h-10 rounded-full border-0 bg-float shadow-md backdrop-blur'
 
@@ -58,6 +58,7 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
           <DropdownMenuItem onSelect={() => onSettings('site')}><MapIcon /> Карта и детальная модель…</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onSettings('report')}><FileSpreadsheet /> Спецификация оборудования…</DropdownMenuItem>
           {can('catalog_admin') && <DropdownMenuItem onSelect={() => onSettings('catalog')}><Package /> Каталог оборудования…</DropdownMenuItem>}
+          {can('admin') && <DropdownMenuItem onSelect={() => onSettings('copilot')}><Bot /> Копилот: модель и лимиты…</DropdownMenuItem>}
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Тема</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>

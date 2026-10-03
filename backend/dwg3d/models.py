@@ -2,7 +2,7 @@
 (dwg3d/migrations/versions); keep these classes in step with them."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -379,6 +380,41 @@ class UIContext(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     data: Mapped[dict] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AppSetting(Base):
+    """A setting changed in the UI (copilot.py: the model endpoint, key, limits)."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class CopilotChat(Base):
+    """A conversation of a user with the copilot in a project, in the model API's message format."""
+    __tablename__ = "copilot_chats"
+    __table_args__ = (Index("copilot_chats_owner", "project_id", "user_id", "updated_at"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(Text, server_default="")
+    messages: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CopilotUsage(Base):
+    """Requests of a user to the copilot's model a day (the daily limit)."""
+    __tablename__ = "copilot_usage"
+
+    user_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    requests: Mapped[int] = mapped_column(Integer, server_default="0")
+    prompt_tokens: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    completion_tokens: Mapped[int] = mapped_column(BigInteger, server_default="0")
 
 
 class AuditLog(Base):

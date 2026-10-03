@@ -45,7 +45,7 @@ AGENT_WRITES = (
     ({"PATCH"}, re.compile(r"/api/projects/[^/]+/layers/[^/]+")),
 )
 # not even to read: who is who, and the tokens themselves
-AGENT_HIDDEN = re.compile(r"/api/users|/api/projects/[^/]+/(members|shares|agent-tokens)(/.*)?")
+AGENT_HIDDEN = re.compile(r"/api/users|/api/copilot(/.*)?|/api/projects/[^/]+/(members|shares|agent-tokens|copilot)(/.*)?")
 
 
 def agent_may(method: str, path: str, mode: str) -> bool:

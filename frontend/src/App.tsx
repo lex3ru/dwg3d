@@ -1,14 +1,16 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import {
-  closeUIContext, createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob, reportUIContext,
-  type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ViewCommand, type ShapeObject, type V3, type ViewSettings, type XY,
+  closeUIContext, copilotStatus, createLayer, downloadDrawing, listLayers, listObjects, listPins, rebuildJob, reportUIContext,
+  type CopilotStatus, type FloorEdits, type FloorMeta, type Job, type PlacedItem, type ProposalFull, type RoomMeta, type ViewCommand, type ShapeObject, type V3, type ViewSettings, type XY,
 } from './api'
 import { canEdit, me, READ_ONLY } from './session'
 import Editor2D from './Editor2D'
 import Settings from './Settings'
 import CatalogEditor from './ui/CatalogEditor'
 import type { SettingsPane } from './ui/Controls'
+import Copilot from './ui/Copilot'
+import CopilotSettings from './ui/CopilotSettings'
 import Proposals from './ui/Proposals'
 import Report from './ui/Report'
 import {
@@ -18,7 +20,7 @@ import {
 import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
-import { Armchair, BookOpen, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
+import { Armchair, BookOpen, Bot, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import Dock from './dock/Dock'
@@ -215,6 +217,13 @@ export default function App() {
   })
   // ---- for the user's agents: what this window shows; their commands to it
   const [focus, setFocus] = useState<string[]>([])
+  // the built-in copilot: shown when an admin has set up its model
+  const [copilot, setCopilot] = useState<CopilotStatus | null>(null)
+  const [copilotOpen, setCopilotOpen] = useState(false)
+  useEffect(() => {
+    if (me?.guest) return
+    copilotStatus().then(setCopilot).catch(() => setCopilot(null))
+  }, [copilotOpen, settings])
   const commandRef = useRef<(cmd: ViewCommand, agent: string) => void>(() => {})
   const pendingCommand = useRef<{ cmd: ViewCommand; agent: string } | null>(null)
   const client = useMemo(() => {
@@ -780,7 +789,17 @@ export default function App() {
         )}
         {shown && projectId && !presenting && !me?.guest && (
           <Proposals projectId={projectId} drawingId={shown.id} nonce={proposalNonce} editable={canEdit()}
-            preview={proposal} onPreview={setProposal} />
+            preview={proposal} onPreview={setProposal} shifted={copilotOpen} />
+        )}
+        {shown && projectId && !presenting && !me?.guest && copilot?.enabled && (copilotOpen ? (
+          <Copilot projectId={projectId} status={copilot} ui={uiState} editable={canEdit()} onPreview={setProposal}
+            onClose={() => setCopilotOpen(false)} />
+        ) : (
+          <button type="button" onClick={() => setCopilotOpen(true)}
+            className="fixed right-4 bottom-24 z-40 flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground shadow-lg hover:opacity-90">
+            <Bot className="size-4" /> Копилот
+          </button>
+        )
         )}
         {notice && (
           <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-50 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-lg">
@@ -809,6 +828,7 @@ export default function App() {
               }} />
           )
         })()}
+        {settings === 'copilot' && <CopilotSettings onClose={() => setSettings(null)} />}
         {settings === 'catalog' && <CatalogEditor onClose={() => setSettings(null)} onChanged={() => setCatalogTick((n) => n + 1)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}

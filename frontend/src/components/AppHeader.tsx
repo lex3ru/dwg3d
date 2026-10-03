@@ -1,4 +1,4 @@
-import { ChevronRight, LogOut, Monitor, Moon, Package, Sun, UserRound } from 'lucide-react'
+import { Bot, ChevronRight, LogOut, Monitor, Moon, Package, Sun, UserRound } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -8,12 +8,14 @@ import {
 import { useTheme, type Theme } from '@/lib/theme'
 import { can, me, signOut } from '@/session'
 import CatalogEditor from '@/ui/CatalogEditor'
+import CopilotSettings from '@/ui/CopilotSettings'
 
 export interface Crumb { label: string; href?: string }
 
 /** The bar of the pages outside the viewer: the app, where you are, the user menu. */
 export default function AppHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
   const [catalog, setCatalog] = useState(false)
+  const [copilot, setCopilot] = useState(false)
   const { theme, setTheme } = useTheme()
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur">
@@ -30,6 +32,9 @@ export default function AppHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
         {me?.guest && <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">просмотр по ссылке</span>}
         {can('catalog_admin') && (
           <Button variant="ghost" size="sm" onClick={() => setCatalog(true)}><Package /> <span className="hidden sm:inline">Каталог оборудования</span></Button>
+        )}
+        {can('admin') && (
+          <Button variant="ghost" size="sm" onClick={() => setCopilot(true)}><Bot /> <span className="hidden sm:inline">Копилот</span></Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -64,6 +69,7 @@ export default function AppHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
         </DropdownMenu>
       </div>
       {catalog && <CatalogEditor onClose={() => setCatalog(false)} onChanged={() => {}} />}
+      {copilot && <CopilotSettings onClose={() => setCopilot(false)} />}
     </header>
   )
 }

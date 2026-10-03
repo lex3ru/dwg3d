@@ -658,6 +658,93 @@ export interface ViewCommand {
   label?: string
 }
 
+// ---- the built-in copilot (an external OpenAI-compatible model, set up by an admin)
+export interface CopilotSettings {
+  enabled: boolean
+  /** OpenAI-compatible endpoint, up to /chat/completions (e.g. http://localhost:11434/v1) */
+  base_url: string
+  model: string
+  daily_limit: number
+  max_steps: number
+  temperature: number | null
+  api_key_set: boolean
+  /** the key's last characters */
+  api_key_hint: string
+}
+
+export async function getCopilotSettings(): Promise<CopilotSettings> {
+  return check(await fetch('/api/copilot/settings'))
+}
+
+/** api_key: a new key; '' removes it; left out — kept. */
+export async function saveCopilotSettings(v: Partial<Omit<CopilotSettings, 'api_key_set' | 'api_key_hint'>> & { api_key?: string }): Promise<CopilotSettings> {
+  return check(await fetch('/api/copilot/settings', jsonBody('PUT', v)))
+}
+
+export async function checkCopilot(v: { base_url?: string; api_key?: string; model?: string }):
+  Promise<{ ok: boolean; error?: string; models?: string[]; answer?: string; prompt_tokens?: number }> {
+  return check(await fetch('/api/copilot/settings/check', jsonBody('POST', v)))
+}
+
+export interface CopilotStatus { enabled: boolean; model: string | null; daily_limit: number; used_today: number }
+
+export async function copilotStatus(): Promise<CopilotStatus> {
+  return check(await fetch('/api/copilot/status'))
+}
+
+export interface CopilotProposal { id: string; summary: string; status: string; counts?: { create: number; update: number; delete: number }; drawing_id?: string }
+
+/** One line of a copilot answer as it comes, or of a kept conversation. */
+export type CopilotEvent =
+  | { type: 'chat'; id: string }
+  | { type: 'text'; text: string }
+  /** a reasoning model at work: characters of reasoning so far (not shown) */
+  | { type: 'thinking'; chars: number }
+  | { type: 'tool'; name: string; error?: string }
+  | { type: 'proposal'; proposal: CopilotProposal }
+  | { type: 'error'; message: string }
+  | { type: 'done' }
+
+export type CopilotItem =
+  | { type: 'user'; text: string }
+  | { type: 'assistant'; text: string }
+  | { type: 'tool'; name: string; error?: string }
+  | { type: 'proposal'; proposal: CopilotProposal }
+  | { type: 'error'; message: string }
+
+/** Ask the copilot; `on` gets the answer's events as they come (NDJSON). */
+export async function askCopilot(projectId: string, body: { message: string; chat?: string | null; ui?: Omit<UIContext, 'client'> & { client?: string } },
+  on: (ev: CopilotEvent) => void, signal?: AbortSignal): Promise<void> {
+  const r = await fetch(`/api/projects/${projectId}/copilot`, { ...jsonBody('POST', body), signal })
+  if (!r.ok || !r.body) { await check(r); return }
+  const reader = r.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (value) buf += dec.decode(value, { stream: !done })
+    let nl
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim()
+      buf = buf.slice(nl + 1)
+      if (line) on(JSON.parse(line))
+    }
+    if (done) break
+  }
+}
+
+export async function listCopilotChats(projectId: string): Promise<{ id: string; title: string; updated: number }[]> {
+  return check(await fetch(`/api/projects/${projectId}/copilot/chats`))
+}
+
+export async function getCopilotChat(projectId: string, id: string): Promise<{ id: string; title: string; items: CopilotItem[] }> {
+  return check(await fetch(`/api/projects/${projectId}/copilot/chats/${id}`))
+}
+
+export async function deleteCopilotChat(projectId: string, id: string): Promise<void> {
+  return check(await fetch(`/api/projects/${projectId}/copilot/chats/${id}`, { method: 'DELETE' }))
+}
+
 /** What this window shows, for the user's agents (or `closed`). */
 export interface UIContext {
   client: string

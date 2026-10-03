@@ -70,29 +70,31 @@ def windows(s: Session, pid: str, user_id: int | None) -> list[dict]:
     q = (select(UIContext).where(UIContext.project_id == pid, UIContext.updated_at > now - FRESH)
          .order_by(UIContext.updated_at.desc()))
     q = q.where(UIContext.user_id.is_(None) if user_id is None else UIContext.user_id == user_id)
-    out = []
-    for w in s.scalars(q):
-        d = w.data
-        o: dict = {"active_seconds_ago": int((now - w.updated_at).total_seconds()), "view": d.get("view"), "tool": d.get("tool")}
-        dr = s.get(Drawing, d["drawing"]) if d.get("drawing") else None
-        if dr is not None and dr.project_id == pid and dr.deleted_at is None:
-            o["drawing"] = {"id": dr.id, "name": dr.name or (dr.filename or "").rsplit(".", 1)[0]}
-            if d.get("floor"):
-                f = s.scalar(select(Floor).where(Floor.drawing_id == dr.id, Floor.candidate == d["floor"]))
-                o["floor"] = {"id": d["floor"], "name": f.name if f else ""}
-            if d.get("room") is not None:
-                r = s.get(Room, d["room"])
-                if r is not None and r.drawing_id == dr.id:
-                    o["room"] = {"id": r.id, "name": r.name or "", "area": round(r.area, 2)}
-        if d.get("selected"):
-            rows = s.execute(select(LayerObject.id, LayerObject.item_id, CatalogItem.name)
-                             .outerjoin(CatalogItem, CatalogItem.id == LayerObject.item_id)
-                             .where(LayerObject.project_id == pid, LayerObject.id.in_(d["selected"]))).all()
-            o["selected"] = [{"id": i, "item": it, "name": nm or ""} for i, it, nm in rows]
-        if d.get("proposal"):
-            o["proposal"] = d["proposal"]
-        out.append(o)
-    return out
+    return [{"active_seconds_ago": int((now - w.updated_at).total_seconds()), **describe(s, pid, w.data)}
+            for w in s.scalars(q)]
+
+
+def describe(s: Session, pid: str, d: dict) -> dict:
+    """What a window shows (its report), with names next to ids."""
+    o: dict = {"view": d.get("view"), "tool": d.get("tool")}
+    dr = s.get(Drawing, d["drawing"]) if d.get("drawing") else None
+    if dr is not None and dr.project_id == pid and dr.deleted_at is None:
+        o["drawing"] = {"id": dr.id, "name": dr.name or (dr.filename or "").rsplit(".", 1)[0]}
+        if d.get("floor"):
+            f = s.scalar(select(Floor).where(Floor.drawing_id == dr.id, Floor.candidate == d["floor"]))
+            o["floor"] = {"id": d["floor"], "name": f.name if f else ""}
+        if d.get("room") is not None:
+            r = s.get(Room, d["room"])
+            if r is not None and r.drawing_id == dr.id:
+                o["room"] = {"id": r.id, "name": r.name or "", "area": round(r.area, 2)}
+    if d.get("selected"):
+        rows = s.execute(select(LayerObject.id, LayerObject.item_id, CatalogItem.name)
+                         .outerjoin(CatalogItem, CatalogItem.id == LayerObject.item_id)
+                         .where(LayerObject.project_id == pid, LayerObject.id.in_(d["selected"]))).all()
+        o["selected"] = [{"id": i, "item": it, "name": nm or ""} for i, it, nm in rows]
+    if d.get("proposal"):
+        o["proposal"] = d["proposal"]
+    return o
 
 
 def command(s: Session, pid: str, user_id: int | None, cmd: dict, agent: str | None):

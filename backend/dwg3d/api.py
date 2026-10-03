@@ -40,6 +40,9 @@ build queue into a 3D model.
                                          tokens of AI agents (Authorization: Bearer), see tokens.py
   GET  /api/projects/{id}/proposals, GET /api/proposals/{pid}, POST .../apply, .../reject
                                          changes proposed by AI agents, see proposals.py
+  GET/PUT /api/copilot/settings, POST .../check, GET /api/copilot/status
+  POST /api/projects/{id}/copilot, GET/DELETE .../copilot/chats[/{cid}]
+                                         the built-in copilot (an external OpenAI-compatible model), see copilot.py
   /api/mcp                               MCP (Streamable HTTP) for AI agents with a token, see agent_mcp.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
@@ -85,7 +88,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 from sqlalchemy import func, select
 
-from . import (access, agent_mcp, auth, catalog, db, events, files, layers, proposals, reports, rooms, store, tokens,
+from . import (access, agent_mcp, auth, catalog, copilot, db, events, files, layers, proposals, reports, rooms, store, tokens,
                uicontext, viewdata, worker)
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
@@ -649,6 +652,118 @@ def revoke_share(pid: str, sid: str):
         x = _bad(access.revoke_share, s, pid, sid)
         viewdata.audit_entry(s, pid, "share", sid, "revoke", None, x)
         return x
+
+
+# ---------------------------------------------------------------- copilot ---
+def _admin():
+    me = auth.current.get()
+    if me is None or me.share is not None or me.agent is not None or not me.can("admin"):
+        raise HTTPException(403, "Недостаточно прав: нужна роль «администратор»")
+
+
+@app.get("/api/copilot/settings")
+def get_copilot_settings():
+    """The copilot's model endpoint and limits (admins); the key only as «…abcd»."""
+    _admin()
+    with db.session() as s:
+        return copilot.settings_json(copilot.load_settings(s))
+
+
+@app.put("/api/copilot/settings")
+def put_copilot_settings(v: dict):
+    """{enabled?, base_url?, api_key? ("" removes), model?, daily_limit?, max_steps?, temperature?}"""
+    _admin()
+    with db.session() as s:
+        try:
+            return copilot.settings_json(copilot.save_settings(s, v))
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+
+
+@app.post("/api/copilot/settings/check")
+async def check_copilot_settings(v: dict | None = None):
+    """Try the endpoint with the saved settings, or with these ({base_url, api_key?, model}) before saving."""
+    _admin()
+    def cfg():
+        with db.session() as s:
+            c = copilot.load_settings(s)
+        for k in ("base_url", "model", "api_key"):
+            if (v or {}).get(k):
+                c[k] = str(v[k]).strip().rstrip("/").removesuffix("/chat/completions") if k == "base_url" else str(v[k]).strip()
+        return c
+    try:
+        return {"ok": True, **await copilot.check(await run_in_threadpool(cfg))}
+    except copilot.CopilotError as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+@app.get("/api/copilot/status")
+def copilot_status():
+    """Whether the copilot is on (the viewer shows its button), and the user's requests today."""
+    me = auth.current.get()
+    with db.session() as s:
+        cfg = copilot.load_settings(s)
+        used = copilot.requests_today(s, me) if me is not None else 0
+    return {"enabled": copilot.ready(cfg), "model": cfg["model"] if copilot.ready(cfg) else None,
+            "daily_limit": cfg["daily_limit"], "used_today": used}
+
+
+def _copilot_user(s, pid: str) -> tuple[auth.Me, str]:
+    me = auth.current.get()
+    if me is None or me.share is not None or me.agent is not None:
+        raise HTTPException(403, "Копилот доступен участникам проекта")
+    _project(s, pid, need="viewer")
+    return me, access.project_role(s, me, pid)
+
+
+@app.post("/api/projects/{pid}/copilot")
+async def copilot_chat(pid: str, v: dict):
+    """{message, chat?, ui?} -> the answer as it comes: NDJSON events (copilot.run)."""
+    def who():
+        with db.session() as s:
+            return _copilot_user(s, pid)
+    me, role = await run_in_threadpool(who)
+
+    async def stream():
+        try:
+            async for ev in copilot.run(pid, me, role, v.get("chat"), v.get("message") or "", v.get("ui")):
+                yield json.dumps(ev, ensure_ascii=False, default=str) + "\n"
+        except copilot.CopilotError as ex:
+            yield json.dumps({"type": "error", "message": str(ex)}, ensure_ascii=False) + "\n"
+        except LookupError:
+            yield json.dumps({"type": "error", "message": "Чат не найден"}, ensure_ascii=False) + "\n"
+        except Exception:
+            log.exception("copilot failed")
+            yield json.dumps({"type": "error", "message": "Сбой копилота: подробности в журнале сервера"}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/projects/{pid}/copilot/chats")
+def list_copilot_chats(pid: str):
+    with db.session() as s:
+        me, _ = _copilot_user(s, pid)
+        return copilot.chats(s, pid, me)
+
+
+@app.get("/api/projects/{pid}/copilot/chats/{cid}")
+def get_copilot_chat(pid: str, cid: str):
+    with db.session() as s:
+        me, _ = _copilot_user(s, pid)
+        c = _bad(copilot.own_chat, s, cid, me)
+        if c.project_id != pid:
+            raise HTTPException(404, "Не найдено")
+        return {"id": c.id, "title": c.title, "items": copilot.display(c.messages)}
+
+
+@app.delete("/api/projects/{pid}/copilot/chats/{cid}", status_code=204)
+def delete_copilot_chat(pid: str, cid: str):
+    with db.session() as s:
+        me, _ = _copilot_user(s, pid)
+        c = _bad(copilot.own_chat, s, cid, me)
+        if c.project_id == pid:
+            s.delete(c)
 
 
 # ------------------------------------------------------ agents' proposals ---

@@ -123,7 +123,7 @@ def create(s: Session, d: Drawing, summary: str, ops: list, build: int | None) -
     with dry_run(s):
         viewdata.apply(s, d.id, "object", ops, build=build)
     p = Proposal(id=uuid.uuid4().hex[:12], project_id=d.project_id, drawing_id=d.id,
-                 token_id=me.agent["id"] if me and me.agent else None,
+                 token_id=me.agent["id"] if me and me.agent and not me.agent.get("copilot") else None,
                  agent=(me.agent["name"] or me.agent["id"]) if me and me.agent else "",
                  user_id=me.id if me else None, summary=summary, ops=ops, build=d.current_build)
     s.add(p)
