@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -60,7 +60,10 @@ SYSTEM = """\
   «здесь», «на этом этаже», «выделенный» относятся к нему.
 - Координаты — метры в плане этажа; этаж — id внутри чертежа (c0, c1…), помещение —
   числовой id. Не считай координаты сам: для расстановки есть place_in_room и
-  place_row, для обзора камер — camera_coverage.
+  place_row, сразу по многим помещениям — place_in_rooms, пожарные извещатели по площади —
+  place_detectors, для обзора камер — camera_coverage.
+- «Проверь проект / этаж» — check_project: пожарка, предметы в проходах и друг на друге,
+  камеры, Wi-Fi, пустые помещения. Предлагай исправления к найденному.
 - Изменения ты только предлагаешь: propose_changes, или place_in_room / place_row с
   then="propose" и понятным summary. Пользователь увидит предложение на плане и
   применит его сам — не говори, что изменения уже внесены.
@@ -215,6 +218,9 @@ async def call_tool(me: auth.Me, name: str, args: dict) -> tuple[str, bool, dict
     token = agent_tools.acting_as.set(me)
     try:
         res = await agent_tools.mcp.call_tool(name, args)
+    except UnexpectedToolError as ex:              # a tool crashed: the model is told, the log has the cause
+        log.error("copilot tool %s failed", name, exc_info=ex.__cause__ or ex)
+        return f"Ошибка инструмента {name}: {ex.__cause__.__class__.__name__ if ex.__cause__ else 'сбой'}", True, None
     except ToolError as ex:
         return str(ex), True, None
     except Exception as ex:                       # a tool crashed: the model is told, the log has the rest

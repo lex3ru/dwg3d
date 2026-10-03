@@ -21,13 +21,13 @@ from __future__ import annotations
 
 import math
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import CatalogItem, Floor, LayerObject, Room
+from .models import CatalogItem, Floor, Layer, LayerObject, Room
 from .rooms import polygon
 
 WHERE = ("along_wall", "center", "corners", "grid")
@@ -386,3 +386,168 @@ def camera_coverage(s: Session, floor: Floor, rid: int | None = None, layers: se
                                for g in parts[:3] if g.area >= 0.5]})
     return {"floor": floor.candidate, "cameras": len(cams), "rooms": out,
             "note": "приближённо: обзор режут только стены между помещениями; точный расчёт — во вьювере"}
+
+
+# -------------------------------------------------------------------- bulk ---
+MAX_ROOMS = 100
+
+
+def rooms_on(s: Session, did: str, floor: str | None = None, query: str | None = None,
+             ids: list[int] | None = None) -> list[tuple[Room, Floor, Polygon]]:
+    """Current rooms of a drawing (with outlines): of a floor, matching a name / type, or these ids."""
+    q = (select(Room, Floor).join(Floor, Floor.id == Room.floor_id)
+         .where(Room.drawing_id == did, Room.idx.is_not(None), Floor.candidate.is_not(None))
+         .order_by(Floor.level, Room.floor_id, Room.idx))
+    if floor is not None:
+        q = q.where(Floor.candidate == floor)
+    if ids:
+        q = q.where(Room.id.in_(ids))
+    needle = (query or "").strip().lower()
+    out = []
+    for r, f in s.execute(q):
+        if needle and needle not in (r.name or "").lower() and needle != (r.type or ""):
+            continue
+        p = polygon(r.poly)
+        if p is None or p.is_empty or p.area < 0.5:
+            continue
+        out.append((r, f, max(p.geoms, key=lambda g: g.area) if p.geom_type == "MultiPolygon" else p))
+    if len(out) > MAX_ROOMS:
+        raise PlanError(f"помещений слишком много ({len(out)}): сузьте этажом, запросом или списком id (до {MAX_ROOMS})")
+    return out
+
+
+def place_in_rooms(s: Session, did: str, iid: str, rooms: list[tuple[Room, Floor, Polygon]], count: int,
+                   where: str, gap: float) -> dict:
+    """place_in_room for each room: {"rooms": [{room, name, floor, placed, notes}], "places": [{floor, at, angle}]}."""
+    if not rooms:
+        raise PlanError("ни одного помещения не подходит: см. list_rooms")
+    out, places = [], []
+    for r, f, _ in rooms:
+        plan = place_in_room(s, did, r.id, iid, count, where, gap)
+        out.append({"room": r.id, "name": r.name or "", "floor": f.candidate, "placed": len(plan["places"]),
+                    "notes": plan["notes"]})
+        places += [{"floor": f.candidate, **p} for p in plan["places"]]
+    return {"rooms": out, "places": places}
+
+
+def detector_radius(ci: CatalogItem | None) -> float | None:
+    det = ((ci.params or {}).get("detect") or {}) if ci else {}
+    return float(det["radius"]) if det.get("radius") else None
+
+
+def detectors_needed(area: float, radius: float) -> int:
+    """As the fire check (reports.fire_check): each detector protects about 0.7 π r² of floor."""
+    return max(1, math.ceil(area / (0.7 * math.pi * radius ** 2)))
+
+
+def _spread(poly: Polygon, have: list[tuple[float, float]], n: int, step: float) -> list[tuple[float, float]]:
+    """n points in the room, each as far as possible from the others and from `have` (a grid of candidates)."""
+    inner = poly.buffer(-0.5)
+    inner = inner if not inner.is_empty else poly
+    minx, miny, maxx, maxy = inner.bounds
+    cands = [(minx + step / 2 + i * step, miny + step / 2 + j * step)
+             for i in range(int((maxx - minx) / step) + 1) for j in range(int((maxy - miny) / step) + 1)]
+    cands = [c for c in cands if inner.contains(Point(c))] or [inner.representative_point().coords[0]]
+    chosen: list[tuple[float, float]] = []
+    for _ in range(n):
+        ref = have + chosen
+        best = max(cands, key=lambda c: min((math.dist(c, h) for h in ref), default=0.0) if ref else
+                   -math.dist(c, inner.centroid.coords[0]))
+        chosen.append(best)
+        cands = [c for c in cands if c != best] or cands
+    return [(round(x, 2), round(y, 2)) for x, y in chosen]
+
+
+def place_detectors(s: Session, did: str, iid: str, rooms: list[tuple[Room, Floor, Polygon]]) -> dict:
+    """Detectors where a room has fewer than its area needs: {"rooms": [{room, name, has, need, add}], "places"}."""
+    ci = catalog_item(s, iid)
+    radius = detector_radius(ci)
+    if radius is None:
+        raise PlanError(f"«{ci.name}» — не извещатель с радиусом защиты: см. search_catalog(category=\"fire\")")
+    out, places, by_floor = [], [], {}
+    for r, f, poly in rooms:
+        if f.id not in by_floor:
+            by_floor[f.id] = [(o.x, o.y) for o, c in floor_items(s, f.id) if detector_radius(c)]
+        have = [p for p in by_floor[f.id] if poly.buffer(0.05).contains(Point(p))]
+        need = detectors_needed(poly.area, radius)
+        add = _spread(poly, have, max(0, need - len(have)), radius * math.sqrt(2) * 0.9) if len(have) < need else []
+        out.append({"room": r.id, "name": r.name or "", "floor": f.candidate, "area": round(poly.area, 1),
+                    "has": len(have), "need": need, "add": len(add)})
+        places += [{"floor": f.candidate, "at": list(p), "angle": 0.0} for p in add]
+    return {"item": {"id": ci.id, "name": ci.name, "radius": radius}, "rooms": out, "places": places}
+
+
+# ------------------------------------------------------------------ checks ---
+RADIO_1M, RADIO_N, FACE_DB, RADIO_USABLE = 40.0, 2.2, 3.5, -75.0      # as the viewer (geom.ts)
+NOT_FURNISHED = {"stair", "lift", "corridor", "wc", "technical"}
+NO_CAMERAS_NEEDED = {"stair", "lift", "wc"}
+
+
+def _signal(ap: tuple[float, float], tx: float, p: tuple[float, float], faces) -> float:
+    """dBm at p from an access point: distance fading and FACE_DB a room-outline face crossed."""
+    seg = LineString([ap, p])
+    crossed = sum(len(getattr(x, "geoms", [x])) for b in faces if seg.intersects(b) and not (x := seg.intersection(b)).is_empty)
+    return tx - RADIO_1M - 10 * RADIO_N * math.log10(max(math.dist(ap, p), 1.0)) - FACE_DB * crossed
+
+
+def check_drawing(s: Session, did: str, floor: str | None = None, limit: int = 50) -> dict:
+    """Problems of a drawing's floors, as lists (at most `limit` each):
+    blocked — items in door ways, on partitions or columns, on each other, out of the walls;
+    cameras — rooms poorly seen (on floors with cameras); wifi — rooms with a weak signal
+    (on floors with access points); empty — rooms meant for use with nothing in them."""
+    out: dict[str, list] = {"blocked": [], "cameras": [], "wifi": [], "empty": []}
+    floors = s.scalars(select(Floor).where(Floor.drawing_id == did, Floor.candidate.is_not(None)).order_by(Floor.level))
+    for f in floors:
+        if floor is not None and f.candidate != floor:
+            continue
+        rms = rooms_on(s, did, f.candidate) if s.scalar(select(func.count()).select_from(Room).where(
+            Room.floor_id == f.id, Room.idx.is_not(None))) <= MAX_ROOMS else []
+        items = floor_items(s, f.id)
+        solids, doors = plan_obstacles(s, did, f)
+        name = {r.id: r.name or "без названия" for r, _, _ in rms}
+        standing = [(o, c, footprint((o.x, o.y), o.angle, *item_size(o, c)[:2])) for o, c in items
+                    if not is_high(o, c) and not is_flat(c)]
+        # variants of a layer are alternatives: their objects do not stand on each other
+        group = {lay.id: (lay.props or {}).get("variant_group") or lay.id for lay in s.scalars(
+            select(Layer).where(Layer.id.in_({o.layer_id for o, _ in items})))}
+        apart = lambda a, b: a.layer_id != b.layer_id and group.get(a.layer_id) == group.get(b.layer_id)  # noqa: E731
+        for i, (o, c, fp) in enumerate(standing):
+            why = []
+            if any(fp.intersection(g).area > 0.01 for g in doors):
+                why.append("мешает двери или проходу")
+            if any(fp.intersection(g).area > 0.01 for g in solids):
+                why.append("стоит на перегородке или колонне")
+            others = [o2.id for o2, _, fp2 in standing[i + 1:] if not apart(o, o2) and fp.intersection(fp2).area > 0.01]
+            if others:
+                why.append("налезает на " + ", ".join(others[:3]))
+            if rms and not any(p.buffer(0.05).contains(fp) for _, _, p in rms):
+                why.append("выходит за стены помещения")
+            if why:
+                out["blocked"].append({"object": o.id, "name": c.name if c else o.item_id, "floor": f.candidate,
+                                       "room": name.get(o.room_id), "at": [round(o.x, 2), round(o.y, 2)], "problems": why})
+        if any(camera_params(o, c) for o, c in items):
+            cov = camera_coverage(s, f)
+            types = {r.id: r.type for r, _, _ in rms}
+            out["cameras"] += [{"room": x["room"], "name": x["name"] or "без названия", "floor": f.candidate,
+                                "seen": x["seen"]} for x in cov["rooms"]
+                               if x["seen"] < 50 and types.get(x["room"]) not in NO_CAMERAS_NEEDED]
+        aps = [((o.x, o.y), float(c.params["radio"]["tx"])) for o, c in items
+               if c and (c.params or {}).get("radio", {}).get("tx") is not None]
+        if aps:
+            faces = [p.exterior for _, _, p in rms]
+            for r, _, p in rms:
+                if r.type in ("stair", "lift"):
+                    continue
+                minx, miny, maxx, maxy = p.bounds
+                step = max(1.0, math.sqrt(p.area / 40))
+                pts = [(minx + step / 2 + i * step, miny + step / 2 + j * step)
+                       for i in range(int((maxx - minx) / step) + 1) for j in range(int((maxy - miny) / step) + 1)]
+                pts = [q for q in pts if p.contains(Point(q))] or [p.representative_point().coords[0]]
+                ok = sum(1 for q in pts if max(_signal(a, tx, q, faces) for a, tx in aps) >= RADIO_USABLE)
+                if ok / len(pts) < 0.8:
+                    out["wifi"].append({"room": r.id, "name": name[r.id], "floor": f.candidate,
+                                        "covered": round(ok / len(pts) * 100)})
+        used = {o.room_id for o, _ in items}
+        out["empty"] += [{"room": r.id, "name": name[r.id], "floor": f.candidate, "type": r.type, "area": round(p.area, 1)}
+                         for r, _, p in rms if r.id not in used and (r.type or "other") not in NOT_FURNISHED]
+    return {k: v[:limit] for k, v in out.items()} | {"counts": {k: len(v) for k, v in out.items()}}

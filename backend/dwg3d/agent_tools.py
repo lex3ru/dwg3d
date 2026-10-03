@@ -461,7 +461,7 @@ def _finish(s, pid: str, d: Drawing, plan: dict, ops: list[dict], then: str, sum
 
 
 def _creates(plan: dict, item: str, layer: str | None) -> list[dict]:
-    return [{"op": "create", "id": uuid.uuid4().hex[:8], "floor": plan["floor"], "item": item,
+    return [{"op": "create", "id": uuid.uuid4().hex[:8], "floor": p.get("floor") or plan["floor"], "item": item,
              "at": p["at"], "angle": p["angle"], **({"layer": layer} if layer else {})} for p in plan["places"]]
 
 
@@ -506,6 +506,77 @@ def place_row(ctx: Context,
         d = _drawing(s, pid, drawing)
         plan = planning.place_row(s, d.id, _floor(s, d.id, floor), item, start, end, count, step, angle)
         return _finish(s, pid, d, plan, _creates(plan, item, layer), then, summary)
+
+
+@mcp.tool(annotations=WRITE)
+def place_in_rooms(ctx: Context,
+                   drawing: Annotated[str, Field(description="id чертежа")],
+                   item: Annotated[str, Field(description="id позиции каталога")],
+                   floor: Annotated[str | None, Field(description="только этот этаж (c0…)")] = None,
+                   query: Annotated[str | None, Field(description="часть названия помещения или его тип "
+                                                                  "(office, doctor, procedure, waiting, corridor, wc, service, technical…)")] = None,
+                   rooms: Annotated[list[int] | None, Field(description="или явный список id помещений", max_length=planning.MAX_ROOMS)] = None,
+                   count: Annotated[int, Field(ge=1, le=20, description="предметов в каждое помещение")] = 1,
+                   where: Annotated[Literal["along_wall", "center", "corners", "grid"], Field()] = "along_wall",
+                   gap: Annotated[float, Field(ge=0, le=5)] = 0.2,
+                   layer: Annotated[str | None, Field(description="id слоя")] = None,
+                   then: Annotated[Then, Field(description=THEN_HELP)] = "return",
+                   summary: Annotated[str | None, Field(description="для then=propose", max_length=2000)] = None) -> dict[str, Any]:
+    """Расставить одинаковые предметы сразу во многих помещениях («во все кабинеты 2 этажа»):
+    в каждом — как place_in_room (без наложений, не перед дверями); итог по помещениям —
+    сколько поместилось — и одно предложение на всё."""
+    with _then(ctx, then) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if floor is not None:
+            _floor(s, d.id, floor)
+        plan = planning.place_in_rooms(s, d.id, item, planning.rooms_on(s, d.id, floor, query, rooms), count, where, gap)
+        if len(plan["places"]) > proposals.MAX_OPS:
+            raise ToolError(f"слишком много предметов ({len(plan['places'])}): разбейте по этажам")
+        return _finish(s, pid, d, plan, _creates(plan, item, layer), then, summary)
+
+
+@mcp.tool(annotations=WRITE)
+def place_detectors(ctx: Context,
+                    drawing: Annotated[str, Field(description="id чертежа")],
+                    item: Annotated[str, Field(description="извещатель с радиусом защиты: fire.smoke, fire.heat")] = "fire.smoke",
+                    floor: Annotated[str | None, Field(description="только этот этаж")] = None,
+                    query: Annotated[str | None, Field(description="часть названия или тип помещений")] = None,
+                    rooms: Annotated[list[int] | None, Field(description="или список id помещений", max_length=planning.MAX_ROOMS)] = None,
+                    layer: Annotated[str | None, Field(description="id слоя; по умолчанию — слой пожарной сигнализации")] = None,
+                    then: Annotated[Then, Field(description=THEN_HELP)] = "return",
+                    summary: Annotated[str | None, Field(description="для then=propose", max_length=2000)] = None) -> dict[str, Any]:
+    """Добавить пожарные извещатели туда, где их меньше, чем нужно по площади (как проверка:
+    каждый защищает ~0,7·π·r² пола): сколько есть, сколько нужно, куда поставить — равномерно,
+    подальше от уже стоящих."""
+    with _then(ctx, then) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if floor is not None:
+            _floor(s, d.id, floor)
+        plan = planning.place_detectors(s, d.id, item, planning.rooms_on(s, d.id, floor, query, rooms))
+        if len(plan["places"]) > proposals.MAX_OPS:
+            raise ToolError(f"слишком много извещателей ({len(plan['places'])}): разбейте по этажам")
+        return _finish(s, pid, d, plan, _creates(plan, item, layer), then, summary)
+
+
+@mcp.tool(annotations=READ)
+def check_project(ctx: Context,
+                  drawing: Annotated[str, Field(description="id чертежа")],
+                  floor: Annotated[str | None, Field(description="только этот этаж")] = None) -> dict[str, Any]:
+    """Проверить чертёж: fire — помещения, где не хватает пожарных извещателей; blocked — предметы
+    в дверях и проходах, на перегородках и колоннах, друг на друге, за стенами; cameras — помещения,
+    которые камеры видят меньше чем наполовину (на этажах с камерами); wifi — помещения со слабым
+    сигналом (на этажах с точками доступа); empty — пустые помещения, предназначенные для работы.
+    Расчёты приближённые: стены — границы помещений."""
+    with _agent(ctx) as (me, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if floor is not None:
+            _floor(s, d.id, floor)
+        res = planning.check_drawing(s, d.id, floor)
+        fire = [x for x in reports.fire_check(s, pid, me) if x["drawing_id"] == d.id
+                and (floor is None or x.get("floor") == next((f.name for f in viewdata._floors(s, d.id).values()
+                                                              if f.candidate == floor), None))]
+        res["fire"], res["counts"]["fire"] = fire[:50], len(fire)
+        return res
 
 
 @mcp.tool(annotations=READ)

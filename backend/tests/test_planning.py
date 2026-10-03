@@ -1,9 +1,11 @@
 """Placing and coverage for agents: geometry, and the MCP tools on a 5×4 m room."""
+import json
 import math
 
 from shapely.geometry import Polygon
+from sqlalchemy import text
 
-from dwg3d import planning
+from dwg3d import db, planning
 from test_agent_tools import Tools, world  # noqa: F401  (fixture)
 from test_auth import api, kc  # noqa: F401  (fixtures)
 
@@ -101,3 +103,56 @@ def test_planning_tools(world, api):  # noqa: F811
     assert r.call("camera_coverage", drawing=pid, floor="c0", layer=cams)["cameras"] == 1
     assert r.call("camera_coverage", drawing=pid, floor="c0", layer=world["layer"])["cameras"] == 0
     assert "error" in r.call("camera_coverage", drawing=pid, floor="c0", room=999999)
+
+
+def test_bulk_and_checks(world, api):  # noqa: F811
+    """Many rooms at once, detectors by area, the drawing's checks."""
+    pid, room, editor = world["pid"], world["room"], world["editor"]
+    with db.session() as s:     # a second office next to the first one (x 5..9)
+        fid = s.execute(text("SELECT id FROM floors WHERE drawing_id = :d"), {"d": pid}).scalar()
+        room2 = s.execute(text("INSERT INTO rooms (drawing_id, floor_id, idx, name, type, area, poly) VALUES "
+                               "(:d, :f, 1, 'Кабинет 2', 'office', 16, :p) RETURNING id"),
+                          {"d": pid, "f": fid, "p": json.dumps([[[5, 0], [9, 0], [9, 4], [5, 4], [5, 0]]])}).scalar()
+        s.execute(text("UPDATE rooms SET type = 'office' WHERE id = :r"), {"r": room})
+    r, p = Tools("tok-viewer", pid), Tools("tok-editor", pid)
+
+    plan = r.call("place_in_rooms", drawing=pid, item="rec.table", query="office")
+    assert [x["room"] for x in plan["rooms"]] == [room, room2] and len(plan["places"]) == 2
+    assert {o["floor"] for o in plan["ops"]} == {"c0"}
+    assert len(r.call("place_in_rooms", drawing=pid, item="rec.table", rooms=[room2], count=2)["places"]) == 2
+    assert "error" in r.call("place_in_rooms", drawing=pid, item="rec.table", query="склад")
+    prop = p.call("place_in_rooms", drawing=pid, item="rec.table", query="Кабинет", then="propose", summary="Столики в кабинеты")
+    assert prop["proposal"]["counts"]["create"] == 2
+
+    # detectors: one per room of this size; a room that has one gets none
+    det = r.call("place_detectors", drawing=pid)
+    assert [(x["need"], x["has"], x["add"]) for x in det["rooms"]] == [(1, 0, 1), (1, 0, 1)]
+    assert editor.post(f"/api/drawings/{pid}/objects", json={"item": "fire.smoke", "at": [2.5, 2], "floor": "c0",
+                                                              "id": "det1"}).status_code == 201
+    det = r.call("place_detectors", drawing=pid)
+    assert [(x["has"], x["add"]) for x in det["rooms"]] == [(1, 0), (0, 1)] and len(det["places"]) == 1
+    x, y = det["places"][0]["at"]
+    assert 5 < x < 9 and 0 < y < 4
+    assert "error" in r.call("place_detectors", drawing=pid, item="doc.couch")
+
+    # checks: a table on the couch, a cabinet across the wall, a camera and an access point in the first room
+    for o in ({"item": "rec.table", "at": [2, 2], "id": "t1"}, {"item": "rec.desk", "at": [5, 2], "id": "t2"},
+              {"item": "sec.fisheye", "at": [2.5, 2], "id": "cam1"}, {"item": "wifi.ap", "at": [2.5, 3], "id": "ap1"}):
+        assert editor.post(f"/api/drawings/{pid}/objects", json={**o, "floor": "c0"}).status_code == 201
+    ch = r.call("check_project", drawing=pid)
+    assert "error" not in ch, ch
+    blocked = {x["object"]: x["problems"] for x in ch["blocked"]}
+    assert any("налезает" in w for w in blocked.get("couch1", []) + blocked.get("t1", []))      # told on one of the pair
+    assert any("за стены" in w for w in blocked["t2"])
+    assert [x["room"] for x in ch["cameras"]] == [room2]                  # the camera sees its own room only
+    assert ch["wifi"] == []                                                # 7 m and two faces: still a usable signal
+    assert [x["room_id"] for x in ch["fire"]] == [room2]
+    assert ch["empty"] == [] and ch["counts"]["fire"] == 1
+    assert r.call("check_project", drawing=pid, floor="c0")["counts"] == ch["counts"]
+    assert "error" in r.call("check_project", drawing=pid, floor="c9")
+
+
+def test_variants_do_not_collide(world, api):  # noqa: F811
+    pid, layer, owner = world["pid"], world["layer"], world["owner"]
+    assert owner.post(f"/api/projects/{pid}/layers/{layer}/copy", json={}).status_code == 201     # couch1 copied in place
+    assert Tools("tok-viewer", pid).call("check_project", drawing=pid)["blocked"] == []
