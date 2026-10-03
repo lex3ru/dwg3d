@@ -1,4 +1,8 @@
-"""MCP server for AI agents (Streamable HTTP at /api/mcp): read-only tools.
+"""MCP server for AI agents (Streamable HTTP at /api/mcp).
+
+Reading tools for every token; writing tools (objects through viewdata.apply,
+creating and changing layers) for tokens of the "write" mode only, limited
+in size and rate (MAX_OPS operations a call, WRITES_PER_MINUTE calls).
 
 The agent connects with its token (tokens.py) in `Authorization: Bearer`.
 Every tool call resolves the token again and runs as its user, through the
@@ -14,6 +18,11 @@ names, rooms by id with names and areas, catalog items with their names.
 """
 from __future__ import annotations
 
+import json
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, Any, Literal
 
@@ -30,6 +39,8 @@ from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerOb
 
 PATH = "/api/mcp"
 MAX_OBJECTS = 500
+MAX_OPS = 200                   # operations in one apply_changes
+WRITES_PER_MINUTE = 30          # writing calls of one token (per API process)
 
 INSTRUCTIONS = """\
 Проект из программы «Поэтажные планы → 3D»: DWG-чертежи зданий (корпуса), их этажи
@@ -37,26 +48,62 @@ INSTRUCTIONS = """\
 сигнализация, СКУД, Wi-Fi, СКС, маршруты людей, зоны) и объекты на слоях.
 Начните с project_overview. Координаты — метры в плане этажа; этаж задаётся id
 (c0, c1…) внутри чертежа; помещения — числовые id из list_rooms. Позиции каталога
-(id вида doc.couch) ищутся search_catalog. Сейчас доступно только чтение."""
+(id вида doc.couch) ищутся search_catalog. Изменять можно только с токеном в режиме
+«изменение» (см. token_mode в project_overview): apply_changes, create_layer,
+update_layer. Изменения сохраняются сразу (люди увидят их, обновив страницу) и пишутся
+в журнал под вашим токеном —
+перед массовыми правками опишите пользователю, что собираетесь сделать."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+CHANGE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 
 mcp = MCPServer("dwg3d", title="Поэтажные планы → 3D", instructions=INSTRUCTIONS)
 
 
 # ------------------------------------------------------------------ access ---
+_writes: dict[str, deque] = defaultdict(deque)
+_writes_lock = threading.Lock()
+
+
+def _rate(token_id: str):
+    """At most WRITES_PER_MINUTE writing calls of a token a minute (in this process)."""
+    now = time.monotonic()
+    with _writes_lock:
+        q = _writes[token_id]
+        while q and q[0] < now - 60:
+            q.popleft()
+        if len(q) >= WRITES_PER_MINUTE:
+            raise ToolError(f"Слишком часто: не больше {WRITES_PER_MINUTE} изменений в минуту — "
+                            "объединяйте операции в один apply_changes")
+        q.append(now)
+
+
 @contextmanager
-def _agent(ctx: Context):
-    """The token's agent as the current user of this call (reading), and its project id."""
+def _agent(ctx: Context, write: bool = False):
+    """The token's agent as the current user of this call, and its project id.
+    `write`: a change — the token must be of the write mode, access checks
+    take an editor (as for a POST of the HTTP API); errors of the data become
+    tool errors, the transaction rolled back."""
     h = (ctx.headers or {}).get("authorization", "")
     me = tokens.resolve(h[7:].strip()) if h[:7].lower() == "bearer " else None
     if me is None or me.agent is None:
         raise ToolError("Нужен действующий токен агента (Authorization: Bearer dwg3d_…)")
-    t_user, t_method = auth.current.set(me), auth.method.set("GET")
+    if write:
+        if me.agent["mode"] != "write":
+            raise ToolError(f"Токен в режиме «{tokens.MODE_NAMES[me.agent['mode']]}»: изменять нельзя. "
+                            "Нужен токен в режиме «изменение» (проект → «ИИ-агенты»)")
+        _rate(me.agent["id"])
+    t_user, t_method = auth.current.set(me), auth.method.set("POST" if write else "GET")
     try:
         yield me, me.agent["project_id"]
     except access.Denied as ex:
         raise ToolError(str(ex)) from ex
+    except (viewdata.Invalid, layers.LayerError) as ex:
+        raise ToolError(f"Ничего не изменено: {ex}") from ex
+    except viewdata.Conflict as ex:
+        raise ToolError(f"Ничего не изменено: {ex}. Текущее состояние: "
+                        + json.dumps(ex.conflicts, ensure_ascii=False, default=str)[:4000]) from ex
     finally:
         auth.current.reset(t_user)
         auth.method.reset(t_method)
@@ -108,7 +155,8 @@ def project_overview(ctx: Context) -> dict[str, Any]:
                        "height": _r(f.height), "rooms": nrooms.get(f.id, 0)}
                       for f in s.scalars(select(Floor).where(Floor.drawing_id == d["id"], Floor.candidate.is_not(None))
                                          .order_by(Floor.level, Floor.id))]
-            drawings.append({"id": d["id"], "name": d["name"], "status": d["status"], "floors": floors})
+            drawings.append({"id": d["id"], "name": d["name"], "status": d["status"], "build": d["build"],
+                             "floors": floors})
         shown = access.visible_layers(me)
         lays = [{"id": x["id"], "kind": x["kind"], "kind_name": layers.KINDS.get(x["kind"], {}).get("name", x["kind"]),
                  "name": x["name"], "visible": x["visible"], "locked": x["locked"], "objects": x["count"]}
@@ -327,6 +375,87 @@ def recent_changes(ctx: Context,
         access.check(s, pid)
         return {"changes": [{k: a[k] for k in ("at", "actor", "entity", "entity_id", "action", "drawing_id", "before", "after")}
                             for a in viewdata.audit(s, pid, limit, drawing)]}
+
+
+# ------------------------------------------------------------------ writes ---
+OPS_HELP = """\
+Операции (все или ни одной):
+- создать точку каталога: {"op": "create", "layer", "floor", "item", "at": [x, y], "angle"?,
+  "size"?: [w, d, h], "elev"?, "note"?, "fov"?, "range"?, "id"?} — id создаётся сам, если не задан;
+- линию или полигон: {"op": "create", "geom": "polyline" | "polygon", "layer", "floor",
+  "points": [[x, y], …], "props"?} (зоны: props.name, props.zone; кабели: props.cable);
+- маршрут: {"op": "create", "geom": "route", "layer", "props": {"stops": [{"floor", "at": [x, y]}, …],
+  "flow"?, "name"?}} — путь между остановками пересчитает редактор;
+- изменить: {"op": "update", "id", "version", …только меняемые поля};
+- удалить: {"op": "delete", "id", "version"}.
+version — из query_objects / get_object (у созданных этим вызовом — в ответе)."""
+
+
+def _changed(res: dict, ops: list[dict], d: Drawing, s, me, pid: str) -> dict[str, Any]:
+    created = {o.get("id") for o in ops if o.get("op") == "create"}
+    lay = _shown_layers(s, me, pid)
+    rnames, inames = _names(s, res["items"])
+    objs = [_object(o, d, lay, rnames, inames, False) | {"version": o["version"]} for o in res["items"]]
+    return {"created": [o["id"] for o in objs if o["id"] in created],
+            "updated": [o["id"] for o in objs if o["id"] not in created],
+            "deleted": res["deleted"], "objects": objs}
+
+
+@mcp.tool(annotations=CHANGE, description=f"""Изменить объекты слоёв на чертеже одним пакетом: создать,
+изменить, удалить. Только с токеном «изменение». Не больше {MAX_OPS} операций за вызов.
+Объекты заблокированных слоёв не меняются. Если строку уже изменил кто-то другой
+(version не совпадает) — ничего не записывается, в ошибке текущее состояние.
+
+{OPS_HELP}""")
+def apply_changes(ctx: Context,
+                  drawing: Annotated[str, Field(description="id чертежа")],
+                  ops: Annotated[list[dict[str, Any]], Field(description="операции, см. описание инструмента",
+                                                             min_length=1, max_length=MAX_OPS)],
+                  build: Annotated[int | None, Field(description="номер сборки чертежа из project_overview: "
+                                                                 "если модель с тех пор перестроили — отказ")] = None) -> dict[str, Any]:
+    with _agent(ctx, write=True) as (me, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if any(not isinstance(o, dict) for o in ops):
+            raise ToolError("ops: список объектов-операций")
+        # the agent may leave out ids of new objects: give them here, to tell them in the answer
+        ops = [{**o, "id": o.get("id") or uuid.uuid4().hex[:8]} if o.get("op") == "create" else o for o in ops]
+        res = viewdata.apply(s, d.id, "object", ops, build=build)
+        return _changed(res, ops, d, s, me, pid)
+
+
+@mcp.tool(annotations=WRITE)
+def create_layer(ctx: Context,
+                 kind: Annotated[str, Field(description="тип слоя из layer_kinds (furniture, cctv, fire, routes, zones…)")],
+                 name: Annotated[str | None, Field(description="название; по умолчанию — название типа", max_length=120)] = None) -> dict[str, Any]:
+    """Создать слой проекта (например, вариант расстановки). Только с токеном «изменение»."""
+    with _agent(ctx, write=True) as (_, pid), db.session() as s:
+        store.get_project(s, pid, lock=True)
+        access.check(s, pid)
+        layer = layers.create(s, pid, {"kind": kind, "name": name})
+        viewdata.audit_entry(s, pid, "layer", layer.id, "create", None, layers.layer_json(layer))
+        store.touch_project(s, pid)
+        return layers.layer_json(layer, 0)
+
+
+@mcp.tool(annotations=WRITE)
+def update_layer(ctx: Context,
+                 id: Annotated[str, Field(description="id слоя")],
+                 name: Annotated[str | None, Field(description="новое название", max_length=120)] = None,
+                 visible: Annotated[bool | None, Field(description="показывать ли слой")] = None) -> dict[str, Any]:
+    """Переименовать слой или включить / выключить его видимость. Блокировку слоя
+    меняет только человек; удалить слой агент не может. Только с токеном «изменение»."""
+    with _agent(ctx, write=True) as (me, pid), db.session() as s:
+        access.check(s, pid)
+        layer = s.scalar(select(Layer).where(Layer.id == id, Layer.project_id == pid).with_for_update())
+        if layer is None or id not in _shown_layers(s, me, pid):
+            raise ToolError(f"Слой {id!r} не найден: см. project_overview")
+        v = {k: x for k, x in (("name", name), ("visible", visible)) if x is not None}
+        changes = layers.update(layer, v)
+        if changes:
+            viewdata.audit_entry(s, pid, "layer", id, "update", {k: b for k, (b, _) in changes.items()},
+                                 {k: a for k, (_, a) in changes.items()})
+            store.touch_project(s, pid)
+        return layers.layer_json(layer)
 
 
 # --------------------------------------------------------------- HTTP app ---
