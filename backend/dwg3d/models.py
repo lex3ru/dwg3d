@@ -325,6 +325,26 @@ class ShareLink(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class AgentToken(Base):
+    """An AI agent's access to one project for the user who made it, limited
+    by `mode` (read, propose, write); the token itself is shown once, the row
+    keeps its SHA-256. user_id is NULL only for tokens made with sign-in off."""
+    __tablename__ = "agent_tokens"
+    __table_args__ = (CheckConstraint("mode IN ('read', 'propose', 'write')", name="agent_tokens_mode"),
+                      Index("agent_tokens_project", "project_id"))
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text, server_default="")
+    mode: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AuditLog(Base):
     """Who changed what. No FK to projects: the history outlives a deleted project."""
     __tablename__ = "audit_log"

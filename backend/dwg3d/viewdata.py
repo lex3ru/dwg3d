@@ -204,7 +204,7 @@ def audit_entry(s, pid, entity, eid, action, before, after, drawing_id=None):
     """Record a change by the user of the current request."""
     me = auth.current.get()
     s.add(AuditLog(project_id=pid, drawing_id=drawing_id, entity=entity, entity_id=eid, action=action,
-                   user_id=me.id if me else None, actor=(me.login or None) if me else None,
+                   user_id=me.id if me else None, actor=me.actor() if me else None,
                    before=_strip(before), after=_strip(after)))
 
 

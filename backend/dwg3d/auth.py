@@ -74,6 +74,8 @@ class Me:
     share: dict | None = field(default=None, compare=False)
     # the application's roles from Keycloak, full names: ("dwg3d.user", "dwg3d.nurse", ...)
     roles: tuple[str, ...] = field(default=(), compare=False)
+    # an AI agent acting for this user by a token (tokens.py): {"id", "name", "project_id", "mode"}
+    agent: dict | None = field(default=None, compare=False)
 
     def can(self, role: str) -> bool:
         return GLOBAL_ROLES.index(self.role) >= GLOBAL_ROLES.index(role)
@@ -82,12 +84,20 @@ class Me:
         """Whether the user has the role dwg3d.<role> in Keycloak."""
         return f"{ROLE_PREFIX}{role}" in self.roles
 
+    def actor(self) -> str | None:
+        """Who made a change, for the audit log: the login, and the agent's token if by one."""
+        if self.agent is None:
+            return self.login or None
+        return " · ".join(x for x in (self.login, f"агент «{self.agent['name'] or self.agent['id']}»") if x)
+
     def json(self) -> dict:
         o = {"id": self.id, "login": self.login, "name": self.name, "role": self.role,
              "role_name": ROLE_NAMES[self.role], "roles": list(self.roles), "email": self.email, "auth": enabled()}
         if self.share is not None:
             o["guest"] = {"project_id": self.share["project_id"], "drawings": self.share["drawings"],
                           "layers": self.share["layers"], "name": self.share.get("name") or ""}
+        if self.agent is not None:
+            o["agent"] = {k: self.agent[k] for k in ("id", "name", "project_id", "mode")}
         return o
 
 

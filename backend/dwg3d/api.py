@@ -34,6 +34,8 @@ build queue into a 3D model.
   GET  /api/health                       converter availability, database, queue
   POST /api/auth/login, /api/auth/logout, GET /api/auth/me
                                          sign-in (session cookie), see auth.py
+  GET/POST /api/projects/{id}/agent-tokens, DELETE .../agent-tokens/{tid}
+                                         tokens of AI agents (Authorization: Bearer), see tokens.py
 
 Run:  uvicorn dwg3d.api:app --port 8765 [--workers N]
 
@@ -75,7 +77,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 
-from . import access, auth, catalog, db, files, layers, reports, rooms, store, viewdata, worker
+from . import access, auth, catalog, db, files, layers, reports, rooms, store, tokens, viewdata, worker
 from .config import ConfigError, deep_merge, load_config, validate_config
 from .convert import available_converters
 from .edits import anchor_of
@@ -99,7 +101,12 @@ GUEST_DENIED = {"/api/users"}
 
 
 def _whoami(request: Request) -> auth.Me | None:
-    """The user of the session cookie, else the guest of a share-link cookie."""
+    """The agent of a bearer token; else the user of the session cookie, else
+    the guest of a share-link cookie. A token counts with sign-in off too:
+    its limits hold anyway."""
+    h = request.headers.get("authorization", "")
+    if h[:7].lower() == "bearer ":
+        return tokens.resolve(h[7:].strip())
     if not auth.enabled():
         return auth.ANONYMOUS_ADMIN
     return (auth.resolve(request.cookies.get(auth.COOKIE))
@@ -120,6 +127,9 @@ async def _authenticate(request: Request, call_next):
     if me.share is not None and (request.method not in READ or path in GUEST_DENIED
                                  or path.endswith(("/members", "/shares", "/audit"))):
         return JSONResponse({"detail": "Ссылка даёт доступ только для просмотра проекта"}, status_code=403)
+    if me.agent is not None and not tokens.agent_may(request.method, path, me.agent["mode"]):
+        return JSONResponse({"detail": f"Токен агента ({tokens.MODE_NAMES[me.agent['mode']]}) не даёт этого делать"},
+                            status_code=403)
     if path.startswith("/api/catalog") and request.method not in READ and not me.can("catalog_admin"):
         return JSONResponse({"detail": "Недостаточно прав: нужна роль «администратор каталога»"}, status_code=403)
     token, mtoken = auth.current.set(me), auth.method.set(request.method)
@@ -556,6 +566,48 @@ def revoke_share(pid: str, sid: str):
         return x
 
 
+# --------------------------------------------------------- agent tokens ---
+def _token_role(s, pid: str, need: str = "viewer") -> str:
+    """The user's role in the project, for their tokens (not for guests)."""
+    me = auth.current.get()
+    if me is not None and me.share is not None:
+        raise HTTPException(403, "Токены агентов недоступны по ссылке")
+    _project(s, pid, need=need)
+    return access.project_role(s, me, pid)
+
+
+@app.get("/api/projects/{pid}/agent-tokens")
+def list_agent_tokens(pid: str):
+    """The user's tokens in the project (an owner: everyone's)."""
+    with db.session() as s:
+        role = _token_role(s, pid)
+        return tokens.list_tokens(s, pid, auth.current.get(), role == "owner")
+
+
+@app.post("/api/projects/{pid}/agent-tokens", status_code=201)
+def create_agent_token(pid: str, v: dict):
+    """{name?, mode: read | propose | write, days?} -> the token (shown only now)."""
+    with db.session() as s:
+        role = _token_role(s, pid)
+        try:
+            x, token = tokens.create(s, pid, v if isinstance(v, dict) else {}, role)
+        except PermissionError as ex:
+            raise HTTPException(403, str(ex))
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        viewdata.audit_entry(s, pid, "agent_token", x["id"], "create", None, x)
+    return {**x, "token": token}
+
+
+@app.delete("/api/projects/{pid}/agent-tokens/{tid}")
+def revoke_agent_token(pid: str, tid: str):
+    with db.session() as s:
+        role = _token_role(s, pid)
+        x = _bad(tokens.revoke, s, pid, tid, role == "owner")
+        viewdata.audit_entry(s, pid, "agent_token", tid, "revoke", None, x)
+        return x
+
+
 # ------------------------------------------------------------ drawings ---
 def _parse_config(config: str | None) -> dict:
     try:
@@ -884,6 +936,9 @@ def update_layer(pid: str, lid: str, v: dict):
     with db.session() as s:
         _project(s, pid)
         layer = _layer(s, pid, lid)
+        me = auth.current.get()
+        if me is not None and me.agent is not None and "locked" in v and v["locked"] != layer.locked:
+            raise HTTPException(403, "Блокировку слоя меняет только человек")
         if "version" in v and v["version"] != layer.version:
             raise viewdata.Conflict("Слой изменён другим пользователем: обновите данные и повторите",
                                     [{"id": lid, "current": layers.layer_json(layer)}])

@@ -510,6 +510,37 @@ export async function revokeShare(projectId: string, id: string): Promise<ShareL
   return check(await fetch(`/api/projects/${projectId}/shares/${id}`, { method: 'DELETE' }))
 }
 
+export type AgentMode = 'read' | 'propose' | 'write'
+
+export interface AgentToken {
+  id: string
+  name: string
+  mode: AgentMode
+  mode_name: string
+  /** the user the agent acts for */
+  user: { id: number; login: string; name: string } | null
+  mine: boolean
+  expires: number
+  revoked: boolean
+  active: boolean
+  created: number | null
+  last_used: number | null
+  /** only in the answer to its creation */
+  token?: string
+}
+
+export async function listAgentTokens(projectId: string): Promise<AgentToken[]> {
+  return check(await fetch(`/api/projects/${projectId}/agent-tokens`))
+}
+
+export async function createAgentToken(projectId: string, v: { name?: string; mode: AgentMode; days: number }): Promise<AgentToken> {
+  return check(await fetch(`/api/projects/${projectId}/agent-tokens`, jsonBody('POST', v)))
+}
+
+export async function revokeAgentToken(projectId: string, id: string): Promise<AgentToken> {
+  return check(await fetch(`/api/projects/${projectId}/agent-tokens/${id}`, { method: 'DELETE' }))
+}
+
 export async function renameDrawing(id: string, name: string): Promise<ViewSettings> {
   return putView(id, { name })
 }

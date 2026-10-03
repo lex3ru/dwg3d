@@ -12,6 +12,9 @@ A share link gives read-only access to one project without an account,
 optionally to some of its drawings and layers only; it may expire and be
 revoked. Opening it (POST /api/share/{token}) puts the token in a cookie;
 requests with it act as a guest (auth.Me.share).
+
+An agent's token (tokens.py) acts for its user in one project only, with
+the user's role there capped by the token's mode (AGENT_CAP).
 """
 from __future__ import annotations
 
@@ -28,6 +31,8 @@ from .models import Drawing, Layer, Project, ProjectMember, ShareLink, User
 
 ROLES = ("viewer", "editor", "owner")
 ROLE_NAMES = {"viewer": "просмотр", "editor": "редактор", "owner": "владелец"}
+# the highest role an agent's token gives in its project (tokens.py); never owner
+AGENT_CAP = {"read": "viewer", "propose": "viewer", "write": "editor"}
 SHARE_COOKIE = "dwg3d_share"
 MAX_MEMBERS = 500
 MAX_SHARES = 100
@@ -49,15 +54,24 @@ def need_for_request() -> str:
     return "viewer" if auth.method.get() in ("GET", "HEAD", "OPTIONS") else "editor"
 
 
+def agent_cap(me: auth.Me, role: str | None) -> str | None:
+    """The role of an agent: its user's, no higher than the token's mode allows."""
+    if role is None or me.agent is None:
+        return role
+    return min(role, AGENT_CAP[me.agent["mode"]], key=rank)
+
+
 def project_role(s: Session, me: auth.Me | None, pid: str) -> str | None:
     if me is None:
         return None
     if me.share is not None:
         return "viewer" if me.share["project_id"] == pid else None
+    if me.agent is not None and me.agent["project_id"] != pid:
+        return None
     if me.role == "admin":
-        return "owner"
-    return s.scalar(select(ProjectMember.role).where(ProjectMember.project_id == pid,
-                                                     ProjectMember.user_id == me.id))
+        return agent_cap(me, "owner")
+    return agent_cap(me, s.scalar(select(ProjectMember.role).where(ProjectMember.project_id == pid,
+                                                                   ProjectMember.user_id == me.id)))
 
 
 def check(s: Session, pid: str, need: str | None = None, what: str = "Проект не найден") -> str:
@@ -86,6 +100,8 @@ def visible(q, me: auth.Me | None, project_col=Project.id):
         return q.where(False)
     if me.share is not None:
         return q.where(project_col == me.share["project_id"])
+    if me.agent is not None:
+        q = q.where(project_col == me.agent["project_id"])
     if me.role == "admin":
         return q
     return q.where(project_col.in_(select(ProjectMember.project_id).where(ProjectMember.user_id == me.id)))
@@ -108,10 +124,13 @@ def roles_of(s: Session, me: auth.Me | None, pids: list[str]) -> dict[str, str]:
         return {}
     if me.share is not None:
         return {me.share["project_id"]: "viewer"} if me.share["project_id"] in pids else {}
+    if me.agent is not None:
+        pids = [p for p in pids if p == me.agent["project_id"]]
     if me.role == "admin":
-        return {p: "owner" for p in pids}
-    return dict(s.execute(select(ProjectMember.project_id, ProjectMember.role)
-                          .where(ProjectMember.user_id == me.id, ProjectMember.project_id.in_(pids))).all())
+        return {p: agent_cap(me, "owner") for p in pids}
+    return {p: agent_cap(me, r) for p, r in s.execute(
+        select(ProjectMember.project_id, ProjectMember.role)
+        .where(ProjectMember.user_id == me.id, ProjectMember.project_id.in_(pids))).all()}
 
 
 # --------------------------------------------------------------- members ---
