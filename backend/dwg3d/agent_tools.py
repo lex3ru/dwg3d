@@ -30,7 +30,7 @@ from shapely.geometry import box
 from sqlalchemy import func, select
 
 from . import access, auth, db, layers, planning, proposals, reports, rooms, store, uicontext, viewdata
-from .models import CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Project, Proposal, Room
+from .models import Build, CatalogCategory, CatalogItem, Drawing, Floor, Layer, LayerObject, Pin, Project, Proposal, Room
 
 MAX_OBJECTS = 500
 WRITES_PER_MINUTE = 30          # proposing calls of one user (per API process)
@@ -524,6 +524,84 @@ def camera_coverage(ctx: Context,
             raise ToolError(f"Слой {layer!r} не найден: см. project_overview")
         return planning.camera_coverage(s, _floor(s, d.id, floor), room, {layer} if layer else set(lay))
 
+
+
+# ---------------------------------------------------------------- comments ---
+COMMENT_HEIGHT = 1.5            # above the floor, m: where a comment's pin hangs in the model
+
+
+def _scene(s, d: Drawing) -> tuple[tuple[float, float], dict[str, float]]:
+    """The build's centre (scene x = plan x - cx, z = -(plan y - cy)) and the floors' elevations."""
+    b = s.get(Build, (d.id, d.current_build)) if d.current_build else None
+    res = (b.result or {}) if b else {}
+    c = res.get("center") or [0.0, 0.0]
+    return (float(c[0]), float(c[1])), {f["id"]: float(f.get("elevation") or 0) for f in res.get("floors") or []}
+
+
+@mcp.tool(annotations=READ)
+def list_comments(ctx: Context,
+                  drawing: Annotated[str, Field(description="id чертежа")],
+                  floor: Annotated[str | None, Field(description="id этажа (c0…)")] = None,
+                  query: Annotated[str | None, Field(description="часть текста или автора")] = None) -> dict[str, Any]:
+    """Комментарии и метки на модели чертежа: текст, автор, когда, этаж, точка на плане (м)
+    и помещение. Комментарии — обсуждение проекта людьми; метки — короткие подписи."""
+    with _agent(ctx) as (_, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        (cx, cy), _ = _scene(s, d)
+        floors = viewdata._floors(s, d.id)
+        q = select(Pin).where(Pin.drawing_id == d.id).order_by(Pin.created_at.desc())
+        if floor is not None:
+            q = q.where(Pin.floor_id == _floor(s, d.id, floor).id)
+        loc = rooms.Locator(s)
+        names = dict(s.execute(select(Room.id, Room.name).where(Room.drawing_id == d.id)).all())
+        needle = (query or "").strip().lower()
+        out = []
+        for p in s.scalars(q.limit(500)):
+            if needle and needle not in (p.text or "").lower() and needle not in (p.author or "").lower():
+                continue
+            at = [round(p.x + cx, 2), round(-p.z + cy, 2)]
+            rid = loc.room(p.floor_id, at[0], at[1]) if p.floor_id is not None else None
+            out.append({"id": p.id, "kind": p.kind, "text": p.text, "label": p.label, "author": p.author,
+                        "created": p.created_at.isoformat(timespec="minutes"), "floor": viewdata._cand(floors, p.floor_id) or None,
+                        "at": at, **({"room": rid, "room_name": names.get(rid, "")} if rid else {})})
+        return {"drawing": d.id, "comments": out}
+
+
+@mcp.tool(annotations=WRITE)
+def add_comment(ctx: Context,
+                drawing: Annotated[str, Field(description="id чертежа")],
+                text: Annotated[str, Field(description="текст комментария — увидят все участники", min_length=1, max_length=2000)],
+                object: Annotated[str | None, Field(description="id объекта: комментарий у него")] = None,
+                room: Annotated[int | None, Field(description="id помещения: комментарий в его центре")] = None,
+                floor: Annotated[str | None, Field(description="id этажа — с at")] = None,
+                at: Annotated[list[float] | None, Field(description="[x, y] на плане, м — с floor", min_length=2, max_length=2)] = None) -> dict[str, Any]:
+    """Оставить комментарий на модели (замечание по проверке, вопрос проектировщику):
+    у объекта, в помещении или в точке этажа. Ставится сразу, от имени «Копилот · пользователь»;
+    только для пользователей с правом редактирования."""
+    with _agent(ctx, propose=True) as (me, pid), db.session() as s:
+        d = _drawing(s, pid, drawing)
+        if object:
+            o = s.scalar(select(LayerObject).where(LayerObject.project_id == pid, LayerObject.id == object,
+                                                   LayerObject.drawing_id == d.id))
+            if o is None or o.floor_id is None:
+                raise ToolError(f"Объект {object!r} не найден на этом чертеже")
+            fid, x, y = viewdata._cand(viewdata._floors(s, d.id), o.floor_id), o.x, o.y
+        elif room is not None:
+            r, f, poly = planning.room_of(s, d.id, room)
+            c = poly.representative_point()
+            fid, x, y = f.candidate, c.x, c.y
+        elif floor and at:
+            fid, (x, y) = _floor(s, d.id, floor).candidate, at
+        else:
+            raise ToolError("Где: object, room или floor + at")
+        (cx, cy), elev = _scene(s, d)
+        pin = {"op": "create", "kind": "comment", "floor": fid, "text": text.strip(),
+               "pos": [round(x - cx, 3), round(elev.get(fid, 0.0) + COMMENT_HEIGHT, 3), round(-(y - cy), 3)],
+               "author": f"{me.agent['name']} · {me.name or me.login or 'пользователь'}"[:80]}
+        # the mode "propose" is given only to users who may edit: writing pins takes that, as over HTTP
+        res = viewdata.apply(s, d.id, "pin", [pin], build=None)
+        c = res["items"][0]
+        return {"id": c["id"], "floor": fid, "at": [round(x, 2), round(y, 2)], "text": c["text"], "author": c["author"]}
 
 # ---------------------------------------------------------- the user's view ---
 VIEW = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)

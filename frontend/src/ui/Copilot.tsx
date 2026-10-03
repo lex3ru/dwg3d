@@ -16,6 +16,7 @@ const TOOL_LABEL: Record<string, string> = {
   recent_changes: 'смотрю журнал', proposal_status: 'проверяю предложение', propose_changes: 'готовлю предложение',
   place_in_room: 'подбираю места', place_row: 'рассчитываю ряд', camera_coverage: 'считаю обзор камер',
   get_ui_context: 'смотрю, что открыто', show_in_viewer: 'показываю на плане', compare_variants: 'сравниваю варианты',
+  list_comments: 'читаю комментарии', add_comment: 'оставляю комментарий',
 }
 
 const EXAMPLES = ['Что на этом этаже?', 'Где камеры не видят помещения?', 'Предложи расстановку кресел ожидания здесь', 'Сделай вариант мебели и сравни с текущим']

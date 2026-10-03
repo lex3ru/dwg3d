@@ -96,8 +96,8 @@ def test_read_tools(world):
     tools = {t.name: t for t in asyncio.run(agent_tools.mcp.list_tools())}
     reading = {"project_overview", "list_rooms", "layer_kinds", "search_catalog", "query_objects",
                "get_object", "report", "recent_changes", "proposal_status", "camera_coverage", "get_ui_context",
-               "compare_variants"}
-    assert set(tools) == reading | {"propose_changes", "place_in_room", "place_row", "show_in_viewer"}
+               "compare_variants", "list_comments"}
+    assert set(tools) == reading | {"propose_changes", "place_in_room", "place_row", "show_in_viewer", "add_comment"}
     assert all(t.annotations.read_only_hint == (n in reading) for n, t in tools.items())
     assert "ctx" not in tools["list_rooms"].input_schema["properties"]
 
@@ -139,3 +139,26 @@ def test_read_tools(world):
     assert a.call("report", kind="equipment")["qty"] == 1
     assert a.call("report", kind="checks") == {"fire": []}
     assert "object" in {x["entity"] for x in a.call("recent_changes", limit=5)["changes"]}
+
+
+def test_comments(world):
+    """Comments on the model: read with plan coordinates and rooms; added by the copilot of an editor."""
+    pid, room = world["pid"], world["room"]
+    ed, vw = Tools("tok-editor", pid), Tools("tok-viewer", pid)
+    assert ed.call("list_comments", drawing=pid)["comments"] == []
+    c = ed.call("add_comment", drawing=pid, object="couch1", text="Кушетка закрывает розетку?")
+    assert c["floor"] == "c0" and c["at"] == [2.0, 2.0] and c["author"] == "Копилот · Имя tok-editor"
+    ed.call("add_comment", drawing=pid, room=room, text="Проверить вентиляцию")
+    ed.call("add_comment", drawing=pid, floor="c0", at=[4.5, 3.5], text="Здесь дверь?")
+    got = vw.call("list_comments", drawing=pid)["comments"]
+    assert len(got) == 3 and {x["kind"] for x in got} == {"comment"}
+    by_text = {x["text"]: x for x in got}
+    assert by_text["Кушетка закрывает розетку?"]["at"] == [2.0, 2.0]                 # back to plan coordinates
+    assert by_text["Кушетка закрывает розетку?"]["room_name"] == "Кабинет врача"
+    assert [x["text"] for x in vw.call("list_comments", drawing=pid, query="дверь")["comments"]] == ["Здесь дверь?"]
+    assert "error" in ed.call("add_comment", drawing=pid, text="без места")
+    assert "error" in ed.call("add_comment", drawing=pid, object="nope", text="x")
+    assert "только на просмотр" in vw.call("add_comment", drawing=pid, room=room, text="x")["error"]
+    # people see them as pins of the drawing
+    pins = world["editor"].get(f"/api/drawings/{pid}/pins").json()["comments"]
+    assert len(pins) == 3 and pins[0]["pos"][1] == 1.5
