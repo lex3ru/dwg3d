@@ -1,6 +1,6 @@
 # dwg3d: the whole stack in containers.
 #
-#   cp .env.example .env        # passwords, site name
+#   deploy/make-env.sh https://<site>   # .env with random passwords (or cp .env.example .env on localhost)
 #   docker compose up -d --build
 #   open http://localhost:${DWG3D_HTTP_PORT:-8088}
 #

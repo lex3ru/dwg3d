@@ -56,6 +56,9 @@ Environment:
   DWG3D_CORS_ORIGINS      comma-separated origins allowed cross-origin (none;
                           the built UI and the Vite dev proxy are same-origin)
   DWG3D_RETENTION_DAYS    delete projects not touched for N days (0 = keep forever)
+  DWG3D_ALLOW_WEAK_SECRETS  1: start even with the development secrets of
+                          .env.example when DWG3D_PUBLIC_URL is not localhost
+                          (otherwise the server refuses to start)
 
 Every /api request except health and sign-in needs a session (DWG3D_AUTH=off
 disables this): reading needs any role, changes need "editor", catalog
@@ -71,12 +74,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.engine import make_url
 
 from . import access, auth, catalog, db, layers, viewdata, worker
 from .convert import available_converters
@@ -162,6 +167,43 @@ def _init_db():
                            "Запустите `docker compose up -d db` или задайте DWG3D_DATABASE_URL") from ex
 
 
+DEV_SECRETS = {   # the values of .env.example: known to everyone
+    "DWG3D_SECRET": "dev-secret-change-me",
+    "DWG3D_OIDC_CLIENT_SECRET": "dev-client-secret",
+    "DWG3D_S3_SECRET_KEY": "dwg3d-secret",
+}
+
+
+def weak_secrets() -> list[str]:
+    """Settings left at the published development values (or too short to sign with)."""
+    weak = [k for k, v in DEV_SECRETS.items() if os.environ.get(k) == v]
+    if 0 < len(os.environ.get("DWG3D_SECRET", "")) < 32 and "DWG3D_SECRET" not in weak:
+        weak.append("DWG3D_SECRET")
+    if make_url(db.database_url()).password == "dwg3d":
+        weak.append("POSTGRES_PASSWORD")
+    return weak
+
+
+def _local_site() -> bool:
+    """The site is opened on this machine only (DWG3D_PUBLIC_URL unset or localhost)."""
+    host = urlparse(os.environ.get("DWG3D_PUBLIC_URL") or "http://localhost").hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+
+
+def _check_secrets():
+    """Refuse to serve a site reachable by others with the development secrets
+    (DWG3D_ALLOW_WEAK_SECRETS=1 for a test stand); on localhost only warn."""
+    if not (weak := weak_secrets()):
+        return
+    msg = (f"Небезопасные значения по умолчанию: {', '.join(weak)}. Задайте свои в .env "
+           "(deploy/make-env.sh создаёт .env со случайными паролями)")
+    if _local_site() or os.environ.get("DWG3D_ALLOW_WEAK_SECRETS") == "1":
+        log.warning(msg)
+    else:
+        raise RuntimeError(f"{msg}; сервер для {os.environ['DWG3D_PUBLIC_URL']} не запущен")
+
+
+_check_secrets()
 _init_db()
 if auth.enabled() and not os.environ.get("DWG3D_OIDC_ISSUER"):
     log.warning("Вход не настроен: задайте DWG3D_OIDC_ISSUER и DWG3D_OIDC_CLIENT_SECRET (Keycloak) "

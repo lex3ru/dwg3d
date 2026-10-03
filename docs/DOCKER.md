@@ -15,9 +15,21 @@
 ## Первый запуск
 
 ```bash
-cp .env.example .env      # пароли, адрес сайта (DWG3D_PUBLIC_URL)
+deploy/make-env.sh https://plans.example.com plans.example.com   # .env со случайными паролями
 docker compose up -d --build
 ```
+
+Первый аргумент — адрес сайта (`DWG3D_PUBLIC_URL`), второй — домен для
+сертификата (`DWG3D_SITE`; без него — HTTP на порту `DWG3D_HTTP_PORT`).
+Для пробного запуска на своей машине хватит `cp .env.example .env`.
+
+С паролями и ключами из `.env.example` (`DWG3D_SECRET`,
+`DWG3D_OIDC_CLIENT_SECRET`, `DWG3D_S3_SECRET_KEY`, `POSTGRES_PASSWORD`) `api`
+запускается, только если `DWG3D_PUBLIC_URL` — localhost; для другого адреса
+он останавливается с перечнем таких параметров (`DWG3D_ALLOW_WEAK_SECRETS=1`
+разрешает их — только для тестового стенда). Секрет клиента читается
+импортом realm при первом старте Keycloak: если realm уже есть, поменяйте
+секрет и у клиента `dwg3d` в консоли Keycloak.
 
 Интерфейс: `http://localhost:8088` (порт — `DWG3D_HTTP_PORT`). Первый вход —
 `DWG3D_ADMIN_USER` / `DWG3D_ADMIN_PASSWORD` (Keycloak попросит сменить пароль);
