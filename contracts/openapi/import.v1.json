@@ -58,6 +58,21 @@
         "title": "Body_upload_file_api_import_v1_drawings__drawing_id__files_post",
         "type": "object"
       },
+      "DrawingPatch": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DrawingPatch",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -437,6 +452,59 @@
           }
         },
         "summary": "Чертёж и состояние его последней сборки",
+        "tags": [
+          "drawings"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_drawing_api_import_v1_drawings__drawing_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawingPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rename Drawing Api Import V1 Drawings  Drawing Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Переименовать чертёж",
         "tags": [
           "drawings"
         ]

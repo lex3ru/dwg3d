@@ -34,6 +34,11 @@ def register(bus: Bus, client: ServiceClient) -> None:
             id=UUID(data["drawing_id"]), building_id=UUID(event["building_id"]), name=data["name"])
             .on_conflict_do_update(index_elements=["id"], set_={"name": data["name"], "updated_at": func.now()}))
 
+    @bus.consumer("import.drawing.renamed", name="drawing-renamed")
+    async def drawing_renamed(session: AsyncSession, event: dict) -> None:
+        await session.execute(update(drawings).where(drawings.c.id == UUID(event["data"]["drawing_id"]))
+                              .values(name=event["data"]["name"], updated_at=func.now()))
+
     @bus.consumer("import.drawing.deleted", name="drawing-deleted")
     async def drawing_deleted(session: AsyncSession, event: dict) -> None:
         """The floors and rooms of a deleted drawing are retired, not deleted: others may refer to them."""

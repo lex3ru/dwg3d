@@ -163,6 +163,7 @@ async function pinOps(id: string, ops: Json[]): Promise<Json> {
 async function putView(id: string, v: Json): Promise<Json> {
   const k = known.get(id) ?? (await job(id), known.get(id)!)
   const building = `${BUILDINGS}/buildings/${k.building}`
+  if (typeof v.name === 'string' && v.name.trim()) await call('PATCH', `${IMPORT}/drawings/${id}`, { name: v.name.trim() })
   if ('site' in v) {
     const s = v.site
     await call('PUT', `${building}/site`, s ? { lat: s.lat, lon: s.lon, bearing: s.azimuth ?? 0, scale: s.scale ?? 1,

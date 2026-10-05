@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.concurrency import iterate_in_threadpool
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, insert, select, update
 from twin_chassis import Identity, Problem, emit, require_admin, require_admin_or_service, uuid7
 
@@ -158,6 +159,22 @@ async def list_drawings(request: Request, building_id: UUID, _: Identity = Depen
 @router.get("/drawings/{drawing_id}", tags=["drawings"], summary="Чертёж и состояние его последней сборки")
 async def get_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
     async with request.app.state.db.begin() as session:
+        return await store.drawing_json(session, await _drawing(session, drawing_id))
+
+
+class DrawingPatch(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+@router.patch("/drawings/{drawing_id}", tags=["drawings"], summary="Переименовать чертёж")
+async def rename_drawing(drawing_id: UUID, body: DrawingPatch, request: Request,
+                         _: Identity = Depends(require_admin)) -> dict:
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id)
+                              .values(name=body.name.strip(), updated_at=func.now()))
+        await emit(session, "import.drawing.renamed", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": body.name.strip()}, building_id=d.building_id)
         return await store.drawing_json(session, await _drawing(session, drawing_id))
 
 

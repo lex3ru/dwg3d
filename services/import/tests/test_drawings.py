@@ -176,6 +176,16 @@ async def test_build_whose_worker_died_is_failed(client, app, worker, tokens, sa
     assert r.status_code == 202
 
 
+async def test_rename(client, app, tokens, sample):
+    drawing = (await upload(client, tokens, sample)).json()
+    url = f"{API}/drawings/{drawing['id']}"
+    r = await client.patch(url, json={"name": "Корпус Б"}, headers=tokens.admin())
+    assert r.status_code == 200 and r.json()["name"] == "Корпус Б"
+    assert (await events(app))[-1]["data"] == {"drawing_id": drawing["id"], "name": "Корпус Б"}
+    assert (await client.patch(url, json={"name": ""}, headers=tokens.admin())).status_code == 422
+    assert (await client.patch(url, json={"name": "x"}, headers=tokens.bearer("user-1"))).status_code == 403
+
+
 async def test_delete(client, app, worker, tokens, sample):
     drawing = (await upload(client, tokens, sample)).json()
     admin = tokens.admin()

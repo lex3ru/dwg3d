@@ -119,6 +119,106 @@ test('a marker put on a floor is there after a reload', async ({ page }) => {
   expect(seen).toBeGreaterThan(0)
 })
 
+test('a room named in the 2D editor is rebuilt into the building, other rooms keep their ids', async ({ page }) => {
+  test.setTimeout(150_000)
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await newBuilding(page, `Редактор ${Date.now()}`)
+  await page.waitForURL(/#\/p\//)
+  const building = /#\/p\/([\w-]+)/.exec(page.url())![1]
+  const rooms = async () => (await (await page.request.get(`/api/buildings/v1/rooms?building_id=${building}`)).json()).items as
+    { id: string; name: string; area: number; floor_id: string }[]
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(drawing(page, 'sample.dxf')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  const before = await rooms()
+  expect(before.map(r => r.name).sort()).toEqual(['', '', 'Кабинет', 'Кабинет'])
+
+  await drawing(page, 'sample.dxf').getByRole('link', { name: 'Открыть' }).click()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(2500)
+  await page.locator('button').first().click()                                   // the tree
+  await page.locator('button:has(svg.lucide-pencil-ruler)').first().click({ force: true })   // the plan editor of the top floor
+  await expect(page.getByRole('button', { name: 'Применить' })).toBeVisible()
+
+  await page.mouse.click(300, 300)                                               // the room without a name
+  await page.getByPlaceholder('Название помещения').fill('Процедурная')
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: 'Применить' }).click()
+
+  // the drawing is rebuilt and the building takes the build in
+  await expect.poll(async () => (await rooms()).map(r => r.name).sort(), { timeout: 60_000 })
+    .toEqual(['', 'Кабинет', 'Кабинет', 'Процедурная'])
+  const after = await rooms()
+  const named = after.find(r => r.name === 'Процедурная')!
+  expect(before.find(r => r.id === named.id)?.name).toBe('')                       // the same room, now with a name
+  expect(after.map(r => r.id).sort()).toEqual(before.map(r => r.id).sort())       // nobody got a new id
+  await expect(page.getByText('Процедурная').first()).toBeVisible({ timeout: 20_000 })   // and the viewer shows it
+})
+
+test('the tools of the viewer work on the new services: display, measuring, walking, the map, the facade', async ({ page }) => {
+  test.setTimeout(150_000)
+  const failed: string[] = []
+  page.on('pageerror', e => failed.push(String(e)))
+  page.on('response', r => { if (r.status() >= 400 && !r.url().endsWith('/api/me')) failed.push(`${r.status()} ${r.request().method()} ${r.url()}`) })
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await newBuilding(page, `Инструменты ${Date.now()}`)
+  await page.waitForURL(/#\/p\//)
+  const building = /#\/p\/([\w-]+)/.exec(page.url())![1]
+  const get = async (path: string) => (await page.request.get(`/api/buildings/v1/buildings/${building}${path}`)).json()
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(drawing(page, 'sample.dxf')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  await drawing(page, 'sample.dxf').getByRole('link', { name: 'Открыть' }).click()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(3000)
+
+  // display: floors apart, transparent walls — and the address remembers the view
+  await page.getByRole('button', { name: 'Отображение' }).click()
+  await page.getByText('Разнести этажи').click()
+  await page.getByText('Прозрачные стены').click()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/e=1/)
+  await expect(page).toHaveURL(/x=1/)
+  await page.mouse.click(1000, 620)
+
+  // the ruler: two points on the building give a distance
+  await page.getByRole('button', { name: 'Расстояние' }).click()
+  await page.mouse.click(620, 420)
+  await page.mouse.click(820, 440)
+  await expect(page.getByText(/\d+[.,]\d+\s*м/).first()).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // navigation modes: orbit -> fly -> walk -> orbit (walking takes the pointer: click the button itself)
+  const next = (icon: string) => page.locator(`button:has(svg.lucide-${icon})`).last().dispatchEvent('click')
+  await next('orbit')
+  await expect(page.getByText('Полёт · 3D')).toBeVisible()
+  await next('plane')
+  await expect(page.getByText('Прогулка · 3D')).toBeVisible()
+  await next('footprints')
+  await expect(page.getByText('Обзор · 3D')).toBeVisible()
+
+  await page.locator('button:has(svg.lucide-sun)').first().click()              // time of day
+
+  // the name of the drawing, the map, the detailed facade model
+  await page.locator('button:has(svg.lucide-settings)').first().click()
+  await page.getByRole('menuitem', { name: /Карта и детальная модель/ }).click()
+  await page.getByPlaceholder('как в списке зданий').fill('Корпус Б')
+  await page.getByPlaceholder('55.7539').fill('55.7539')
+  await page.getByPlaceholder('37.6208').fill('37.6208')
+  await page.locator('input[type="file"]').last().setInputFiles('fixtures/facade.glb')
+  await page.waitForTimeout(1500)
+  await page.getByRole('button', { name: 'Сохранить' }).click()
+  await expect.poll(async () => (await get('')).site?.lat, { timeout: 10_000 }).toBe(55.7539)
+  expect((await get('')).facade).toMatchObject({ name: 'facade.glb', scale: 1 })
+  await expect.poll(async () => (await get('/drawings')).items[0].name).toBe('Корпус Б')
+  await page.waitForTimeout(2000)                                                // the map and the facade load
+
+  // the files of the build: IFC, OBJ, the model itself
+  const build = (await get('/drawings')).items[0].build_id
+  for (const file of ['model.ifc', 'model_obj.zip', 'model.glb']) {
+    expect((await page.request.get(`/api/import/v1/builds/${build}/files/${file}`)).status(), file).toBe(200)
+  }
+  expect(failed).toEqual([])
+})
+
 test('a file that is not a drawing fails with a message, not a hanging build', async ({ page }) => {
   await newBuilding(page, `Сбой ${Date.now()}`)
   await page.getByTestId('file').setInputFiles('fixtures/broken.dxf')
@@ -153,4 +253,12 @@ test('the two real drawings build into one building', async ({ page }) => {
   console.log('real drawings:', totals)
   expect(Number(/Этажей: (\d+)/.exec(totals!)![1])).toBeGreaterThanOrEqual(14)
   await expect(page.getByRole('link', { name: 'Открыть' })).toHaveCount(2)
+
+  // how long a large drawing takes to open (criterion: a floor of 200 rooms within 3 s)
+  const started = Date.now()
+  const model = page.waitForResponse(r => r.url().includes('/files/model.glb') && r.ok())
+  await drawing(page, REAL[0].split('/').pop()!).getByRole('link', { name: 'Открыть' }).click()
+  await (await model).finished()
+  await expect(page.locator('canvas').first()).toBeVisible()
+  console.log('real drawing opened in', Date.now() - started, 'ms')
 })

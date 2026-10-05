@@ -201,6 +201,13 @@ async def test_deleted_drawing_retires_its_floors_and_rooms(client, app, tokens,
     assert len(await events(app, "buildings.room.retired")) == 4
 
 
+async def test_renamed_drawing(client, app, tokens, building, site):
+    await app.state.bus.handle("drawing-renamed", site.event(
+        "import.drawing.renamed", {"drawing_id": site.drawing_id, "name": "Корпус Б"}))
+    listed = await client.get(f"{API}/buildings/{building['id']}/drawings", headers=tokens.admin())
+    assert [d["name"] for d in listed.json()["items"]] == ["Корпус Б"]
+
+
 async def test_placement_of_a_drawing(client, tokens, building, site):
     admin = tokens.admin()
     await site.build("base")
