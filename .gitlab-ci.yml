@@ -1,12 +1,14 @@
-# CI of the current single-application version (legacy/); the services of the
-# new version add their own jobs here as they appear.
+# CI. Two parts:
 #
-# Backend tests on a real PostgreSQL and S3, frontend types / lint / build,
-# container images (built on merge requests that touch them, pushed to the
-# project's registry from main and tags).
+#   the new version — the services (services/<name>), their shared chassis,
+#     the UI: lint, tests on a real PostgreSQL and NATS (other services are
+#     never needed), the check that requests match contracts/, images;
+#   legacy/ — the current single-application version: backend tests on a real
+#     PostgreSQL and S3, frontend types / lint / build, images.
 #
-# Tests that need the live Keycloak of docker compose, real drawings (not in
-# the repository) or a DWG converter skip themselves here.
+# Images are built on merge requests that touch them and pushed to the
+# project's registry from main and tags. Tests that need the live Keycloak of
+# docker compose, real drawings or a DWG converter skip themselves here.
 
 stages: [test, images]
 
@@ -18,8 +20,9 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
-backend:
+legacy:backend:
   stage: test
+  rules: [{changes: [legacy/backend/**/*, .gitlab-ci.yml]}]
   image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
   services:
     - name: postgres:16-alpine
@@ -50,8 +53,9 @@ backend:
     reports:
       junit: legacy/backend/report.xml
 
-frontend:
+legacy:frontend:
   stage: test
+  rules: [{changes: [legacy/frontend/**/*, .gitlab-ci.yml]}]
   image: node:24-slim
   cache:
     key:
@@ -70,7 +74,7 @@ frontend:
   variables:
     DOCKER_TLS_CERTDIR: /certs
   script:
-    - docker build -t "$IMAGE:$CI_COMMIT_SHORT_SHA" "$CONTEXT"
+    - docker build $BUILD_ARGS -t "$IMAGE:$CI_COMMIT_SHORT_SHA" "$CONTEXT"
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] || [ -n "$CI_COMMIT_TAG" ]; then
         echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
@@ -80,7 +84,7 @@ frontend:
         docker push "$IMAGE:$tag"
       fi
 
-image:api:
+legacy:image:api:
   extends: .image
   variables:
     CONTEXT: legacy/backend
@@ -90,7 +94,7 @@ image:api:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: [legacy/backend/Dockerfile, legacy/backend/pyproject.toml, legacy/backend/uv.lock]
 
-image:web:
+legacy:image:web:
   extends: .image
   variables:
     CONTEXT: legacy/frontend
@@ -99,3 +103,100 @@ image:web:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: [legacy/frontend/Dockerfile, legacy/frontend/Caddyfile, legacy/frontend/package-lock.json]
+
+# ---------------------------------------------------------- the new version ---
+
+.service:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  services:
+    - name: postgres:16-alpine
+      alias: db
+    - name: nats:2-alpine
+      alias: nats
+      command: ["-js"]
+  variables:
+    POSTGRES_USER: twin
+    POSTGRES_PASSWORD: twin
+    POSTGRES_DB: postgres
+    TWIN_TEST_DATABASE_URL: postgresql+psycopg://twin:twin@db:5432/postgres
+    TWIN_TEST_NATS_URL: nats://nats:4222
+    UV_CACHE_DIR: $CI_PROJECT_DIR/.uv-cache
+    UV_LINK_MODE: copy
+  cache:
+    key: uv-$SERVICE
+    paths: [.uv-cache]
+  script:
+    - cd services/$SERVICE
+    - uv sync --frozen
+    - uv run ruff check .
+    - uv run pytest -q -rs --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: services/$SERVICE/report.xml
+
+.service-image:
+  extends: .image
+  variables:
+    CONTEXT: .
+    IMAGE: $CI_REGISTRY_IMAGE/$SERVICE
+    BUILD_ARGS: -f deploy/service.Dockerfile --build-arg SERVICE=$SERVICE
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [deploy/service.Dockerfile, libs/chassis/pyproject.toml, services/*/pyproject.toml, services/*/uv.lock]
+
+chassis:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  script:
+    - uvx ruff check --config libs/chassis/pyproject.toml libs/chassis tools/new-service
+
+# a service made from the template right now must pass the same checks
+template:
+  extends: .service
+  variables: {SERVICE: probe}
+  before_script:
+    - tools/new-service probe "Проверка шаблона"
+
+web:
+  stage: test
+  image: node:24-slim
+  cache:
+    key:
+      files: [frontend/package-lock.json]
+    paths: [.npm]
+  script:
+    - cd frontend
+    - npm ci --cache "$CI_PROJECT_DIR/.npm" --prefer-offline
+    - npm run lint
+    - npm run build
+
+image:web:
+  extends: .image
+  variables:
+    CONTEXT: frontend
+    IMAGE: $CI_REGISTRY_IMAGE/twin-web
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [frontend/Dockerfile, frontend/Caddyfile, frontend/package-lock.json]
+
+service:gateway:
+  extends: .service
+  variables: {SERVICE: gateway}
+
+image:gateway:
+  extends: .service-image
+  variables: {SERVICE: gateway}
+
+service:ping:
+  extends: .service
+  variables: {SERVICE: ping}
+
+image:ping:
+  extends: .service-image
+  variables: {SERVICE: ping}
+
+# -- jobs of new services go above this line (tools/new-service adds them) --
