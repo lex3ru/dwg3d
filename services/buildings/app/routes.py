@@ -335,12 +335,13 @@ async def floor_plan(floor_id: UUID, request: Request, _: Identity = Depends(req
     async with request.app.state.db.begin() as session:
         f = await _floor(session, floor_id)
         data = (await session.execute(select(floor_plans.c.data).where(floor_plans.c.floor_id == floor_id))).scalar()
-        ids = {idx: str(i) for i, idx in await session.execute(
-            select(rooms.c.id, rooms.c.idx).where(rooms.c.floor_id == floor_id, rooms.c.idx.is_not(None)))}
+        current = select(rooms.c.id, rooms.c.idx, rooms.c.name).where(
+            rooms.c.floor_id == floor_id, rooms.c.idx.is_not(None))
+        known = {idx: (str(i), name) for i, idx, name in await session.execute(current)}
     if data is None:
         raise Problem(404, "not_found", "У этажа нет плана")
     for i, r in enumerate(data.get("rooms") or []):
-        r["id"] = ids.get(i)
+        r["id"], r["name"] = known.get(i, (None, r.get("name", "")))       # names given by hand since the build
     return {"floor": floor_json(f), "plan": data}
 
 

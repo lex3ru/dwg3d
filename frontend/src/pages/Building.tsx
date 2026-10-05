@@ -1,4 +1,4 @@
-import { ArrowLeft, Box, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Box, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
@@ -58,10 +58,7 @@ export function Building({ id }: { id: string }) {
   return (
     <section className="space-y-6">
       <div>
-        <a href="#/buildings" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-4" /> Мои здания
-        </a>
-        <h1 className="mt-1 text-xl font-semibold">{building.name}</h1>
+        <h1 className="text-xl font-semibold">{building.name}</h1>
         {building.address && <p className="text-sm text-muted-foreground">{building.address}</p>}
         {floors.length > 0 && <p className="mt-1 text-sm text-muted-foreground" data-testid="totals">Этажей: {floors.length} · помещений: {rooms}</p>}
       </div>

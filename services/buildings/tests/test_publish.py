@@ -154,6 +154,8 @@ async def test_name_given_by_hand_survives_a_rebuild(client, app, tokens, buildi
     assert next(m for m in floor["rooms"] if m["id"] == room["id"])["name"] == "Процедурная"
     changed = await events(app, "buildings.room.changed")
     assert changed[0]["data"] == {"room_id": room["id"], "fields": ["name", "type"]}
+    plan = (await client.get(f"{API}/floors/{floors[0]['id']}/plan", headers=admin)).json()["plan"]
+    assert next(r for r in plan["rooms"] if r["id"] == room["id"])["name"] == "Процедурная"
 
 
 async def test_events_out_of_order_and_twice(client, app, tokens, building, site):

@@ -62,7 +62,19 @@ export type Drawing = {
 /** A drawing as the building has taken it in: the build that is shown. */
 export type Placement = { dx: number; dy: number; dz: number; rotation: number }
 export type PlacedDrawing = { id: string; name: string; build_id: string | null; build_n: number; placement: Placement; version: number }
-export type TreeFloor = { id: string; name: string; level: number | null; rooms: { id: string; name: string; area: number }[] }
+export type Room = {
+  id: string; floor_id: string; name: string; number: string | null; type: string | null; area: number
+  status: 'active' | 'retired'; version: number
+}
+export type TreeFloor = { id: string; drawing_id: string; name: string; level: number | null; rooms: Room[] }
+type Ring = [number, number][]
+/** The 2D plan of a floor: plan coordinates of its drawing, metres, Y up. */
+export type FloorPlanData = {
+  bounds: [number, number, number, number]
+  walls: Ring[][]; partitions: Ring[][]; columns: Ring[][]; stairs: Ring[][]
+  openings: { kind: string; poly: Ring[] }[]
+  rooms: { id: string | null; name: string; area: number; poly: Ring[]; label: [number, number] }[]
+}
 
 const BUILDINGS = '/api/buildings/v1'
 const IMPORT = '/api/import/v1'
@@ -94,3 +106,8 @@ export const uploadDrawingFile = (drawing: string, file: File) =>
   api<Drawing>(`${IMPORT}/drawings/${drawing}/files`, { method: 'POST', body: fileForm(file) })
 export const placeDrawing = (building: string, d: PlacedDrawing, placement: Placement) =>
   api<PlacedDrawing>(`${BUILDINGS}/buildings/${building}/drawings/${d.id}`, { method: 'PATCH', json: { placement, version: d.version } })
+export const getFloorPlan = (floor: string) =>
+  api<{ plan: FloorPlanData }>(`${BUILDINGS}/floors/${floor}/plan`).then(r => r.plan)
+export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
+  api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
+export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)
