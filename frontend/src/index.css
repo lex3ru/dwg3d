@@ -1,0 +1,92 @@
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@custom-variant dark (&:is(.dark *));
+
+/* Design tokens. Names follow shadcn/ui; values are the app's blue-grey palette. */
+:root {
+  --radius: 0.5rem;
+  --background: #f8f9fa;
+  --foreground: #212529;
+  --card: #ffffff;
+  --card-foreground: #212529;
+  --popover: #ffffff;
+  --popover-foreground: #212529;
+  --primary: #1c7ed6;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #343a40;
+  --muted: #f1f3f5;
+  --muted-foreground: #868e96;
+  --accent: #e7f5ff;
+  --accent-foreground: #1864ab;
+  --destructive: #e03131;
+  --warning: #f08c00;
+  --success: #2f9e44;
+  --border: #e9ecef;
+  --input: #dee2e6;
+  --ring: #74c0fc;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #16181d;
+  --foreground: #e9ecef;
+  --card: #1e2128;
+  --card-foreground: #e9ecef;
+  --popover: #232730;
+  --popover-foreground: #e9ecef;
+  --primary: #4dabf7;
+  --primary-foreground: #0b1b2b;
+  --secondary: #2a2f39;
+  --secondary-foreground: #dee2e6;
+  --muted: #2a2f39;
+  --muted-foreground: #9aa3ad;
+  --accent: #1b3047;
+  --accent-foreground: #a5d8ff;
+  --destructive: #ff6b6b;
+  --warning: #fcc419;
+  --success: #51cf66;
+  --border: #2f3541;
+  --input: #3a4150;
+  --ring: #1c7ed6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@layer base {
+  /* the interface is sized for a 14 px root (rem-based utilities) */
+  html { font-size: 14px; font-family: var(--font-sans); }
+  html, body, #root { margin: 0; height: 100%; }
+  * { border-color: var(--border); }
+  body { background: var(--background); color: var(--foreground); }
+}

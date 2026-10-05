@@ -1,0 +1,36 @@
+# TWIN_SITE: ":80" (plain HTTP, default) or a domain name — then Caddy
+# obtains a certificate and serves HTTPS on 443 by itself.
+#
+# The single entry point: the API, sign-in, QR and guest links go to the
+# gateway, /kc to Keycloak, everything else is the built UI.
+{
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$TWIN_SITE::80} {
+	encode zstd gzip
+	request_body /api/* {
+		max_size 1GB
+	}
+
+	@gateway path /api/* /auth/* /q/* /s/*
+	handle @gateway {
+		reverse_proxy {$TWIN_GATEWAY_UPSTREAM:gateway:8000} {
+			flush_interval -1
+		}
+	}
+	handle /kc/* {
+		reverse_proxy {$TWIN_KEYCLOAK_UPSTREAM:keycloak:8080}
+	}
+	handle {
+		root * /srv
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
