@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.grant.revoked",
+  "description": "Право отозвано (вручную или потому, что человек выбыл). subject — назначение.",
+  "type": "object",
+  "required": [
+    "grant_id",
+    "person_id",
+    "role",
+    "scope",
+    "origin"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "grant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "role": {
+      "enum": [
+        "viewer",
+        "responsible",
+        "admin"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "building",
+            "floor",
+            "room",
+            "asset"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "origin": {
+      "enum": [
+        "manual",
+        "assignment",
+        "responsible"
+      ]
+    }
+  }
+}

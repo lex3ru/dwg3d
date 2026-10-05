@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "people.person.created",
+  "description": "В справочник добавлен человек. subject — человек. Персональных данных в событии нет.",
+  "type": "object",
+  "required": [
+    "person_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

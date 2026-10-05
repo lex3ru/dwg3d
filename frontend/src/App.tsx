@@ -1,13 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ApiError, getBuilding, getDrawing, getMe, getTree, listBuildings, listPlaced, signIn, signOut,
+  ApiError, getBuilding, getDrawing, getMe, getTree, listBuildings, listPlaced, manages, signIn, signOut,
   type Building as BuildingInfo, type Me, type TreeFloor,
 } from './api'
 import { Button } from './components/ui/button'
 import { useTheme } from './lib/theme'
+import { Access } from './pages/Access'
 import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { Home } from './pages/Home'
+import { People } from './pages/People'
 import { Plan } from './pages/Plan'
 import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
@@ -48,7 +50,7 @@ export function App() {
     )
   }
   if (!me) return <Centered title="Загрузка…" />
-  return <Signed me={me} route={route} />
+  return <Signed me={me} route={route} onRights={() => { getMe().then(setMe, () => {}) }} />
 }
 
 /** What of a building every screen of it needs: the building, its floors with rooms, the drawing the editor opens. */
@@ -57,53 +59,81 @@ type Scope = { building: BuildingInfo; floors: TreeFloor[]; editor: string | nul
 function useScope(id: string | null): { scope: Scope | null; error: string | null; reload: () => void } {
   const [state, setState] = useState<{ id: string; scope: Scope } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // an answer about a building one has already left must not replace the one on screen
+  const wanted = useRef(id)
+  useEffect(() => { wanted.current = id }, [id])
   const reload = useCallback(() => {
     if (!id) return
     Promise.all([getBuilding(id), getTree(id), listPlaced(id)]).then(([building, floors, placed]) => {
+      if (wanted.current !== id) return
       setState({ id, scope: { building, floors, editor: placed.find(p => p.build_id)?.id ?? null } })
       setError(null)
-    }, (e: Error) => setError(e.message))
+    }, (e: Error) => { if (wanted.current === id) { setState(null); setError(e.message) } })      // gone, or no longer ours
   }, [id])
   useEffect(reload, [reload])
   useEvents(event => { if (id && (event.type.startsWith('buildings.') || event.type === 'import.drawing.deleted')) reload() })
   return { scope: state && state.id === id ? state.scope : null, error: id ? error : null, reload }
 }
 
-function Signed({ me, route }: { me: Me; route: Route }) {
-  const admin = me.user.is_admin          // until rights by area exist (stage 2), buildings are for the system administrator
-  const [count, setCount] = useState<number | null>(admin ? null : 0)
-  useEffect(() => { if (admin) listBuildings().then(b => setCount(b.length), () => setCount(0)) }, [admin, route.page])
+function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () => void }) {
+  const sys = me.user.is_admin
+  // the buildings the user may see: one — go straight into it; several — the name in the menu leads to the list
+  const [mine, setMine] = useState<{ page: string; ids: string[] } | null>(null)
+  const [again, setAgain] = useState(0)
+  useEffect(() => {
+    listBuildings().then(b => setMine({ page: route.page, ids: b.map(x => x.id) }), () => setMine({ page: route.page, ids: [] }))
+  }, [route.page, again])
+  // someone of the directory who sees no building: rights given a moment ago (or the very first
+  // sign-in, when the account has just found its person) may not have reached every service yet
+  const waiting = !sys && !!me.person && mine?.ids.length === 0 && again < 3
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setTimeout(() => setAgain(n => n + 1), 2500)
+    return () => clearTimeout(timer)
+  }, [waiting, again])
+  // the set of buildings changed: rights were given or taken away — ask again who we are
+  const seen = mine?.ids.join()
+  const [known, setKnown] = useState(seen)
+  if (seen !== known) { setKnown(seen); if (known !== undefined) onRights() }
+  useEffect(() => {
+    // only by a list asked for on this very page: an older one may name a building that is no longer ours
+    if (!sys && route.page === 'buildings' && mine?.page === 'buildings' && mine.ids.length === 1) location.replace(to.home(mine.ids[0]))
+  }, [sys, route.page, mine])
 
   // the editor is opened by a drawing: find its building for the menu
   const [drawingOf, setDrawingOf] = useState<Record<string, string>>({})
   const drawing = route.page === 'editor' ? route.drawing : null
   useEffect(() => {
-    if (drawing && admin && !drawingOf[drawing]) getDrawing(drawing).then(d => setDrawingOf(m => ({ ...m, [drawing]: d.building_id })), () => {})
-  }, [drawing, admin, drawingOf])
+    if (drawing && !drawingOf[drawing]) getDrawing(drawing).then(d => setDrawingOf(m => ({ ...m, [drawing]: d.building_id })), () => {})
+  }, [drawing, drawingOf])
 
-  const current = !admin ? null : route.page === 'building' ? route.building : drawing ? drawingOf[drawing] ?? null : null
+  const current = route.page === 'building' ? route.building : drawing ? drawingOf[drawing] ?? null : null
   // «Я» and the system pages keep the menu of the building one came from
   const [last, setLast] = useState<string | null>(null)
   if (current && current !== last) setLast(current)
-  const buildingId = current ?? (admin && (route.page === 'me' || route.page === 'system') ? last : null)
+  const buildingId = current ?? (route.page === 'me' || route.page === 'system' ? last : null)
   const { scope, error, reload } = useScope(buildingId)
   const b = scope?.building ?? null
+  // what the building's administrator may: drawings, the editor, people, rights
+  const admin = buildingId ? manages(me, buildingId) : sys
 
   let content: ReactNode
   let panel: ReactNode = null
   let closePanel: (() => void) | undefined
   const crumbs: Crumb[] = []
   if (route.page === 'editor' && admin) {
-    content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene /></Suspense>
-  } else if (route.page === 'system' && admin) {
+    content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene editable={admin} /></Suspense>
+  } else if (route.page === 'system' && sys) {
     crumbs.push({ label: 'Состояние системы' })
     content = <System />
   } else if (route.page === 'me') {
     crumbs.push({ label: 'Я' })
     content = <Profile me={me} building={b} editor={scope?.editor ?? null} />
-  } else if (route.page === 'building' && admin) {
+  } else if (route.page === 'building') {
     if (!scope) {
-      content = <p className="text-sm text-muted-foreground" role={error ? 'alert' : undefined}>{error ?? 'Загрузка…'}</p>
+      // a building one has no right to is not there at all
+      content = error ? <Centered title="Здание не найдено" text="Его нет или у вас нет к нему доступа." />
+        : <p className="text-sm text-muted-foreground">Загрузка…</p>
     } else {
       const { building, floors } = scope
       const room = (id?: string) => {
@@ -111,7 +141,13 @@ function Signed({ me, route }: { me: Me; route: Route }) {
         return null
       }
       crumbs.push({ label: building.name, href: to.home(building.id) })
-      if (route.section === 'drawings') {
+      if (route.section === 'people' && admin) {
+        crumbs.push({ label: 'Люди' })
+        content = <People />
+      } else if (route.section === 'access' && admin) {
+        crumbs.push({ label: 'Доступ' })
+        content = <Access building={building} floors={floors} />
+      } else if (route.section === 'drawings' && admin) {
         crumbs.push({ label: 'Чертежи' })
         content = <Building key={building.id} id={building.id} />
       } else if (route.section === 'rooms') {
@@ -142,11 +178,11 @@ function Signed({ me, route }: { me: Me; route: Route }) {
     }
   } else {
     crumbs.push({ label: 'Мои здания' })
-    content = <Buildings me={me} />
+    content = <Buildings me={me} refresh={seen} />
   }
   const planPanel = route.page === 'building' && route.section === 'plan'
   return (
-    <Shell me={me} route={route} building={b} several={(count ?? 0) > 1 || admin} editor={scope?.editor ?? null} crumbs={crumbs}
+    <Shell me={me} route={route} building={b} several={(mine?.ids.length ?? 0) > 1 || sys} editor={scope?.editor ?? null} crumbs={crumbs}
       panel={panel} onClosePanel={closePanel} keepMain={planPanel}>
       {content}
     </Shell>
@@ -156,17 +192,18 @@ function Signed({ me, route }: { me: Me; route: Route }) {
 /** The user; on a phone also what the menu on the left holds on a wide screen. */
 function Profile({ me, building, editor }: { me: Me; building: BuildingInfo | null; editor: string | null }) {
   const { isDark, setTheme } = useTheme()
-  const admin = me.user.is_admin
+  const sys = me.user.is_admin
+  const admin = building ? manages(me, building.id) : false
   const links: [string, string][] = [
-    ...(admin && building ? [[to.drawings(building.id), 'Чертежи здания']] as [string, string][] : []),
+    ...(admin && building ? [[to.drawings(building.id), 'Чертежи здания'], [to.people(building.id), 'Люди'], [to.access(building.id), 'Доступ']] as [string, string][] : []),
     ...(admin && editor ? [[to.editor(editor), 'Редактор']] as [string, string][] : []),
-    ...(admin ? [[to.buildings, 'Здания'], ['#/system', 'Состояние системы']] as [string, string][] : []),
+    ...(sys ? [[to.buildings, 'Здания'], ['#/system', 'Состояние системы']] as [string, string][] : []),
   ]
   return (
     <section className="max-w-md space-y-4">
       <div>
         <h1 className="text-xl font-semibold">{me.user.name || me.user.login}</h1>
-        <p className="text-sm text-muted-foreground">{[me.user.email, admin && 'администратор системы'].filter(Boolean).join(' · ')}</p>
+        <p className="text-sm text-muted-foreground">{[me.person?.position, me.user.email, sys && 'администратор системы'].filter(Boolean).join(' · ')}</p>
       </div>
       {links.length > 0 && (
         <ul className="divide-y rounded-lg border bg-card text-sm">

@@ -54,17 +54,36 @@ async def test_upload_build_and_read(client, app, worker, tokens, sample):
                                    "rooms": 4, "warnings": happened[2]["data"]["warnings"], "quality": "ok"}
 
 
-async def test_rights(client, tokens, sample):
+async def test_rights(client, worker, tokens, grants, sample):
     drawing = (await upload(client, tokens, sample)).json()
+    await worker.run_once()
     files = {"file": ("plan.dxf", sample, "application/octet-stream")}
     form = {"building_id": BUILDING}
 
     assert (await client.post(f"{API}/drawings", files=files, data=form)).status_code == 401
     assert (await client.get(f"{API}/drawings/{drawing['id']}")).status_code == 401
 
+    # no grant in the building: its drawings do not exist
     user = tokens.bearer("user-1")
-    assert (await client.post(f"{API}/drawings", files=files, data=form, headers=user)).status_code == 403
-    assert (await client.get(f"{API}/drawings/{drawing['id']}", headers=user)).status_code == 403
+    assert (await client.post(f"{API}/drawings", files=files, data=form, headers=user)).status_code == 404
+    assert (await client.get(f"{API}/drawings/{drawing['id']}", headers=user)).status_code == 404
+    assert (await client.get(f"{API}/drawings", params=form, headers=user)).status_code == 404
+
+    # who may see the plan reads the drawings and the files of builds (the model), and changes nothing
+    grants["viewer"] = [{"role": "viewer", "scope": {"kind": "floor", "id": BUILDING}, "building_id": BUILDING}]
+    viewer = tokens.bearer("viewer")
+    seen = (await client.get(f"{API}/drawings/{drawing['id']}", headers=viewer)).json()
+    assert seen["build"]["status"] == "done"
+    model = await client.get(f"{API}/builds/{seen['build']['id']}/files/model.glb", headers=viewer)
+    assert model.status_code == 200
+    assert (await client.post(f"{API}/drawings", files=files, data=form, headers=viewer)).status_code == 403
+    assert (await client.post(f"{API}/drawings/{drawing['id']}/builds", json={}, headers=viewer)).status_code == 403
+    assert (await client.delete(f"{API}/drawings/{drawing['id']}", headers=viewer)).status_code == 403
+
+    # the administrator of the building does
+    grants["boss"] = [{"role": "admin", "scope": {"kind": "building", "id": BUILDING}, "building_id": BUILDING}]
+    boss = tokens.bearer("boss")
+    assert (await client.post(f"{API}/drawings/{drawing['id']}/builds", json={}, headers=boss)).status_code == 202
 
     # another service may read, but not change
     service = tokens.bearer("svc", login="twin-svc-buildings", service=True)
@@ -183,7 +202,7 @@ async def test_rename(client, app, tokens, sample):
     assert r.status_code == 200 and r.json()["name"] == "Корпус Б"
     assert (await events(app))[-1]["data"] == {"drawing_id": drawing["id"], "name": "Корпус Б"}
     assert (await client.patch(url, json={"name": ""}, headers=tokens.admin())).status_code == 422
-    assert (await client.patch(url, json={"name": "x"}, headers=tokens.bearer("user-1"))).status_code == 403
+    assert (await client.patch(url, json={"name": "x"}, headers=tokens.bearer("user-1"))).status_code == 404
 
 
 async def test_delete(client, app, worker, tokens, sample):

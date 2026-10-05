@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.grant.created",
+  "description": "Человеку выдано право на область. subject — назначение; building_id и person_id — в конверте.",
+  "type": "object",
+  "required": [
+    "grant_id",
+    "person_id",
+    "role",
+    "scope",
+    "origin"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "grant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "role": {
+      "enum": [
+        "viewer",
+        "responsible",
+        "admin"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "building",
+            "floor",
+            "room",
+            "asset"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "origin": {
+      "enum": [
+        "manual",
+        "assignment",
+        "responsible"
+      ]
+    }
+  }
+}

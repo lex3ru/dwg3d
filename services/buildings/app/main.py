@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from twin_chassis import Settings, create_app
+from twin_chassis.access import Rights
 from twin_chassis.auth import TokenVerifier
 from twin_chassis.client import ServiceClient
 
@@ -24,5 +25,6 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
         # how this service calls others (the import service, for the results of builds)
         app.state.client = client or ServiceClient(app.state.settings, handlers.services())
         handlers.register(app.state.bus, app.state.client)
+        app.state.rights = Rights(app.state.client)
 
     return create_app(SERVICE, title=TITLE, routers=[router], settings=settings, verifier=verifier, setup=setup)

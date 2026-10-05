@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "people.person.linked",
+  "description": "Учётная запись связана с человеком справочника. subject — человек.",
+  "type": "object",
+  "required": [
+    "person_id",
+    "user_sub"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_sub": {
+      "type": "string",
+      "description": "Идентификатор учётной записи в Keycloak"
+    }
+  }
+}

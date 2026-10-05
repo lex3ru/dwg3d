@@ -196,7 +196,9 @@ class Bus:
                                                    stream=self.stream)
                 while True:
                     try:
-                        messages = await sub.fetch(10, timeout=5)
+                        # one at a time: asked for a batch, fetch() holds a lone event until the
+                        # batch fills or the timeout passes — seconds of delay for every sparse event
+                        messages = await sub.fetch(1, timeout=5)
                     except (TimeoutError, nats.errors.TimeoutError):
                         continue
                     for m in messages:

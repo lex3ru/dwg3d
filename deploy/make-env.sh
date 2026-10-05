@@ -37,6 +37,8 @@ set_var TWIN_DB_PASSWORD_GATEWAY "$(rand 16)"
 set_var TWIN_DB_PASSWORD_PING "$(rand 16)"
 set_var TWIN_DB_PASSWORD_IMPORT "$(rand 16)"
 set_var TWIN_DB_PASSWORD_BUILDINGS "$(rand 16)"
+set_var TWIN_DB_PASSWORD_ACCESS "$(rand 16)"
+set_var TWIN_DB_PASSWORD_PEOPLE "$(rand 16)"
 # -- passwords of new databases go above this line --
 set_var TWIN_SVC_SECRET_BUILDINGS "$(rand 24)"
 # -- secrets of new service accounts go above this line --

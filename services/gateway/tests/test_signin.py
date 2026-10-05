@@ -34,6 +34,8 @@ async def test_sign_in_then_me_then_sign_out(client, app, world):
     me = (await client.get("/api/me")).json()
     assert me["user"] == {"sub": "user-1", "login": "ivanov", "name": "Иван Иванов", "email": "ivanov@example.test",
                           "roles": [], "is_admin": False}
+    # the directory and the rights are other services: not configured here, and said so
+    assert (me["person"], me["scopes"], me["partial"]) == (None, None, ["people", "access"])
 
     out = await client.post("/auth/logout")
     assert out.status_code == 200

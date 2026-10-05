@@ -5,21 +5,29 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { useEvents } from '../stream'
 
+/** Why an account that is not in the directory of people sees nothing, and what to do. */
+const NOBODY: Record<string, string> = {
+  unknown: 'Вашей учётной записи нет в справочнике людей, поэтому доступа пока нет. Обратитесь к администратору здания: он добавит вас в справочник и выдаст права.',
+  ambiguous: 'Вашу почту в справочнике людей носят несколько человек, поэтому учётная запись не связалась сама. Обратитесь к администратору здания.',
+  left: 'В справочнике людей вы отмечены как выбывший, доступ закрыт. Если это ошибка, обратитесь к администратору здания.',
+}
+
 const plural = (n: number, one: string, few: string, many: string) => {
   const d = n % 10, h = n % 100
   return `${n} ${d === 1 && h !== 11 ? one : d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many}`
 }
 
 /** The buildings the user may see. Until rights by area exist (stage 2): all of them, for the system administrator. */
-export function Buildings({ me }: { me: Me }) {
+export function Buildings({ me, refresh }: { me: Me; /** changes when the set of visible buildings may have */ refresh?: string }) {
   const admin = me.user.is_admin
-  const [items, setItems] = useState<Building[] | null>(admin ? null : [])
+  const [items, setItems] = useState<Building[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
 
   const load = useCallback(() => {
-    if (admin) listBuildings().then(setItems, (e: Error) => setError(e.message))
-  }, [admin])
+    void refresh
+    listBuildings().then(setItems, (e: Error) => setError(e.message))
+  }, [refresh])
   useEffect(load, [load])
   useEvents(event => { if (event.type.startsWith('buildings.')) load() })
 
@@ -37,7 +45,7 @@ export function Buildings({ me }: { me: Me }) {
         <ul className="mt-5 grid gap-3 sm:grid-cols-2" data-testid="buildings">
           {items.map(b => (
             <li key={b.id}>
-              <a href={`#/p/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">
+              <a href={`#/b/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">
                 <div className="flex items-center gap-2 font-medium"><Building2 className="size-4 text-muted-foreground" /> {b.name}</div>
                 {b.address && <div className="mt-1 text-sm text-muted-foreground">{b.address}</div>}
                 <div className="mt-2 text-xs text-muted-foreground">
@@ -55,7 +63,8 @@ export function Buildings({ me }: { me: Me }) {
           <p className="font-medium">Зданий пока нет</p>
           <p className="max-w-md text-sm text-muted-foreground">
             {admin ? 'Создайте здание и загрузите в него поэтажные планы (DWG или DXF).'
-              : 'Здесь появятся здания, к которым вам выдадут доступ. Обратитесь к администратору здания.'}
+              : me.person ? 'Здесь появятся здания, к которым вам выдадут доступ. Обратитесь к администратору здания.'
+                : NOBODY[me.reason ?? 'unknown']}
           </p>
         </div>
       )}

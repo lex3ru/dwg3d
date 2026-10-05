@@ -538,6 +538,7 @@
   "paths": {
     "/api/buildings/v1/buildings": {
       "get": {
+        "description": "The buildings the caller may see the plan of.",
         "operationId": "list_buildings_api_buildings_v1_buildings_get",
         "responses": {
           "200": {
@@ -1631,6 +1632,7 @@
     },
     "/api/buildings/v1/rooms/batch-get": {
       "post": {
+        "description": "Rooms of buildings the caller may not see are left out.",
         "operationId": "batch_rooms_api_buildings_v1_rooms_batch_get_post",
         "requestBody": {
           "content": {

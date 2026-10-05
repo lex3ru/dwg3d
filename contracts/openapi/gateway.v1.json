@@ -30,6 +30,14 @@
       },
       "Me": {
         "properties": {
+          "partial": {
+            "description": "Сервисы, не ответившие: соответствующих частей в ответе нет",
+            "items": {
+              "type": "string"
+            },
+            "title": "Partial",
+            "type": "array"
+          },
           "person": {
             "anyOf": [
               {
@@ -40,8 +48,20 @@
                 "type": "null"
               }
             ],
-            "description": "Запись справочника людей; появится с сервисом people",
+            "description": "Запись справочника людей; null — учётной записи нет в справочнике",
             "title": "Person"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Почему нет записи: unknown, ambiguous, left",
+            "title": "Reason"
           },
           "scopes": {
             "anyOf": [
@@ -53,7 +73,7 @@
                 "type": "null"
               }
             ],
-            "description": "Области доступа; появятся с сервисом access",
+            "description": "Области доступа: назначения и здания, план которых виден",
             "title": "Scopes"
           },
           "user": {
@@ -63,7 +83,9 @@
         "required": [
           "user",
           "person",
-          "scopes"
+          "reason",
+          "scopes",
+          "partial"
         ],
         "title": "Me",
         "type": "object"

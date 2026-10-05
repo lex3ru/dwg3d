@@ -1,9 +1,10 @@
 import {
-  Activity, Building2, ChevronRight, DoorOpen, FileStack, Home, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun, User, X,
+  Activity, Building2, ChevronRight, DoorOpen, FileStack, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun, User,
+  Users, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { signOut, type Building, type Me } from '../api'
+import { manages, signOut, type Building, type Me } from '../api'
 import { Button } from '../components/ui/button'
 import { useTheme } from '../lib/theme'
 import { cn } from '../lib/utils'
@@ -22,9 +23,11 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
     { key: 'rooms', href: to.rooms(b), label: 'Помещения', icon: DoorOpen, active: section === 'rooms' },
     { key: 'plan', href: to.plan(b), label: 'План', icon: MapIcon, active: section === 'plan' },
   ] : []
-  const manage: Item[] = b && me.user.is_admin ? [
+  const manage: Item[] = b && manages(me, b) ? [
     { key: 'drawings', href: to.drawings(b), label: 'Чертежи', icon: FileStack, active: section === 'drawings' },
     ...(editor ? [{ key: 'editor', href: to.editor(editor), label: 'Редактор', icon: PencilRuler, active: route.page === 'editor' }] : []),
+    { key: 'people', href: to.people(b), label: 'Люди', icon: Users, active: section === 'people' },
+    { key: 'access', href: to.access(b), label: 'Доступ', icon: KeyRound, active: section === 'access' },
   ] : []
   const system: Item[] = me.user.is_admin ? [
     { key: 'buildings', href: to.buildings, label: 'Здания', icon: Building2, active: route.page === 'buildings' },

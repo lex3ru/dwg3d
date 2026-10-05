@@ -91,4 +91,4 @@ def register(bus: Bus, client: ServiceClient) -> None:
 
 def services() -> dict[str, str]:
     from twin_chassis.client import services_from_env
-    return services_from_env(os.environ.get("TWIN_SERVICES", "import=http://import:8000"))
+    return services_from_env(os.environ.get("TWIN_SERVICES", "import=http://import:8000,access=http://access:8000"))

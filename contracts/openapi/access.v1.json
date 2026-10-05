@@ -1,0 +1,419 @@
+{
+  "components": {
+    "schemas": {
+      "Area": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "building",
+              "floor",
+              "room",
+              "asset"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "Area",
+        "type": "object"
+      },
+      "Check": {
+        "properties": {
+          "action": {
+            "description": "view | plan | edit | move_portable | manage",
+            "title": "Action",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Область и всё, что над ней",
+            "items": {
+              "$ref": "#/components/schemas/Area"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Chain",
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "chain"
+        ],
+        "title": "Check",
+        "type": "object"
+      },
+      "Checks": {
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Checks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checks"
+        ],
+        "title": "Checks",
+        "type": "object"
+      },
+      "GrantIn": {
+        "properties": {
+          "building_id": {
+            "description": "Здание, внутри которого область",
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "person_id": {
+            "format": "uuid",
+            "title": "Person Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "viewer",
+              "responsible",
+              "admin"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Area"
+          }
+        },
+        "required": [
+          "person_id",
+          "role",
+          "scope",
+          "building_id"
+        ],
+        "title": "GrantIn",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Доступ: права по областям",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/access/v1/check": {
+      "post": {
+        "operationId": "check_api_access_v1_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Checks"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Check Api Access V1 Check Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Можно ли тому, кто спрашивает, выполнить действия над областями",
+        "tags": [
+          "scopes"
+        ]
+      }
+    },
+    "/api/access/v1/grants": {
+      "get": {
+        "operationId": "list_grants_api_access_v1_grants_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "person_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Person Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Grants Api Access V1 Grants Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Назначения в здании",
+        "tags": [
+          "grants"
+        ]
+      },
+      "post": {
+        "operationId": "create_grant_api_access_v1_grants_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Grant Api Access V1 Grants Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Выдать право",
+        "tags": [
+          "grants"
+        ]
+      }
+    },
+    "/api/access/v1/grants/{grant_id}": {
+      "delete": {
+        "operationId": "revoke_grant_api_access_v1_grants__grant_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "grant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Grant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Отозвать право",
+        "tags": [
+          "grants"
+        ]
+      }
+    },
+    "/api/access/v1/me/scopes": {
+      "get": {
+        "operationId": "my_scopes_api_access_v1_me_scopes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response My Scopes Api Access V1 Me Scopes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Области доступа того, кто спрашивает",
+        "tags": [
+          "scopes"
+        ]
+      }
+    },
+    "/api/access/v1/scopes": {
+      "get": {
+        "operationId": "person_scopes_api_access_v1_scopes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Person Scopes Api Access V1 Scopes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Области доступа человека (служебный)",
+        "tags": [
+          "scopes"
+        ]
+      }
+    }
+  }
+}

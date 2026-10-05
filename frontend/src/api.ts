@@ -1,7 +1,26 @@
 // Requests to the gateway. The session is a cookie; a 401 means it is gone.
 
 export type User = { sub: string; login: string; name: string; email: string | null; roles: string[]; is_admin: boolean }
-export type Me = { user: User; person: unknown; scopes: unknown }
+export type Role = 'viewer' | 'responsible' | 'admin'
+export type ScopeKind = 'building' | 'floor' | 'room' | 'asset'
+export type Grant = {
+  id: string; person_id: string; role: Role; scope: { kind: ScopeKind; id: string }; building_id: string; origin: string
+}
+export type Person = {
+  id: string; full_name: string; position: string; department: string; email: string | null; phone: string | null
+  linked: boolean; status: 'active' | 'left'; version: number
+}
+export type Me = {
+  user: User
+  /** the user's record in the directory of people; null — the account is not there */
+  person: Person | null
+  reason: 'unknown' | 'ambiguous' | 'left' | null
+  scopes: { admin: boolean; grants: Grant[]; buildings: string[] } | null
+  partial: string[]
+}
+/** Whether the user administers the building (or the whole system). */
+export const manages = (me: Me, building: string) => me.user.is_admin ||
+  !!me.scopes?.grants.some(g => g.role === 'admin' && g.scope.kind === 'building' && g.scope.id === building)
 export type ServiceStatus = { name: string; ok: boolean; db: boolean | null; nats: boolean | null; ms: number | null }
 export type SystemStatus = { services: ServiceStatus[]; viewers: number }
 export type Note = { id: string; text: string; created_at: string; echoed_at: string | null; echoes: number }
@@ -111,3 +130,28 @@ export const getFloorPlan = (floor: string) =>
 export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
   api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
 export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)
+
+// ---- people and rights (the building's administrators)
+
+const PEOPLE = '/api/people/v1'
+const ACCESS = '/api/access/v1'
+export type PersonIn = { full_name: string; position?: string; department?: string; email?: string | null; phone?: string | null }
+export type ImportReport = { created: number; updated: number; unchanged: number; errors: { row: number; message: string }[] }
+
+export const listPeople = (q = '') =>
+  api<{ items: Person[] }>(`${PEOPLE}/people?q=${encodeURIComponent(q)}`).then(r => r.items)
+export const createPerson = (p: PersonIn) => api<Person>(`${PEOPLE}/people`, { method: 'POST', json: p })
+export const leavePerson = (id: string) => api<Person>(`${PEOPLE}/people/${id}/leave`, { method: 'POST' })
+export const linkPerson = (id: string, user_sub: string) =>
+  api<Person>(`${PEOPLE}/people/${id}/link`, { method: 'PUT', json: { user_sub } })
+export const importPeople = (file: File) =>
+  api<ImportReport>(`${PEOPLE}/people/import`, { method: 'POST', body: fileForm(file) })
+export const peopleByIds = (ids: string[]) =>
+  api<{ items: { id: string; full_name: string; position: string }[] }>(`${PEOPLE}/people/batch-get`, { method: 'POST', json: { ids } })
+    .then(r => r.items)
+
+export const listGrants = (building: string) =>
+  api<{ items: Grant[] }>(`${ACCESS}/grants?building_id=${building}`).then(r => r.items)
+export const createGrant = (g: { person_id: string; role: Role; scope: { kind: ScopeKind; id: string }; building_id: string }) =>
+  api<Grant>(`${ACCESS}/grants`, { method: 'POST', json: g })
+export const revokeGrant = (id: string) => api<void>(`${ACCESS}/grants/${id}`, { method: 'DELETE' })

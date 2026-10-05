@@ -16,8 +16,12 @@ def event_by(sub: str) -> dict:
 
 def test_who_sees_what():
     user, admin = Identity("user", "user-1"), Identity("user", "admin-1", roles=("twin.admin",))
-    assert visible(user, event_by("user-1")) and not visible(user, event_by("user-2"))
-    assert visible(admin, event_by("user-2"))
+    assert visible(user, set(), event_by("user-1")) and not visible(user, set(), event_by("user-2"))
+    assert visible(admin, set(), event_by("user-2"))
+    # what happens in a building is seen by those who may see its plan, whoever did it
+    there = {**event_by("user-2"), "building_id": "b1"}
+    assert visible(user, {"b1"}, there) and not visible(user, {"b2"}, there) and not visible(user, set(), there)
+    assert not visible(user, set(), {**event_by("user-1"), "building_id": "b1"})
 
 
 async def test_viewer_gets_only_visible_events():
@@ -53,4 +57,21 @@ async def test_events_from_the_bus_reach_the_hub(app):
     await bus.js.publish(bus.subject + event["type"], json.dumps(event).encode())
     chunk = (await asyncio.wait_for(pending, 2)).decode()      # criterion: within 2 seconds
     assert event["id"] in chunk
+    await stream.aclose()
+
+
+async def test_rights_given_meanwhile_show_with_the_next_heartbeat():
+    hub, mine = Hub(), []
+
+    async def buildings():
+        return mine
+
+    stream = hub.events(Identity("user", "user-1"), buildings, heartbeat=0.05)
+    assert await anext(stream) == b"retry: 3000\n\n"
+    there = {**event_by("user-2"), "building_id": "b1"}
+    hub.dispatch(there)                                     # not seen: no right in b1 yet
+    mine.append("b1")
+    assert await anext(stream) == b": keep-alive\n\n"       # the heartbeat asks again
+    hub.dispatch(there)
+    assert there["id"] in (await anext(stream)).decode()
     await stream.aclose()

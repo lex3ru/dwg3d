@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "people.person.changed",
+  "description": "Изменена запись человека. subject — человек.",
+  "type": "object",
+  "required": [
+    "person_id",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Изменённые поля (без значений)"
+    }
+  }
+}

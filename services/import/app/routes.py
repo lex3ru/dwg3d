@@ -1,7 +1,7 @@
 """Requests of the import service, under /api/import/v1 (contracts/openapi/import.v1.json).
 
-Until the access service exists (stage 2) everything here is for the system
-administrator; reading is also open to other services.
+Reading is for those who may see the plan of the building the drawing belongs
+to, changes for its administrators (rights.py).
 """
 from __future__ import annotations
 
@@ -18,12 +18,13 @@ from fastapi.concurrency import iterate_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, insert, select, update
-from twin_chassis import Identity, Problem, emit, require_admin, require_admin_or_service, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, uuid7
 
 from . import storage, store
 from .dwg.config import ConfigError, deep_merge, load_config, validate_config
 from .dwg.edits import anchor_of
 from .models import builds, drawing_files, drawings
+from .rights import manages_drawing, reads_build, reads_building, reads_drawing
 
 router = APIRouter()
 MAX_UPLOAD = int(os.environ.get("TWIN_MAX_UPLOAD_MB", "200")) * 1024 * 1024
@@ -82,7 +83,9 @@ async def _drawing(session, drawing_id: UUID, *, lock: bool = False):
              summary="Загрузить чертёж в здание; сборка запускается сама")
 async def create_drawing(request: Request, file: UploadFile = File(...), building_id: UUID = Form(...),
                          name: str | None = Form(None, max_length=200), config: str | None = Form(None),
-                         me: Identity = Depends(require_admin)) -> dict:
+                         me: Identity = Depends(current_identity)) -> dict:
+    await request.app.state.rights.require(request, me, "manage", [("building", building_id)],
+                                           what="Здание не найдено")
     filename = _upload_name(file)
     try:
         override = json.loads(config) if config else {}
@@ -114,7 +117,7 @@ async def create_drawing(request: Request, file: UploadFile = File(...), buildin
 @router.post("/drawings/{drawing_id}/files", tags=["drawings"],
              summary="Новый файл чертежа; тот же файл повторно сборку не запускает")
 async def upload_file(drawing_id: UUID, request: Request, file: UploadFile = File(...),
-                      me: Identity = Depends(require_admin)) -> dict:
+                      me: Identity = Depends(manages_drawing)) -> dict:
     filename = _upload_name(file)
     db = request.app.state.db
     async with db.begin() as session:
@@ -148,7 +151,7 @@ async def upload_file(drawing_id: UUID, request: Request, file: UploadFile = Fil
 
 
 @router.get("/drawings", tags=["drawings"], summary="Чертежи здания")
-async def list_drawings(request: Request, building_id: UUID, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def list_drawings(request: Request, building_id: UUID, _: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(drawings).where(
             drawings.c.building_id == building_id, drawings.c.deleted_at.is_(None))
@@ -157,7 +160,7 @@ async def list_drawings(request: Request, building_id: UUID, _: Identity = Depen
 
 
 @router.get("/drawings/{drawing_id}", tags=["drawings"], summary="Чертёж и состояние его последней сборки")
-async def get_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(reads_drawing)) -> dict:
     async with request.app.state.db.begin() as session:
         return await store.drawing_json(session, await _drawing(session, drawing_id))
 
@@ -168,7 +171,7 @@ class DrawingPatch(BaseModel):
 
 @router.patch("/drawings/{drawing_id}", tags=["drawings"], summary="Переименовать чертёж")
 async def rename_drawing(drawing_id: UUID, body: DrawingPatch, request: Request,
-                         _: Identity = Depends(require_admin)) -> dict:
+                         _: Identity = Depends(manages_drawing)) -> dict:
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id, lock=True)
         await session.execute(update(drawings).where(drawings.c.id == drawing_id)
@@ -179,7 +182,7 @@ async def rename_drawing(drawing_id: UUID, body: DrawingPatch, request: Request,
 
 
 @router.delete("/drawings/{drawing_id}", status_code=204, tags=["drawings"], summary="Удалить чертёж")
-async def delete_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> None:
+async def delete_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(manages_drawing)) -> None:
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id, lock=True)
         await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(deleted_at=func.now()))
@@ -191,13 +194,13 @@ async def delete_drawing(drawing_id: UUID, request: Request, _: Identity = Depen
 
 # ------------------------------------------------------------------- config ---
 @router.get("/config/default", tags=["config"], summary="Настройки разбора по умолчанию")
-async def default_config(_: Identity = Depends(require_admin_or_service)) -> dict:
+async def default_config(_: Identity = Depends(current_identity)) -> dict:
     return load_config({})
 
 
 @router.get("/drawings/{drawing_id}/config", tags=["config"],
             summary="Настройки разбора чертежа и правки 2D-редактора (config.edits)")
-async def get_config(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_config(drawing_id: UUID, request: Request, _: Identity = Depends(reads_drawing)) -> dict:
     async with request.app.state.db.begin() as session:
         return {"config": (await _drawing(session, drawing_id)).config or {}}
 
@@ -235,7 +238,7 @@ def _anchor_override(config: dict, result: dict, override: dict) -> dict:
 @router.post("/drawings/{drawing_id}/builds", status_code=202, tags=["builds"],
              summary="Пересобрать чертёж, при необходимости изменив настройки и правки")
 async def start_build(drawing_id: UUID, request: Request, body: dict = Body(default_factory=dict),
-                      me: Identity = Depends(require_admin)) -> dict:
+                      me: Identity = Depends(manages_drawing)) -> dict:
     override = body.get("config") or {}
     if not isinstance(override, dict):
         raise Problem(422, "invalid", "config: ожидается объект")
@@ -263,14 +266,14 @@ async def _build(session, build_id: UUID):
 
 
 @router.get("/builds/{build_id}", tags=["builds"], summary="Состояние сборки")
-async def get_build(build_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_build(build_id: UUID, request: Request, _: Identity = Depends(reads_build)) -> dict:
     async with request.app.state.db.begin() as session:
         return store.build_json(await _build(session, build_id))
 
 
 @router.get("/builds/{build_id}/result", tags=["builds"],
             summary="Результат сборки: этажи, помещения, входы, предупреждения")
-async def get_result(build_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_result(build_id: UUID, request: Request, _: Identity = Depends(reads_build)) -> dict:
     async with request.app.state.db.begin() as session:
         b = await _build(session, build_id)
         if b.status != "done":
@@ -282,7 +285,7 @@ async def get_result(build_id: UUID, request: Request, _: Identity = Depends(req
 @router.get("/builds/{build_id}/files/{path:path}", tags=["builds"], response_class=StreamingResponse,
             summary="Файл сборки: model.glb, plans/floor_<id>.json, model.ifc, model_obj.zip")
 async def get_build_file(build_id: UUID, path: str, request: Request,
-                         _: Identity = Depends(require_admin_or_service)) -> StreamingResponse:
+                         _: Identity = Depends(reads_build)) -> StreamingResponse:
     rel = PurePosixPath(path)
     media = storage.MEDIA.get(rel.suffix.lower())
     if rel.is_absolute() or ".." in rel.parts or not rel.parts or media is None:
@@ -304,7 +307,7 @@ async def get_build_file(build_id: UUID, path: str, request: Request,
 @router.get("/drawings/{drawing_id}/export", tags=["export"], response_class=StreamingResponse,
             summary="Исходный чертёж с правками 2D-редактора: format=dxf или dwg")
 async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf",
-                         _: Identity = Depends(require_admin)) -> StreamingResponse:
+                         _: Identity = Depends(manages_drawing)) -> StreamingResponse:
     from .export import edited_drawing
 
     if format not in ("dxf", "dwg"):

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "people.person.unlinked",
+  "description": "Связь учётной записи с человеком разорвана. subject — человек.",
+  "type": "object",
+  "required": [
+    "person_id",
+    "user_sub"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "person_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_sub": {
+      "type": "string"
+    }
+  }
+}

@@ -10,6 +10,7 @@ handlers; everything the services must do the same way lives here:
   events     the event envelope, checked against contracts/events/
   bus        publishing the outbox to NATS JetStream, consuming with dedup
   log        JSON log lines carrying the request id
+  access     rights by area: the caller's scopes from the access service, decided locally
   client     calling another service, with the user's token or the service's own
   files      the service's bucket in S3-compatible storage
   migrate    the service's Alembic migrations, run at start

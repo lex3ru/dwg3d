@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from twin_chassis.db import outbox
 
-from .conftest import API
+from .conftest import API, grant
 
 
 async def test_create_list_change_delete(client, app, tokens, building):
@@ -39,10 +39,13 @@ async def test_rights(client, tokens, building):
     assert (await client.get(url)).status_code == 401
     assert (await client.post(f"{API}/buildings", json={"name": "x"})).status_code == 401
 
+    # someone with no grant in the building: it does not exist for them
     user = tokens.bearer("user-1")
-    assert (await client.get(url, headers=user)).status_code == 403
+    assert (await client.get(url, headers=user)).status_code == 404
+    assert (await client.get(f"{API}/buildings/{building['id']}/tree", headers=user)).status_code == 404
+    assert (await client.patch(url, json={"name": "x", "version": 1}, headers=user)).status_code == 404
+    assert (await client.get(f"{API}/buildings", headers=user)).json()["items"] == []
     assert (await client.post(f"{API}/buildings", json={"name": "x"}, headers=user)).status_code == 403
-    assert (await client.get(f"{API}/buildings/{building['id']}/tree", headers=user)).status_code == 403
 
     service = tokens.bearer("svc", login="twin-svc-assets", service=True)       # other services read, do not change
     assert (await client.get(url, headers=service)).status_code == 200
@@ -90,7 +93,66 @@ async def test_pins(client, tokens, building):
     stale = await client.patch(f"{API}/pins/{pin['id']}", json={"title": "x", "version": 1}, headers=admin)
     assert stale.status_code == 409
     assert (await client.post(url, json={"pos": [1, 2]}, headers=admin)).status_code == 422
-    assert (await client.post(url, json={"pos": [1, 2, 3]}, headers=tokens.bearer("user-1"))).status_code == 403
+    assert (await client.post(url, json={"pos": [1, 2, 3]}, headers=tokens.bearer("user-1"))).status_code == 404
 
     assert (await client.delete(f"{API}/pins/{pin['id']}", headers=admin)).status_code == 204
     assert (await client.delete(f"{API}/pins/{pin['id']}", headers=admin)).status_code == 404
+
+
+async def test_rights_by_area(client, tokens, importer, building, site):
+    await site.build("base")
+    admin = tokens.admin()
+    other = (await client.post(f"{API}/buildings", json={"name": "Корпус Б"}, headers=admin)).json()
+    floors = (await client.get(f"{API}/buildings/{building['id']}/tree", headers=admin)).json()["floors"]
+    room = floors[0]["rooms"][0]
+    url = f"{API}/buildings/{building['id']}"
+
+    # a grant on one floor: the plan of the whole building is open, nothing can be changed
+    viewer = grant(importer, "viewer", "viewer", "floor", floors[0]["id"], building["id"])
+    assert [b["id"] for b in (await client.get(f"{API}/buildings", headers=viewer)).json()["items"]] == [building["id"]]
+    for path in ("", "/tree", "/model", "/drawings", "/pins"):
+        assert (await client.get(url + path, headers=viewer)).status_code == 200, path
+    assert (await client.get(f"{API}/floors/{floors[1]['id']}/plan", headers=viewer)).status_code == 200
+    assert (await client.get(f"{API}/rooms/{room['id']}", headers=viewer)).status_code == 200
+    assert (await client.get(f"{API}/rooms", params={"building_id": building["id"]}, headers=viewer)).status_code == 200
+    assert (await client.patch(url, json={"name": "x", "version": 1}, headers=viewer)).status_code == 403
+    rename = {"name": "x", "version": room["version"]}
+    assert (await client.patch(f"{API}/rooms/{room['id']}", json=rename, headers=viewer)).status_code == 403
+    assert (await client.post(f"{url}/pins", json={"pos": [1, 2, 3]}, headers=viewer)).status_code == 403
+    # another building is not there for them, even by a direct address
+    assert (await client.get(f"{API}/buildings/{other['id']}", headers=viewer)).status_code == 404
+    assert (await client.get(f"{API}/buildings/{other['id']}/tree", headers=viewer)).status_code == 404
+    batch = await client.post(f"{API}/rooms/batch-get", json={"ids": [room["id"]]}, headers=tokens.bearer("nobody"))
+    assert batch.json()["items"] == []
+
+    # the administrator of the building changes it — but buildings are made and removed by the system administrator
+    boss = grant(importer, "boss", "admin", "building", building["id"], building["id"])
+    assert (await client.patch(f"{API}/rooms/{room['id']}", json=rename, headers=boss)).status_code == 200
+    assert (await client.post(f"{url}/pins", json={"pos": [1, 2, 3]}, headers=boss)).status_code == 201
+    assert (await client.put(f"{url}/site", json={"lat": 55, "lon": 37}, headers=boss)).status_code == 200
+    assert (await client.delete(url, headers=boss)).status_code == 403
+    assert (await client.post(f"{API}/buildings", json={"name": "x"}, headers=boss)).status_code == 403
+    assert (await client.patch(f"{API}/buildings/{other['id']}", json={"name": "x", "version": 1},
+                               headers=boss)).status_code == 404
+
+
+async def test_access_service_away(client, app, tokens, importer, building):
+    viewer = grant(importer, "viewer", "viewer", "building", building["id"], building["id"])
+    boss = grant(importer, "boss", "admin", "building", building["id"], building["id"])
+    url = f"{API}/buildings/{building['id']}"
+    rights = app.state.rights
+
+    def age(seconds: float) -> None:
+        """What is known of anyone's scopes was learnt this long ago."""
+        rights._known = {sub: (at - seconds, scopes) for sub, (at, scopes) in rights._known.items()}
+
+    assert (await client.get(url, headers=viewer)).status_code == 200            # the scopes are known now
+    assert (await client.get(url, headers=boss)).status_code == 200
+    importer.access_up = False
+    age(60)
+    assert (await client.get(url, headers=viewer)).status_code == 200            # reading goes on by what was known
+    down = await client.patch(url, json={"name": "x", "version": 1}, headers=boss)
+    assert down.status_code == 503 and "изменения временно невозможны" in down.json()["detail"]
+    assert (await client.get(url, headers=tokens.admin())).status_code == 200    # not asked about: the system admin
+    age(600)
+    assert (await client.get(url, headers=viewer)).status_code == 503            # too long ago to go by

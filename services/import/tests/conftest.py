@@ -17,6 +17,7 @@ import shutil  # noqa: E402
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
+from twin_chassis.client import ServiceClient  # noqa: E402
 from twin_chassis.testing import Tokens, running, scratch_database, test_settings  # noqa: E402
 
 from app import storage  # noqa: E402
@@ -57,9 +58,24 @@ def database_url():
         yield url
 
 
+@pytest.fixture
+def grants() -> dict[str, list[dict]]:
+    """account -> its grants, as the access service would say"""
+    return {}
+
+
 @pytest_asyncio.fixture
-async def app(database_url, tokens):
-    async with running(build(test_settings(SERVICE, database_url), tokens.verifier())) as app:
+async def app(database_url, tokens, grants):
+    def access(request: httpx.Request) -> httpx.Response:
+        me = tokens.verifier().identity(request.headers["authorization"].removeprefix("Bearer "))
+        mine = grants.get(me.sub, [])
+        return httpx.Response(200, json={"admin": False, "service": False, "person_id": None, "grants": mine,
+                                         "buildings": sorted({g["building_id"] for g in mine})})
+
+    settings = test_settings(SERVICE, database_url)
+    client = ServiceClient(settings, {"access": "http://access.test"},
+                           httpx.AsyncClient(transport=httpx.MockTransport(access)))
+    async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 
 

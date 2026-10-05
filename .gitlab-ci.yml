@@ -220,4 +220,20 @@ image:buildings:
   extends: .service-image
   variables: {SERVICE: buildings}
 
+service:access:
+  extends: .service
+  variables: {SERVICE: access}
+
+image:access:
+  extends: .service-image
+  variables: {SERVICE: access}
+
+service:people:
+  extends: .service
+  variables: {SERVICE: people}
+
+image:people:
+  extends: .service-image
+  variables: {SERVICE: people}
+
 # -- jobs of new services go above this line (tools/new-service adds them) --

@@ -1,7 +1,7 @@
 """Requests of the buildings service, under /api/buildings/v1 (contracts/openapi/buildings.v1.json).
 
-Until the access service exists (stage 2) everything here is for the system
-administrator; reading is also open to other services.
+Reading is for those who may see the plan of the building, changes for its
+administrators, creating and deleting buildings for the system administrator (rights.py).
 """
 from __future__ import annotations
 
@@ -13,10 +13,19 @@ from fastapi.concurrency import iterate_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
-from twin_chassis import Identity, Problem, emit, require_admin, require_admin_or_service, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, require_admin, uuid7
 
 from . import publish, storage
 from .models import buildings, drawings, floor_plans, floors, pins, rooms
+from .rights import (
+    manages_building,
+    manages_floor,
+    manages_pin,
+    manages_room,
+    reads_building,
+    reads_floor,
+    reads_room,
+)
 
 router = APIRouter()
 MAX_FACADE = 300 * 1024 * 1024
@@ -73,9 +82,14 @@ def _stale(row, version: int, current: dict) -> None:
 
 
 @router.get("/buildings", tags=["buildings"], summary="Здания")
-async def list_buildings(request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def list_buildings(request: Request, me: Identity = Depends(current_identity)) -> dict:
+    """The buildings the caller may see the plan of."""
+    visible = await request.app.state.rights.buildings(request, me)
+    where = [buildings.c.deleted_at.is_(None)]
+    if visible is not None:
+        where.append(buildings.c.id.in_([UUID(b) for b in visible] or [uuid7()]))
     async with request.app.state.db.begin() as session:
-        rows = (await session.execute(select(buildings).where(buildings.c.deleted_at.is_(None))
+        rows = (await session.execute(select(buildings).where(*where)
                                       .order_by(buildings.c.name, buildings.c.id))).all()
         n_floors = dict((await session.execute(select(floors.c.building_id, func.count()).where(
             floors.c.status == "active").group_by(floors.c.building_id))).all())
@@ -98,14 +112,14 @@ async def create_building(body: BuildingIn, request: Request, me: Identity = Dep
 
 
 @router.get("/buildings/{building_id}", tags=["buildings"], summary="Здание")
-async def get_building(building_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_building(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         return building_json(await _building(session, building_id))
 
 
 @router.patch("/buildings/{building_id}", tags=["buildings"], summary="Изменить название и адрес")
 async def patch_building(building_id: UUID, body: BuildingPatch, request: Request,
-                         _: Identity = Depends(require_admin)) -> dict:
+                         _: Identity = Depends(manages_building)) -> dict:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id, lock=True)
         _stale(b, body.version, building_json(b))
@@ -127,7 +141,7 @@ async def delete_building(building_id: UUID, request: Request, _: Identity = Dep
 
 @router.put("/buildings/{building_id}/site", tags=["buildings"], summary="Привязать здание к карте")
 async def put_site(building_id: UUID, request: Request, body: Site | None = None,
-                   _: Identity = Depends(require_admin)) -> dict:
+                   _: Identity = Depends(manages_building)) -> dict:
     async with request.app.state.db.begin() as session:
         await _building(session, building_id, lock=True)
         b = (await session.execute(update(buildings).where(buildings.c.id == building_id).values(
@@ -149,7 +163,7 @@ class FacadeAlign(BaseModel):
 
 @router.put("/buildings/{building_id}/facade", tags=["facade"], summary="Загрузить детальную модель фасада (GLB)")
 async def put_facade(building_id: UUID, request: Request, file: UploadFile = File(...),
-                     _: Identity = Depends(require_admin)) -> dict:
+                     _: Identity = Depends(manages_building)) -> dict:
     data = await file.read(MAX_FACADE + 1)
     if len(data) > MAX_FACADE:
         raise Problem(413, "too_large", "Модель больше 300 МБ", title="Файл слишком большой")
@@ -169,7 +183,7 @@ async def put_facade(building_id: UUID, request: Request, file: UploadFile = Fil
 
 @router.patch("/buildings/{building_id}/facade", tags=["facade"], summary="Выровнять модель фасада")
 async def align_facade(building_id: UUID, body: FacadeAlign, request: Request,
-                       _: Identity = Depends(require_admin)) -> dict:
+                       _: Identity = Depends(manages_building)) -> dict:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id, lock=True)
         if not b.facade:
@@ -182,7 +196,7 @@ async def align_facade(building_id: UUID, body: FacadeAlign, request: Request,
 
 
 @router.delete("/buildings/{building_id}/facade", status_code=204, tags=["facade"], summary="Убрать модель фасада")
-async def delete_facade(building_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> None:
+async def delete_facade(building_id: UUID, request: Request, _: Identity = Depends(manages_building)) -> None:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id, lock=True)
         await session.execute(update(buildings).where(buildings.c.id == building_id).values(
@@ -193,7 +207,7 @@ async def delete_facade(building_id: UUID, request: Request, _: Identity = Depen
 @router.get("/buildings/{building_id}/facade.glb", tags=["facade"], response_class=StreamingResponse,
             summary="Модель фасада")
 async def get_facade(building_id: UUID, request: Request,
-                     _: Identity = Depends(require_admin_or_service)) -> StreamingResponse:
+                     _: Identity = Depends(reads_building)) -> StreamingResponse:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id)
     key = (b.facade or {}).get("key")
@@ -227,7 +241,7 @@ def drawing_json(d) -> dict:
 
 @router.get("/buildings/{building_id}/drawings", tags=["drawings"], summary="Чертежи здания и их положение")
 async def list_drawings(building_id: UUID, request: Request,
-                        _: Identity = Depends(require_admin_or_service)) -> dict:
+                        _: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         await _building(session, building_id)
         rows = (await session.execute(select(drawings).where(drawings.c.building_id == building_id)
@@ -238,7 +252,7 @@ async def list_drawings(building_id: UUID, request: Request,
 @router.patch("/buildings/{building_id}/drawings/{drawing_id}", tags=["drawings"],
               summary="Положение чертежа в здании")
 async def patch_drawing(building_id: UUID, drawing_id: UUID, body: DrawingPatch, request: Request,
-                        _: Identity = Depends(require_admin)) -> dict:
+                        _: Identity = Depends(manages_building)) -> dict:
     async with request.app.state.db.begin() as session:
         d = (await session.execute(select(drawings).where(
             drawings.c.id == drawing_id, drawings.c.building_id == building_id).with_for_update())).one_or_none()
@@ -277,7 +291,7 @@ def _floor_order():
 
 
 @router.get("/buildings/{building_id}/tree", tags=["structure"], summary="Этажи и помещения здания кратко")
-async def tree(building_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def tree(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id)
         floor_rows = (await session.execute(select(floors).where(
@@ -293,7 +307,7 @@ async def tree(building_id: UUID, request: Request, _: Identity = Depends(requir
 
 @router.get("/buildings/{building_id}/model", tags=["structure"],
             summary="3D-модель: по чертежу — файл модели, положение, этажи и помещения в нём")
-async def model(building_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def model(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
     """For each built drawing: `model_url` (GLB with a node per floor and per room), `placement`,
     and `result` — what the model consists of: floors (`floor_id`, `node`, level, elevation, height,
     rooms with `id`, `node`, name, type, area, label), entrances, stairs and lifts, room types."""
@@ -331,7 +345,7 @@ async def _floor(session, floor_id: UUID, *, lock: bool = False):
 
 @router.get("/floors/{floor_id}/plan", tags=["structure"],
             summary="План этажа: стены, проёмы, контуры помещений (координаты чертежа, м)")
-async def floor_plan(floor_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def floor_plan(floor_id: UUID, request: Request, _: Identity = Depends(reads_floor)) -> dict:
     async with request.app.state.db.begin() as session:
         f = await _floor(session, floor_id)
         data = (await session.execute(select(floor_plans.c.data).where(floor_plans.c.floor_id == floor_id))).scalar()
@@ -352,7 +366,7 @@ class FloorPatch(BaseModel):
 
 @router.patch("/floors/{floor_id}", tags=["structure"], summary="Переименовать этаж")
 async def patch_floor(floor_id: UUID, body: FloorPatch, request: Request,
-                      _: Identity = Depends(require_admin)) -> dict:
+                      _: Identity = Depends(manages_floor)) -> dict:
     async with request.app.state.db.begin() as session:
         f = await _floor(session, floor_id, lock=True)
         _stale(f, body.version, floor_json(f))
@@ -371,7 +385,7 @@ class Points(BaseModel):
 
 @router.post("/floors/{floor_id}/locate", tags=["structure"], summary="В каком помещении каждая из точек")
 async def locate(floor_id: UUID, body: Points, request: Request,
-                 _: Identity = Depends(require_admin_or_service)) -> dict:
+                 _: Identity = Depends(reads_floor)) -> dict:
     async with request.app.state.db.begin() as session:
         await _floor(session, floor_id)
         rows = (await session.execute(select(rooms.c.id, rooms.c.polygon).where(
@@ -384,7 +398,7 @@ async def locate(floor_id: UUID, body: Points, request: Request,
 @router.get("/rooms", tags=["rooms"], summary="Поиск помещений")
 async def list_rooms(request: Request, building_id: UUID, floor_id: UUID | None = None, q: str | None = None,
                      type: str | None = None, status: str = "active", limit: int = 200,
-                     _: Identity = Depends(require_admin_or_service)) -> dict:
+                     _: Identity = Depends(reads_building)) -> dict:
     where = [rooms.c.building_id == building_id]
     if status != "all":
         where.append(rooms.c.status == status)
@@ -406,10 +420,12 @@ class Ids(BaseModel):
 
 
 @router.post("/rooms/batch-get", tags=["rooms"], summary="Помещения по идентификаторам")
-async def batch_rooms(body: Ids, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def batch_rooms(body: Ids, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    """Rooms of buildings the caller may not see are left out."""
+    visible = await request.app.state.rights.buildings(request, me)
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(rooms).where(rooms.c.id.in_(body.ids or [uuid7()])))).all()
-    return {"items": [room_json(r) for r in rows]}
+    return {"items": [room_json(r) for r in rows if visible is None or str(r.building_id) in visible]}
 
 
 async def _room(session, room_id: UUID, *, lock: bool = False):
@@ -421,7 +437,7 @@ async def _room(session, room_id: UUID, *, lock: bool = False):
 
 
 @router.get("/rooms/{room_id}", tags=["rooms"], summary="Помещение с контуром")
-async def get_room(room_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def get_room(room_id: UUID, request: Request, _: Identity = Depends(reads_room)) -> dict:
     async with request.app.state.db.begin() as session:
         return room_json(await _room(session, room_id), outline=True)
 
@@ -435,7 +451,7 @@ class RoomPatch(BaseModel):
 
 @router.patch("/rooms/{room_id}", tags=["rooms"],
               summary="Название, номер и тип помещения; заданное вручную переживает новую сборку чертежа")
-async def patch_room(room_id: UUID, body: RoomPatch, request: Request, _: Identity = Depends(require_admin)) -> dict:
+async def patch_room(room_id: UUID, body: RoomPatch, request: Request, _: Identity = Depends(manages_room)) -> dict:
     async with request.app.state.db.begin() as session:
         r = await _room(session, room_id, lock=True)
         _stale(r, body.version, room_json(r))
@@ -473,7 +489,7 @@ def pin_json(p) -> dict:
 
 
 @router.get("/buildings/{building_id}/pins", tags=["pins"], summary="Метки на модели")
-async def list_pins(building_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+async def list_pins(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         await _building(session, building_id)
         rows = (await session.execute(select(pins).where(pins.c.building_id == building_id)
@@ -482,7 +498,8 @@ async def list_pins(building_id: UUID, request: Request, _: Identity = Depends(r
 
 
 @router.post("/buildings/{building_id}/pins", status_code=201, tags=["pins"], summary="Поставить метку")
-async def create_pin(building_id: UUID, body: PinIn, request: Request, me: Identity = Depends(require_admin)) -> dict:
+async def create_pin(building_id: UUID, body: PinIn, request: Request,
+                     me: Identity = Depends(manages_building)) -> dict:
     async with request.app.state.db.begin() as session:
         await _building(session, building_id)
         if body.floor_id is not None and (await _floor(session, body.floor_id)).building_id != building_id:
@@ -496,7 +513,7 @@ async def create_pin(building_id: UUID, body: PinIn, request: Request, me: Ident
 
 
 @router.patch("/pins/{pin_id}", tags=["pins"], summary="Изменить метку")
-async def patch_pin(pin_id: UUID, body: PinPatch, request: Request, _: Identity = Depends(require_admin)) -> dict:
+async def patch_pin(pin_id: UUID, body: PinPatch, request: Request, _: Identity = Depends(manages_pin)) -> dict:
     async with request.app.state.db.begin() as session:
         p = (await session.execute(select(pins).where(pins.c.id == pin_id).with_for_update())).one_or_none()
         if p is None:
@@ -511,7 +528,7 @@ async def patch_pin(pin_id: UUID, body: PinPatch, request: Request, _: Identity 
 
 
 @router.delete("/pins/{pin_id}", status_code=204, tags=["pins"], summary="Убрать метку")
-async def delete_pin(pin_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> None:
+async def delete_pin(pin_id: UUID, request: Request, _: Identity = Depends(manages_pin)) -> None:
     async with request.app.state.db.begin() as session:
         gone = await session.execute(delete(pins).where(pins.c.id == pin_id).returning(pins.c.id))
         if gone.first() is None:

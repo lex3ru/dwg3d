@@ -232,10 +232,13 @@ test('a file that is not a drawing fails with a message, not a hanging build', a
   await expect(row).toHaveCount(0)
 })
 
-test('an ordinary user does not get to buildings and drawings yet', async ({ page }) => {
+test('someone with no rights sees no buildings and cannot make one', async ({ page }) => {
   await signIn(page, 'user')
-  for (const path of ['/api/buildings/v1/buildings', '/api/import/v1/config/default']) {
-    expect((await page.request.get(path)).status(), path).toBe(403)
+  expect((await (await page.request.get('/api/buildings/v1/buildings')).json()).items).toEqual([])
+  expect((await page.request.post('/api/buildings/v1/buildings', { data: { name: 'x' } })).status()).toBe(403)
+  const nowhere = '0192f000-0000-7000-8000-000000000001'
+  for (const path of [`/api/buildings/v1/buildings/${nowhere}`, `/api/import/v1/drawings?building_id=${nowhere}`]) {
+    expect((await page.request.get(path)).status(), path).toBe(404)
   }
 })
 

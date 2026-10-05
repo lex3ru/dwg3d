@@ -2,8 +2,6 @@
  * and the user's role in the project on screen. Sign-in itself happens in
  * Keycloak: the server sends the browser there and back. */
 
-import { setAdmin } from './compat'
-
 export type GlobalRole = 'user' | 'catalog_admin' | 'admin'
 export type ProjectRole = 'viewer' | 'editor' | 'owner'
 
@@ -35,7 +33,6 @@ export async function loadMe(): Promise<Me | null> {
   if (r.status === 401) return (me = null)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const { user } = await r.json() as { user: { login: string; name: string; email: string | null; roles: string[]; is_admin: boolean } }
-  setAdmin(user.is_admin)
   return (me = { id: null, login: user.login, name: user.name, role: user.is_admin ? 'admin' : 'user',
     role_name: user.is_admin ? 'администратор системы' : 'пользователь', roles: user.roles, email: user.email, auth: true })
 }

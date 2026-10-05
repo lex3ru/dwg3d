@@ -28,6 +28,7 @@ from app.main import SERVICE, build  # noqa: E402
 API = "/api/buildings/v1"
 DATA = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in (Path(__file__).parent / "data").glob("*.json")}
 IMPORT = "http://import.test"
+ACCESS = "http://access.test"
 
 
 class Import:
@@ -37,7 +38,9 @@ class Import:
         self.tokens = tokens
         self.builds: dict[str, dict] = {}          # build id -> {n, building_id, result, plans}
         self.up = True
+        self.access_up = True
         self.calls: list[str] = []
+        self.grants: dict[str, list[dict]] = {}     # account -> its grants, as the access service would say
 
     def add(self, building_id: str, n: int, fixture: str) -> str:
         build_id = str(uuid4())
@@ -49,6 +52,13 @@ class Import:
         if url.startswith(ISSUER):                 # the service asks Keycloak for its own token
             token = self.tokens.make("svc-buildings", login="twin-svc-buildings", service=True)
             return httpx.Response(200, json={"access_token": token, "expires_in": 300})
+        if url.startswith(ACCESS):                 # a user's scopes, asked with the user's token
+            if not self.access_up:
+                raise httpx.ConnectError("access is down")
+            me = self.tokens.verifier().identity(request.headers["authorization"].removeprefix("Bearer "))
+            grants = self.grants.get(me.sub, [])
+            return httpx.Response(200, json={"admin": False, "service": False, "person_id": None, "grants": grants,
+                                             "buildings": sorted({g["building_id"] for g in grants})})
         assert url.startswith(IMPORT), url
         if not self.up:
             raise httpx.ConnectError("import is down")
@@ -97,7 +107,7 @@ def database_url():
 async def app(database_url, tokens, importer):
     settings = test_settings(SERVICE, database_url)
     http = httpx.AsyncClient(transport=httpx.MockTransport(importer.handle))
-    client = ServiceClient(settings, {"import": IMPORT}, http)
+    client = ServiceClient(settings, {"import": IMPORT, "access": ACCESS}, http)
     async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 
@@ -154,3 +164,10 @@ async def site(app, importer, building) -> Site:
     s = Site(app, importer, building["id"])
     await s.upload()
     return s
+
+
+def grant(importer: Import, sub: str, role: str, kind: str, scope: str, building: str) -> dict[str, str]:
+    """Give the account a grant (as the access service would report it); returns its headers."""
+    importer.grants.setdefault(sub, []).append(
+        {"role": role, "scope": {"kind": kind, "id": scope}, "building_id": building})
+    return importer.tokens.bearer(sub)

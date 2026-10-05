@@ -50,4 +50,10 @@ export default async function globalSetup() {
   const { access_token: token } = await response.json() as { access_token: string }
   process.env.E2E_ADMIN_PASSWORD = await ensureUser(token, 'e2e-admin', 'Проверка', 'Администратор', true)
   process.env.E2E_USER_PASSWORD = await ensureUser(token, 'e2e-user', 'Проверка', 'Пользователь', false)
+  // people of the directory in the scenarios of rights: new accounts on every run, since what
+  // a run does to a person (rights, «выбыл») stays in the directory
+  const run = Date.now().toString(36)
+  process.env.E2E_RUN = run
+  process.env.E2E_BOSS_PASSWORD = await ensureUser(token, `e2e-boss-${run}`, 'Проверка', 'Начальник', false)
+  process.env.E2E_CLERK_PASSWORD = await ensureUser(token, `e2e-clerk-${run}`, 'Проверка', 'Сотрудник', false)
 }

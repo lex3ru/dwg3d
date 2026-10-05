@@ -72,7 +72,7 @@ services:
       TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
       TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
       # the services requests are passed on to: name=address, comma-separated
-      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000}
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000}
 
   ping:
     <<: *service
@@ -90,6 +90,7 @@ services:
       <<: [*service-env, *s3-env]
       TWIN_DATABASE_URL: postgresql+psycopg://import:${TWIN_DB_PASSWORD_IMPORT:-import}@db:5432/import
       TWIN_DATA: /data
+      TWIN_SERVICES: access=http://access:8000
       TWIN_MAX_UPLOAD_MB: ${TWIN_MAX_UPLOAD_MB:-200}
       # ODA File Converter (optional, better DWG support): path inside the container of a binary mounted into it
       DWG3D_ODA: ${TWIN_ODA:-}
@@ -118,7 +119,24 @@ services:
       TWIN_DATABASE_URL: postgresql+psycopg://buildings:${TWIN_DB_PASSWORD_BUILDINGS:-buildings}@db:5432/buildings
       # its own account (Keycloak client twin-svc-buildings) and whom it calls
       TWIN_SERVICE_SECRET: ${TWIN_SVC_SECRET_BUILDINGS:-dev-svc-buildings}
-      TWIN_SERVICES: import=http://import:8000
+      TWIN_SERVICES: import=http://import:8000,access=http://access:8000
+
+  access:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: access}}
+    image: twin-access:${TWIN_TAG:-dev}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://access:${TWIN_DB_PASSWORD_ACCESS:-access}@db:5432/access
+
+  people:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: people}}
+    image: twin-people:${TWIN_TAG:-dev}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://people:${TWIN_DB_PASSWORD_PEOPLE:-people}@db:5432/people
+      TWIN_SERVICES: access=http://access:8000
 
   # -- new services go above this line (tools/new-service adds them) --
 
@@ -148,12 +166,14 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
       PGDATABASE: postgres
       # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
-      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings}
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people}
       TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
       TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
       TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
       TWIN_DB_PASSWORD_IMPORT: ${TWIN_DB_PASSWORD_IMPORT:-import}
       TWIN_DB_PASSWORD_BUILDINGS: ${TWIN_DB_PASSWORD_BUILDINGS:-buildings}
+      TWIN_DB_PASSWORD_ACCESS: ${TWIN_DB_PASSWORD_ACCESS:-access}
+      TWIN_DB_PASSWORD_PEOPLE: ${TWIN_DB_PASSWORD_PEOPLE:-people}
       # -- passwords of new databases go above this line --
     volumes:
       - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro

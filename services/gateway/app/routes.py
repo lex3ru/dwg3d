@@ -84,22 +84,55 @@ class User(BaseModel):
 
 class Me(BaseModel):
     user: User
-    person: dict | None = Field(description="Запись справочника людей; появится с сервисом people")
-    scopes: dict | None = Field(description="Области доступа; появятся с сервисом access")
+    person: dict | None = Field(description="Запись справочника людей; null — учётной записи нет в справочнике")
+    reason: str | None = Field(description="Почему нет записи: unknown, ambiguous, left")
+    scopes: dict | None = Field(description="Области доступа: назначения и здания, план которых виден")
+    partial: list[str] = Field(description="Сервисы, не ответившие: соответствующих частей в ответе нет")
 
 
 @router.get("/api/me", tags=["me"], response_model=Me, summary="Кто вошёл")
-async def me(who: Signed = Depends(signed)):
+async def me(request: Request, who: Signed = Depends(signed)):
     i = who.identity
+    person, scopes = await asyncio.gather(_ask(request, who, "people", "/me"),
+                                          _ask(request, who, "access", "/me/scopes"))
+    # the first sign-in: the account has just been linked to its person, and the access service
+    # learns of it from an event — give it a moment rather than answer "no rights"
+    known = (person or {}).get("person")
+    for _ in range(10):
+        if not known or scopes is None or scopes.get("admin") or scopes.get("person_id") == known["id"]:
+            break
+        await asyncio.sleep(0.2)
+        scopes = await _ask(request, who, "access", "/me/scopes")
     return {"user": {"sub": i.sub, "login": i.login, "name": i.name, "email": i.email, "roles": list(i.roles),
-                     "is_admin": i.is_admin}, "person": None, "scopes": None}
+                     "is_admin": i.is_admin},
+            "person": (person or {}).get("person"), "reason": (person or {}).get("reason"), "scopes": scopes,
+            "partial": [name for name, got in (("people", person), ("access", scopes)) if got is None]}
+
+
+async def _ask(request: Request, who: Signed, service: str, path: str) -> dict | None:
+    """A service's answer to the user's own question, or None when it does not answer."""
+    base = request.app.state.config.services.get(service)
+    if base is None:
+        return None
+    try:
+        r = await request.app.state.http.get(f"{base}/api/{service}/v1{path}", timeout=5,
+                                             headers={"Authorization": f"Bearer {who.token}"})
+        return r.json() if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 # ------------------------------------------------------------------- stream ---
 @router.get("/api/stream", tags=["stream"], summary="Поток событий (Server-Sent Events)",
             response_class=StreamingResponse, responses={200: {"content": {"text/event-stream": {}}}})
 async def stream(request: Request, who: Signed = Depends(signed)):
-    return StreamingResponse(request.app.state.hub.events(who.identity), media_type="text/event-stream",
+    async def buildings() -> list[str]:
+        scopes = await _ask(request, who, "access", "/me/scopes")
+        if scopes is None:
+            raise RuntimeError("access is away")
+        return scopes.get("buildings") or []
+
+    return StreamingResponse(request.app.state.hub.events(who.identity, buildings), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
