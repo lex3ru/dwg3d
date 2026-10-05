@@ -1,0 +1,521 @@
+"""Requests of the assets service, under /api/assets/v1 (contracts/openapi/assets.v1.json).
+
+An object is seen by those with a right on it or on the room, floor or building it is
+in; who answers for it (or for its room) edits what the schema lets them and its state;
+the building's administrator does the rest. What one may not see does not exist (404).
+"""
+from __future__ import annotations
+
+import asyncio
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi.concurrency import iterate_in_threadpool
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.exc import IntegrityError
+from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis.access import decide
+
+from . import core, storage
+from .models import STATES, asset_files, asset_history, assets
+
+router = APIRouter()
+MAX_FILE = 25 * 1024 * 1024
+FORBIDDEN = "Недостаточно прав для этого действия"
+
+
+async def _scopes(request: Request, me: Identity, *, reading: bool = False) -> dict:
+    return await request.app.state.rights.scopes(request, me, reading=reading)
+
+
+async def _asset(session, asset_id: UUID, scopes: dict, *, lock: bool = False):
+    q = select(assets).where(assets.c.id == asset_id)
+    a = (await session.execute(q.with_for_update() if lock else q)).one_or_none()
+    if a is None or not decide(scopes, "view", core.chain(a)):
+        raise Problem(404, "not_found", "Объект не найден")
+    return a
+
+
+def _need(scopes: dict, action: str, chain, message: str = FORBIDDEN) -> None:
+    if not decide(scopes, action, chain):
+        raise Problem(403, "forbidden", message)
+
+
+def _stale(a, version: int) -> None:
+    if a.version != version:
+        raise Problem(409, "version_conflict", "Объект изменил кто-то другой — вот его текущее состояние",
+                      extra={"current": core.asset_json(a)})
+
+
+async def _locate(request: Request, floor_id: UUID, points: list[tuple[float, float]]) -> tuple[UUID, list[UUID | None]]:
+    """The building of the floor and the room of each point, as the buildings service says."""
+    token = request.headers.get("authorization", "").partition(" ")[2].strip()
+    r = await request.app.state.client.request("POST", "buildings", f"/floors/{floor_id}/locate", token=token,
+                                               json={"points": [list(p) for p in points]})
+    if r.status_code == 404:
+        raise Problem(422, "invalid", "Этаж не найден", errors=[{"field": "floor_id", "message": "не найден"}])
+    if r.status_code != 200:
+        raise Problem(503, "service_unavailable", "Сервис зданий не ответил — поставить или переместить объект сейчас нельзя",
+                      extra={"service": "buildings"})
+    body = r.json()
+    return UUID(body["building_id"]), [UUID(x) if x else None for x in body["rooms"]]
+
+
+def _taken(ex: IntegrityError) -> Problem | None:
+    if "inventory_no" in str(ex.orig):
+        return Problem(409, "inventory_no_taken", "Такой инвентарный номер уже есть (номера списанных объектов не используются повторно)")
+    return None
+
+
+# --------------------------------------------------------------------- read ---
+@router.get("/assets", tags=["assets"], summary="Объекты, видимые спрашивающему")
+async def list_assets(request: Request, building_id: UUID | None = None, floor_id: UUID | None = None,
+                      room_id: UUID | None = None, type_id: UUID | None = None, category_id: UUID | None = None,
+                      state: str | None = None, responsible_id: UUID | None = None, container_id: UUID | None = None,
+                      needs_placement: bool | None = None, needs_fill: bool | None = None, q: str | None = None,
+                      limit: int = 200, cursor: int = 0, me: Identity = Depends(current_identity)) -> dict:
+    """Also filters by values of properties: `prop.<key>=`, `prop.<key>.gte=`, `prop.<key>.lte=`
+    (dates and numbers compare as written: 2026-10-05, 12.5). Retired objects come only with `state=retired`."""
+    where = [assets.c.state == state] if state and state != "all" else ([] if state == "all" else [assets.c.state != "retired"])
+    seen = core.visible_filter(await _scopes(request, me, reading=True))
+    if seen is not None:
+        where.append(seen)
+    for column, value in ((assets.c.building_id, building_id), (assets.c.floor_id, floor_id), (assets.c.room_id, room_id),
+                          (assets.c.type_id, type_id), (assets.c.category_id, category_id),
+                          (assets.c.responsible_id, responsible_id), (assets.c.container_id, container_id),
+                          (assets.c.needs_placement, needs_placement), (assets.c.needs_fill, needs_fill)):
+        if value is not None:
+            where.append(column == value)
+    if q and q.strip():
+        pattern = core.like(q)
+        where.append(assets.c.type_name.ilike(pattern) | assets.c.inventory_no.ilike(pattern)
+                     | func.coalesce(assets.c.serial_no, "").ilike(pattern))
+    for name, value in request.query_params.items():
+        if name.startswith("prop."):
+            key, _, op = name[5:].partition(".")
+            field = assets.c.props[key].astext
+            where.append(field >= value if op == "gte" else field <= value if op == "lte" else field == value)
+    limit, cursor = max(1, min(limit, 500)), max(0, cursor)
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(assets).where(*where).order_by(assets.c.type_name, assets.c.inventory_no)
+                                      .limit(limit + 1).offset(cursor))).all()
+        total = (await session.execute(select(func.count()).select_from(assets).where(*where))).scalar_one()
+    return {"items": [core.asset_json(a) for a in rows[:limit]], "total": total,
+            "next": cursor + limit if len(rows) > limit else None}
+
+
+class Ids(BaseModel):
+    ids: list[UUID] = Field(max_length=1000)
+
+
+@router.post("/assets/batch-get", tags=["assets"], summary="Объекты по идентификаторам (невидимые пропускаются)")
+async def batch_assets(body: Ids, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(assets).where(assets.c.id.in_(body.ids or [uuid7()])))).all()
+    return {"items": [core.asset_json(a) for a in rows if decide(scopes, "view", core.chain(a))]}
+
+
+@router.get("/assets/{asset_id}", tags=["assets"], summary="Объект; `can` — что с ним может спрашивающий")
+async def get_asset(asset_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes)
+        schema = await core.schema_of(request, session, a.type_id)
+        children = (await session.execute(select(assets).where(assets.c.container_id == asset_id)
+                                          .order_by(assets.c.type_name, assets.c.inventory_no))).all()
+    return {**core.asset_json(a), "schema": schema.schema, "portable": schema.portable, "container": schema.container,
+            "children": [core.asset_json(c) for c in children],
+            "can": {"edit": decide(scopes, "edit", core.chain(a)), "manage": decide(scopes, "manage", core.chain(a)),
+                    "move": decide(scopes, "manage" if not schema.portable else "move_portable", core.chain(a))}}
+
+
+@router.get("/qr/{code}", tags=["assets"], summary="Чей это QR-код: идентификатор объекта")
+async def by_qr(code: str, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        a = (await session.execute(select(assets).where(assets.c.qr_code == code.upper()))).one_or_none()
+    if a is None or not decide(scopes, "view", core.chain(a)):       # a stranger does not learn whether it exists
+        raise Problem(404, "not_found", "Объект не найден")
+    return {"asset_id": str(a.id), "building_id": str(a.building_id)}
+
+
+@router.get("/usage", tags=["assets"], summary="Есть ли объекты типа и значения свойства (для каталога)")
+async def usage(request: Request, type_id: UUID, prop: str | None = None, me: Identity = Depends(current_identity)) -> dict:
+    if not me.is_admin and me.kind != "service":
+        raise Problem(403, "forbidden", FORBIDDEN)
+    async with request.app.state.db.begin() as session:
+        total = (await session.execute(select(func.count()).select_from(assets).where(assets.c.type_id == type_id))).scalar_one()
+        valued = 0 if prop is None else (await session.execute(select(func.count()).select_from(assets).where(
+            assets.c.type_id == type_id, assets.c.props[prop].astext.is_not(None), assets.c.props[prop].astext != ""))).scalar_one()
+    return {"assets": total, "with_value": valued}
+
+
+# ------------------------------------------------------------------- create ---
+class Place(BaseModel):
+    floor_id: UUID | None = None
+    x: float | None = Field(default=None, ge=-1e5, le=1e5)
+    y: float | None = Field(default=None, ge=-1e5, le=1e5)
+    angle: float = Field(default=0, ge=-360, le=360)
+    elevation: float | None = Field(default=None, ge=0, le=100)
+    container_id: UUID | None = Field(default=None, description="Вместо точки: объект, внутри которого стоит")
+
+
+class AssetIn(Place):
+    type_id: UUID
+    inventory_no: str = Field(min_length=1, max_length=60)
+    serial_no: str | None = Field(default=None, max_length=100)
+    props: dict = Field(default_factory=dict)
+    note: str = Field(default="", max_length=2000)
+
+
+async def _where(request: Request, session, scopes: dict, place: Place) -> dict:
+    """Where the place is: a point of a floor (the room is found by it) or inside a container."""
+    if place.container_id is not None:
+        box = await _asset(session, place.container_id, scopes)
+        kind = await core.schema_of(request, session, box.type_id)
+        if not kind.container or box.container_id is not None or box.state == "retired":
+            raise Problem(422, "invalid", "В этот объект нельзя вкладывать другие",
+                          errors=[{"field": "container_id", "message": "не контейнер"}])
+        return {"building_id": box.building_id, "floor_id": box.floor_id, "room_id": box.room_id, "x": None, "y": None,
+                "container_id": box.id, "angle": 0, "elevation": None}
+    if place.floor_id is None or place.x is None or place.y is None:
+        raise Problem(422, "invalid", "Нужны этаж и точка или контейнер", errors=[{"field": "floor_id", "message": "обязательно"}])
+    building, (room,) = await _locate(request, place.floor_id, [(place.x, place.y)])
+    if room is None:
+        raise Problem(422, "outside", "Точка не попадает ни в одно помещение", errors=[{"field": "x", "message": "вне помещений"}])
+    return {"building_id": building, "floor_id": place.floor_id, "room_id": room, "x": place.x, "y": place.y,
+            "container_id": None, "angle": place.angle, "elevation": place.elevation}
+
+
+def _area(where: dict) -> list[tuple[str, object]]:
+    return [("room", where["room_id"]), ("floor", where["floor_id"]), ("building", where["building_id"])]
+
+
+async def _insert(request: Request, session, me: Identity, who: dict, body: AssetIn, where: dict):
+    kind = await core.schema_of(request, session, body.type_id)
+    if kind.archived:
+        raise Problem(422, "invalid", f"Тип «{kind.name}» в архиве", errors=[{"field": "type_id", "message": "в архиве"}])
+    core.check_props(kind.schema, body.props)
+    a = (await session.execute(insert(assets).values(
+        id=uuid7(), type_id=body.type_id, type_name=kind.name, category_id=kind.category_id,
+        schema_version=kind.schema_version, inventory_no=body.inventory_no.strip(), serial_no=body.serial_no,
+        props=body.props, note=body.note, needs_fill=core.incomplete(kind.schema, body.props), qr_code=core.qr_code(),
+        created_by=me.sub, **where).returning(assets))).one()
+    await core.record(session, a.id, who, "created", {"type": [None, kind.name], "inventory_no": [None, a.inventory_no]})
+    await emit(session, "assets.asset.created", ("asset", a.id),
+               {"asset_id": str(a.id), "type_id": str(a.type_id), "inventory_no": a.inventory_no}, **core.scope_fields(a))
+    return a
+
+
+@router.post("/assets", status_code=201, tags=["assets"], summary="Поставить объект: тип, точка этажа или контейнер, номер")
+async def create_asset(body: AssetIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    try:
+        async with request.app.state.db.begin() as session:
+            where = await _where(request, session, scopes, body)
+            if not decide(scopes, "manage", _area(where)):
+                raise Problem(404 if not decide(scopes, "plan", _area(where)) else 403, "forbidden",
+                              "Ставить объекты может администратор здания")
+            return core.asset_json(await _insert(request, session, me, who, body, where))
+    except IntegrityError as ex:
+        raise _taken(ex) or ex from ex
+
+
+class Batch(BaseModel):
+    type_id: UUID
+    floor_id: UUID
+    points: list[tuple[float, float]] = Field(min_length=1, max_length=500, description="Точки [x, y]")
+    angle: float = 0
+    prefix: str = Field(max_length=40, description="Начало инвентарного номера: «КР-»")
+    start: int = Field(ge=0, le=10**9, description="С какого числа считать")
+    width: int = Field(default=4, ge=1, le=10, description="Сколько цифр в номере")
+
+
+@router.post("/assets/batch", status_code=201, tags=["assets"],
+             summary="Несколько одинаковых объектов с номерами подряд; всё или ничего")
+async def create_batch(body: Batch, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    building, rooms = await _locate(request, body.floor_id, body.points)
+    outside = [i + 1 for i, r in enumerate(rooms) if r is None]
+    if outside:
+        raise Problem(422, "outside", f"Точки вне помещений: {', '.join(map(str, outside))}",
+                      errors=[{"field": "points", "message": "вне помещений"}])
+    made = []
+    try:
+        async with request.app.state.db.begin() as session:
+            for i, ((x, y), room) in enumerate(zip(body.points, rooms, strict=True)):
+                where = {"building_id": building, "floor_id": body.floor_id, "room_id": room, "x": x, "y": y,
+                         "container_id": None, "angle": body.angle, "elevation": None}
+                _need(scopes, "manage", _area(where), "Ставить объекты может администратор здания")
+                one = AssetIn(type_id=body.type_id, inventory_no=f"{body.prefix}{body.start + i:0{body.width}d}")
+                made.append(core.asset_json(await _insert(request, session, me, who, one, where)))
+    except IntegrityError as ex:                    # one taken number refuses them all
+        raise _taken(ex) or ex from ex
+    return {"items": made}
+
+
+# ------------------------------------------------------------------ changes ---
+class AssetPatch(BaseModel):
+    inventory_no: str | None = Field(default=None, min_length=1, max_length=60)
+    serial_no: str | None = Field(default=None, max_length=100)
+    note: str | None = Field(default=None, max_length=2000)
+    props: dict | None = Field(default=None, description="Только изменяемые свойства: {ключ: значение}")
+    version: int
+
+
+async def _apply(session, a, who: dict, values: dict, action: str = "changed", **history) -> object:
+    """Write the changed fields, the history entry and the event; returns the row."""
+    changes = {k: [getattr(a, k), v] for k, v in values.items() if getattr(a, k) != v}
+    if "props" in changes:
+        was, now = changes.pop("props")
+        changes.update({f"props.{k}": [was.get(k), now.get(k)] for k in {*was, *now} if was.get(k) != now.get(k)})
+    if not changes:
+        return a
+    new = (await session.execute(update(assets).where(assets.c.id == a.id).values(
+        **values, version=assets.c.version + 1, updated_at=func.now()).returning(assets))).one()
+    await core.record(session, a.id, who, action, changes, **history)
+    await emit(session, "assets.asset.changed", ("asset", a.id),
+               {"asset_id": str(a.id), "fields": sorted(changes)}, **core.scope_fields(new))
+    return new
+
+
+@router.patch("/assets/{asset_id}", tags=["assets"], summary="Изменить номера, примечание, свойства — каждое по своим правам")
+async def patch_asset(asset_id: UUID, body: AssetPatch, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    sent = body.model_dump(exclude={"version"}, exclude_unset=True)
+    try:
+        async with request.app.state.db.begin() as session:
+            a = await _asset(session, asset_id, scopes, lock=True)
+            _stale(a, body.version)
+            values: dict = {}
+            if "inventory_no" in sent or "serial_no" in sent:
+                _need(scopes, "manage", core.chain(a), "Номера меняет администратор здания")
+                values.update({k: sent[k] for k in ("inventory_no", "serial_no") if k in sent})
+            if "note" in sent:
+                _need(scopes, "edit", core.chain(a))
+                values["note"] = sent["note"] or ""
+            if sent.get("props"):
+                kind = await core.schema_of(request, session, a.type_id)
+                by_key = {p["key"]: p for p in kind.schema}
+                for key in sent["props"]:
+                    p = by_key.get(key)
+                    need = "manage" if p is None or p["editable_by"] != "responsible" else "edit"
+                    title = p["title"] if p else key
+                    _need(scopes, need, core.chain(a), f"Свойство «{title}» меняет администратор здания")
+                props = {**a.props, **sent["props"]}
+                core.check_props(kind.schema, props, changed=set(sent["props"]))
+                props = {k: v for k, v in props.items() if v is not None and v != ""}
+                values.update(props=props, needs_fill=core.incomplete(kind.schema, props), schema_version=kind.schema_version)
+            return core.asset_json(await _apply(session, a, who, values))
+    except IntegrityError as ex:
+        raise _taken(ex) or ex from ex
+
+
+class StateIn(BaseModel):
+    state: str = Field(pattern="^(" + "|".join(STATES) + ")$")
+    version: int
+
+
+@router.post("/assets/{asset_id}/state", tags=["assets"], summary="Сменить состояние; «списан» — администратор здания")
+async def set_state(asset_id: UUID, body: StateIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _stale(a, body.version)
+        retiring = body.state == "retired"
+        _need(scopes, "manage" if retiring or a.state == "retired" else "edit", core.chain(a),
+              "Списывает объекты администратор здания")
+        if a.state == body.state:
+            return core.asset_json(a)
+        new = (await session.execute(update(assets).where(assets.c.id == asset_id).values(
+            state=body.state, retired_at=func.now() if retiring else None, version=assets.c.version + 1,
+            updated_at=func.now()).returning(assets))).one()
+        await core.record(session, asset_id, who, "retired" if retiring else "state", {"state": [a.state, body.state]})
+        if retiring:
+            # what stood inside stays in the room, to be placed anew
+            inside = (await session.execute(update(assets).where(assets.c.container_id == asset_id).values(
+                container_id=None, x=a.x, y=a.y, needs_placement=True, version=assets.c.version + 1,
+                updated_at=func.now()).returning(assets))).all()
+            for child in inside:
+                await core.record(session, child.id, core.SYSTEM, "system", {"container_id": [str(asset_id), None]},
+                                  reason=f"Списан объект {a.inventory_no}, в котором он стоял")
+                await emit(session, "assets.asset.changed", ("asset", child.id),
+                           {"asset_id": str(child.id), "fields": ["container_id", "needs_placement"]},
+                           **core.scope_fields(child))
+        await emit(session, "assets.asset.retired" if retiring else "assets.asset.state_changed", ("asset", asset_id),
+                   {"asset_id": str(asset_id), "from": a.state, "to": body.state}, **core.scope_fields(new))
+    return core.asset_json(new)
+
+
+class ResponsibleIn(BaseModel):
+    person_id: UUID | None
+    version: int
+
+
+@router.post("/assets/{asset_id}/responsible", tags=["assets"], summary="Назначить или снять ответственного")
+async def set_responsible(asset_id: UUID, body: ResponsibleIn, request: Request,
+                          me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _stale(a, body.version)
+        _need(scopes, "manage", core.chain(a), "Ответственного назначает администратор здания")
+        if a.responsible_id == body.person_id:
+            return core.asset_json(a)
+        new = (await session.execute(update(assets).where(assets.c.id == asset_id).values(
+            responsible_id=body.person_id, version=assets.c.version + 1, updated_at=func.now()).returning(assets))).one()
+        was, now = (str(v) if v else None for v in (a.responsible_id, body.person_id))
+        await core.record(session, asset_id, who, "responsible", {"responsible_id": [was, now]})
+        await emit(session, "assets.asset.responsible_changed", ("asset", asset_id),
+                   {"asset_id": str(asset_id), "from": was, "to": now}, **core.scope_fields(new))
+    return core.asset_json(new)
+
+
+class MoveIn(Place):
+    version: int
+
+
+@router.post("/assets/{asset_id}/move", tags=["assets"],
+             summary="Переместить: в точку этажа или внутрь контейнера; вложенные объекты переезжают вместе")
+async def move(asset_id: UUID, body: MoveIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _stale(a, body.version)
+        kind = await core.schema_of(request, session, a.type_id)
+        if body.container_id == asset_id:
+            raise Problem(422, "invalid", "Объект нельзя вложить в самого себя")
+        where = await _where(request, session, scopes, body)
+        if kind.portable:           # whoever answers for it moves it to any room they see
+            _need(scopes, "move_portable", core.chain(a), "Перемещать объект может ответственный или администратор здания")
+            _need(scopes, "view", _area(where), "Нет доступа к помещению, куда перемещается объект")
+        else:
+            _need(scopes, "manage", core.chain(a), "Стационарные объекты перемещает администратор здания")
+            _need(scopes, "manage", _area(where), "Стационарные объекты перемещает администратор здания")
+        new = (await session.execute(update(assets).where(assets.c.id == asset_id).values(
+            **where, needs_placement=False, version=assets.c.version + 1, updated_at=func.now()).returning(assets))).one()
+        keys = ("room_id", "floor_id", "building_id", "x", "y", "container_id")
+        changes = {k: [str(getattr(a, k)) if isinstance(getattr(a, k), UUID) else getattr(a, k),
+                       str(where[k]) if isinstance(where[k], UUID) else where[k]] for k in keys if getattr(a, k) != where[k]}
+        await core.record(session, asset_id, who, "moved", changes)
+        inside = (await session.execute(update(assets).where(assets.c.container_id == asset_id).values(
+            building_id=new.building_id, floor_id=new.floor_id, room_id=new.room_id, version=assets.c.version + 1,
+            updated_at=func.now()).returning(assets))).all()
+        for moved in (new, *inside):
+            await emit(session, "assets.asset.moved", ("asset", moved.id),
+                       {"asset_id": str(moved.id), "from_room_id": str(a.room_id), "to_room_id": str(new.room_id),
+                        "from_building_id": str(a.building_id)}, **core.scope_fields(moved))
+    return core.asset_json(new)
+
+
+# ------------------------------------------------------------------ history ---
+@router.get("/assets/{asset_id}/history", tags=["history"], summary="История объекта: кто, когда, что было и стало")
+async def history(asset_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        await _asset(session, asset_id, scopes)
+        rows = (await session.execute(select(asset_history).where(asset_history.c.asset_id == asset_id)
+                                      .order_by(asset_history.c.at.desc(), asset_history.c.id.desc()).limit(500))).all()
+    return {"items": [{"id": str(h.id), "at": core.iso(h.at), "action": h.action, "changes": h.changes,
+                       "actor": {"kind": h.actor_kind, "id": h.actor_id,
+                                 "person_id": str(h.actor_person_id) if h.actor_person_id else None},
+                       "reverts": str(h.reverts) if h.reverts else None, "reason": h.reason} for h in rows]}
+
+
+@router.post("/assets/{asset_id}/history/{entry_id}/revert", tags=["history"],
+             summary="Откатить изменение — если с тех пор эти поля не менялись")
+async def revert(asset_id: UUID, entry_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _need(scopes, "manage", core.chain(a), "Откатывает изменения администратор здания")
+        h = (await session.execute(select(asset_history).where(
+            asset_history.c.id == entry_id, asset_history.c.asset_id == asset_id))).one_or_none()
+        if h is None or h.action not in ("changed", "state", "reverted"):
+            raise Problem(404, "not_found", "Такое изменение нельзя откатить")
+        values, props = {}, dict(a.props)
+        for field, (was, now) in h.changes.items():
+            current = a.props.get(field[6:]) if field.startswith("props.") else getattr(a, field)
+            if current != now:
+                raise Problem(409, "changed_since", f"Поле «{field}» с тех пор изменилось — откатить нельзя")
+            if field.startswith("props."):
+                props = {k: v for k, v in {**props, field[6:]: was}.items() if v is not None}
+            else:
+                values[field] = was
+        if props != a.props:
+            kind = await core.schema_of(request, session, a.type_id)
+            values.update(props=props, needs_fill=core.incomplete(kind.schema, props))
+        return core.asset_json(await _apply(session, a, who, values, "reverted", reverts=entry_id))
+
+
+# -------------------------------------------------------------------- files ---
+def file_json(f) -> dict:
+    return {"id": str(f.id), "asset_id": str(f.asset_id), "kind": f.kind, "name": f.name, "mime": f.mime, "size": f.size,
+            "uploaded_at": core.iso(f.uploaded_at)}
+
+
+@router.get("/assets/{asset_id}/files", tags=["files"], summary="Фотографии и документы объекта")
+async def list_files(asset_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        await _asset(session, asset_id, scopes)
+        rows = (await session.execute(select(asset_files).where(asset_files.c.asset_id == asset_id)
+                                      .order_by(asset_files.c.uploaded_at))).all()
+    return {"items": [file_json(f) for f in rows]}
+
+
+@router.post("/assets/{asset_id}/files", status_code=201, tags=["files"], summary="Приложить фото или документ")
+async def add_file(asset_id: UUID, request: Request, file: UploadFile = File(...),
+                   me: Identity = Depends(current_identity)) -> dict:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    data = await file.read(MAX_FILE + 1)
+    if len(data) > MAX_FILE:
+        raise Problem(413, "too_large", "Файл больше 25 МБ", title="Файл слишком большой")
+    if not data:
+        raise Problem(422, "invalid", "Файл пуст", errors=[{"field": "file", "message": "пуст"}])
+    mime, name, file_id = file.content_type or "application/octet-stream", (file.filename or "file")[:200], uuid7()
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _need(scopes, "edit", core.chain(a))
+        key = f"assets/{asset_id}/{file_id}"
+        await asyncio.to_thread(storage.bucket().put_bytes, key, data, mime)
+        f = (await session.execute(insert(asset_files).values(
+            id=file_id, asset_id=asset_id, kind="photo" if mime.startswith("image/") else "document", name=name,
+            mime=mime, size=len(data), storage_key=key, uploaded_by=me.sub).returning(asset_files))).one()
+        await core.record(session, asset_id, who, "file_added", {"file": [None, name]})
+        await emit(session, "assets.asset.file_added", ("asset", asset_id),
+                   {"asset_id": str(asset_id), "file_id": str(file_id), "kind": f.kind}, **core.scope_fields(a))
+    return file_json(f)
+
+
+async def _file(session, file_id: UUID, scopes: dict):
+    f = (await session.execute(select(asset_files).where(asset_files.c.id == file_id))).one_or_none()
+    if f is None:
+        raise Problem(404, "not_found", "Файл не найден")
+    return f, await _asset(session, f.asset_id, scopes)
+
+
+@router.get("/files/{file_id}", tags=["files"], response_class=StreamingResponse, summary="Файл объекта")
+async def get_file(file_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> StreamingResponse:
+    from urllib.parse import quote
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        f, _ = await _file(session, file_id, scopes)
+    headers = {"Content-Length": str(f.size), "Cache-Control": "private, max-age=3600",
+               "Content-Disposition": f"inline; filename*=UTF-8''{quote(f.name)}"}
+    return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(f.storage_key)), media_type=f.mime, headers=headers)
+
+
+@router.delete("/files/{file_id}", status_code=204, tags=["files"], summary="Убрать файл")
+async def delete_file(file_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> None:
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    async with request.app.state.db.begin() as session:
+        f, a = await _file(session, file_id, scopes)
+        _need(scopes, "edit", core.chain(a))
+        await session.execute(delete(asset_files).where(asset_files.c.id == file_id))
+        await core.record(session, a.id, who, "file_removed", {"file": [f.name, None]})
+        await emit(session, "assets.asset.file_removed", ("asset", a.id),
+                   {"asset_id": str(a.id), "file_id": str(file_id), "kind": f.kind}, **core.scope_fields(a))

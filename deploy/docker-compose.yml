@@ -72,7 +72,7 @@ services:
       TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
       TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
       # the services requests are passed on to: name=address, comma-separated
-      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000,catalog=http://catalog:8000}
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000,catalog=http://catalog:8000,assets=http://assets:8000}
 
   ping:
     <<: *service
@@ -145,6 +145,17 @@ services:
     environment:
       <<: [*service-env, *s3-env]
       TWIN_DATABASE_URL: postgresql+psycopg://catalog:${TWIN_DB_PASSWORD_CATALOG:-catalog}@db:5432/catalog
+      TWIN_SERVICES: assets=http://assets:8000
+
+  assets:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: assets}}
+    image: twin-assets:${TWIN_TAG:-dev}
+    environment:
+      <<: [*service-env, *s3-env]
+      TWIN_DATABASE_URL: postgresql+psycopg://assets:${TWIN_DB_PASSWORD_ASSETS:-assets}@db:5432/assets
+      TWIN_SERVICE_SECRET: ${TWIN_SVC_SECRET_ASSETS:-dev-svc-assets}
+      TWIN_SERVICES: buildings=http://buildings:8000,catalog=http://catalog:8000,access=http://access:8000
 
   # -- new services go above this line (tools/new-service adds them) --
 
@@ -174,7 +185,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
       PGDATABASE: postgres
       # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
-      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people catalog}
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people catalog assets}
       TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
       TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
       TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
@@ -183,6 +194,7 @@ services:
       TWIN_DB_PASSWORD_ACCESS: ${TWIN_DB_PASSWORD_ACCESS:-access}
       TWIN_DB_PASSWORD_PEOPLE: ${TWIN_DB_PASSWORD_PEOPLE:-people}
       TWIN_DB_PASSWORD_CATALOG: ${TWIN_DB_PASSWORD_CATALOG:-catalog}
+      TWIN_DB_PASSWORD_ASSETS: ${TWIN_DB_PASSWORD_ASSETS:-assets}
       # -- passwords of new databases go above this line --
     volumes:
       - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro
@@ -241,8 +253,9 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-kcadmin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
       # a client twin-svc-<name> for each; its secret is TWIN_SVC_SECRET_<NAME>
-      TWIN_SERVICE_CLIENTS: ${TWIN_SERVICE_CLIENTS:-buildings}
+      TWIN_SERVICE_CLIENTS: ${TWIN_SERVICE_CLIENTS:-buildings assets}
       TWIN_SVC_SECRET_BUILDINGS: ${TWIN_SVC_SECRET_BUILDINGS:-dev-svc-buildings}
+      TWIN_SVC_SECRET_ASSETS: ${TWIN_SVC_SECRET_ASSETS:-dev-svc-assets}
       # -- secrets of new service accounts go above this line --
     volumes:
       - ./keycloak/ensure-clients.sh:/ensure-clients.sh:ro

@@ -387,11 +387,11 @@ class Points(BaseModel):
 async def locate(floor_id: UUID, body: Points, request: Request,
                  _: Identity = Depends(reads_floor)) -> dict:
     async with request.app.state.db.begin() as session:
-        await _floor(session, floor_id)
+        floor = await _floor(session, floor_id)
         rows = (await session.execute(select(rooms.c.id, rooms.c.polygon).where(
             rooms.c.floor_id == floor_id, rooms.c.status == "active"))).all()
     found = await asyncio.to_thread(publish.locate, rows, [list(p) for p in body.points])
-    return {"rooms": [str(r) if r else None for r in found]}
+    return {"building_id": str(floor.building_id), "rooms": [str(r) if r else None for r in found]}
 
 
 # -------------------------------------------------------------------- rooms ---

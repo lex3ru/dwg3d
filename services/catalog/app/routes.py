@@ -27,6 +27,23 @@ def _stale(row, version: int) -> None:
         raise Problem(409, "version_conflict", "Запись изменил кто-то другой — обновите страницу")
 
 
+async def _unused(request: Request, type_id, old: list[dict], new: list[dict]) -> None:
+    """A property kept with objects may be removed, or change its kind, only while no object
+    has a value for it — the assets service is asked."""
+    now = {p["key"]: p for p in new if p["stored"] == "asset"}
+    gone = [p for p in old if p["stored"] == "asset" and (p["key"] not in now or now[p["key"]]["kind"] != p["kind"])]
+    token = request.headers.get("authorization", "").partition(" ")[2].strip()
+    for p in gone:
+        r = await request.app.state.client.get("assets", f"/usage?type_id={type_id}&prop={p['key']}", token=token)
+        if r.status_code != 200:
+            raise Problem(503, "service_unavailable",
+                          "Сервис объектов не ответил — проверить, занято ли свойство, нельзя",
+                          extra={"service": "assets"})
+        if (n := r.json()["with_value"]) > 0:
+            raise Problem(409, "in_use", f"Свойство «{p['title']}» заполнено у объектов ({n}): "
+                                         "его нельзя убрать и нельзя сменить вид значения")
+
+
 # --------------------------------------------------------------- categories ---
 class CategoryIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -138,7 +155,7 @@ async def patch_set(set_id: UUID, body: SetPatch, request: Request, _: Identity 
             raise Problem(404, "not_found", "Набор свойств не найден")
         _stale(s, body.version)
         new = [p.model_dump() for p in body.properties]
-        changed = new != s.properties
+        changed, old_properties = new != s.properties, s.properties
         s = (await session.execute(update(property_sets).where(property_sets.c.id == set_id).values(
             name=body.name.strip(), description=body.description, properties=new,
             version=property_sets.c.version + 1, updated_at=func.now()).returning(property_sets))).one()
@@ -148,6 +165,7 @@ async def patch_set(set_id: UUID, body: SetPatch, request: Request, _: Identity 
             using = (await session.execute(with_set)).all()
             for t in using:                          # the new set must fit every type that has it
                 check_resolved(t.name, resolve(t, sets))
+                await _unused(request, t.id, old_properties, new)
             ids = [t.id for t in using]
             if ids:
                 await session.execute(update(types).where(types.c.id.in_(ids)).values(
@@ -305,6 +323,8 @@ async def patch_type(type_id: UUID, body: TypePatch, request: Request, _: Identi
         values.pop("version")
         schema_changed = (values["sets"], values["properties"], values["container"], values["portable"]) != (
             old.sets, old.properties, old.container, old.portable)
+        if schema_changed:
+            await _unused(request, type_id, resolve(old, await _sets(session)), schema)
         t = (await session.execute(update(types).where(types.c.id == type_id).values(
             **values, version=types.c.version + 1, updated_at=func.now(),
             schema_version=types.c.schema_version + (1 if schema_changed else 0)).returning(types))).one()

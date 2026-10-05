@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.retired",
+  "description": "Объект списан. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "from",
+    "to"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "from": {
+      "type": "string",
+      "enum": [
+        "in_use",
+        "faulty",
+        "in_repair",
+        "in_storage",
+        "retired"
+      ]
+    },
+    "to": {
+      "type": "string",
+      "enum": [
+        "in_use",
+        "faulty",
+        "in_repair",
+        "in_storage",
+        "retired"
+      ]
+    }
+  }
+}

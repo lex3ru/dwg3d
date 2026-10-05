@@ -167,3 +167,25 @@ async def test_model_of_a_type(client, tokens):
     assert r.status_code == 200 and "больше чем вдвое" in r.json()["model"]["warnings"][0]
     assert (await client.delete(url, headers=admin)).status_code == 204
     assert (await client.get(f"{API}/types/{couch['id']}", headers=user)).json()["model"] is None
+
+
+async def test_property_with_values_at_objects_stays(client, tokens, used):
+    admin = tokens.admin()
+    couch = (await named(client, admin, "types"))["Кушетка"]
+    sset = (await named(client, admin, "property-sets"))["Мебель"]             # material, wear — both kept with objects
+    used["wear"] = 3                                                            # three objects have their wear filled in
+
+    without = {"name": sset["name"], "version": sset["version"], "properties": [sset["properties"][0]]}
+    r = await client.patch(f"{API}/property-sets/{sset['id']}", json=without, headers=admin)
+    assert r.status_code == 409 and r.json()["code"] == "in_use" and "Износ" in r.json()["detail"]
+    as_text = {**sset["properties"][1], "kind": "text", "options": None}
+    other_kind = {**without, "properties": [sset["properties"][0], as_text]}
+    assert (await client.patch(f"{API}/property-sets/{sset['id']}", json=other_kind, headers=admin)).status_code == 409
+    # the type cannot drop the set either
+    body = {"category_id": couch["category_id"], "name": couch["name"], "w": 1.9, "d": 0.65, "h": 0.55,
+            "sets": [couch["sets"][0]], "properties": couch["properties"], "values": couch["values"],
+            "version": couch["version"]}
+    assert (await client.patch(f"{API}/types/{couch['id']}", json=body, headers=admin)).status_code == 409
+    # a property nobody has filled in goes freely; a new one comes freely
+    used.clear()
+    assert (await client.patch(f"{API}/property-sets/{sset['id']}", json=without, headers=admin)).status_code == 200

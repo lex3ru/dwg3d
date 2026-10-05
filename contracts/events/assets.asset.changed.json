@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.changed",
+  "description": "Изменены поля объекта. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Изменённые поля; свойства — как props.<ключ>"
+    }
+  }
+}

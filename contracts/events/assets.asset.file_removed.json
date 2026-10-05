@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.file_removed",
+  "description": "Файл объекта убран. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "file_id",
+    "kind"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "file_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "enum": [
+        "photo",
+        "document"
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.responsible_changed",
+  "description": "Сменился ответственный за объект: прежний теряет право на него, новый получает. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "from",
+    "to"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    }
+  }
+}

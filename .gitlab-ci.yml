@@ -244,4 +244,12 @@ image:catalog:
   extends: .service-image
   variables: {SERVICE: catalog}
 
+service:assets:
+  extends: .service
+  variables: {SERVICE: assets}
+
+image:assets:
+  extends: .service-image
+  variables: {SERVICE: assets}
+
 # -- jobs of new services go above this line (tools/new-service adds them) --

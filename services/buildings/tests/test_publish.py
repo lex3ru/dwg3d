@@ -76,7 +76,7 @@ async def test_search_and_locate(client, tokens, building, site):
     r = await client.post(f"{API}/floors/{floors[0]['id']}/locate",
                           json={"points": [[8.4, 4.0], [2.0, 4.0], [50.0, 50.0]]}, headers=admin)
     other = next(x for x in floors[0]["rooms"] if x["id"] != office["id"])
-    assert r.json()["rooms"] == [office["id"], other["id"], None]
+    assert r.json() == {"building_id": building["id"], "rooms": [office["id"], other["id"], None]}
     assert (await client.post(f"{API}/floors/{floors[0]['id']}/locate", json={"points": [[1]]},
                               headers=admin)).status_code == 422
 

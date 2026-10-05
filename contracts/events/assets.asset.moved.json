@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.moved",
+  "description": "Объект перемещён (вложенные объекты — отдельными событиями). subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "from_room_id",
+    "to_room_id",
+    "from_building_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "from_room_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "to_room_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "from_building_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

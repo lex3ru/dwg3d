@@ -11,6 +11,7 @@ os.environ.setdefault("TWIN_S3_ENDPOINT", os.environ.get("TWIN_TEST_S3_ENDPOINT"
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
+from twin_chassis.client import ServiceClient  # noqa: E402
 from twin_chassis.testing import Tokens, running, scratch_database, test_settings  # noqa: E402
 
 from app import storage  # noqa: E402
@@ -41,9 +42,21 @@ def database_url():
         yield url
 
 
+@pytest.fixture
+def used() -> dict[str, int]:
+    """property key -> how many objects have a value for it, as the assets service would say"""
+    return {}
+
+
 @pytest_asyncio.fixture
-async def app(database_url, tokens):
-    async with running(build(test_settings(SERVICE, database_url), tokens.verifier())) as app:
+async def app(database_url, tokens, used):
+    def assets(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"assets": 0, "with_value": used.get(request.url.params["prop"], 0)})
+
+    settings = test_settings(SERVICE, database_url)
+    client = ServiceClient(settings, {"assets": "http://assets.test"},
+                           httpx.AsyncClient(transport=httpx.MockTransport(assets)))
+    async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 
 
