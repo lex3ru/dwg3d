@@ -73,9 +73,9 @@ export default function TopBar({ jobId, projectId, name, result, onOpenJob, onRo
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><FolderOpen /> Проект: чертежи, слои, участники</a></DropdownMenuItem>
+          <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><FolderOpen /> Здание: чертежи и этажи</a></DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Чертежи проекта</DropdownMenuLabel>
+          <DropdownMenuLabel>Чертежи здания</DropdownMenuLabel>
           {jobs.map((j) => (
             <DropdownMenuItem key={j.id} className={j.id === jobId ? 'bg-accent text-accent-foreground' : ''} onSelect={() => onOpenJob(j.id)}>
               <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />

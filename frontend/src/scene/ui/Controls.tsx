@@ -1,3 +1,4 @@
+import { LATER } from '../compat'
 import { BookOpen, Bot, Building2, FileSpreadsheet, Map as MapIcon, Maximize, Minus, Monitor, Moon, Package, Plus, Settings, Sun, Sunset } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -56,9 +57,9 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
         <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onSelect={() => onSettings('floors')}><Building2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onSettings('site')}><MapIcon /> Карта и детальная модель…</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onSettings('report')}><FileSpreadsheet /> Спецификация оборудования…</DropdownMenuItem>
-          {can('catalog_admin') && <DropdownMenuItem onSelect={() => onSettings('catalog')}><Package /> Каталог оборудования…</DropdownMenuItem>}
-          {can('admin') && <DropdownMenuItem onSelect={() => onSettings('copilot')}><Bot /> Копилот: модель и лимиты…</DropdownMenuItem>}
+          {LATER.reports && <DropdownMenuItem onSelect={() => onSettings('report')}><FileSpreadsheet /> Спецификация оборудования…</DropdownMenuItem>}
+          {LATER.catalog && can('catalog_admin') && <DropdownMenuItem onSelect={() => onSettings('catalog')}><Package /> Каталог оборудования…</DropdownMenuItem>}
+          {LATER.copilot && can('admin') && <DropdownMenuItem onSelect={() => onSettings('copilot')}><Bot /> Копилот: модель и лимиты…</DropdownMenuItem>}
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Тема</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>

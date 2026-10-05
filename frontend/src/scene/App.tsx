@@ -656,7 +656,7 @@ export default function App() {
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
           <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
-            tabs={[{ id: 'tree', label: 'Проект', icon: ListTree }, ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen }] : [])]}>
+            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree }, ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen }] : [])]}>
             {leftContent}
           </Dock>
         )}
@@ -763,7 +763,7 @@ export default function App() {
         {job?.status === 'error' && (
           <div className="absolute top-[70px] left-1/2 z-40 grid w-[min(520px,calc(100%-2rem))] -translate-x-1/2 gap-1.5 rounded-xl border border-destructive/30 bg-card p-3 text-sm shadow-lg">
             <b className="text-destructive">Ошибка обработки</b><p className="m-0 break-words text-muted-foreground">{job.error}</p>
-            <Button asChild variant="outline" size="sm" className="justify-self-start"><a href={`#/p/${job.project_id}`}>К проекту</a></Button></div>
+            <Button asChild variant="outline" size="sm" className="justify-self-start"><a href={`#/p/${job.project_id}`}>К зданию</a></Button></div>
         )}
         {error && <div className="absolute top-[70px] left-1/2 z-40 w-[min(520px,calc(100%-2rem))] -translate-x-1/2 rounded-xl border border-destructive/30 bg-card p-3 text-sm break-words text-destructive shadow-lg">{error}</div>}
         </div>

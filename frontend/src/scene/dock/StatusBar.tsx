@@ -1,3 +1,4 @@
+import { LATER } from '../compat'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import type { Projection, NavMode } from '@/scene/state'
 
@@ -21,7 +22,7 @@ export default function StatusBar({ floor, nav, proj, objects, rooms, conflicts,
       <span className="font-medium text-foreground">{floor}</span>
       <span>{NAV[nav]} · {proj.toUpperCase()}</span>
       {rooms != null && <span className="max-sm:hidden">{rooms} пом.</span>}
-      <span className="max-sm:hidden">объектов на чертеже: {objects}</span>
+      {LATER.layers && <span className="max-sm:hidden">объектов на чертеже: {objects}</span>}
       <span className="flex-1" />
       {conflicts > 0 && (
         <button className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-destructive hover:underline" onClick={onConflicts}>

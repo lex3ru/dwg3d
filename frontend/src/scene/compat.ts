@@ -7,6 +7,14 @@
 // What is not built yet answers "empty": layers and placed objects (stage 4),
 // routes of people and zones (stage 8), the copilot (stage 9).
 
+/** Parts of the viewer whose data arrives with later services; their entry points are hidden until then. */
+export const LATER = {
+  layers: false,       // layers and what is placed on them: the assets service, stage 4
+  reports: false,      // the equipment list: stages 4–5
+  catalog: false,      // the catalog editor: stage 3
+  copilot: false,      // stage 9
+}
+
 type Json = Record<string, any>   // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const IMPORT = '/api/import/v1'
@@ -40,7 +48,11 @@ async function call<T = Json>(method: string, url: string, body?: unknown): Prom
 
 // ------------------------------------------------------------ what we know ---
 /** drawing -> its building and published build (filled by every GET of the drawing) */
-const known = new Map<string, { building: string; build: string | null; n: number; floors: Map<string, string> }>()
+/** Another drawing of the same building, placed in the scene of the drawing on screen. */
+export interface Neighbour { id: string; name: string; url: string; position: [number, number, number]; turn: number }
+const known = new Map<string, {
+  building: string; build: string | null; n: number; floors: Map<string, string>; neighbours: Neighbour[]
+}>()
 /** ids the viewer gave to pins it created -> the ids they got in the buildings service */
 const pinIds = new Map<string, string>()
 let admin = false
@@ -51,6 +63,24 @@ export function buildFileUrl(drawing: string, path: string): string {
   const build = known.get(drawing)?.build
   return build ? `${IMPORT}/builds/${build}/files/${path}` : `${IMPORT}/builds/00000000-0000-0000-0000-000000000000/files/${path}`
 }
+export const neighbours = (drawing: string): Neighbour[] => known.get(drawing)?.neighbours ?? []
+
+/**
+ * Where the model of drawing `b` stands in the scene of drawing `a`.
+ * A model's origin is the plan point `center` of its drawing (x right, plan y = -z);
+ * `placement` puts a drawing's plan into the building: turn (degrees, counter-clockwise), then shift.
+ */
+function relative(a: Json, b: Json): Pick<Neighbour, 'position' | 'turn'> {
+  const rad = (d: number) => (d * Math.PI) / 180
+  const turn = (v: [number, number], t: number): [number, number] =>
+    [v[0] * Math.cos(t) - v[1] * Math.sin(t), v[0] * Math.sin(t) + v[1] * Math.cos(t)]
+  const ta = rad(a.placement.rotation), tb = rad(b.placement.rotation)
+  const [ca, cb] = [a.result.center ?? [0, 0], b.result.center ?? [0, 0]]
+  const q = turn(cb, tb)                                       // b's origin in the building…
+  const inA = turn([q[0] + b.placement.dx - a.placement.dx, q[1] + b.placement.dy - a.placement.dy], -ta)   // …and in a's plan
+  return { position: [inA[0] - ca[0], b.placement.dz - a.placement.dz, -(inA[1] - ca[1])], turn: tb - ta }
+}
+
 export const facadeUrl = (drawing: string, version: number) =>
   `${BUILDINGS}/buildings/${known.get(drawing)?.building}/facade.glb?v=${version}`
 
@@ -67,7 +97,9 @@ async function job(id: string): Promise<Json> {
   const publishing = b.status === 'done' && shown?.build_id !== b.id
   const floors = new Map<string, string>()
   for (const f of shown?.result?.floors ?? []) if (f.floor_id) floors.set(f.id, f.floor_id)
-  known.set(id, { building: d.building_id, build: shown?.build_id ?? null, n: shown?.build_n ?? 0, floors })
+  const others = shown ? (model.drawings as Json[]).filter((x) => x.id !== id && x.result) : []
+  const neighbours = others.map((x) => ({ id: x.id, name: x.name, url: x.model_url, ...relative(shown!, x) }))
+  known.set(id, { building: d.building_id, build: shown?.build_id ?? null, n: shown?.build_n ?? 0, floors, neighbours })
   const marks = await pins(id)
   const facade = building.facade
   return {
@@ -149,8 +181,15 @@ const EMPTY_KINDS = { kinds: [], flows: {}, flow_conflicts: [], zone_kinds: {}, 
 type Handler = (m: RegExpExecArray, init: RequestInit | undefined, url: URL) => Promise<unknown> | unknown
 const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/api\/drawings\/([^/]+)$/, (m) => job(m[1])],
-  ['GET', /^\/api\/drawings$/, async (_, __, url) =>
-    ((await call('GET', `${IMPORT}/drawings?building_id=${url.searchParams.get('project')}`)).items as Json[]).map(summary)],
+  ['GET', /^\/api\/drawings$/, async (_, __, url) => {
+    const building = url.searchParams.get('project')
+    const [list, model] = await Promise.all([
+      call('GET', `${IMPORT}/drawings?building_id=${building}`), call('GET', `${BUILDINGS}/buildings/${building}/model`)])
+    const floors = new Map((model.drawings as Json[]).map((x) => [x.id, (x.result?.floors ?? []).length]))
+    // the viewer offers the drawings that can be opened: the ones the building has taken in
+    return (list.items as Json[]).map((d) => ({ ...summary(d), floors: floors.get(d.id) ?? 0,
+      status: floors.has(d.id) ? 'done' : summary(d).status === 'done' ? 'running' : summary(d).status }))
+  }],
   ['DELETE', /^\/api\/drawings\/([^/]+)$/, async (m) => { await call('DELETE', `${IMPORT}/drawings/${m[1]}`); return null }],
   ['POST', /^\/api\/drawings\/([^/]+)\/rebuild$/, async (m, init) => {
     await call('POST', `${IMPORT}/drawings/${m[1]}/builds`, { config: JSON.parse(String(init?.body ?? '{}')) })

@@ -1,3 +1,4 @@
+import Neighbours from './Neighbours'
 import { facadeUrl } from '../compat'
 import { Environment, GizmoHelper, GizmoViewport, Lightformer, PerformanceMonitor, SoftShadows } from '@react-three/drei'
 import { Canvas, useThree } from '@react-three/fiber'
@@ -138,6 +139,7 @@ function Scene(p: ViewerProps & { quality: 'high' | 'eco' | 'real'; setAuto: (q:
         onDoublePick={(pk) => { if (p.tool === 'measure') measure.pick(pk.point, true) }}
         onPointer={(pk) => { if (p.tool === 'measure') measure.probe(pk?.point ?? null) }}
       />
+      <Neighbours drawing={p.jobId} />
       {detail && (
         <Suspense fallback={null}>
           <Detail ctx={ctx} url={facadeUrl(p.jobId, detail.version ?? 0)} cfg={detail}

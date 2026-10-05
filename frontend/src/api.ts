@@ -60,7 +60,8 @@ export type Drawing = {
   build: Build | null; current_build_id: string | null; updated_at: string; unchanged?: boolean
 }
 /** A drawing as the building has taken it in: the build that is shown. */
-export type PlacedDrawing = { id: string; name: string; build_id: string | null; build_n: number }
+export type Placement = { dx: number; dy: number; dz: number; rotation: number }
+export type PlacedDrawing = { id: string; name: string; build_id: string | null; build_n: number; placement: Placement; version: number }
 export type TreeFloor = { id: string; name: string; level: number | null; rooms: { id: string; name: string; area: number }[] }
 
 const BUILDINGS = '/api/buildings/v1'
@@ -91,3 +92,5 @@ export const uploadDrawing = (building: string, file: File) =>
 /** A new file of an existing drawing; the same file again changes nothing (`unchanged`). */
 export const uploadDrawingFile = (drawing: string, file: File) =>
   api<Drawing>(`${IMPORT}/drawings/${drawing}/files`, { method: 'POST', body: fileForm(file) })
+export const placeDrawing = (building: string, d: PlacedDrawing, placement: Placement) =>
+  api<PlacedDrawing>(`${BUILDINGS}/buildings/${building}/drawings/${d.id}`, { method: 'PATCH', json: { placement, version: d.version } })

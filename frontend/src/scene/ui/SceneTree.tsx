@@ -1,3 +1,4 @@
+import { LATER } from '../compat'
 import {
   Building, ChevronDown, ChevronRight, DoorOpen, Download, ExternalLink, Eye, EyeOff, FileText, GitCompare, Layers as LayersIcon,
   Lock, LockOpen, MoreHorizontal, Pencil, PencilRuler, Plus, Search, Settings2,
@@ -135,7 +136,7 @@ export default function SceneTree(p: {
       <div className="relative shrink-0 border-b border-border p-2">
         <Search className="pointer-events-none absolute top-4 left-4 size-3.5 text-muted-foreground" />
         <div className="flex gap-1">
-          <Input className="h-7 pl-7 text-xs" placeholder="Помещение, этаж или слой" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-7 pl-7 text-xs" placeholder="Помещение или этаж" value={q} onChange={(e) => setQ(e.target.value)} />
           <div role="group" aria-label="Объекты в дереве" className="flex shrink-0 rounded-md bg-secondary p-0.5">
             {([['layers', LayersIcon, 'Объекты — под своими слоями'], ['rooms', DoorOpen, 'Объекты — в помещениях, из всех показанных слоёв']] as const).map(([g, Icon, hint]) => (
               <Tip key={g} label={hint} side="bottom">
@@ -164,11 +165,11 @@ export default function SceneTree(p: {
                   <DropdownMenuTrigger asChild><button className={cn(iconBtn, 'mr-1')} aria-label="Действия с чертежом"><MoreHorizontal /></button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
                     <DropdownMenuItem onSelect={p.onDrawing}><FileText /> Сводка и предупреждения</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF со слоями</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG со слоями</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF с правками</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG с правками</DropdownMenuItem>
                     {p.editable && <DropdownMenuItem onSelect={p.onFloorSettings}><Settings2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/drawings`}><ExternalLink /> Чертежи проекта, новая ревизия</a></DropdownMenuItem>
+                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}`}><ExternalLink /> Чертежи здания, новый файл</a></DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
@@ -259,7 +260,7 @@ export default function SceneTree(p: {
           </ul>
         </Section>
 
-        {layersShown && (
+        {LATER.layers && layersShown && (
           <Section title="Слои" icon={LayersIcon} open={sec.layers} onOpen={(v) => setSec({ ...sec, layers: v })}
             action={(
               <DropdownMenu>
@@ -336,7 +337,7 @@ export default function SceneTree(p: {
         )}
       </div>
       <a href={`#/p/${p.projectId}`} className="flex shrink-0 items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground no-underline hover:text-foreground">
-        <ExternalLink className="size-3.5" /> Проект: чертежи, слои, участники
+        <ExternalLink className="size-3.5" /> Здание: чертежи и этажи
       </a>
     </div>
   )

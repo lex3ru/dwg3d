@@ -1,11 +1,12 @@
 import { ArrowLeft, Box, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, rebuildDrawing, uploadDrawing, uploadDrawingFile,
-  type Building as BuildingInfo, type Drawing, type PlacedDrawing, type TreeFloor,
+  deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
+  type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
 import { useEvents } from '../stream'
 
 const STATUS: Record<string, [string, 'default' | 'accent' | 'success' | 'destructive']> = {
@@ -79,7 +80,8 @@ export function Building({ id }: { id: string }) {
           <ul className="mt-3 divide-y rounded-lg border bg-card" data-testid="drawings">
             {drawings.map(d => {
               const b = d.build
-              const shown = placed.find(p => p.id === d.id)?.build_id
+              const place = placed.find(p => p.id === d.id)
+              const shown = place?.build_id
               // built, but the building follows the event and may be a moment behind
               const publishing = b?.status === 'done' && shown !== b.id
               const [label, tone] = publishing ? STATUS.running : STATUS[b?.status ?? 'queued']
@@ -106,6 +108,10 @@ export function Building({ id }: { id: string }) {
                       </div>
                     )}
                     {b?.status === 'error' && <div role="alert" className="mt-1 text-sm text-destructive">{b.error}</div>}
+                    {place && shown && placed.length > 1 && (
+                      <PlacementForm key={place.version} value={place.placement} disabled={busy}
+                        onSave={v => act(placeDrawing(id, place, v))} />
+                    )}
                   </div>
                   <Badge variant={tone}>{label}</Badge>
                   {shown && (
@@ -142,5 +148,31 @@ export function Building({ id }: { id: string }) {
         </div>
       )}
     </section>
+  )
+}
+
+const FIELDS: [keyof Placement, string, string][] = [
+  ['dx', 'Сдвиг X, м', 'Вправо по плану'], ['dy', 'Сдвиг Y, м', 'Вверх по плану'],
+  ['dz', 'Высота, м', 'Подъём всего чертежа'], ['rotation', 'Поворот, °', 'Против часовой стрелки'],
+]
+
+/** Where the drawing stands in the building, relative to the others (shown when there are several). */
+function PlacementForm({ value, disabled, onSave }: { value: Placement; disabled: boolean; onSave: (v: Placement) => void }) {
+  const [draft, setDraft] = useState(() => Object.fromEntries(FIELDS.map(([k]) => [k, String(value[k])])) as Record<keyof Placement, string>)
+  const parsed = Object.fromEntries(FIELDS.map(([k]) => [k, Number(draft[k].replace(',', '.'))])) as Placement
+  const valid = FIELDS.every(([k]) => draft[k].trim() !== '' && Number.isFinite(parsed[k])) && Math.abs(parsed.rotation) <= 360
+  const changed = FIELDS.some(([k]) => parsed[k] !== value[k])
+  return (
+    <form className="mt-2 flex flex-wrap items-end gap-2" data-testid="placement"
+      onSubmit={e => { e.preventDefault(); if (valid && changed) onSave(parsed) }}>
+      <span className="w-full text-xs text-muted-foreground">Положение в здании</span>
+      {FIELDS.map(([k, label, hint]) => (
+        <label key={k} className="grid gap-0.5 text-xs text-muted-foreground" title={hint}>{label}
+          <Input className="h-7 w-24 text-xs" inputMode="decimal" value={draft[k]} aria-label={label}
+            onChange={e => setDraft({ ...draft, [k]: e.target.value })} />
+        </label>
+      ))}
+      <Button type="submit" size="sm" variant="outline" disabled={disabled || !valid || !changed}>Сохранить</Button>
+    </form>
   )
 }

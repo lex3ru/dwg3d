@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { signIn } from './helpers'
 
 // Stage 1 (docs/ACCEPTANCE.md, section 3): drawings become a building.
@@ -48,7 +48,7 @@ test('the administrator makes a building from a drawing, opens it in 3D and 2D a
   await expect(page).toHaveURL(/\/floor_\w+\/2d/)
 
   await page.locator('button').first().click()                       // the left dock: the tree of the building
-  const search = page.getByPlaceholder('Помещение, этаж или слой')
+  const search = page.getByPlaceholder('Помещение или этаж')
   await search.fill('Кабинет')
   const found = page.getByText('Кабинет', { exact: true }).first()
   await expect(found).toBeVisible()
@@ -59,6 +59,64 @@ test('the administrator makes a building from a drawing, opens it in 3D and 2D a
   await page.goto('/#/buildings')
   await expect(page.getByTestId('buildings').getByText(name)).toBeVisible()
   expect(failed).toEqual([])
+})
+
+test('two drawings of a building stand in one scene, each where its placement puts it', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await newBuilding(page, `Два корпуса ${Date.now()}`)
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(drawing(page, 'sample.dxf')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  await page.getByTestId('file').setInputFiles({ name: 'second.dxf', mimeType: 'application/dxf', buffer: readFileSync('fixtures/sample.dxf') })
+  const second = drawing(page, 'second.dxf')
+  await expect(second).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  await expect(page.getByTestId('totals')).toHaveText('Этажей: 4 · помещений: 8')
+
+  // the second one is moved 20 m to the right and turned
+  const form = second.getByTestId('placement')
+  await form.getByLabel('Сдвиг X, м').fill('20')
+  await form.getByLabel('Поворот, °').fill('30')
+  await form.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(second.getByTestId('placement').getByLabel('Сдвиг X, м')).toHaveValue('20')
+  await page.reload()
+  await expect(drawing(page, 'second.dxf').getByTestId('placement').getByLabel('Поворот, °')).toHaveValue('30')
+
+  // the viewer of the first drawing loads both models
+  const models = new Set<string>()
+  page.on('response', r => { if (r.url().includes('/files/model.glb') && r.ok()) models.add(new URL(r.url()).pathname) })
+  await drawing(page, 'sample.dxf').getByRole('link', { name: 'Открыть' }).click()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await expect.poll(() => models.size, { timeout: 20_000 }).toBe(2)
+  await page.waitForTimeout(2500)
+  await page.screenshot({ path: 'screenshots/two-drawings.png' })
+})
+
+test('a marker put on a floor is there after a reload', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await newBuilding(page, `Метка ${Date.now()}`)
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(drawing(page, 'sample.dxf')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  await drawing(page, 'sample.dxf').getByRole('link', { name: 'Открыть' }).click()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(3000)
+
+  await page.getByRole('button', { name: 'Метка' }).click()
+  await page.mouse.click(700, 450)
+  await page.getByPlaceholder('Подпись').fill('Щиток')
+  await page.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(page.getByPlaceholder('Подпись')).toHaveCount(0)
+  await page.waitForTimeout(1000)
+  await page.reload()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  // markers inside a floor show when the floor is open: go through the floors
+  let seen = 0
+  for (const floor of ['c0', 'c1']) {
+    await page.goto(page.url().replace(/\/(all|floor_\w+)\/3d.*/, `/floor_${floor}/3d`))
+    await page.waitForTimeout(2500)
+    seen += await page.getByText('Щиток').count()
+  }
+  expect(seen).toBeGreaterThan(0)
 })
 
 test('a file that is not a drawing fails with a message, not a hanging build', async ({ page }) => {
