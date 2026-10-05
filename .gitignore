@@ -1,17 +1,19 @@
-.tools/
-data/
-work/
-backend/.venv/
-**/__pycache__/
-.pytest_cache/
-frontend/node_modules/
-frontend/dist/
-*.dwg
-!backend/tests/**/*.dwg
-backend/dev_users.local.txt
+# local settings and data
 .env
-backups/
-_deploy/.env
-_deploy/backups/
-_deploy/images/
-_deploy/src/
+/backups/
+*.dwg
+!legacy/backend/tests/**/*.dwg
+
+# the current single-application version (legacy/)
+/legacy/.tools/
+/legacy/data/
+/legacy/work/
+/legacy/backups/
+/legacy/backend/dev_users.local.txt
+
+# Python, Node
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/

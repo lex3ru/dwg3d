@@ -7,7 +7,7 @@
       "runtimeArgs": [
         "run",
         "--directory",
-        "backend",
+        "legacy/backend",
         "uvicorn",
         "dwg3d.api:app",
         "--port",
@@ -20,7 +20,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "--prefix",
-        "frontend",
+        "legacy/frontend",
         "run",
         "dev",
         "--",
@@ -36,7 +36,7 @@
       "runtimeArgs": [
         "run",
         "--directory",
-        "backend",
+        "legacy/backend",
         "uvicorn",
         "dwg3d.api:app",
         "--port",
@@ -51,7 +51,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "set -a; . ./.env; set +a; export DWG3D_AUTH=off DWG3D_S3_ENDPOINT=http://127.0.0.1:9000 DWG3D_WORKERS=0; exec uv run --directory backend uvicorn dwg3d.api:app --port 8766"
+        "set -a; . ./legacy/.env; set +a; export DWG3D_AUTH=off DWG3D_S3_ENDPOINT=http://127.0.0.1:9000 DWG3D_WORKERS=0; exec uv run --directory legacy/backend uvicorn dwg3d.api:app --port 8766"
       ],
       "port": 8766
     },
@@ -60,7 +60,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "--prefix",
-        "frontend",
+        "legacy/frontend",
         "run",
         "dev",
         "--",

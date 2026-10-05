@@ -1,4 +1,7 @@
-# CI: backend tests on a real PostgreSQL and S3, frontend types / lint / build,
+# CI of the current single-application version (legacy/); the services of the
+# new version add their own jobs here as they appear.
+#
+# Backend tests on a real PostgreSQL and S3, frontend types / lint / build,
 # container images (built on merge requests that touch them, pushed to the
 # project's registry from main and tags).
 #
@@ -36,26 +39,26 @@ backend:
     MPLBACKEND: Agg
   cache:
     key:
-      files: [backend/uv.lock]
+      files: [legacy/backend/uv.lock]
     paths: [.uv-cache]
   script:
-    - cd backend
+    - cd legacy/backend
     - uv sync --frozen
     - uv run pytest -q -rs --junitxml=report.xml
   artifacts:
     when: always
     reports:
-      junit: backend/report.xml
+      junit: legacy/backend/report.xml
 
 frontend:
   stage: test
   image: node:24-slim
   cache:
     key:
-      files: [frontend/package-lock.json]
+      files: [legacy/frontend/package-lock.json]
     paths: [.npm]
   script:
-    - cd frontend
+    - cd legacy/frontend
     - npm ci --cache "$CI_PROJECT_DIR/.npm" --prefer-offline
     - npm run lint
     - npm run build
@@ -80,19 +83,19 @@ frontend:
 image:api:
   extends: .image
   variables:
-    CONTEXT: backend
+    CONTEXT: legacy/backend
     IMAGE: $CI_REGISTRY_IMAGE/api
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [backend/Dockerfile, backend/pyproject.toml, backend/uv.lock]
+      changes: [legacy/backend/Dockerfile, legacy/backend/pyproject.toml, legacy/backend/uv.lock]
 
 image:web:
   extends: .image
   variables:
-    CONTEXT: frontend
+    CONTEXT: legacy/frontend
     IMAGE: $CI_REGISTRY_IMAGE/web
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [frontend/Dockerfile, frontend/Caddyfile, frontend/package-lock.json]
+      changes: [legacy/frontend/Dockerfile, legacy/frontend/Caddyfile, legacy/frontend/package-lock.json]

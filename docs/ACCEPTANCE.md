@@ -30,7 +30,7 @@
     Firefox и Edge; в светлой и тёмной теме.
 
 Проверочные чертежи: `2022-06-02 - Поэтажные планы.dwg` и
-`mnogoprofilny_meditsinskiy_tsentr.dwg` из корня репозитория.
+`mnogoprofilny_meditsinskiy_tsentr.dwg` из `legacy/` (в репозиторий не входят).
 
 ## 2. Этап 0 — каркас
 
