@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Create a service from the template and plug it into the stack.
+
+    tools/new-service <name> ["Название по-русски"]
+
+Makes services/<name> (a working service with a sample entity, its tests
+passing), its contracts, and adds it to deploy/docker-compose.yml (the
+service, its database), deploy/.env.example, the gateway's routes and CI.
+Then: `cd services/<name> && uv run pytest`.
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE = ROOT / "services" / "_template"
+
+
+def insert_before(path: Path, marker: str, block: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    at = next((i for i, line in enumerate(lines) if marker in line), None)
+    if at is None:
+        sys.exit(f"В {path.relative_to(ROOT)} нет строки-метки «{marker}»")
+    lines[at:at] = [block if block.endswith("\n") else block + "\n"]
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def replace_once(path: Path, pattern: str, repl) -> None:
+    text = path.read_text(encoding="utf-8")
+    new, n = re.subn(pattern, repl, text, count=1, flags=re.M)
+    if n != 1:
+        sys.exit(f"В {path.relative_to(ROOT)} не найдено: {pattern}")
+    path.write_text(new, encoding="utf-8")
+
+
+def main() -> None:
+    if len(sys.argv) not in (2, 3) or not re.fullmatch(r"[a-z][a-z0-9]{1,30}", sys.argv[1]):
+        sys.exit(__doc__ + "\nИмя: строчные латинские буквы и цифры, начинается с буквы.")
+    name = sys.argv[1]
+    title = sys.argv[2] if len(sys.argv) == 3 else f"Сервис {name}"
+    target = ROOT / "services" / name
+    if target.exists():
+        sys.exit(f"services/{name} уже есть")
+    upper = name.upper()
+
+    # the service itself
+    skip = shutil.ignore_patterns(".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "uv.lock")
+    shutil.copytree(TEMPLATE, target, ignore=skip)
+    for path in target.rglob("*"):
+        if path.is_file():
+            path.write_text(path.read_text(encoding="utf-8").replace("__service__", name).replace("__title__", title),
+                            encoding="utf-8")
+    # its contracts: events from the template, requests from the code
+    for path in (target / "contracts").iterdir():
+        shutil.move(path, ROOT / "contracts" / "events" / f"{name}.{path.name}")
+    (target / "contracts").rmdir()
+
+    # the stack
+    compose = ROOT / "deploy" / "docker-compose.yml"
+    insert_before(compose, "-- new services go above this line", f"""\
+  {name}:
+    <<: *service
+    build: {{context: .., dockerfile: deploy/service.Dockerfile, args: {{SERVICE: {name}}}}}
+    image: twin-{name}:${{TWIN_TAG:-dev}}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://{name}:${{TWIN_DB_PASSWORD_{upper}:-{name}}}@db:5432/{name}
+
+""")
+    insert_before(compose, "-- passwords of new databases go above this line",
+                  f"      TWIN_DB_PASSWORD_{upper}: ${{TWIN_DB_PASSWORD_{upper}:-{name}}}")
+    replace_once(compose, r"(TWIN_DATABASES: \$\{TWIN_DATABASES:-)([^}]*)\}", rf"\g<1>\g<2> {name}}}")
+    replace_once(compose, r"(TWIN_SERVICES: \$\{TWIN_SERVICES:-)([^}]*)\}", rf"\g<1>\g<2>,{name}=http://{name}:8000}}")
+    insert_before(ROOT / "deploy" / ".env.example", "-- passwords of new databases go above this line",
+                  f"TWIN_DB_PASSWORD_{upper}={name}")
+    insert_before(ROOT / "deploy" / "make-env.sh", "-- passwords of new databases go above this line",
+                  f'set_var TWIN_DB_PASSWORD_{upper} "$(rand 16)"')
+
+    # CI
+    insert_before(ROOT / ".gitlab-ci.yml", "-- jobs of new services go above this line", f"""\
+service:{name}:
+  extends: .service
+  variables: {{SERVICE: {name}}}
+
+image:{name}:
+  extends: .service-image
+  variables: {{SERVICE: {name}}}
+
+""")
+
+    # lock the dependencies and write the requests into contracts/openapi/
+    for cmd in (["uv", "lock"], ["uv", "sync"], ["uv", "run", "python", "-m", "twin_chassis.contracts", name]):
+        done = subprocess.run(cmd, cwd=target)
+        if done.returncode != 0:
+            sys.exit(f"Не выполнилось: {' '.join(cmd)} (в services/{name})")
+
+    print(f"""
+Готово: services/{name}
+  тесты:   cd services/{name} && uv run ruff check . && uv run pytest
+  в стеке: docker compose -f deploy/docker-compose.yml up -d --build {name} db-init gateway
+  локальный deploy/.env: добавьте TWIN_DB_PASSWORD_{upper} (иначе пароль базы — «{name}»)""")
+
+
+if __name__ == "__main__":
+    main()

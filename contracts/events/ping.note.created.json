@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ping.note.created",
+  "description": "Создана заметка (образец события нового сервиса). subject — заметка.",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "text": {"type": "string"}
+  }
+}
