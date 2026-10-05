@@ -54,7 +54,7 @@ def test_settings(service: str, database_url: str, *, nats_url: str = NATS_URL) 
     """Settings of a service under test: its scratch database and a bus prefix of its own."""
     return Settings(service=service, database_url=database_url, nats_url=nats_url, oidc_issuer=ISSUER,
                     oidc_internal=ISSUER, oidc_client_id=CLIENT_ID, contracts=find_contracts(),
-                    bus_prefix=f"test{secrets.token_hex(4)}")
+                    bus_prefix=f"test{secrets.token_hex(4)}", service_secret="test-service-secret")
 
 
 test_settings.__test__ = False      # not a test, despite the name

@@ -1,0 +1,308 @@
+"""Requests of the import service, under /api/import/v1 (contracts/openapi/import.v1.json).
+
+Until the access service exists (stage 2) everything here is for the system
+administrator; reading is also open to other services.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+import tempfile
+from pathlib import Path, PurePosixPath
+from uuid import UUID
+
+from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
+from fastapi.concurrency import iterate_in_threadpool
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, insert, select, update
+from twin_chassis import Identity, Problem, emit, require_admin, require_admin_or_service, uuid7
+
+from . import storage, store
+from .dwg.config import ConfigError, deep_merge, load_config, validate_config
+from .dwg.edits import anchor_of
+from .models import builds, drawing_files, drawings
+
+router = APIRouter()
+MAX_UPLOAD = int(os.environ.get("TWIN_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+BUSY = "Чертёж ещё обрабатывается"
+
+
+# ------------------------------------------------------------------ helpers ---
+def _checked(config: dict) -> dict:
+    try:
+        validate_config(load_config(config))
+    except ConfigError as ex:
+        raise Problem(422, "invalid", f"Настройки разбора: {ex}",
+                      errors=[{"field": "config", "message": str(ex)}]) from ex
+    return config
+
+
+def _upload_name(file: UploadFile) -> str:
+    name = Path(file.filename or "plan.dwg").name
+    if Path(name).suffix.lower() not in (".dwg", ".dxf"):
+        raise Problem(422, "invalid", "Поддерживаются только файлы .dwg и .dxf",
+                      errors=[{"field": "file", "message": "Поддерживаются только .dwg и .dxf"}])
+    return name
+
+
+async def _receive(file: UploadFile, suffix: str) -> tuple[Path, int, str]:
+    """The upload as a temporary file, its size and sha256."""
+    digest, size = hashlib.sha256(), 0
+    fd, name = tempfile.mkstemp(suffix=suffix, dir=storage.data_root())
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    raise Problem(413, "too_large", f"Файл больше {MAX_UPLOAD // (1024 * 1024)} МБ",
+                                  title="Файл слишком большой")
+                digest.update(chunk)
+                await asyncio.to_thread(out.write, chunk)
+        if size == 0:
+            raise Problem(422, "invalid", "Файл пуст", errors=[{"field": "file", "message": "Файл пуст"}])
+    except BaseException:
+        tmp.unlink(missing_ok=True)     # noqa: ASYNC240 — a local temporary file
+        raise
+    return tmp, size, digest.hexdigest()
+
+
+async def _drawing(session, drawing_id: UUID, *, lock: bool = False):
+    d = await store.get_drawing(session, drawing_id, lock=lock)
+    if d is None:
+        raise Problem(404, "not_found", "Чертёж не найден")
+    return d
+
+
+# ----------------------------------------------------------------- drawings ---
+@router.post("/drawings", status_code=201, tags=["drawings"],
+             summary="Загрузить чертёж в здание; сборка запускается сама")
+async def create_drawing(request: Request, file: UploadFile = File(...), building_id: UUID = Form(...),
+                         name: str | None = Form(None, max_length=200), config: str | None = Form(None),
+                         me: Identity = Depends(require_admin)) -> dict:
+    filename = _upload_name(file)
+    try:
+        override = json.loads(config) if config else {}
+    except json.JSONDecodeError as ex:
+        raise Problem(422, "invalid", "config: некорректный JSON") from ex
+    if not isinstance(override, dict):
+        raise Problem(422, "invalid", "config: ожидается объект")
+    _checked(override)
+    tmp, size, sha = await _receive(file, Path(filename).suffix.lower())
+    drawing_id, file_id = uuid7(), uuid7()
+    key = storage.file_key(drawing_id, file_id, filename)
+    try:
+        await asyncio.to_thread(storage.bucket().put_file, key, tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    async with request.app.state.db.begin() as session:
+        await session.execute(insert(drawings).values(id=drawing_id, building_id=building_id, name=(name or "").strip(),
+                                                      config=override, created_by=me.sub))
+        await store.add_file(session, drawing_id, file_id=file_id, filename=filename, size=size, sha256=sha,
+                             storage_key=key, me=me)
+        d = await _drawing(session, drawing_id)
+        await store.enqueue(session, d, me)
+        await emit(session, "import.drawing.uploaded", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": d.name or filename, "filename": filename, "file_n": 1},
+                   building_id=building_id)
+        return await store.drawing_json(session, d)
+
+
+@router.post("/drawings/{drawing_id}/files", tags=["drawings"],
+             summary="Новый файл чертежа; тот же файл повторно сборку не запускает")
+async def upload_file(drawing_id: UUID, request: Request, file: UploadFile = File(...),
+                      me: Identity = Depends(require_admin)) -> dict:
+    filename = _upload_name(file)
+    db = request.app.state.db
+    async with db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        if await store.has_active_build(session, drawing_id):
+            raise Problem(409, "busy", BUSY)
+        current = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
+    tmp, size, sha = await _receive(file, Path(filename).suffix.lower())
+    try:
+        if sha == current.sha256:
+            async with db.begin() as session:
+                return {**await store.drawing_json(session, d), "unchanged": True}
+        file_id = uuid7()
+        key = storage.file_key(drawing_id, file_id, filename)
+        await asyncio.to_thread(storage.bucket().put_file, key, tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    async with db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        if await store.has_active_build(session, drawing_id):
+            raise Problem(409, "busy", BUSY)
+        await store.add_file(session, drawing_id, file_id=file_id, filename=filename, size=size, sha256=sha,
+                             storage_key=key, me=me)
+        d = await _drawing(session, drawing_id)
+        await store.enqueue(session, d, me)
+        out = await store.drawing_json(session, d)
+        await emit(session, "import.drawing.uploaded", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": out["name"], "filename": filename, "file_n": out["file_n"]},
+                   building_id=d.building_id)
+        return {**out, "unchanged": False}
+
+
+@router.get("/drawings", tags=["drawings"], summary="Чертежи здания")
+async def list_drawings(request: Request, building_id: UUID, _: Identity = Depends(require_admin_or_service)) -> dict:
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(drawings).where(
+            drawings.c.building_id == building_id, drawings.c.deleted_at.is_(None))
+            .order_by(drawings.c.created_at))).all()
+        return {"items": [await store.drawing_json(session, d) for d in rows]}
+
+
+@router.get("/drawings/{drawing_id}", tags=["drawings"], summary="Чертёж и состояние его последней сборки")
+async def get_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+    async with request.app.state.db.begin() as session:
+        return await store.drawing_json(session, await _drawing(session, drawing_id))
+
+
+@router.delete("/drawings/{drawing_id}", status_code=204, tags=["drawings"], summary="Удалить чертёж")
+async def delete_drawing(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> None:
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(deleted_at=func.now()))
+        await session.execute(update(builds).where(builds.c.drawing_id == drawing_id, builds.c.status == "queued")
+                              .values(status="error", stage="error", error="Чертёж удалён", finished_at=func.now()))
+        await emit(session, "import.drawing.deleted", ("drawing", drawing_id), {"drawing_id": str(drawing_id)},
+                   building_id=d.building_id)
+
+
+# ------------------------------------------------------------------- config ---
+@router.get("/config/default", tags=["config"], summary="Настройки разбора по умолчанию")
+async def default_config(_: Identity = Depends(require_admin_or_service)) -> dict:
+    return load_config({})
+
+
+@router.get("/drawings/{drawing_id}/config", tags=["config"],
+            summary="Настройки разбора чертежа и правки 2D-редактора (config.edits)")
+async def get_config(drawing_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+    async with request.app.state.db.begin() as session:
+        return {"config": (await _drawing(session, drawing_id)).config or {}}
+
+
+def _anchor_override(config: dict, result: dict, override: dict) -> dict:
+    """Corrections and floor assignments name floors by the ids of the build the
+    user looked at; pin them to that build's sheets (app/dwg/edits.py), so they
+    stay on their floors when ids change in later builds."""
+    floors = {f["id"]: f for f in result.get("floors") or []}
+    candidates = {c["id"]: c for c in result.get("candidates") or []}
+    override = dict(override)
+    if isinstance(override.get("edits"), dict):
+        old, new = config.get("edits") or {}, {}
+        for floor_id, e in override["edits"].items():
+            if isinstance(e, dict):
+                e = {k: v for k, v in e.items() if k != "_anchor"}
+                if isinstance(old.get(floor_id), dict) and old[floor_id].get("_anchor"):
+                    e["_anchor"] = old[floor_id]["_anchor"]
+                elif floor_id in floors and floors[floor_id].get("bbox"):
+                    e["_anchor"] = anchor_of(floors[floor_id])
+            new[floor_id] = e
+        override["edits"] = new
+    items = (override.get("floors") or {}).get("items") if isinstance(override.get("floors"), dict) else None
+    if isinstance(items, list):
+        out = []
+        for it in items:
+            if isinstance(it, dict) and not it.get("_anchor") and str(it.get("candidate")) in candidates:
+                it = {**it, "_anchor": anchor_of(candidates[str(it["candidate"])], with_offset=False)}
+            out.append(it)
+        override["floors"] = {**override["floors"], "items": out}
+    return override
+
+
+# ------------------------------------------------------------------- builds ---
+@router.post("/drawings/{drawing_id}/builds", status_code=202, tags=["builds"],
+             summary="Пересобрать чертёж, при необходимости изменив настройки и правки")
+async def start_build(drawing_id: UUID, request: Request, body: dict = Body(default_factory=dict),
+                      me: Identity = Depends(require_admin)) -> dict:
+    override = body.get("config") or {}
+    if not isinstance(override, dict):
+        raise Problem(422, "invalid", "config: ожидается объект")
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)        # check and enqueue under the lock: no double builds
+        if await store.has_active_build(session, drawing_id):
+            raise Problem(409, "busy", BUSY)
+        result = {}
+        if d.current_build_id:
+            current = select(builds.c.result).where(builds.c.id == d.current_build_id)
+            result = (await session.execute(current)).scalar() or {}
+        # floors.items is replaced wholesale (a full assignment list), the rest is merged
+        config = _checked(deep_merge(d.config or {}, _anchor_override(d.config or {}, result, override)))
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id)
+                              .values(config=config, updated_at=func.now()))
+        await store.enqueue(session, d, me)
+        return await store.drawing_json(session, await _drawing(session, drawing_id))
+
+
+async def _build(session, build_id: UUID):
+    b = (await session.execute(select(builds).where(builds.c.id == build_id))).one_or_none()
+    if b is None:
+        raise Problem(404, "not_found", "Сборка не найдена")
+    return b
+
+
+@router.get("/builds/{build_id}", tags=["builds"], summary="Состояние сборки")
+async def get_build(build_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+    async with request.app.state.db.begin() as session:
+        return store.build_json(await _build(session, build_id))
+
+
+@router.get("/builds/{build_id}/result", tags=["builds"],
+            summary="Результат сборки: этажи, помещения, входы, предупреждения")
+async def get_result(build_id: UUID, request: Request, _: Identity = Depends(require_admin_or_service)) -> dict:
+    async with request.app.state.db.begin() as session:
+        b = await _build(session, build_id)
+        if b.status != "done":
+            raise Problem(409, "not_ready", "Сборка не завершена")
+        d = (await session.execute(select(drawings).where(drawings.c.id == b.drawing_id))).one()
+        return {"build": store.build_json(b), "building_id": str(d.building_id), "result": b.result}
+
+
+@router.get("/builds/{build_id}/files/{path:path}", tags=["builds"], response_class=StreamingResponse,
+            summary="Файл сборки: model.glb, plans/floor_<id>.json, model.ifc, model_obj.zip")
+async def get_build_file(build_id: UUID, path: str, request: Request,
+                         _: Identity = Depends(require_admin_or_service)) -> StreamingResponse:
+    rel = PurePosixPath(path)
+    media = storage.MEDIA.get(rel.suffix.lower())
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or media is None:
+        raise Problem(404, "not_found", "Файл не найден")
+    async with request.app.state.db.begin() as session:
+        b = await _build(session, build_id)
+    key = f"{b.out_prefix}/{rel.as_posix()}" if b.out_prefix else None
+    size = await asyncio.to_thread(storage.bucket().size, key) if key else None
+    if size is None:
+        raise Problem(404, "not_found", "Файл не найден")
+    # the files of a build never change: the browser may keep them
+    headers = {"Content-Length": str(size), "Cache-Control": "private, max-age=31536000, immutable"}
+    if rel.suffix.lower() in (".ifc", ".zip", ".dxf"):
+        headers["Content-Disposition"] = f'attachment; filename="{rel.name}"'
+    return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)), media_type=media, headers=headers)
+
+
+# ------------------------------------------------------------------- export ---
+@router.get("/drawings/{drawing_id}/export", tags=["export"], response_class=StreamingResponse,
+            summary="Исходный чертёж с правками 2D-редактора: format=dxf или dwg")
+async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf",
+                         _: Identity = Depends(require_admin)) -> StreamingResponse:
+    from .export import edited_drawing
+
+    if format not in ("dxf", "dwg"):
+        raise Problem(422, "invalid", "format: dxf или dwg", errors=[{"field": "format", "message": "dxf или dwg"}])
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
+        b = None
+        if d.current_build_id:
+            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
+    if b is None:
+        raise Problem(409, "not_ready", "Чертёж ещё не обработан")
+    key, filename = await asyncio.to_thread(edited_drawing, d, f, b, format)
+    size = await asyncio.to_thread(storage.bucket().size, key)
+    from urllib.parse import quote
+    headers = {"Content-Length": str(size), "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+    return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)),
+                             media_type=storage.MEDIA[f".{format}"], headers=headers)

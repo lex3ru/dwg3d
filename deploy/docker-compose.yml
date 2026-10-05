@@ -17,6 +17,7 @@
 #   db-init   creates the databases and roles listed in TWIN_DATABASES (every start; idempotent)
 #   nats      the event bus (JetStream)
 #   keycloak  sign-in, realm "twin" imported from deploy/keycloak/
+#   kc-init   creates the services' own accounts in Keycloak (every start; idempotent)
 #   s3        S3-compatible storage for files (RustFS)
 name: twin
 
@@ -33,6 +34,11 @@ x-service: &service
     timeout: 5s
     retries: 5
     start_period: 15s
+
+x-s3-env: &s3-env
+  TWIN_S3_ENDPOINT: http://s3:9000
+  TWIN_S3_ACCESS_KEY: ${TWIN_S3_ACCESS_KEY:-twin}
+  TWIN_S3_SECRET_KEY: ${TWIN_S3_SECRET_KEY:-twin-secret}
 
 x-service-env: &service-env
   TWIN_NATS_URL: nats://nats:4222
@@ -66,7 +72,7 @@ services:
       TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
       TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
       # the services requests are passed on to: name=address, comma-separated
-      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000}
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000}
 
   ping:
     <<: *service
@@ -75,6 +81,44 @@ services:
     environment:
       <<: *service-env
       TWIN_DATABASE_URL: postgresql+psycopg://ping:${TWIN_DB_PASSWORD_PING:-ping}@db:5432/ping
+
+  import:
+    <<: *service
+    build: {context: .., dockerfile: services/import/Dockerfile}
+    image: twin-import:${TWIN_TAG:-dev}
+    environment: &import-env
+      <<: [*service-env, *s3-env]
+      TWIN_DATABASE_URL: postgresql+psycopg://import:${TWIN_DB_PASSWORD_IMPORT:-import}@db:5432/import
+      TWIN_DATA: /data
+      TWIN_MAX_UPLOAD_MB: ${TWIN_MAX_UPLOAD_MB:-200}
+      # ODA File Converter (optional, better DWG support): path inside the container of a binary mounted into it
+      DWG3D_ODA: ${TWIN_ODA:-}
+    volumes:
+      - import-data:/data
+
+  # the build queue: DWG -> floors, rooms, 3D model (scale with --scale import-worker=N)
+  import-worker:
+    <<: *service
+    image: twin-import:${TWIN_TAG:-dev}
+    command: ["python", "-m", "app.worker"]
+    environment: *import-env
+    volumes:
+      - import-data:/data
+    healthcheck: {disable: true}
+    depends_on:
+      import:
+        condition: service_healthy
+
+  buildings:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: buildings}}
+    image: twin-buildings:${TWIN_TAG:-dev}
+    environment:
+      <<: [*service-env, *s3-env]
+      TWIN_DATABASE_URL: postgresql+psycopg://buildings:${TWIN_DB_PASSWORD_BUILDINGS:-buildings}@db:5432/buildings
+      # its own account (Keycloak client twin-svc-buildings) and whom it calls
+      TWIN_SERVICE_SECRET: ${TWIN_SVC_SECRET_BUILDINGS:-dev-svc-buildings}
+      TWIN_SERVICES: import=http://import:8000
 
   # -- new services go above this line (tools/new-service adds them) --
 
@@ -104,10 +148,12 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
       PGDATABASE: postgres
       # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
-      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping}
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings}
       TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
       TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
       TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
+      TWIN_DB_PASSWORD_IMPORT: ${TWIN_DB_PASSWORD_IMPORT:-import}
+      TWIN_DB_PASSWORD_BUILDINGS: ${TWIN_DB_PASSWORD_BUILDINGS:-buildings}
       # -- passwords of new databases go above this line --
     volumes:
       - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro
@@ -155,6 +201,25 @@ services:
       db-init:
         condition: service_completed_successfully
 
+  # accounts of services in Keycloak (clients twin-svc-<name>), for calls between services;
+  # every start, idempotent — the realm file itself is imported only once
+  kc-init:
+    image: quay.io/keycloak/keycloak:26.7.4
+    restart: "no"
+    entrypoint: ["/bin/sh", "/ensure-clients.sh"]
+    environment:
+      KC_URL: http://keycloak:8080/kc
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-kcadmin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
+      # a client twin-svc-<name> for each; its secret is TWIN_SVC_SECRET_<NAME>
+      TWIN_SERVICE_CLIENTS: ${TWIN_SERVICE_CLIENTS:-buildings}
+      TWIN_SVC_SECRET_BUILDINGS: ${TWIN_SVC_SECRET_BUILDINGS:-dev-svc-buildings}
+      # -- secrets of new service accounts go above this line --
+    volumes:
+      - ./keycloak/ensure-clients.sh:/ensure-clients.sh:ro
+    depends_on:
+      - keycloak
+
   s3:
     image: rustfs/rustfs:1.0.0
     restart: unless-stopped
@@ -168,6 +233,7 @@ services:
 
 volumes:
   pgdata:
+  import-data:
   natsdata:
   s3data:
   caddy-data:

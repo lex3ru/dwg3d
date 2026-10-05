@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.room.changed",
+  "description": "Изменено помещение: название, номер, тип. subject — помещение.",
+  "type": "object",
+  "required": [
+    "room_id",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "room_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Изменённые поля"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+# the build context of service images is the repository root: keep it to what they copy
+.git
+legacy
+backups
+docs
+e2e
+frontend
+deploy/backups
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/tests

@@ -37,6 +37,7 @@ class Bus:
     def __init__(self, service: str, url: str, db: Database, prefix: str = "twin"):
         self.service, self.url, self.db = service, url, db
         self.stream, self.subject = prefix.upper(), prefix + "."       # stream TWIN, subjects twin.<event type>
+        self.live = prefix + "-live."                                  # not stored: twin-live.<event type>
         self.nc: nats.NATS | None = None
         self.js = None
         self._handlers: dict[str, tuple[str, Handler]] = {}       # name -> (event type pattern, handler)
@@ -58,6 +59,15 @@ class Bus:
         """Hear matching events as they pass, with no memory and no guarantees:
         what happened while disconnected is missed. For showing, not for acting."""
         self._listeners.append((pattern, callback))
+
+    async def announce(self, event: dict) -> None:
+        """Tell whoever is listening now and forget: progress of a long job and
+        the like. Not stored, not retried, never to be acted upon."""
+        if self.connected:
+            try:
+                await self.nc.publish(self.live + event["type"], json.dumps(event, ensure_ascii=False).encode())
+            except Exception:
+                pass
 
     async def handle(self, name: str, event: dict) -> bool:
         """Run the handler for the event unless it already did; False for a repeat."""
@@ -97,6 +107,7 @@ class Bus:
                 await self._ensure_stream()
                 for pattern, callback in self._listeners:
                     await self.nc.subscribe(self.subject + pattern, cb=self._listener(callback))
+                    await self.nc.subscribe(self.live + pattern, cb=self._listener(callback))
                 self._ready.set()
                 self._wake.set()
                 log.info("connected to NATS")

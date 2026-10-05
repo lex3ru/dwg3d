@@ -1,29 +1,41 @@
 import { Building2, Activity, LogOut, Moon, Sun } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ApiError, getMe, signIn, signOut, type Me } from './api'
 import { Button } from './components/ui/button'
 import { useTheme } from './lib/theme'
 import { cn } from './lib/utils'
+import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { System } from './pages/System'
 
-type Page = 'buildings' | 'system'
-const pageOf = (hash: string): Page => (hash.replace(/^#\/?/, '').split('/')[0] === 'system' ? 'system' : 'buildings')
+// the 3D viewer is heavy (three.js): loaded when a drawing is opened
+const Scene = lazy(() => import('./scene/entry'))
 
-function usePage(): Page {
-  const [page, set] = useState(() => pageOf(location.hash))
+type Page = 'buildings' | 'system'
+type Route = { page: Page; building?: string; scene?: boolean }
+/** #/buildings · #/p/<building> · #/f/<drawing>/… (the viewer) · #/system */
+function routeOf(hash: string): Route {
+  const [first, second] = hash.replace(/^#\/?/, '').split(/[/?]/)
+  if (first === 'f' && second) return { page: 'buildings', scene: true }
+  if (first === 'p' && second) return { page: 'buildings', building: second }
+  return { page: first === 'system' ? 'system' : 'buildings' }
+}
+
+function useRoute(): Route {
+  const [hash, set] = useState(location.hash)
   useEffect(() => {
-    const on = () => set(pageOf(location.hash))
+    const on = () => set(location.hash)
     addEventListener('hashchange', on)
     return () => removeEventListener('hashchange', on)
   }, [])
-  return page
+  return routeOf(hash)
 }
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const page = usePage()
+  const route = useRoute()
+  const page = route.page
   const failed = new URLSearchParams(location.search).get('signin') === 'failed'
 
   useEffect(() => {
@@ -49,12 +61,14 @@ export function App() {
     )
   }
   if (!me) return <Centered title="Загрузка…" />
+  if (route.scene) return <Suspense fallback={<Centered title="Загрузка…" />}><Scene /></Suspense>
 
   return (
     <div className="flex min-h-full flex-col">
       <Header me={me} page={page} />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
-        {page === 'system' && me.user.is_admin ? <System /> : <Buildings me={me} />}
+        {page === 'system' && me.user.is_admin ? <System />
+          : route.building && me.user.is_admin ? <Building key={route.building} id={route.building} /> : <Buildings me={me} />}
       </main>
     </div>
   )

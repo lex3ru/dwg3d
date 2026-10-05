@@ -44,3 +44,50 @@ export async function signOut() {
   const { url } = await api<{ url: string }>('/auth/logout', { method: 'POST' })
   location.assign(url)
 }
+
+// ---- buildings and their drawings (stage 1: for the system administrator)
+
+export type Building = {
+  id: string; name: string; address: string; version: number
+  floors?: number; rooms?: number; drawings?: number
+}
+export type Build = {
+  id: string; n: number; status: 'queued' | 'running' | 'done' | 'error'; stage: string; progress: number
+  message: string; error: string | null
+}
+export type Drawing = {
+  id: string; building_id: string; name: string; filename: string | null; size: number | null; file_n: number | null
+  build: Build | null; current_build_id: string | null; updated_at: string; unchanged?: boolean
+}
+/** A drawing as the building has taken it in: the build that is shown. */
+export type PlacedDrawing = { id: string; name: string; build_id: string | null; build_n: number }
+export type TreeFloor = { id: string; name: string; level: number | null; rooms: { id: string; name: string; area: number }[] }
+
+const BUILDINGS = '/api/buildings/v1'
+const IMPORT = '/api/import/v1'
+
+export const listBuildings = () => api<{ items: Building[] }>(`${BUILDINGS}/buildings`).then(r => r.items)
+export const getBuilding = (id: string) => api<Building>(`${BUILDINGS}/buildings/${id}`)
+export const createBuilding = (name: string, address: string) =>
+  api<Building>(`${BUILDINGS}/buildings`, { method: 'POST', json: { name, address } })
+export const deleteBuilding = (id: string) => api<void>(`${BUILDINGS}/buildings/${id}`, { method: 'DELETE' })
+export const getTree = (id: string) => api<{ floors: TreeFloor[] }>(`${BUILDINGS}/buildings/${id}/tree`).then(r => r.floors)
+export const listPlaced = (id: string) =>
+  api<{ items: PlacedDrawing[] }>(`${BUILDINGS}/buildings/${id}/drawings`).then(r => r.items)
+
+export const listDrawings = (building: string) =>
+  api<{ items: Drawing[] }>(`${IMPORT}/drawings?building_id=${building}`).then(r => r.items)
+export const deleteDrawing = (id: string) => api<void>(`${IMPORT}/drawings/${id}`, { method: 'DELETE' })
+export const rebuildDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}/builds`, { method: 'POST', json: {} })
+
+function fileForm(file: File, fields: Record<string, string> = {}) {
+  const form = new FormData()
+  form.append('file', file)
+  for (const [k, v] of Object.entries(fields)) form.append(k, v)
+  return form
+}
+export const uploadDrawing = (building: string, file: File) =>
+  api<Drawing>(`${IMPORT}/drawings`, { method: 'POST', body: fileForm(file, { building_id: building }) })
+/** A new file of an existing drawing; the same file again changes nothing (`unchanged`). */
+export const uploadDrawingFile = (drawing: string, file: File) =>
+  api<Drawing>(`${IMPORT}/drawings/${drawing}/files`, { method: 'POST', body: fileForm(file) })

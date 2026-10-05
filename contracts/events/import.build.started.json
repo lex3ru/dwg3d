@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "import.build.started",
+  "description": "Сборка чертежа начата. subject — сборка.",
+  "type": "object",
+  "required": [
+    "build_id",
+    "drawing_id",
+    "n"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "build_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "n": {
+      "type": "integer",
+      "description": "Номер сборки чертежа по порядку"
+    }
+  }
+}

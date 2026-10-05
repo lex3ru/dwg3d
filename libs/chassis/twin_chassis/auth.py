@@ -87,6 +87,19 @@ async def current_identity(me: Identity = Depends(_verify)) -> Identity:
     return me
 
 
+def require_admin_or_service(me: Identity = Depends(current_identity)) -> Identity:
+    """For requests other services make too (marked «служебный» in the contracts)."""
+    if not me.is_admin and me.kind != "service":
+        raise Problem(403, "forbidden", "Нужна роль администратора системы")
+    return me
+
+
+def require_service(me: Identity = Depends(current_identity)) -> Identity:
+    if me.kind != "service":
+        raise Problem(403, "forbidden", "Запрос только для сервисов")
+    return me
+
+
 def require_admin(me: Identity = Depends(current_identity)) -> Identity:
     if not me.is_admin:
         raise Problem(403, "forbidden", "Нужна роль администратора системы")

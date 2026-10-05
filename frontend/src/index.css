@@ -3,6 +3,7 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -29,6 +30,9 @@
   --border: #e9ecef;
   --input: #dee2e6;
   --ring: #74c0fc;
+  /* glass panels floating over the 3D scene */
+  --float: rgb(255 255 255 / 0.92);
+  --float-border: rgb(0 0 0 / 0.08);
 }
 
 .dark {
@@ -53,6 +57,8 @@
   --border: #2f3541;
   --input: #3a4150;
   --ring: #1c7ed6;
+  --float: rgb(30 33 40 / 0.92);
+  --float-border: rgb(255 255 255 / 0.1);
 }
 
 @theme inline {
@@ -76,6 +82,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-float: var(--float);
+  --color-float-border: var(--float-border);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

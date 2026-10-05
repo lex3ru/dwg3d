@@ -1,0 +1,46 @@
+[project]
+name = "twin-import"
+version = "0.1.0"
+description = "Digital twin: the import service"
+requires-python = ">=3.12"
+dependencies = [
+  "twin-chassis[files]",
+  "python-multipart",
+  # the drawing pipeline (app/dwg)
+  "ezdxf>=1.3",
+  "shapely>=2.0",
+  "trimesh>=4.0",
+  "mapbox-earcut>=1.0",
+  "numpy",
+  "pyyaml",
+  "scipy>=1.14",
+  "ifcopenshell>=0.8.5",
+]
+
+[dependency-groups]
+dev = ["twin-chassis[testing]", "ruff>=0.8"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+twin-chassis = { path = "../../libs/chassis", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# the pipeline is carried over from legacy/ as it is; its tests too
+extend-exclude = ["app/dwg", "tests/test_pipeline.py", "tests/test_semantics.py", "tests/make_sample.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["B008"]      # Depends() in argument defaults is how FastAPI works
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "import.drawing.uploaded",
+  "description": "Загружен файл чертежа (новый чертёж или новый файл существующего); сборка поставлена в очередь. subject — чертёж, building_id — в конверте.",
+  "type": "object",
+  "required": [
+    "drawing_id",
+    "name",
+    "filename",
+    "file_n"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    },
+    "filename": {
+      "type": "string"
+    },
+    "file_n": {
+      "type": "integer",
+      "description": "Номер файла чертежа по порядку; 1 — новый чертёж"
+    }
+  }
+}

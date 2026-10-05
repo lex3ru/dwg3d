@@ -5,6 +5,7 @@
   TWIN_OIDC_ISSUER    Keycloak realm as users see it — the `iss` of tokens
   TWIN_OIDC_INTERNAL  the same realm as this service reaches it (default: the issuer)
   TWIN_OIDC_CLIENT_ID the client whose roles are the application's roles (default twin)
+  TWIN_SERVICE_SECRET the secret of this service's own Keycloak client twin-svc-<service>, for calling other services
   TWIN_BUS_PREFIX     first part of event subjects and the stream's name (default twin; tests use their own)
   TWIN_CONTRACTS      the contracts/ directory (default: found above the working directory)
 """
@@ -35,6 +36,7 @@ class Settings:
     oidc_client_id: str
     contracts: Path
     bus_prefix: str = "twin"
+    service_secret: str | None = None
 
     @classmethod
     def from_env(cls, service: str, **overrides) -> Settings:
@@ -49,5 +51,6 @@ class Settings:
             oidc_client_id=env.get("TWIN_OIDC_CLIENT_ID", "twin"),
             contracts=Path(env["TWIN_CONTRACTS"]) if env.get("TWIN_CONTRACTS") else find_contracts(),
             bus_prefix=env.get("TWIN_BUS_PREFIX", "twin"),
+            service_secret=env.get("TWIN_SERVICE_SECRET") or None,
         )
         return replace(s, **overrides)

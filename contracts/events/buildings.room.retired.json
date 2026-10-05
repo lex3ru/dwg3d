@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.room.retired",
+  "description": "Помещения больше нет в здании (исчезло из чертежа или чертёж удалён); строка сохраняется. subject — помещение.",
+  "type": "object",
+  "required": [
+    "room_id",
+    "floor_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "room_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "floor_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.revision.published",
+  "description": "Сборка чертежа стала состоянием здания. subject — ревизия.",
+  "type": "object",
+  "required": [
+    "revision_id",
+    "drawing_id",
+    "build_id",
+    "floors",
+    "rooms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "build_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "floors": {
+      "type": "object",
+      "required": [
+        "created",
+        "retired",
+        "active"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "retired": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "active": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Все этажи чертежа после публикации"
+        }
+      }
+    },
+    "rooms": {
+      "type": "object",
+      "required": [
+        "created",
+        "changed",
+        "retired"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "retired": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "outline"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "outline": {
+                "type": "boolean",
+                "description": "Изменился контур"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

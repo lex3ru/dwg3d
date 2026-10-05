@@ -35,7 +35,11 @@ set_var TWIN_S3_SECRET_KEY "$(rand 24)"
 set_var TWIN_DB_PASSWORD_KEYCLOAK "$(rand 16)"
 set_var TWIN_DB_PASSWORD_GATEWAY "$(rand 16)"
 set_var TWIN_DB_PASSWORD_PING "$(rand 16)"
+set_var TWIN_DB_PASSWORD_IMPORT "$(rand 16)"
+set_var TWIN_DB_PASSWORD_BUILDINGS "$(rand 16)"
 # -- passwords of new databases go above this line --
+set_var TWIN_SVC_SECRET_BUILDINGS "$(rand 24)"
+# -- secrets of new service accounts go above this line --
 sed -e "$exprs" .env.example > .env
 if [ "$site" != ":80" ]; then
     sed -i -e "s|^TWIN_HTTP_PORT=.*|TWIN_HTTP_PORT=80|" -e "s|^TWIN_HTTPS_PORT=.*|TWIN_HTTPS_PORT=443|" .env

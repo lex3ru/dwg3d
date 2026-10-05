@@ -1,0 +1,68 @@
+/** The signed-in user (GET /api/auth/me), loaded before the app renders,
+ * and the user's role in the project on screen. Sign-in itself happens in
+ * Keycloak: the server sends the browser there and back. */
+
+import { setAdmin } from './compat'
+
+export type GlobalRole = 'user' | 'catalog_admin' | 'admin'
+export type ProjectRole = 'viewer' | 'editor' | 'owner'
+
+export interface Me {
+  id: number | null
+  login: string
+  name: string
+  role: GlobalRole
+  role_name: string
+  /** the application's roles in Keycloak (client roles): dwg3d.admin, dwg3d.user, dwg3d.<role>… */
+  roles?: string[]
+  email: string | null
+  /** false: the server runs without sign-in (DWG3D_AUTH=off) */
+  auth: boolean
+  /** opened through a share link: read-only, one project */
+  guest?: { project_id: string; drawings: string[] | null; layers: string[] | null; name: string }
+}
+
+const GLOBAL_RANK: Record<GlobalRole, number> = { user: 0, catalog_admin: 1, admin: 2 }
+const PROJECT_RANK: Record<ProjectRole, number> = { viewer: 0, editor: 1, owner: 2 }
+export const PROJECT_ROLE_NAMES: Record<ProjectRole, string> = { viewer: 'просмотр', editor: 'редактор', owner: 'владелец' }
+
+export let me: Me | null = null
+let projectRole: ProjectRole | null = null
+
+/** The current user (from the gateway), or null when a sign-in is needed. */
+export async function loadMe(): Promise<Me | null> {
+  const r = await fetch('/api/me')
+  if (r.status === 401) return (me = null)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  const { user } = await r.json() as { user: { login: string; name: string; email: string | null; roles: string[]; is_admin: boolean } }
+  setAdmin(user.is_admin)
+  return (me = { id: null, login: user.login, name: user.name, role: user.is_admin ? 'admin' : 'user',
+    role_name: user.is_admin ? 'администратор системы' : 'пользователь', roles: user.roles, email: user.email, auth: true })
+}
+
+/** Whether the user has the Keycloak client role dwg3d.<role>. */
+export const hasRole = (role: string) => !!me?.roles?.includes(`twin.${role}`)
+
+/** Global roles (from Keycloak): catalog editing, every project. */
+export const can = (role: GlobalRole) => !!me && GLOBAL_RANK[me.role] >= GLOBAL_RANK[role]
+
+/** The role in the project on screen (from the server's `my_role`). */
+export function setProjectRole(role: ProjectRole | null | undefined) { projectRole = role ?? null }
+export const hasProjectRole = (role: ProjectRole) => !!projectRole && PROJECT_RANK[projectRole] >= PROJECT_RANK[role]
+/** Uploading, rebuilding, layers, objects, pins, settings */
+export const canEdit = () => hasProjectRole('editor')
+export const READ_ONLY = 'Только просмотр: изменения доступны участникам проекта с ролью «редактор».'
+
+/** Off to the Keycloak sign-in page; back to where we are now. */
+export function signIn() {
+  location.href = `/auth/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`
+}
+
+export async function signOut() {
+  let url: string | null = null
+  try { url = (await (await fetch('/auth/logout', { method: 'POST' })).json()).url } catch { /* signed out anyway */ }
+  location.href = url ?? '/'
+}
+
+/** Links for viewing without an account arrive with the access service (stage 7). */
+export async function openShare(_token: string): Promise<string | null> { return null }

@@ -1,20 +1,92 @@
-import { Building2 } from 'lucide-react'
-import type { Me } from '../api'
+import { Building2, Plus } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { createBuilding, listBuildings, type Building, type Me } from '../api'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { useEvents } from '../stream'
 
-/** The personal cabinet's first page. Buildings arrive with the buildings service (stage 1). */
+const plural = (n: number, one: string, few: string, many: string) => {
+  const d = n % 10, h = n % 100
+  return `${n} ${d === 1 && h !== 11 ? one : d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many}`
+}
+
+/** The buildings the user may see. Until rights by area exist (stage 2): all of them, for the system administrator. */
 export function Buildings({ me }: { me: Me }) {
+  const admin = me.user.is_admin
+  const [items, setItems] = useState<Building[] | null>(admin ? null : [])
+  const [error, setError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+
+  const load = useCallback(() => {
+    if (admin) listBuildings().then(setItems, (e: Error) => setError(e.message))
+  }, [admin])
+  useEffect(load, [load])
+  useEvents(event => { if (event.type.startsWith('buildings.')) load() })
+
   return (
     <section>
-      <h1 className="text-xl font-semibold">Мои здания</h1>
-      <div className="mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed bg-card px-6 py-14 text-center">
-        <Building2 className="size-8 text-muted-foreground" />
-        <p className="font-medium">Зданий пока нет</p>
-        <p className="max-w-md text-sm text-muted-foreground">
-          {me.user.is_admin
-            ? 'Здесь появятся здания, созданные из чертежей. Загрузка чертежей станет доступна на следующем этапе.'
-            : 'Здесь появятся здания, к которым вам выдадут доступ. Обратитесь к администратору здания.'}
-        </p>
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-semibold">Мои здания</h1>
+        {admin && !adding && (
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}><Plus className="size-4" /> Создать здание</Button>
+        )}
       </div>
+      {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+      {adding && <NewBuilding onDone={() => { setAdding(false); load() }} />}
+      {items && items.length > 0 && (
+        <ul className="mt-5 grid gap-3 sm:grid-cols-2" data-testid="buildings">
+          {items.map(b => (
+            <li key={b.id}>
+              <a href={`#/p/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">
+                <div className="flex items-center gap-2 font-medium"><Building2 className="size-4 text-muted-foreground" /> {b.name}</div>
+                {b.address && <div className="mt-1 text-sm text-muted-foreground">{b.address}</div>}
+                <div className="mt-2 text-xs text-muted-foreground">
+                  {b.drawings ? `${plural(b.floors ?? 0, 'этаж', 'этажа', 'этажей')} · ${plural(b.rooms ?? 0, 'помещение', 'помещения', 'помещений')}`
+                    : 'Чертежи ещё не загружены'}
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {items && items.length === 0 && !adding && (
+        <div className="mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed bg-card px-6 py-14 text-center">
+          <Building2 className="size-8 text-muted-foreground" />
+          <p className="font-medium">Зданий пока нет</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {admin ? 'Создайте здание и загрузите в него поэтажные планы (DWG или DXF).'
+              : 'Здесь появятся здания, к которым вам выдадут доступ. Обратитесь к администратору здания.'}
+          </p>
+        </div>
+      )}
     </section>
+  )
+}
+
+function NewBuilding({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [address, setAddress] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    createBuilding(name, address).then(b => { location.hash = `#/p/${b.id}`; onDone() },
+      (ex: Error) => { setError(ex.message); setBusy(false) })
+  }
+  return (
+    <form onSubmit={submit} className="mt-4 grid max-w-lg gap-2 rounded-lg border bg-card p-4">
+      <label className="grid gap-1 text-sm">Название
+        <Input value={name} onChange={e => setName(e.target.value)} required maxLength={200} autoFocus placeholder="Корпус А" />
+      </label>
+      <label className="grid gap-1 text-sm">Адрес
+        <Input value={address} onChange={e => setAddress(e.target.value)} maxLength={500} placeholder="необязательно" />
+      </label>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      <div className="mt-1 flex gap-2">
+        <Button type="submit" disabled={busy || !name.trim()}>Создать</Button>
+        <Button type="button" variant="ghost" onClick={onDone}>Отмена</Button>
+      </div>
+    </form>
   )
 }

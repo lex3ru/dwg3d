@@ -199,4 +199,20 @@ image:ping:
   extends: .service-image
   variables: {SERVICE: ping}
 
+service:import:
+  extends: .service
+  variables: {SERVICE: import}
+
+image:import:
+  extends: .service-image
+  variables: {SERVICE: import}
+
+service:buildings:
+  extends: .service
+  variables: {SERVICE: buildings}
+
+image:buildings:
+  extends: .service-image
+  variables: {SERVICE: buildings}
+
 # -- jobs of new services go above this line (tools/new-service adds them) --

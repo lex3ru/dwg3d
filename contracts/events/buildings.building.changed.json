@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.building.changed",
+  "description": "Изменены свойства здания: название, адрес, привязка к карте, фасад, положение чертежей. subject — здание.",
+  "type": "object",
+  "required": [
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Изменённые поля"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "import.build.finished",
+  "description": "Сборка завершена успешно; результат — GET /api/import/v1/builds/{build_id}/result. subject — сборка.",
+  "type": "object",
+  "required": [
+    "build_id",
+    "drawing_id",
+    "n",
+    "floors",
+    "rooms",
+    "warnings",
+    "quality"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "build_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "n": {
+      "type": "integer",
+      "description": "Номер сборки чертежа по порядку"
+    },
+    "floors": {
+      "type": "integer"
+    },
+    "rooms": {
+      "type": "integer"
+    },
+    "warnings": {
+      "type": "integer"
+    },
+    "quality": {
+      "enum": [
+        "ok",
+        "suspect"
+      ],
+      "description": "suspect — собрано, но результат, скорее всего, неверен (см. предупреждения)"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "import.build.progress",
+  "description": "Ход сборки. Не хранится и не досылается: только для показа в интерфейсе.",
+  "type": "object",
+  "required": [
+    "build_id",
+    "drawing_id",
+    "n",
+    "stage",
+    "progress",
+    "message"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "build_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "n": {
+      "type": "integer",
+      "description": "Номер сборки чертежа по порядку"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "progress": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}
