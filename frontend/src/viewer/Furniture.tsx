@@ -287,7 +287,7 @@ export default function Furniture(p: Props) {
   )
 }
 
-const VIEW_COLOR = { cam: '#7048e8', radio: '#0ca678', detect: '#e03131' }
+const VIEW_COLOR = { cam: '#7048e8', radio: '#0ca678', detect: '#e03131', light: '#f59f00' }
 
 /** CCTV view: the seen floor (lighter up to the range, darker where faces
  * can be identified) and a see-through cone from the lens. */

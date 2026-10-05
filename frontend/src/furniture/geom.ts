@@ -312,8 +312,8 @@ export interface Coverage {
   fov: number
   range: number
   /** what covers: a camera (its view), a Wi-Fi access point (good / usable
-   * signal), a fire detector (the protected area) */
-  kind?: 'cam' | 'radio' | 'detect'
+   * signal), a fire detector (the protected area), a light source (lit for work / lit) */
+  kind?: 'cam' | 'radio' | 'detect' | 'light'
 }
 
 /** furniture this tall hides what is behind it */
@@ -385,17 +385,45 @@ const RADIO_N = 2.2            // path loss exponent indoors
 const FACE_DB = 3.5            // per face of a wall or partition (a wall ~ 7 dB)
 export const RADIO_GOOD = -67, RADIO_USABLE = -75       // dBm
 
-/** Radio coverage of Wi-Fi access points (params.radio) and the floor protected
- * by fire detectors (params.detect): rays in all directions; radio fades with
- * distance and loses FACE_DB at every wall face it crosses, a detector's area
- * stops at walls. `full` / `ident`: usable / good signal (detectors: both the area). */
+// Lighting: illuminance on the working plane from a single source
+export const LUX_WORK = 300, LUX_LIT = 100       // lx: enough for work / lit
+const WORK_PLANE = 0.8         // m above the floor
+const LIGHT_MAX = 30           // m, the longest radius drawn
+
+/** The lit area of a light source (params.light) by its flux, beam angle and
+ * mounting height: the flux spreads evenly within the beam, so the illuminance
+ * of the working plane at distance r from the point under the source is
+ * I·H / (H² + r²)^1.5 (I — luminous intensity, H — height above the plane).
+ * `under`: lx right under the source; `work` / `lit`: radii (m) where it is
+ * at least LUX_WORK / LUX_LIT. */
+export function lightZone(p: PlacedItem, c: CatalogItem = catalogItem(p.item)) {
+  const l = c.params?.light
+  if (!l) return null
+  const elev = itemElev(p, c)
+  // light leaves the bottom of a hung luminaire and the top of a standing one
+  const src = elev >= 1 ? elev : elev + itemSize(p, c)[2]
+  const H = Math.max(0.2, src - WORK_PLANE)
+  const half = (Math.min(l.beam, 360) * Math.PI) / 360
+  const I = l.flux / (2 * Math.PI * (1 - Math.cos(half)))
+  const edge = l.beam < 170 ? H * Math.tan(half) : LIGHT_MAX
+  const reach = (lux: number) => Math.min(edge, LIGHT_MAX, Math.sqrt(Math.max(0, ((I * H) / lux) ** (2 / 3) - H * H)))
+  return { under: I / (H * H), work: reach(LUX_WORK), lit: reach(LUX_LIT) }
+}
+
+/** Radio coverage of Wi-Fi access points (params.radio), the floor protected
+ * by fire detectors (params.detect) and the area lit by light sources
+ * (params.light): rays in all directions; radio fades with distance and loses
+ * FACE_DB at every wall face it crosses, a detector's area and light stop at
+ * walls. `full` / `ident`: usable / good signal (detectors: both the area;
+ * light: lit / lit enough for work). */
 export function systemsCoverage(items: PlacedItem[], idx: PlanIndex | null): Map<string, Coverage> {
   const out = new Map<string, Coverage>()
   for (const it of items) {
     const c = catalogItem(it.item)
     const radio = c.params?.radio, detect = c.params?.detect
-    if (!radio && !detect) continue
-    const R = radio ? radio.range : detect!.radius
+    const light = radio || detect ? null : lightZone(it, c)
+    if (!radio && !detect && !(light && light.lit > 0.05)) continue
+    const R = radio ? radio.range : detect ? detect.radius : light!.lit
     const apex = it.at
     const segs = (idx?.faces ?? []).filter(([a, b]) =>
       Math.min(a[0], b[0]) <= apex[0] + R && Math.max(a[0], b[0]) >= apex[0] - R &&
@@ -414,6 +442,9 @@ export function systemsCoverage(items: PlacedItem[], idx: PlanIndex | null): Map
       let tg = R, tu = R
       if (detect) {
         tg = tu = hits.length ? hits[0] : R
+      } else if (light) {
+        tu = hits.length ? hits[0] : R
+        tg = Math.min(tu, light.work)
       } else {
         const s1 = radio!.tx - RADIO_1M
         const reach = (loss: number, thr: number) => Math.max(1, 10 ** ((s1 - loss - thr) / (10 * RADIO_N)))
@@ -431,7 +462,7 @@ export function systemsCoverage(items: PlacedItem[], idx: PlanIndex | null): Map
       usable.push([apex[0] + dir[0] * tu, apex[1] + dir[1] * tu])
     }
     out.set(it.id, { apex, fov: 360, range: R, arc: usable, arcIdent: good, closed: true, full: usable, ident: good,
-      kind: radio ? 'radio' : 'detect' })
+      kind: radio ? 'radio' : detect ? 'detect' : 'light' })
   }
   return out
 }

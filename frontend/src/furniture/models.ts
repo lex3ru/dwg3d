@@ -26,6 +26,7 @@ const DARK = '#495057'
 const BODY = '#f8f9fa'
 const GLASS = 'glass'
 const SCREEN = '#212529'
+const LAMP = '#fff3bf'
 
 /** Shared materials (by colour; ghosts are see-through). */
 export class Materials {
@@ -462,6 +463,22 @@ const GEN: Record<string, Gen> = {
     b.cyl(0, 0, h - 0.03, h, r * 0.6, BODY)
     b.cyl(0, 0, h * 0.45, h - 0.03, r * 0.7, BODY)
     b.sph(0, h * 0.45, 0, r * 0.75, SCREEN, 0.9)
+  },
+  // luminaires: the glowing face looks down (hung) or sits on a post (standing)
+  lamp_panel(b, w, d, h) {
+    b.box(X0(w), w / 2, 0.005, h, -d / 2, d / 2, BODY)
+    b.box(X0(w) + 0.015, w / 2 - 0.015, 0, 0.005, -d / 2 + 0.015, d / 2 - 0.015, LAMP)
+  },
+  lamp_round(b, w, d, h) {
+    const r = Math.min(w, d) / 2
+    b.cyl(0, 0, 0.005, h, r, BODY)
+    b.cyl(0, 0, 0, 0.005, r * 0.85, LAMP)
+  },
+  lamp_floor(b, w, d, h) {
+    const r = Math.min(w, d) / 2
+    b.cyl(0, 0, 0, 0.03, r * 0.7, DARK)
+    b.cyl(0, 0, 0.03, h - 0.25, 0.015, METAL)
+    b.cyl(0, 0, h - 0.25, h, r, LAMP)
   },
   zone(b, w, d, h) {
     b.cyl(0, 0, 0, Math.max(0.005, h), Math.min(w, d) / 2 - 0.05, 'main')

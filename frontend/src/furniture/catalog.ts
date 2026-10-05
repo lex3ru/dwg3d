@@ -31,8 +31,13 @@ export interface CatalogItem {
    * face identification distance (m); it looks along its front (+Z) */
   cam?: { fov: number; range: number; ident: number }
   /** Wi-Fi access point: transmit power (dBm) and the longest range considered (m);
-   * fire detector: radius of the protected floor area (m) */
-  params?: { radio?: { tx: number; range: number }; detect?: { radius: number } }
+   * fire detector: radius of the protected floor area (m); light source: luminous
+   * flux (lm), power (W), beam angle (deg) and colour temperature (K) */
+  params?: {
+    radio?: { tx: number; range: number }
+    detect?: { radius: number }
+    light?: { flux: number; power: number; beam: number; cct: number }
+  }
   article?: string
   supplier?: string
   price?: number

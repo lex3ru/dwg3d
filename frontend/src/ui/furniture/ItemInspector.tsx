@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { catalogItem } from '@/furniture/catalog'
-import { ISSUE_LABEL, camParams, itemElev, itemSize, roomAt, type Issue, type PlanIndex } from '@/furniture/geom'
+import { ISSUE_LABEL, LUX_LIT, LUX_WORK, camParams, itemElev, itemSize, lightZone, roomAt, type Issue, type PlanIndex } from '@/furniture/geom'
 import { layersFor } from '@/furniture/layers'
 import { cm, ItemSymbol, NumField } from './parts'
 
@@ -40,6 +40,7 @@ export default function ItemInspector(p: {
   }
   const opts = layersFor(p.layers, p.kinds, c.cat)
   const cp = c.cam ? camParams(sel, c) : null
+  const light = c.params?.light, lz = lightZone(sel, c)
   return (
     <div className="grid gap-3 p-3" onKeyDown={(e) => e.stopPropagation()}>
       <div className="flex items-start gap-2">
@@ -81,6 +82,13 @@ export default function ItemInspector(p: {
             <NumField label="Дальность, м" value={Math.round(cp.range * 10) / 10} min={0.5} max={300} onChange={(v) => p.onUpdate(sel.id, { range: v })} />
             <small className="col-span-2 text-xs text-muted-foreground">Лица различимы до {cp.ident.toFixed(1)} м</small>
           </div>
+        )}
+        {light && lz && (
+          <small className="text-xs text-muted-foreground">
+            {light.flux} лм · {light.power} Вт · луч {light.beam}° · {light.cct} К.
+            Под светильником {Math.round(lz.under)} лк; не меньше {LUX_WORK} лк — в радиусе {lz.work.toFixed(1)} м, {LUX_LIT} лк — {lz.lit.toFixed(1)} м
+            (на высоте 0,8 м, зависит от высоты установки)
+          </small>
         )}
         <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
           <NumField label="Поворот, °" value={Math.round(sel.angle)} min={-360} max={360} onChange={(v) => p.onUpdate(sel.id, { angle: ((v % 360) + 360) % 360 })} />

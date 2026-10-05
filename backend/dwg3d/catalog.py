@@ -100,8 +100,9 @@ def clean_item(it: dict, where: str) -> dict:
     return row
 
 
-# kind-specific parameters of items: Wi-Fi access points, fire detectors
-PARAMS = {"radio": {"tx": (0, 36), "range": (1, 200)}, "detect": {"radius": (0.5, 30)}}
+# kind-specific parameters of items: Wi-Fi access points, fire detectors, light sources
+PARAMS = {"radio": {"tx": (0, 36), "range": (1, 200)}, "detect": {"radius": (0.5, 30)},
+          "light": {"flux": (10, 200000), "power": (0.1, 5000), "beam": (5, 360), "cct": (1800, 10000)}}
 
 
 def clean_params(v, where: str) -> dict | None:

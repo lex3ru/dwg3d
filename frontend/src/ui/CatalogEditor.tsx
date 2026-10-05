@@ -32,6 +32,13 @@ interface Form {
   fov: string
   range: string
   ident: string
+  light: boolean
+  flux: string
+  power: string
+  beam: string
+  cct: string
+  /** the item's other parameters (Wi-Fi, fire detector), kept as they are */
+  params: Omit<NonNullable<CatalogItem['params']>, 'light'>
   modelRot: string
   active: boolean
 }
@@ -42,7 +49,11 @@ const toForm = (c: CatalogItem | null, cat: string): Form => ({
   w: s(c?.w ?? 1), d: s(c?.d ?? 1), h: s(c?.h ?? 1), elev: s(c?.elev), clear: s(c?.clear), wall: !!c?.wall,
   color: c?.color ?? '', tags: c?.tags ?? '', article: c?.article ?? '', supplier: c?.supplier ?? '',
   price: s(c?.price), currency: c?.currency ?? 'RUB', cam: !!c?.cam, fov: s(c?.cam?.fov ?? 90),
-  range: s(c?.cam?.range ?? 15), ident: s(c?.cam?.ident ?? 5), modelRot: s(c?.modelRot), active: c?.active !== false,
+  range: s(c?.cam?.range ?? 15), ident: s(c?.cam?.ident ?? 5),
+  light: !!c?.params?.light, flux: s(c?.params?.light?.flux ?? 3600), power: s(c?.params?.light?.power ?? 36),
+  beam: s(c?.params?.light?.beam ?? 120), cct: s(c?.params?.light?.cct ?? 4000),
+  params: { ...(c?.params?.radio && { radio: c.params.radio }), ...(c?.params?.detect && { detect: c.params.detect }) },
+  modelRot: s(c?.modelRot), active: c?.active !== false,
 })
 
 /** The whole catalog, withdrawn items included. */
@@ -62,6 +73,7 @@ function body(f: Form): Record<string, unknown> {
     article: f.article.trim() || null, supplier: f.supplier.trim() || null, price: num(f.price),
     currency: f.currency.trim().toUpperCase() || 'RUB', modelRot: num(f.modelRot), active: f.active,
     cam: f.cam ? { fov: num(f.fov), range: num(f.range), ident: num(f.ident) } : null,
+    params: { ...f.params, ...(f.light && { light: { flux: num(f.flux), power: num(f.power), beam: num(f.beam), cct: num(f.cct) } }) },
   }
 }
 
@@ -291,6 +303,21 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
                         {(['fov', 'range', 'ident'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
                       </div>
                     </Row>
+                  )}
+                  <Row label="Источник света"><Switch checked={f.light} onCheckedChange={(v) => set('light', v)} /></Row>
+                  {f.light && (
+                    <>
+                      <Row label="Световой поток, лм · мощность, Вт">
+                        <div className="flex gap-1">
+                          {(['flux', 'power'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                        </div>
+                      </Row>
+                      <Row label="Угол луча, ° · цветовая температура, К">
+                        <div className="flex gap-1">
+                          {(['beam', 'cct'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                        </div>
+                      </Row>
+                    </>
                   )}
                   <Row label="В продаже (видна в каталоге)"><Switch checked={f.active} onCheckedChange={(v) => set('active', v)} /></Row>
                 </div>

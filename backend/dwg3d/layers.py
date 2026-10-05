@@ -26,6 +26,7 @@ KINDS: dict[str, dict] = {
     "fire": {"name": "Пожарная сигнализация", "geoms": ("point",), "categories": ("fire",), "sort": 50},
     "access": {"name": "СКУД", "geoms": ("point",), "categories": ("access",), "sort": 60},
     "wifi": {"name": "Wi-Fi", "geoms": ("point",), "categories": ("wifi",), "sort": 70},
+    "lighting": {"name": "Освещение", "geoms": ("point",), "categories": ("lighting",), "sort": 80},
 }
 MAX_LAYERS = 200
 

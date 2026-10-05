@@ -13,7 +13,9 @@
 # (deg) so its front faces +Z. cam — CCTV: fov (deg, 360 = panoramic), range and
 # face identification distance (m). params — kind-specific parameters:
 # radio: {tx: dBm, range: m} (Wi-Fi access points), detect: {radius: m} (fire
-# detectors: the protected area). Optional: article, supplier, price, currency.
+# detectors: the protected area), light: {flux: lm, power: W, beam: deg, cct: K}
+# (light sources: luminous flux, power, beam angle, colour temperature).
+# Optional: article, supplier, price, currency.
 #
 # GLB models under kenney/ — Kenney Furniture Kit 2.0, CC0 (www.kenney.nl).
 
@@ -876,3 +878,119 @@ categories:
     color: '#f8f9fa'
     params: {radio: {tx: 17, range: 30}}
     tags: wi-fi вайфай точка доступа
+- id: lighting
+  name: Освещение
+  color: '#f59f00'
+  items:
+  - id: light.panel
+    name: Светильник светодиодный, панель 600×600
+    w: 0.6
+    d: 0.6
+    h: 0.04
+    kind: lamp_panel
+    elev: 2.7
+    params: {light: {flux: 3600, power: 36, beam: 120, cct: 4000}}
+    tags: освещение светильник армстронг панель led
+  - id: light.panel_med
+    name: Светильник медицинский, панель 600×600 (IP54, CRI 90)
+    w: 0.6
+    d: 0.6
+    h: 0.05
+    kind: lamp_panel
+    elev: 2.7
+    params: {light: {flux: 4400, power: 40, beam: 110, cct: 4000}}
+    tags: освещение светильник медицинский чистые помещения led
+  - id: light.linear
+    name: Светильник линейный 1200 мм
+    w: 1.2
+    d: 0.1
+    h: 0.06
+    kind: lamp_panel
+    elev: 2.7
+    params: {light: {flux: 4000, power: 36, beam: 120, cct: 4000}}
+    tags: освещение светильник линейный led
+  - id: light.linear_ip65
+    name: Светильник линейный пылевлагозащищённый (IP65)
+    w: 1.27
+    d: 0.14
+    h: 0.1
+    kind: lamp_panel
+    elev: 2.7
+    params: {light: {flux: 3800, power: 38, beam: 120, cct: 5000}}
+    tags: освещение светильник технический ip65 влагозащищённый
+  - id: light.downlight
+    name: Светильник встраиваемый точечный (даунлайт)
+    w: 0.17
+    d: 0.17
+    h: 0.06
+    kind: lamp_round
+    elev: 2.7
+    params: {light: {flux: 1500, power: 15, beam: 90, cct: 4000}}
+    tags: освещение светильник точечный даунлайт downlight спот
+  - id: light.spot
+    name: Светильник акцентный, узкий луч
+    w: 0.1
+    d: 0.1
+    h: 0.12
+    kind: lamp_round
+    elev: 2.6
+    params: {light: {flux: 900, power: 10, beam: 36, cct: 3000}}
+    tags: освещение светильник акцентный спот трековый
+  - id: light.round
+    name: Светильник накладной круглый
+    w: 0.3
+    d: 0.3
+    h: 0.08
+    kind: lamp_round
+    elev: 2.65
+    params: {light: {flux: 1800, power: 18, beam: 120, cct: 4000}}
+    tags: освещение светильник накладной жкх коридор
+  - id: light.wall
+    name: Светильник настенный (бра)
+    w: 0.2
+    d: 0.1
+    h: 0.25
+    kind: device_wall
+    wall: true
+    elev: 1.9
+    color: '#fff3bf'
+    params: {light: {flux: 800, power: 9, beam: 180, cct: 3000}}
+    tags: освещение бра настенный светильник
+  - id: light.bedhead
+    name: Светильник прикроватный настенный (палатный)
+    w: 0.9
+    d: 0.1
+    h: 0.12
+    kind: device_wall
+    wall: true
+    elev: 1.7
+    color: '#f8f9fa'
+    params: {light: {flux: 2000, power: 24, beam: 150, cct: 4000}}
+    tags: освещение палата прикроватный светильник
+  - id: light.emergency
+    name: Светильник аварийного освещения
+    w: 0.35
+    d: 0.08
+    h: 0.14
+    kind: device_wall
+    wall: true
+    elev: 2.3
+    color: '#f8f9fa'
+    params: {light: {flux: 300, power: 4, beam: 120, cct: 6000}}
+    tags: освещение аварийный эвакуационный светильник
+  - id: light.exam
+    name: Светильник смотровой передвижной
+    w: 0.5
+    d: 0.5
+    h: 1.8
+    kind: lamp_floor
+    params: {light: {flux: 1600, power: 20, beam: 30, cct: 4500}}
+    tags: освещение смотровой хирургический светильник лампа
+  - id: light.floor
+    name: Торшер
+    w: 0.35
+    d: 0.35
+    h: 1.6
+    kind: lamp_floor
+    params: {light: {flux: 1000, power: 11, beam: 200, cct: 2700}}
+    tags: освещение торшер напольный светильник

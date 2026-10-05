@@ -73,7 +73,7 @@ export function useFurniture(p: {
   const furnPlan = planIdx && planIdx.floor === planFloor?.id ? planIdx.idx : null
   const issues = useMemo(() => (furnFloor ? checkFloor(floorItems, furnPlan) : new Map()), [floorItems, furnPlan, furnFloor])
   const coverage = useMemo(() => cameraCoverage(floorItems, furnPlan), [floorItems, furnPlan])
-  // Wi-Fi signal and the areas of fire detectors, drawn like camera views
+  // Wi-Fi signal, the areas of fire detectors and of light sources, drawn like camera views
   const allCoverage = useMemo(() => new Map([...coverage, ...systemsCoverage(floorItems, furnPlan)]), [coverage, floorItems, furnPlan])
   // room shares are slower: let them lag behind while a camera is dragged
   const lazyCoverage = useDeferredValue(coverage)

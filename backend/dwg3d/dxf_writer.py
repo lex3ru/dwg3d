@@ -390,7 +390,7 @@ def dxf_to_dwg(src: Path, dst: Path, timeout: int = 600, libredwg_timeout: int =
 # catalog items as blocks (footprint + front edge, attributes NAME / ARTICLE /
 # NOTE for data extraction), CCTV cameras also with their field of view,
 # routes as polylines with numbered stops, zones as outlines with a hatch.
-LAYER_COLORS = {"furniture": 150, "cctv": 6, "routes": 5, "zones": 3}
+LAYER_COLORS = {"furniture": 150, "cctv": 6, "routes": 5, "zones": 3, "lighting": 2}
 _BAD_NAME = re.compile(r'[<>/\\":;?*|=`]')
 
 

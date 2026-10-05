@@ -104,7 +104,7 @@ export default function Toolbar(p: Props) {
       <Group icon={Armchair} active={d.furniture} title="Мебель и оборудование на плане" onClick={() => p.set({ furniture: !d.furniture })}>
         <DropdownMenuLabel>Мебель и оборудование</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.furniture} onSelect={keep} onCheckedChange={(v) => p.set({ furniture: v })}>Показывать</DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={d.camViews} onSelect={keep} onCheckedChange={(v) => p.set({ camViews: v })}>Обзор камер, покрытие Wi-Fi и извещателей</DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={d.camViews} onSelect={keep} onCheckedChange={(v) => p.set({ camViews: v })}>Обзор камер, покрытие Wi-Fi, извещателей и освещения</DropdownMenuCheckboxItem>
         <Note>Что именно показывать, задают слои в дереве слева.</Note>
       </Group>
       <Group icon={MessageCircle} active={d.comments || p.tool === 'comment'} title="Комментарии" onClick={() => p.set({ comments: !d.comments })}>
