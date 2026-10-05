@@ -75,11 +75,15 @@ class World:
                                              "grants": grants, "buildings": [BUILDING] if grants else []})
         if service == "buildings":                       # two rooms side by side: x in [0, 5) and [5, 10)
             import json
+            if path.endswith("/tree"):
+                return httpx.Response(200, json={"floors": [{"id": FLOOR, "name": "План 1-го этажа", "level": 1}]})
             if not path.endswith(f"/floors/{FLOOR}/locate"):
                 return httpx.Response(404, json={"code": "not_found"})
             rooms = [ROOM_A if 0 <= x < 5 else ROOM_B if 5 <= x < 10 else None
                      for x, _ in json.loads(request.content)["points"]]
             return httpx.Response(200, json={"building_id": BUILDING, "rooms": rooms})
+        if path.endswith("/types"):
+            return httpx.Response(200, json={"items": list(self.types.values())})
         found = next((t for t in self.types.values() if path.endswith(f"/types/{t['id']}")), None)
         return httpx.Response(200, json=found) if found else httpx.Response(404, json={"code": "not_found"})
 

@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { signIn, users } from './helpers'
+import { xlsx } from './xlsx'
 
 // Stage 4 (docs/ACCEPTANCE.md, section 6): objects on the plan.
 
@@ -96,4 +97,79 @@ test('an object is placed, filled in, given to someone who then keeps it — and
   // on the plan the object is a dot in its room
   await card.getByRole('link', { name: 'На плане' }).click()
   await expect(root.getByTestId('plan').locator(`[data-asset="${asset}"]`)).toBeVisible()
+})
+
+test('objects are placed in a row and loaded from a file; one is put inside another and taken out to a new place', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const stamp = Date.now().toString().slice(-7)
+  const root = await as(browser, 'admin')
+  await root.getByRole('button', { name: 'Создать здание' }).click()
+  await root.getByLabel('Название').fill(`Расстановка ${stamp}`)
+  await root.getByRole('button', { name: 'Создать', exact: true }).click()
+  await root.waitForURL(/#\/p\//)
+  const building = /#\/p\/([\w-]+)/.exec(root.url())![1]
+  await root.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(root.locator('[data-drawing="sample.dxf"]')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  const at = async (fx: number, fy: number) => {
+    const box = (await root.getByTestId('plan').boundingBox())!
+    await root.mouse.click(box.x + box.width * fx, box.y + box.height * fy)
+  }
+
+  // three couches at once: the places are clicked, the numbers go in a row
+  await root.goto(`/#/b/${building}/plan`)
+  await root.getByRole('button', { name: 'Поставить несколько' }).click()
+  const series = root.getByTestId('series')
+  await series.getByLabel('Тип объектов').selectOption({ label: 'Кушетка' })
+  await series.getByLabel('Начало номера').fill(`КШ-${stamp}-`)
+  await series.getByLabel('Цифр').fill('3')
+  await at(0.68, 0.48); await at(0.72, 0.48); await at(0.7, 0.53); await at(0.74, 0.53)
+  await series.getByRole('button', { name: 'Убрать последнюю' }).click()
+  await expect(root.getByTestId('series-numbers')).toHaveText(`отмечено 3: КШ-${stamp}-001 … КШ-${stamp}-003`)
+  await series.getByRole('button', { name: 'Поставить 3' }).click()
+  await expect(series).toHaveCount(0)
+  await expect(root.getByTestId('plan').locator('[data-asset]')).toHaveCount(3)
+
+  // a desk and a gastroscope; the card of the gastroscope shows what the catalog says of every such one
+  for (const [type, number] of [['Рабочий стол', `СТ-${stamp}`], ['Гастроскоп', `ГС-${stamp}`]]) {
+    await root.goto(`/#/b/${building}/plan`)
+    await root.getByRole('button', { name: 'Поставить объект' }).click()
+    await root.getByTestId('placing').getByLabel('Тип объекта').selectOption({ label: type })
+    await root.getByTestId('placing').getByLabel('Инвентарный номер').fill(number)
+    await at(0.7, 0.44)
+    await expect(root.getByTestId('panel').getByTestId('asset-card')).toContainText(number)
+  }
+  const card = root.getByTestId('panel').getByTestId('asset-card')
+  await expect(card).toContainText('Вид')
+  await expect(card).toContainText('видео')
+
+  // it is put into the desk: no place of its own any more; then taken out — to where the plan is clicked
+  await card.getByLabel('Поставить внутрь').selectOption({ label: `Рабочий стол · СТ-${stamp}` })
+  await expect(card).toContainText('Стоит внутри: Рабочий стол')
+  await expect(card.getByRole('link', { name: 'На плане' })).toHaveCount(0)
+  const asset = /assets\/([\w-]+)/.exec(root.url())![1]
+  await card.getByRole('link', { name: 'Переместить' }).click()
+  await expect(root.getByTestId('moving')).toContainText(`ГС-${stamp}`)
+  await at(0.66, 0.56)
+  await expect(card).toContainText(`ГС-${stamp}`)
+  await expect(card).not.toContainText('Стоит внутри')
+  await expect(card.getByTestId('asset-history')).toContainText('перемещ')
+  const moved = await (await root.request.get(`/api/assets/v1/assets/${asset}`)).json()
+  expect(moved.container_id).toBeNull()
+  expect(moved.x).not.toBeNull()
+
+  // from Excel: a file with a mistake loads nothing and names the row; a correct one loads all
+  await root.goto(`/#/b/${building}/assets`)
+  await expect(root.getByTestId('assets-total')).toHaveText('5')
+  const head = ['Тип', 'Инвентарный номер', 'Серийный номер', 'Этаж', 'X', 'Y', 'Примечание']
+  const row = (type: string, n: string, dx: number) => [type, n, `SN-${n}`, 1, moved.x + dx, moved.y, 'из файла']
+  await root.getByTestId('assets-file').setInputFiles({ name: 'objects.xlsx', mimeType: 'application/octet-stream',
+    buffer: xlsx([head, row('Кушетка', `Ф-${stamp}-1`, 0.1), row('Нет такого', `Ф-${stamp}-2`, 0.2)]) })
+  await expect(root.getByTestId('assets-report')).toContainText('строка 3')
+  await expect(root.getByTestId('assets-report')).toContainText('Нет такого')
+  await expect(root.getByTestId('assets-total')).toHaveText('5')
+  await root.getByTestId('assets-file').setInputFiles({ name: 'objects.xlsx', mimeType: 'application/octet-stream',
+    buffer: xlsx([head, row('Кушетка', `Ф-${stamp}-1`, 0.1), row('Гастроскоп', `Ф-${stamp}-2`, 0.2)]) })
+  await expect(root.getByTestId('assets-report')).toHaveText('Добавлено объектов: 2')
+  await expect(root.getByTestId('assets-total')).toHaveText('7')
+  await expect(root.getByTestId('assets').locator(`[data-asset="Ф-${stamp}-2"]`)).toBeVisible()
 })

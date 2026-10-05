@@ -73,7 +73,10 @@ async def fetch_type(client, type_id: UUID, token: str | None) -> dict:
 async def store_schema(session, t: dict):
     values = {"schema_version": t["schema_version"], "name": t["name"], "category_id": UUID(t["category_id"]),
               "container": t["container"], "portable": t["portable"], "archived": not t["active"],
-              "schema": [p for p in t["schema"] if p["stored"] == "asset"], "updated_at": func.now()}
+              "schema": [p for p in t["schema"] if p["stored"] == "asset"],
+              "type_props": [{**p, "value": (t.get("values") or {}).get(p["key"])}
+                             for p in t["schema"] if p["stored"] == "type"],
+              "updated_at": func.now()}
     return (await session.execute(pg_insert(type_schemas).values(type_id=UUID(t["id"]), **values)
                                   .on_conflict_do_update(index_elements=["type_id"], set_=values)
                                   .returning(type_schemas))).one()

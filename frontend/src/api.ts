@@ -29,6 +29,8 @@ export type Note = { id: string; text: string; created_at: string; echoed_at: st
 export class ApiError extends Error {
   status: number
   code: string
+  /** rows at fault, when a file was refused */
+  rows: string[] = []
   constructor(status: number, code: string, message: string) {
     super(message)
     this.status = status
@@ -213,6 +215,8 @@ export type Asset = {
 export const assetTone = (a: Asset) => (a.state === 'faulty' ? 'bad' : a.state !== 'in_use' || a.needs_fill || a.needs_placement ? 'warn' : 'ok')
 export type AssetCard = Asset & {
   schema: Prop[]; portable: boolean; container: boolean; children: Asset[]
+  /** what the catalog says of the type as a whole: properties kept with the type, with their values */
+  type_props: (Prop & { value: unknown })[]
   can: { edit: boolean; manage: boolean; move: boolean }
 }
 export type HistoryEntry = {
@@ -223,7 +227,17 @@ export type AssetFile = { id: string; kind: 'photo' | 'document'; name: string; 
 
 export const listAssets = (params: Record<string, string | undefined>) => {
   const q = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]))
-  return api<{ items: Asset[]; total: number }>(`${ASSETS}/assets?${q}`)
+  return api<{ items: Asset[]; total: number; next: number | null }>(`${ASSETS}/assets?${q}`)
+}
+/** Everything that matches, page after page: a floor's plan shows all its objects. */
+export async function listAllAssets(params: Record<string, string | undefined>): Promise<Asset[]> {
+  const all: Asset[] = []
+  for (let cursor: number | null = 0; cursor != null && all.length < 20000;) {
+    const page: { items: Asset[]; next: number | null } = await listAssets({ ...params, limit: '500', cursor: String(cursor) })
+    all.push(...page.items)
+    cursor = page.next
+  }
+  return all
 }
 export const getAsset = (id: string) => api<AssetCard>(`${ASSETS}/assets/${id}`)
 export const createAsset = (body: { type_id: string; floor_id: string; x: number; y: number; inventory_no: string }) =>
@@ -242,3 +256,16 @@ export const assetFiles = (id: string) => api<{ items: AssetFile[] }>(`${ASSETS}
 export const addAssetFile = (id: string, file: File) => api<AssetFile>(`${ASSETS}/assets/${id}/files`, { method: 'POST', body: fileForm(file) })
 export const deleteAssetFile = (id: string) => api<void>(`${ASSETS}/files/${id}`, { method: 'DELETE' })
 export const assetFileUrl = (id: string) => `${ASSETS}/files/${id}`
+export const moveAssetInto = (a: Asset, container_id: string) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}/move`, { method: 'POST', json: { container_id, version: a.version } })
+export const createAssets = (body: { type_id: string; floor_id: string; points: [number, number][]; prefix: string; start: number; width: number }) =>
+  api<{ items: Asset[] }>(`${ASSETS}/assets/batch`, { method: 'POST', json: body })
+/** All rows or none; a refusal lists the rows at fault (ApiError.rows). */
+export async function importAssets(building: string, file: File): Promise<{ created: number }> {
+  const response = await fetch(`${ASSETS}/assets/import?building_id=${building}`, { method: 'POST', body: fileForm(file) })
+  const body = await response.json()
+  if (response.ok) return body
+  const error = new ApiError(response.status, body.code ?? 'error', body.detail ?? `Ошибка ${response.status}`)
+  error.rows = (body.errors ?? []).map((e: { field: string; message: string }) => `${e.field}: ${e.message}`)
+  throw error
+}

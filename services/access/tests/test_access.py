@@ -132,3 +132,33 @@ async def test_unlinked_account_and_scopes_for_services(client, tokens, people):
     assert (await scopes(client, headers))["grants"] == []          # the grant waits for the person's next account
     relinked = await people.person("ivanov")
     assert relinked[0] != person
+
+
+async def test_who_answers_for_an_object_may_edit_it(client, app, tokens, people):
+    from twin_chassis.events import envelope
+    old, old_h = await people.person("old-keeper")
+    new, new_h = await people.person("new-keeper")
+    asset = str(uuid4())
+    chain = [{"kind": "asset", "id": asset}, {"kind": "room", "id": ROOM}, {"kind": "building", "id": B1}]
+
+    async def named(who_from, who_to) -> None:
+        data = {"asset_id": asset, "from": who_from, "to": who_to}
+        event = envelope("assets.asset.responsible_changed", ("asset", asset), data,
+                         actor={"kind": "user", "id": "boss"}, building_id=B1, asset_id=asset)
+        assert await app.state.bus.handle("responsible-changed", event) is True
+
+    async def can(headers, action) -> bool:
+        r = await client.post(f"{API}/check", json={"checks": [{"action": action, "chain": chain}]}, headers=headers)
+        return r.json()["results"][0]["allowed"]
+
+    await named(None, old)
+    assert await can(old_h, "edit") and await can(old_h, "plan") and not await can(old_h, "manage")
+    assert (await scopes(client, old_h))["grants"][0]["origin"] == "responsible"
+    # a right on the same object given by hand is another grant
+    await client.post(f"{API}/grants", json=grant(old, "viewer", "asset", asset), headers=tokens.admin())
+
+    await named(old, new)                                   # someone else answers now
+    assert await can(new_h, "edit") and not await can(old_h, "edit")
+    assert await can(old_h, "view")                         # what was given by hand stays
+    await named(new, None)                                  # nobody answers
+    assert not await can(new_h, "view")

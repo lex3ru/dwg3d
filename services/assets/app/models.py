@@ -89,6 +89,7 @@ type_schemas = Table(
     Column("container", Boolean, nullable=False, server_default="false"),
     Column("portable", Boolean, nullable=False, server_default="false"),
     Column("archived", Boolean, nullable=False, server_default="false"),
-    Column("schema", JSONB, nullable=False, server_default="[]"),
+    Column("schema", JSONB, nullable=False, server_default="[]"),         # properties kept with objects
+    Column("type_props", JSONB, nullable=False, server_default="[]"),     # properties kept with the type, with values
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=NOW),
 )

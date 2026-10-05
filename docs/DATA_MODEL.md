@@ -395,6 +395,7 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 | name, category_id | | |
 | container, portable, archived | boolean | |
 | schema | jsonb | развёрнутый список свойств |
+| type_props | jsonb | свойства, хранимые у типа, со значениями — для карточки объекта |
 | updated_at | timestamptz | |
 
 ## 7. Люди (`people`)

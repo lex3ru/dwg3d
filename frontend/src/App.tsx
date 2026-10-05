@@ -160,7 +160,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         content = <Building key={building.id} id={building.id} />
       } else if (route.section === 'assets') {
         crumbs.push({ label: 'Объекты', href: to.assets(building.id) })
-        content = <Assets building={building.id} floors={floors} selected={route.item} />
+        content = <Assets building={building.id} floors={floors} selected={route.item} admin={admin} />
         if (route.item) {
           panel = <AssetCard key={route.item} id={route.item} building={building.id} floors={floors} onGone={noop} />
           closePanel = () => { location.hash = to.assets(building.id) }
@@ -180,7 +180,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         crumbs.push({ label: 'План', href: to.plan(building.id) })
         if (floor) crumbs.push({ label: floor.name, href: to.plan(building.id, floor.id) })
         if (chosen) crumbs.push({ label: chosen.room.name || 'Без названия' })
-        content = <Plan building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} />
+        content = <Plan building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} move={route.move} />
         if (chosen) {
           // beside the plan on a wide screen; on a phone the plan stays and the card is one tap away
           panel = <div className="max-md:hidden"><RoomCard key={chosen.room.id + chosen.room.version} building={building.id} {...chosen} admin={admin} onChanged={reload} /></div>

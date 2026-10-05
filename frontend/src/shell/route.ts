@@ -17,7 +17,8 @@ import { useEffect, useState } from 'react'
 export type Section = 'home' | 'rooms' | 'assets' | 'plan' | 'drawings' | 'people' | 'access'
 export type Route =
   | { page: 'buildings' }
-  | { page: 'building'; building: string; section: Section; item?: string; sub?: string; q?: string }
+  | { page: 'building'; building: string; section: Section; item?: string; sub?: string; q?: string
+      /** on the plan: the object being moved */ move?: string }
   | { page: 'editor'; drawing: string }
   | { page: 'me' }
   | { page: 'catalog'; kind?: 'types' | 'sets'; item?: string }
@@ -32,7 +33,7 @@ export function parseRoute(hash: string): Route {
     const sections: Section[] = ['rooms', 'assets', 'plan', 'drawings', 'people', 'access']
     const section: Section = sections.includes(third as Section) ? third as Section : 'home'
     return { page: 'building', building: second, section, item: fourth || undefined, sub: fifth || undefined,
-      q: new URLSearchParams(query).get('q') ?? undefined }
+      q: new URLSearchParams(query).get('q') ?? undefined, move: new URLSearchParams(query).get('move') ?? undefined }
   }
   if (first === 'catalog') return { page: 'catalog', kind: second === 'sets' ? 'sets' : second === 'types' ? 'types' : undefined, item: third || undefined }
   if (first === 'system' || first === 'me') return { page: first }
@@ -45,6 +46,7 @@ export const to = {
   rooms: (b: string, room?: string, q?: string) => `#/b/${b}/rooms${room ? `/${room}` : ''}${q ? `?q=${encodeURIComponent(q)}` : ''}`,
   assets: (b: string, asset?: string) => `#/b/${b}/assets${asset ? `/${asset}` : ''}`,
   plan: (b: string, floor?: string, room?: string) => `#/b/${b}/plan${floor ? `/${floor}` : ''}${floor && room ? `/${room}` : ''}`,
+  move: (b: string, floor: string, asset: string) => `#/b/${b}/plan/${floor}?move=${asset}`,
   drawings: (b: string) => `#/b/${b}/drawings`,
   people: (b: string) => `#/b/${b}/people`,
   access: (b: string) => `#/b/${b}/access`,

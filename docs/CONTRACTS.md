@@ -344,7 +344,7 @@ Asset {
 | `GET /assets/{id}/children` | вложенные объекты | view |
 | `POST /assets` | создать: тип, точка или контейнер, номера, свойства | manage помещения |
 | `POST /assets/batch` | несколько одинаковых: точки, шаблон инвентарного номера, начало счёта | manage |
-| `POST /assets/import` | Excel → задача; отчёт по строкам с ошибками | manage здания |
+| `POST /assets/import` | Excel → объекты одним запросом (без фоновой задачи); при ошибках — отчёт по строкам и ничего не создаётся | manage здания |
 | `PATCH /assets/{id}` | номера, свойства, примечание; каждое свойство проверяется по `editable_by` | edit / manage |
 | `POST /assets/{id}/move` | `{floor_id, x, y, angle, elevation}` или `{container_id}` | manage; для переносных — `move_portable` в исходном помещении и `view` в целевом |
 | `POST /assets/{id}/state` | сменить состояние | edit; `retired` — manage |

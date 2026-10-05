@@ -1,9 +1,10 @@
-import { FileText, Map as MapIcon, Paperclip, Undo2 } from 'lucide-react'
+import { FileText, Map as MapIcon, Move, Paperclip, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  addAssetFile, assetFileUrl, assetFiles, assetHistory, deleteAssetFile, getAsset, listPeople, patchAsset, peopleByIds,
+  addAssetFile, assetFileUrl, assetFiles, assetHistory, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
+  patchAsset, peopleByIds,
   revertAsset, setAssetResponsible, setAssetState, STATES,
-  type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Person, type Prop, type TreeFloor,
+  type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Person, type Prop, type TreeFloor,
 } from '../api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -24,6 +25,7 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
   const [people, setPeople] = useState<Person[]>([])
+  const [boxes, setBoxes] = useState<Asset[]>([])           // containers of the building this one could stand in
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
 
@@ -33,8 +35,14 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
       const ids = [...new Set([card.responsible_id, ...h.map(x => x.actor.person_id)].filter((x): x is string => !!x))]
       if (ids.length) setNames(Object.fromEntries((await peopleByIds(ids)).map(p => [p.id, p.full_name])))
       if (card.can.manage) listPeople().then(setPeople, () => {})
+      if (card.can.move && !card.container) {
+        Promise.all([listTypes(true), listAssets({ building_id: building, limit: '500' })]).then(([types, all]) => {
+          const holding = new Set(types.filter(t => t.container).map(t => t.id))
+          setBoxes(all.items.filter(x => holding.has(x.type_id) && !x.container_id && x.id !== card.id))
+        }, () => {})
+      }
     }, (e: Error) => { setError(e.message); onGone() })
-  }, [id, onGone])
+  }, [id, building, onGone])
   useEffect(load, [load])
   useEvents(event => { if (event.type.startsWith('assets.') && (event as unknown as { asset_id?: string }).asset_id === id) load() })
   const act = (work: Promise<unknown>) => work.then(load, (e: Error) => { setError(e.message); load() })
@@ -66,7 +74,21 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
         {a.x != null && floor && (
           <Button asChild variant="outline" size="sm"><a href={to.plan(building, floor.id, a.room_id)}><MapIcon className="size-4" /> На плане</a></Button>
         )}
+        {a.can.move && a.state !== 'retired' && floor && (
+          <Button asChild variant="outline" size="sm" title={a.portable ? 'Переносной: перемещает и ответственный' : 'Перемещает администратор здания'}>
+            <a href={to.move(building, floor.id, a.id)}><Move className="size-4" /> Переместить</a>
+          </Button>
+        )}
       </div>
+      {a.container_id && <p className="text-muted-foreground">Стоит внутри: {boxes.find(b => b.id === a.container_id)?.type_name ?? 'другого объекта'}. «Переместить» вынет его на план.</p>}
+      {a.can.move && a.state !== 'retired' && boxes.length > 0 && (
+        <label className="grid gap-1 text-muted-foreground">Поставить внутрь
+          <select className={select} value={a.container_id ?? ''} aria-label="Поставить внутрь" onChange={e => { if (e.target.value) act(moveAssetInto(a, e.target.value)) }}>
+            <option value="">— выберите контейнер —</option>
+            {boxes.map(b => <option key={b.id} value={b.id}>{b.type_name} · {b.inventory_no}</option>)}
+          </select>
+        </label>
+      )}
       <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center gap-x-3 gap-y-1.5 [&_input]:min-w-0 [&_select]:w-full [&_select]:min-w-0">
         <dt className="text-muted-foreground">Отвечает</dt>
         <dd>{a.can.manage ? (
@@ -80,6 +102,9 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
         {a.schema.map(p => (
           <Field key={p.key + a.version} p={p} value={a.props[p.key]} editable={editable(p) && a.state !== 'retired'}
             onSave={v => act(patchAsset(a, { props: { [p.key]: v } }))} />
+        ))}
+        {a.type_props.filter(p => p.value != null && p.value !== '').map(p => (
+          <Field key={`type.${p.key}`} p={p} value={p.value} editable={false} onSave={() => {}} />
         ))}
         <dt className="text-muted-foreground">Примечание</dt>
         <dd>{a.can.edit ? <Text key={a.version} value={a.note} label="Примечание" onSave={v => act(patchAsset(a, { note: v }))} /> : show(a.note)}</dd>

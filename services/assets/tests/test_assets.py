@@ -296,3 +296,54 @@ async def test_neighbours_away(client, world, boss):
     assert move.status_code == 503
     assert (await client.get(f"{API}/assets", headers=boss)).json()["total"] == 2
     assert (await client.post(f"{API}/assets/{a['id']}/state", json={"state": "faulty", "version": 2}, headers=boss)).status_code == 200
+
+
+def workbook(*rows) -> bytes:
+    import io
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    for row in (("Тип", "Инвентарный номер", "Серийный номер", "Этаж", "X", "Y", "Примечание"), *rows):
+        wb.active.append(row)
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+async def test_import_from_excel_is_all_or_nothing(client, world, boss):
+    async def load(data: bytes, headers=boss):
+        return await client.post(f"{API}/assets/import", params={"building_id": BUILDING},
+                                 files={"file": ("objects.xlsx", data)}, headers=headers)
+
+    await put(client, boss, world, "couch", "КШ-1")
+    good = [("Кушетка", "КШ-2", None, 1, 2, 2, "у окна"), ("кушетка", "КШ-3", "SN-9", "План 1-го этажа", 7.5, 2, None)]
+    bad = [("Кушетка", "КШ-1", None, 1, 2, 2, None),            # the number is taken
+           ("Диван", "КШ-4", None, 1, 2, 2, None),              # no such type
+           ("Кушетка", "КШ-5", None, 9, 2, 2, None),            # no such floor
+           ("Кушетка", "КШ-6", None, 1, 99, 2, None),           # outside the rooms
+           ("Кушетка", "КШ-2", None, 1, "два", 2, None),        # the number twice in the file, not a number
+           (None, None, None, None, None, None, None)]
+    r = await load(workbook(*good, *bad))
+    assert r.status_code == 422
+    report = {e["field"]: e["message"] for e in r.json()["errors"]}
+    assert sorted(report) == ["строка 4", "строка 5", "строка 6", "строка 7", "строка 8"]
+    assert "уже есть" in report["строка 4"] and "нет типа" in report["строка 5"] and "вне помещений" in report["строка 7"]
+    assert "повторяется" in report["строка 8"] and "числами" in report["строка 8"]
+    assert (await client.get(f"{API}/assets", headers=boss)).json()["total"] == 1          # nothing was created
+
+    r = await load(workbook(*good))
+    assert r.status_code == 201 and r.json() == {"created": 2}
+    items = (await client.get(f"{API}/assets", params={"q": "КШ"}, headers=boss)).json()["items"]
+    assert [(a["inventory_no"], a["room_id"], a["serial_no"], a["note"]) for a in items] == [
+        ("КШ-1", ROOM_A, None, ""), ("КШ-2", ROOM_A, None, "у окна"), ("КШ-3", ROOM_B, "SN-9", "")]
+    assert (await load(workbook(*good))).status_code == 422                                # again: the numbers are taken
+    assert (await load(b"not a workbook")).status_code == 422
+    assert (await load(workbook(*good), world.person("viewer", ("viewer", "floor", FLOOR)))).status_code == 403
+    assert (await load(workbook(*good), world.person("stranger"))).status_code == 404
+
+
+async def test_card_shows_what_is_kept_with_the_type(client, world, boss):
+    world.types["scope"]["values"] = {"maker": "Olympus"}
+    a = await put(client, boss, world, "scope", "М-0001")
+    card = await get(client, boss, a)
+    assert [(p["title"], p["value"]) for p in card["type_props"]] == [("Производитель", "Olympus")]

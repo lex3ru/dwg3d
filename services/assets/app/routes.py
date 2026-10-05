@@ -126,7 +126,8 @@ async def get_asset(asset_id: UUID, request: Request, me: Identity = Depends(cur
         schema = await core.schema_of(request, session, a.type_id)
         children = (await session.execute(select(assets).where(assets.c.container_id == asset_id)
                                           .order_by(assets.c.type_name, assets.c.inventory_no))).all()
-    return {**core.asset_json(a), "schema": schema.schema, "portable": schema.portable, "container": schema.container,
+    return {**core.asset_json(a), "schema": schema.schema, "type_props": schema.type_props,
+            "portable": schema.portable, "container": schema.container,
             "children": [core.asset_json(c) for c in children],
             "can": {"edit": decide(scopes, "edit", core.chain(a)), "manage": decide(scopes, "manage", core.chain(a)),
                     "move": decide(scopes, "manage" if not schema.portable else "move_portable", core.chain(a))}}
@@ -255,6 +256,102 @@ async def create_batch(body: Batch, request: Request, me: Identity = Depends(cur
     except IntegrityError as ex:                    # one taken number refuses them all
         raise _taken(ex) or ex from ex
     return {"items": made}
+
+
+COLUMNS = {"тип": "type", "инвентарный номер": "inventory_no", "серийный номер": "serial_no", "этаж": "floor",
+           "x": "x", "y": "y", "примечание": "note"}
+
+
+@router.post("/assets/import", status_code=201, tags=["assets"],
+             summary="Загрузить объекты из Excel: Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание")
+async def import_assets(request: Request, building_id: UUID, file: UploadFile = File(...),
+                        me: Identity = Depends(current_identity)) -> dict:
+    """All rows or none: with a mistake in any row nothing is created, and the answer names the rows.
+    The type is given by its name in the catalog, the floor by its number (level) or name; X and Y are
+    plan coordinates of the floor, metres."""
+    import io
+
+    from openpyxl import load_workbook
+
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    area = [("building", building_id)]
+    if not decide(scopes, "manage", area):
+        raise Problem(404 if not decide(scopes, "plan", area) else 403, "forbidden", "Объекты загружает администратор здания")
+    try:
+        rows = list(load_workbook(io.BytesIO(await file.read()), read_only=True, data_only=True).active.iter_rows(values_only=True))
+    except Exception as ex:
+        raise Problem(422, "invalid", "Не удалось прочитать файл: нужен Excel (.xlsx)",
+                      errors=[{"field": "file", "message": "не .xlsx"}]) from ex
+    header = [COLUMNS.get(str(c or "").strip().lower()) for c in (rows[0] if rows else [])]
+    missing = [title for title, key in COLUMNS.items() if key in ("type", "inventory_no", "floor", "x", "y") and key not in header]
+    if missing:
+        raise Problem(422, "invalid", "В первой строке не хватает столбцов: " + ", ".join(missing),
+                      errors=[{"field": "file", "message": "нет столбцов"}])
+    if len(rows) > 5001:
+        raise Problem(422, "invalid", "Строк больше 5000")
+    token = request.headers.get("authorization", "").partition(" ")[2].strip()
+    client = request.app.state.client
+    types_r = await client.get("catalog", "/types", token=token)
+    tree_r = await client.get("buildings", f"/buildings/{building_id}/tree", token=token)
+    if types_r.status_code != 200 or tree_r.status_code != 200:
+        raise Problem(503, "service_unavailable", "Каталог или сервис зданий не ответил — загрузить объекты сейчас нельзя")
+    types = {t["name"].strip().lower(): t for t in types_r.json()["items"]}
+    floors = {}
+    for f in tree_r.json()["floors"]:
+        floors[f["name"].strip().lower()] = floors[str(f["level"])] = f
+    errors, parsed, seen = [], [], set()
+    for n, row in enumerate(rows[1:], start=2):
+        raw = {k: v for k, v in zip(header, row, strict=False) if k}
+        if all(v is None or str(v).strip() == "" for v in raw.values()):
+            continue
+        problems = []
+        kind = types.get(str(raw.get("type") or "").strip().lower())
+        floor_key = str(raw.get("floor") or "").strip().lower()
+        floor = floors.get(floor_key) or floors.get(floor_key.removesuffix(".0"))
+        number = str(raw.get("inventory_no") or "").strip()
+        if kind is None:
+            problems.append(f"нет типа «{raw.get('type') or ''}» в каталоге")
+        if floor is None:
+            problems.append(f"нет этажа «{raw.get('floor') or ''}»")
+        if not number:
+            problems.append("нет инвентарного номера")
+        elif number in seen:
+            problems.append(f"номер {number} повторяется в файле")
+        seen.add(number)
+        try:
+            x, y = float(raw.get("x")), float(raw.get("y"))
+        except (TypeError, ValueError):
+            problems.append("X и Y должны быть числами")
+            x = y = None
+        if problems:
+            errors.append({"row": n, "message": "; ".join(problems)})
+        else:
+            serial = str(raw["serial_no"]).strip() if raw.get("serial_no") not in (None, "") else None
+            parsed.append({"row": n, "type": kind, "floor": floor, "number": number, "x": x, "y": y, "serial": serial,
+                           "note": str(raw.get("note") or "").strip()})
+    by_floor: dict[str, list[dict]] = {}
+    for p in parsed:
+        by_floor.setdefault(p["floor"]["id"], []).append(p)
+    for floor_id, items in by_floor.items():
+        _, found = await _locate(request, UUID(floor_id), [(p["x"], p["y"]) for p in items])
+        for p, room in zip(items, found, strict=True):
+            p["room"] = room
+            if room is None:
+                errors.append({"row": p["row"], "message": "точка вне помещений"})
+    async with request.app.state.db.begin() as session:
+        taken = set((await session.execute(select(assets.c.inventory_no).where(
+            assets.c.inventory_no.in_([p["number"] for p in parsed] or [""])))).scalars())
+        errors += [{"row": p["row"], "message": f"номер {p['number']} уже есть"} for p in parsed if p["number"] in taken]
+        if errors:
+            raise Problem(422, "invalid", f"В файле ошибки ({len(errors)}) — ничего не загружено",
+                          errors=[{"field": f"строка {e['row']}", "message": e["message"]}
+                                  for e in sorted(errors, key=lambda e: e["row"])])
+        for p in parsed:
+            where = {"building_id": building_id, "floor_id": UUID(p["floor"]["id"]), "room_id": p["room"], "x": p["x"],
+                     "y": p["y"], "container_id": None, "angle": 0, "elevation": None}
+            one = AssetIn(type_id=UUID(p["type"]["id"]), inventory_no=p["number"], serial_no=p["serial"], note=p["note"])
+            await _insert(request, session, me, who, one, where)
+    return {"created": len(parsed)}
 
 
 # ------------------------------------------------------------------ changes ---

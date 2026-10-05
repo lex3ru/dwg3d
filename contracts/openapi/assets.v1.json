@@ -262,6 +262,20 @@
         "title": "Body_add_file_api_assets_v1_assets__asset_id__files_post",
         "type": "object"
       },
+      "Body_import_assets_api_assets_v1_assets_import_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_assets_api_assets_v1_assets_import_post",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -831,6 +845,62 @@
           }
         },
         "summary": "Объекты по идентификаторам (невидимые пропускаются)",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/assets/v1/assets/import": {
+      "post": {
+        "description": "All rows or none: with a mistake in any row nothing is created, and the answer names the rows.\nThe type is given by its name in the catalog, the floor by its number (level) or name; X and Y are\nplan coordinates of the floor, metres.",
+        "operationId": "import_assets_api_assets_v1_assets_import_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_assets_api_assets_v1_assets_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Assets Api Assets V1 Assets Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Загрузить объекты из Excel: Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание",
         "tags": [
           "assets"
         ]
