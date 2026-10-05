@@ -1147,6 +1147,9 @@ requires-dist = [
 ]
 provides-extras = ["testing"]
 
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.8" }]
+
 [[package]]
 name = "twin-gateway"
 version = "0.1.0"

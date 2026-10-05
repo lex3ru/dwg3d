@@ -5,8 +5,9 @@
 У пользователя — личный кабинет с объектами, к которым у него есть доступ;
 администратор здания расставляет оборудование, ведёт его свойства и выдаёт права.
 
-Новая версия строится из независимых сервисов. Сейчас она на стадии
-технического задания; код ещё не начат.
+Новая версия строится из независимых сервисов. Сделан этап 0 — каркас: общая
+основа сервисов, шлюз со входом через Keycloak, шина событий, шаблон сервиса,
+стек в Docker Compose. Сервисы предметной области начинаются с этапа 1.
 
 ## Документы
 
@@ -16,14 +17,52 @@
 | [docs/CONTRACTS.md](docs/CONTRACTS.md) | запросы и события каждого сервиса, зависимости между ними |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | таблицы каждого сервиса |
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | что должно работать, чтобы этап считался сделанным |
+| [deploy/README.md](deploy/README.md) | запуск, обновление, резервные копии и восстановление |
 
 ## Структура репозитория
 
 | Каталог | Что в нём |
 |---|---|
+| `services/` | сервисы: `gateway` (шлюз), `ping` (образец), `_template` (шаблон нового сервиса) |
+| `libs/chassis/` | общая основа сервисов: токены, ошибки, события, журнал, миграции |
+| `contracts/` | контракты: запросы сервисов (OpenAPI) и события (JSON Schema) |
+| `frontend/` | интерфейс |
+| `deploy/` | Docker Compose, Keycloak, резервные копии |
+| `e2e/` | сквозные сценарии этапов в браузере |
+| `tools/` | `new-service` — создать сервис из шаблона |
 | `docs/` | документы новой версии |
 | `legacy/` | текущая версия — одно приложение «DWG → 3D» ([описание](legacy/README.md)) |
-| `services/`, `contracts/`, `frontend/`, `deploy/` | новая версия; появятся на этапе 0 |
+
+## Запуск
+
+```bash
+cp deploy/.env.example deploy/.env
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Откройте http://localhost:8090 (первый вход — `admin` / `admin`). Подробности и запуск на
+сервере — в [deploy/README.md](deploy/README.md).
+
+## Разработка
+
+Сервис проверяется без соседей — нужны только PostgreSQL и NATS стека:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d db db-init nats
+cd services/ping && uv run ruff check . && uv run pytest
+```
+
+Сквозные сценарии — на запущенном стеке:
+
+```bash
+cd e2e && npm ci && npm run browsers && npm test
+```
+
+Новый сервис: `tools/new-service <имя> "Название"` — рабочий сервис с образцом
+сущности, тестами и контрактами, вписанный в Compose, шлюз и CI.
+
+Правила, общие для всех сервисов, — в [docs/CONTRACTS.md](docs/CONTRACTS.md), раздел 1;
+их реализация — [libs/chassis](libs/chassis/README.md).
 
 ## Текущая версия
 

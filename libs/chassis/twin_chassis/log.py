@@ -39,6 +39,7 @@ def setup(service: str) -> None:
     for name in ("uvicorn", "uvicorn.error"):
         logging.getLogger(name).handlers[:] = []
     logging.getLogger("uvicorn.access").disabled = True     # replaced by RequestLog
+    logging.getLogger("httpx").setLevel(logging.WARNING)    # one line per outgoing request is noise
 
 
 class RequestLog:
