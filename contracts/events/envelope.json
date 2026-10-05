@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Конверт события",
+  "description": "Общая часть любого события (docs/CONTRACTS.md, 1.6). Поле data описано в файле типа события.",
+  "type": "object",
+  "required": ["id", "type", "time", "actor", "subject", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "format": "uuid", "description": "Идентификатор события; по нему отсекаются повторы"},
+    "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){2,3}$", "description": "<сервис>.<сущность>.<что произошло>"},
+    "time": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["user", "service", "guest"]},
+        "id": {"type": "string", "description": "Учётная запись, имя сервиса или гостевая ссылка"},
+        "person_id": {"type": "string", "format": "uuid"}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {"kind": {"type": "string"}, "id": {"type": "string"}}
+    },
+    "building_id": {"type": "string", "format": "uuid"},
+    "floor_id": {"type": "string", "format": "uuid"},
+    "room_id": {"type": "string", "format": "uuid"},
+    "asset_id": {"type": "string", "format": "uuid"},
+    "person_id": {"type": "string", "format": "uuid"},
+    "data": {"type": "object"}
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "realm": "twin",
+  "enabled": true,
+  "displayName": "Цифровой двойник здания",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": true,
+  "bruteForceProtected": true,
+  "sslRequired": "external",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ru", "en"],
+  "defaultLocale": "ru",
+  "ssoSessionIdleTimeout": 86400,
+  "ssoSessionMaxLifespan": 1209600,
+  "ssoSessionIdleTimeoutRememberMe": 1209600,
+  "ssoSessionMaxLifespanRememberMe": 2592000,
+  "roles": {
+    "client": {
+      "twin": [
+        {"name": "twin.admin", "description": "Администратор системы: здания, каталог, назначение администраторов зданий"}
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "twin",
+      "name": "Цифровой двойник здания",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${TWIN_OIDC_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["${TWIN_PUBLIC_URL}/auth/callback", "${TWIN_DEV_URL}/auth/callback"],
+      "webOrigins": ["${TWIN_PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${TWIN_PUBLIC_URL}/*##${TWIN_DEV_URL}/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "${TWIN_ADMIN_USER}",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Администратор",
+      "credentials": [{"type": "password", "value": "${TWIN_ADMIN_PASSWORD}", "temporary": true}],
+      "realmRoles": ["default-roles-twin"],
+      "clientRoles": {"twin": ["twin.admin"]}
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+# Digital twin: the whole stack in containers.
+#
+#   deploy/make-env.sh https://<site>     # deploy/.env with random passwords
+#                                         # (on this machine: cp deploy/.env.example deploy/.env)
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   open http://localhost:${TWIN_HTTP_PORT:-8090}
+#
+# Development of one service without its container:
+#   docker compose -f deploy/docker-compose.yml up -d db db-init nats keycloak
+#   cd services/<name> && uv run uvicorn app.main:build --factory --reload
+#
+#   web       Caddy: the built UI and the single entry point
+#             (/api, /auth, /q, /s -> gateway; /kc -> keycloak)
+#   gateway   sign-in sessions, passes requests on to the services, events to the browser
+#   <name>    the services (services/<name>), each with its own database
+#   db        PostgreSQL: one server, a database and a role per service
+#   db-init   creates the databases and roles listed in TWIN_DATABASES (every start; idempotent)
+#   nats      the event bus (JetStream)
+#   keycloak  sign-in, realm "twin" imported from deploy/keycloak/
+#   s3        S3-compatible storage for files (RustFS)
+name: twin
+
+x-service: &service
+  restart: unless-stopped
+  depends_on:
+    db-init:
+      condition: service_completed_successfully
+    nats:
+      condition: service_started
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+
+x-service-env: &service-env
+  TWIN_NATS_URL: nats://nats:4222
+  TWIN_OIDC_ISSUER: ${TWIN_PUBLIC_URL:-http://localhost:8090}/kc/realms/twin
+  TWIN_OIDC_INTERNAL: http://keycloak:8080/kc/realms/twin
+  TWIN_OIDC_CLIENT_ID: twin
+
+services:
+  web:
+    build: ../frontend
+    image: twin-web:${TWIN_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      TWIN_SITE: ${TWIN_SITE:-:80}
+    ports:
+      - "${TWIN_HTTP_PORT:-8090}:80"
+      - "${TWIN_HTTPS_PORT:-8453}:443"
+    volumes:
+      - caddy-data:/data
+    depends_on:
+      - gateway
+
+  gateway:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: gateway}}
+    image: twin-gateway:${TWIN_TAG:-dev}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://gateway:${TWIN_DB_PASSWORD_GATEWAY:-gateway}@db:5432/gateway
+      TWIN_PUBLIC_URL: ${TWIN_PUBLIC_URL:-http://localhost:8090}
+      TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
+      TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
+      # the services requests are passed on to: name=address, comma-separated
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000}
+
+  ping:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: ping}}
+    image: twin-ping:${TWIN_TAG:-dev}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://ping:${TWIN_DB_PASSWORD_PING:-ping}@db:5432/ping
+
+  # -- new services go above this line (tools/new-service adds them) --
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: twin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twin}
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:${TWIN_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twin -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  db-init:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      PGHOST: db
+      PGUSER: twin
+      PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
+      PGDATABASE: postgres
+      # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping}
+      TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
+      TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
+      TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
+      # -- passwords of new databases go above this line --
+    volumes:
+      - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro
+    command: ["sh", "/ensure-databases.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "127.0.0.1:${TWIN_NATS_PORT:-4223}:4222"
+    volumes:
+      - natsdata:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
+      KC_HOSTNAME: ${TWIN_PUBLIC_URL:-http://localhost:8090}/kc
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /kc
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-kcadmin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
+      # read by the realm import (deploy/keycloak/twin-realm.json)
+      TWIN_PUBLIC_URL: ${TWIN_PUBLIC_URL:-http://localhost:8090}
+      TWIN_DEV_URL: ${TWIN_DEV_URL:-http://localhost:5180}
+      TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
+      TWIN_ADMIN_USER: ${TWIN_ADMIN_USER:-admin}
+      TWIN_ADMIN_PASSWORD: ${TWIN_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:${TWIN_KEYCLOAK_PORT:-8181}:8080"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  s3:
+    image: rustfs/rustfs:1.0.0
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${TWIN_S3_ACCESS_KEY:-twin}
+      RUSTFS_SECRET_KEY: ${TWIN_S3_SECRET_KEY:-twin-secret}
+    ports:
+      - "127.0.0.1:${TWIN_S3_PORT:-9002}:9000"
+    volumes:
+      - s3data:/data
+
+volumes:
+  pgdata:
+  natsdata:
+  s3data:
+  caddy-data:

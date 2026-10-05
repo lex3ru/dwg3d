@@ -1,0 +1,36 @@
+[project]
+name = "twin-chassis"
+version = "0.1.0"
+description = "What every service of the digital twin shares: sign-in tokens, errors, events (outbox/inbox over NATS), logging"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]",
+  "sqlalchemy[asyncio]>=2.0",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.13",
+  "nats-py>=2.9",
+  "pyjwt[crypto]>=2.9",
+  "jsonschema>=4.23",
+]
+
+[project.optional-dependencies]
+testing = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.28"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["twin_chassis"]
+
+[dependency-groups]
+dev = ["ruff>=0.8"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["B008"]      # Depends() in argument defaults is how FastAPI works
