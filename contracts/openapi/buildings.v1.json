@@ -427,6 +427,19 @@
       "Site": {
         "description": "Where the building stands on the map.",
         "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Подпись источника карты",
+            "title": "Attribution"
+          },
           "bearing": {
             "default": 0,
             "description": "Поворот здания, градусы",
@@ -453,6 +466,19 @@
             "maximum": 100.0,
             "title": "Scale",
             "type": "number"
+          },
+          "tiles": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Свой источник тайлов карты: адрес с {z}/{x}/{y}",
+            "title": "Tiles"
           }
         },
         "required": [

@@ -6,11 +6,14 @@
 |---|---|
 | `web` | Caddy: собранный интерфейс и единая точка входа (`/api`, `/auth` → шлюз, `/kc` → Keycloak) |
 | `gateway` | шлюз: сессии входа, пропуск запросов в сервисы, события в браузер |
-| `ping` и другие | сервисы из `services/`, у каждого своя база |
+| `import`, `import-worker` | чертежи: загрузка и файлы сборок; очередь сборок DWG → модель (`--scale import-worker=N`) |
+| `buildings` | здания, этажи, помещения |
+| `ping` | сервис-образец |
 | `db` | PostgreSQL: один сервер, база и роль на каждый сервис |
 | `db-init` | при каждом запуске создаёт недостающие базы и роли из `TWIN_DATABASES` |
 | `nats` | шина событий (JetStream) |
 | `keycloak` | вход; realm `twin` импортируется из `deploy/keycloak/` при первом запуске |
+| `kc-init` | при каждом запуске создаёт в Keycloak учётные записи сервисов (`twin-svc-<имя>`) из `TWIN_SERVICE_CLIENTS` |
 | `s3` | S3-совместимое хранилище файлов (RustFS) |
 
 ## Запуск
@@ -43,6 +46,13 @@ docker compose -f deploy/docker-compose.yml up -d --build
 | NATS (только с этой машины) | 4223 | `TWIN_NATS_PORT` |
 | Keycloak напрямую (только с этой машины) | 8181 | `TWIN_KEYCLOAK_PORT` |
 | S3 (только с этой машины) | 9002 | `TWIN_S3_PORT` |
+
+## Чертежи DWG
+
+DXF читается напрямую, DWG — через конвертер. В образе `import` установлен LibreDWG;
+ODA File Converter читает DWG надёжнее и нужен для сохранения DWG с правками. Чтобы
+подключить его, смонтируйте исполняемый файл в контейнеры `import` и `import-worker`
+(`docker-compose.override.yml`) и укажите путь внутри контейнера в `TWIN_ODA`.
 
 ## Обновление одного сервиса
 

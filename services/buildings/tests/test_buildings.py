@@ -21,7 +21,7 @@ async def test_create_list_change_delete(client, app, tokens, building):
     assert stale.status_code == 409 and stale.json()["code"] == "version_conflict"
     assert stale.json()["current"]["name"] == "Корпус Б"
 
-    site = {"lat": 55.75, "lon": 37.62, "bearing": 30, "scale": 1}
+    site = {"lat": 55.75, "lon": 37.62, "bearing": 30, "scale": 1, "tiles": None, "attribution": None}
     assert (await client.put(f"{API}/buildings/{building['id']}/site", json=site, headers=admin)).json()["site"] == site
 
     assert (await client.delete(f"{API}/buildings/{building['id']}", headers=admin)).status_code == 204

@@ -40,7 +40,9 @@ async function call<T = Json>(method: string, url: string, body?: unknown): Prom
 
 // ------------------------------------------------------------ what we know ---
 /** drawing -> its building and published build (filled by every GET of the drawing) */
-const known = new Map<string, { building: string; build: string | null; floors: Map<string, string> }>()
+const known = new Map<string, { building: string; build: string | null; n: number; floors: Map<string, string> }>()
+/** ids the viewer gave to pins it created -> the ids they got in the buildings service */
+const pinIds = new Map<string, string>()
 let admin = false
 export const setAdmin = (value: boolean) => { admin = value }
 
@@ -65,7 +67,8 @@ async function job(id: string): Promise<Json> {
   const publishing = b.status === 'done' && shown?.build_id !== b.id
   const floors = new Map<string, string>()
   for (const f of shown?.result?.floors ?? []) if (f.floor_id) floors.set(f.id, f.floor_id)
-  known.set(id, { building: d.building_id, build: shown?.build_id ?? null, floors })
+  known.set(id, { building: d.building_id, build: shown?.build_id ?? null, n: shown?.build_n ?? 0, floors })
+  const marks = await pins(id)
   const facade = building.facade
   return {
     id, project_id: d.building_id, name: d.name, filename: d.filename ?? '',
@@ -78,7 +81,7 @@ async function job(id: string): Promise<Json> {
       site: building.site ? { ...building.site, azimuth: building.site.bearing } : undefined,
       detail: facade ? { file: facade.name, size: facade.size, version: building.version,
         offset: [facade.dx, facade.dz, facade.dy], rotation: facade.rotation, scale: facade.scale } : undefined,
-      markers: [], comments: [], furniture: [], shapes: [],
+      markers: marks.markers, comments: marks.comments, furniture: [], shapes: [],
     },
     layers: [], my_role: admin ? 'owner' : 'viewer',
   }
@@ -90,32 +93,37 @@ const summary = (d: Json): Json => ({
   size: d.size ?? 0, updated: Date.parse(d.updated_at) / 1000,
 })
 
+const PIN_KIND: Record<string, string> = { markers: 'marker', comments: 'comment' }
+
+function pinOut(p: Json, floor: string, id = p.id): Json {
+  return { id, version: p.version, floor, pos: p.pos, text: p.note, label: p.title, created: Date.parse(p.created_at) / 1000 }
+}
+
 async function pins(id: string): Promise<Json> {
-  const k = known.get(id) ?? (await job(id), known.get(id)!)
+  const k = known.get(id)!
   const byFloor = new Map([...k.floors].map(([candidate, floor]) => [floor, candidate]))
   const { items } = await call('GET', `${BUILDINGS}/buildings/${k.building}/pins`)
-  const markers = (items as Json[]).map((p) => ({
-    id: p.id, version: p.version, floor: byFloor.get(p.floor_id) ?? '', pos: p.pos, text: p.note, label: p.title,
-    created: Date.parse(p.created_at) / 1000,
-  }))
-  return { build: 0, markers, comments: [] }
+  const of = (kind: string) => (items as Json[]).filter((p) => p.kind === kind).map((p) => pinOut(p, byFloor.get(p.floor_id) ?? ''))
+  return { build: k.n, markers: of('marker'), comments: of('comment') }
 }
 
 async function pinOps(id: string, ops: Json[]): Promise<Json> {
   const k = known.get(id)!
   const items: Json[] = [], deleted: string[] = []
   for (const op of ops) {
+    const server = pinIds.get(op.id) ?? op.id
     if (op.op === 'delete') {
-      await call('DELETE', `${BUILDINGS}/pins/${op.id}`)
+      await call('DELETE', `${BUILDINGS}/pins/${server}`)
       deleted.push(op.id)
       continue
     }
     const body = { pos: op.pos, title: op.label ?? '', note: op.text ?? '' }
     const p = op.op === 'create'
-      ? await call('POST', `${BUILDINGS}/buildings/${k.building}/pins`, { ...body, floor_id: k.floors.get(op.floor) ?? null })
-      : await call('PATCH', `${BUILDINGS}/pins/${op.id}`, { ...body, version: op.version })
-    items.push({ id: p.id, version: p.version, floor: op.floor ?? '', pos: p.pos, text: p.note, label: p.title,
-      created: Date.parse(p.created_at) / 1000, _was: op.id })
+      ? await call('POST', `${BUILDINGS}/buildings/${k.building}/pins`,
+        { ...body, kind: PIN_KIND[op.kind] ?? 'marker', floor_id: k.floors.get(op.floor) ?? null })
+      : await call('PATCH', `${BUILDINGS}/pins/${server}`, { ...body, version: op.version })
+    if (op.op === 'create') pinIds.set(op.id, p.id)
+    items.push(pinOut(p, op.floor ?? '', op.id))          // under the id the viewer knows it by
   }
   return { items, deleted }
 }
@@ -176,9 +184,9 @@ const routes: [string, RegExp, Handler][] = [
     await call('DELETE', `${BUILDINGS}/buildings/${known.get(m[1])!.building}/facade`)
     return (await job(m[1])).view
   }],
-  ['GET', /^\/api\/drawings\/([^/]+)\/pins$/, (m) => pins(m[1])],
+  ['GET', /^\/api\/drawings\/([^/]+)\/pins$/, async (m) => { if (!known.has(m[1])) await job(m[1]); return pins(m[1]) }],
   ['POST', /^\/api\/drawings\/([^/]+)\/pins:batch$/, (m, init) => pinOps(m[1], JSON.parse(String(init?.body)).ops)],
-  ['GET', /^\/api\/drawings\/([^/]+)\/objects$/, () => ({ build: 0, items: [], unplaced: [] })],
+  ['GET', /^\/api\/drawings\/([^/]+)\/objects$/, (m) => ({ build: known.get(m[1])?.n ?? 0, items: [], unplaced: [] })],
   ['POST', /^\/api\/drawings\/([^/]+)\/objects:batch$/, () => ({ items: [], deleted: [] })],
   ['GET', /^\/api\/projects\/([^/]+)\/layers$/, () => []],
   ['GET', /^\/api\/projects\/([^/]+)\/checks$/, () => ({ fire: [] })],

@@ -44,6 +44,9 @@ class Site(BaseModel):
     lon: float = Field(ge=-180, le=180)
     bearing: float = Field(default=0, ge=-360, le=360, description="Поворот здания, градусы")
     scale: float = Field(default=1, gt=0, le=100)
+    tiles: str | None = Field(default=None, max_length=500,
+                              description="Свой источник тайлов карты: адрес с {z}/{x}/{y}")
+    attribution: str | None = Field(default=None, max_length=300, description="Подпись источника карты")
 
 
 def building_json(b, counts: dict | None = None) -> dict:
