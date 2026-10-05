@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "catalog.type.changed",
+  "description": "Изменён тип (свойства, схема, модель). subject — тип. Схема — GET /api/catalog/v1/types/{id}/schema.",
+  "type": "object",
+  "required": [
+    "type_id",
+    "name",
+    "category_id",
+    "schema_version",
+    "schema_changed",
+    "container",
+    "portable"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "type_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    },
+    "category_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "schema_changed": {
+      "type": "boolean",
+      "description": "Изменилась схема свойств или признаки «контейнер», «переносной»"
+    },
+    "container": {
+      "type": "boolean"
+    },
+    "portable": {
+      "type": "boolean"
+    }
+  }
+}

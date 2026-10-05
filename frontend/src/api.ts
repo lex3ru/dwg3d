@@ -155,3 +155,44 @@ export const listGrants = (building: string) =>
 export const createGrant = (g: { person_id: string; role: Role; scope: { kind: ScopeKind; id: string }; building_id: string }) =>
   api<Grant>(`${ACCESS}/grants`, { method: 'POST', json: g })
 export const revokeGrant = (id: string) => api<void>(`${ACCESS}/grants/${id}`, { method: 'DELETE' })
+
+// ---- the catalog: types of equipment and furniture (read by all, changed by the system administrator)
+
+const CATALOG = '/api/catalog/v1'
+export type PropKind = 'text' | 'number' | 'date' | 'bool' | 'choice' | 'person'
+export type Prop = {
+  key: string; title: string; kind: PropKind; unit: string | null; options: { value: string; title: string }[] | null
+  required: boolean; stored: 'type' | 'asset'; editable_by: 'system' | 'admin' | 'responsible'
+  /** in a resolved schema: the set the property comes from */
+  set?: string | null
+}
+export type Category = { id: string; name: string; color: string; sort: number }
+export type PropertySet = { id: string; name: string; description: string; properties: Prop[]; version: number; types?: number }
+export type TypeModel = { name: string; size: number; rotation: number; bounds: number[] | null; warnings: string[] }
+export type CatalogType = {
+  id: string; category_id: string; name: string; size: [number, number, number]; container: boolean; portable: boolean
+  sets: string[]; properties: Prop[]; values: Record<string, unknown>; model: TypeModel | null; active: boolean
+  schema_version: number; version: number; schema?: Prop[]
+}
+export type TypeBody = {
+  category_id: string; name: string; w: number; d: number; h: number; container: boolean; portable: boolean
+  sets: string[]; properties: Prop[]; values: Record<string, unknown>
+}
+
+const items = <T,>(path: string) => api<{ items: T[] }>(`${CATALOG}/${path}`).then(r => r.items)
+export const listCategories = () => items<Category>('categories')
+export const listSets = () => items<PropertySet>('property-sets')
+export const listTypes = (active: boolean) => items<CatalogType>(`types?active=${active}`)
+export const getType = (id: string) => api<CatalogType>(`${CATALOG}/types/${id}`)
+export const saveType = (body: TypeBody, existing?: CatalogType) => existing
+  ? api<CatalogType>(`${CATALOG}/types/${existing.id}`, { method: 'PATCH', json: { ...body, version: existing.version } })
+  : api<CatalogType>(`${CATALOG}/types`, { method: 'POST', json: body })
+export const archiveType = (id: string, archive: boolean) =>
+  api<CatalogType>(`${CATALOG}/types/${id}/${archive ? 'archive' : 'restore'}`, { method: 'POST' })
+export const putTypeModel = (id: string, file: File) =>
+  api<CatalogType>(`${CATALOG}/types/${id}/model`, { method: 'PUT', body: fileForm(file) })
+export const deleteTypeModel = (id: string) => api<void>(`${CATALOG}/types/${id}/model`, { method: 'DELETE' })
+export const typeModelUrl = (t: CatalogType) => `${CATALOG}/types/${t.id}/model.glb?v=${t.version}`
+export const saveSet = (body: { name: string; description: string; properties: Prop[] }, existing?: PropertySet) => existing
+  ? api<PropertySet>(`${CATALOG}/property-sets/${existing.id}`, { method: 'PATCH', json: { ...body, version: existing.version } })
+  : api<PropertySet>(`${CATALOG}/property-sets`, { method: 'POST', json: body })

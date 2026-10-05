@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "catalog.property_set.changed",
+  "description": "Изменён набор свойств: у всех типов, которые его используют, выросла версия схемы. subject — набор.",
+  "type": "object",
+  "required": [
+    "set_id",
+    "type_ids"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "type_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": "Типы, схема которых изменилась"
+    }
+  }
+}

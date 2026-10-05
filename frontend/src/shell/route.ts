@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 //   /b/<building>/drawings             drawings (the building's administrator)
 //   /b/<building>/people, /access      the directory of people; who may do what in the building
 //   /f/<drawing>/…                     the editor: the 3D / 2D scene of a drawing
+//   /catalog[/types/<id>|/sets/<id>]   the catalog (the system administrator; «new» instead of an id — a new one)
 //   /me                                the user (on a phone: also what the menu holds)
 //   /system                            the state of the services (the system administrator)
 
@@ -18,6 +19,7 @@ export type Route =
   | { page: 'building'; building: string; section: Section; item?: string; sub?: string; q?: string }
   | { page: 'editor'; drawing: string }
   | { page: 'me' }
+  | { page: 'catalog'; kind?: 'types' | 'sets'; item?: string }
   | { page: 'system' }
 
 export function parseRoute(hash: string): Route {
@@ -31,6 +33,7 @@ export function parseRoute(hash: string): Route {
     return { page: 'building', building: second, section, item: fourth || undefined, sub: fifth || undefined,
       q: new URLSearchParams(query).get('q') ?? undefined }
   }
+  if (first === 'catalog') return { page: 'catalog', kind: second === 'sets' ? 'sets' : second === 'types' ? 'types' : undefined, item: third || undefined }
   if (first === 'system' || first === 'me') return { page: first }
   return { page: 'buildings' }
 }

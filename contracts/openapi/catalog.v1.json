@@ -1,0 +1,1529 @@
+{
+  "components": {
+    "schemas": {
+      "Body_put_model_api_catalog_v1_types__type_id__model_put": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_put_model_api_catalog_v1_types__type_id__model_put",
+        "type": "object"
+      },
+      "CategoryIn": {
+        "properties": {
+          "color": {
+            "default": "#868e96",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "sort": {
+            "default": 0,
+            "title": "Sort",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CategoryIn",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Ids": {
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "Ids",
+        "type": "object"
+      },
+      "Option": {
+        "properties": {
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "title"
+        ],
+        "title": "Option",
+        "type": "object"
+      },
+      "Property": {
+        "properties": {
+          "editable_by": {
+            "default": "admin",
+            "description": "Кто правит: система, администратор здания, ответственный",
+            "enum": [
+              "system",
+              "admin",
+              "responsible"
+            ],
+            "title": "Editable By",
+            "type": "string"
+          },
+          "key": {
+            "description": "Латиницей; не меняется после создания",
+            "pattern": "^[a-z][a-z0-9_]{0,39}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "number",
+              "date",
+              "bool",
+              "choice",
+              "person"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Option"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Варианты для kind = choice",
+            "title": "Options"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "stored": {
+            "default": "asset",
+            "description": "Значение одно на тип или у каждого объекта",
+            "enum": [
+              "type",
+              "asset"
+            ],
+            "title": "Stored",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "kind"
+        ],
+        "title": "Property",
+        "type": "object"
+      },
+      "SetIn": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "properties": {
+            "items": {
+              "$ref": "#/components/schemas/Property"
+            },
+            "maxItems": 100,
+            "title": "Properties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SetIn",
+        "type": "object"
+      },
+      "SetPatch": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "properties": {
+            "items": {
+              "$ref": "#/components/schemas/Property"
+            },
+            "maxItems": 100,
+            "title": "Properties",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "SetPatch",
+        "type": "object"
+      },
+      "TypeIn": {
+        "properties": {
+          "article": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article"
+          },
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "container": {
+            "default": false,
+            "description": "В объект можно вкладывать другие",
+            "title": "Container",
+            "type": "boolean"
+          },
+          "currency": {
+            "default": "RUB",
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "d": {
+            "description": "Глубина, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "D",
+            "type": "number"
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Высота установки по умолчанию, м",
+            "title": "Elevation"
+          },
+          "h": {
+            "description": "Высота, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "H",
+            "type": "number"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "portable": {
+            "default": false,
+            "description": "Перемещать может и ответственный",
+            "title": "Portable",
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "properties": {
+            "description": "Собственные свойства",
+            "items": {
+              "$ref": "#/components/schemas/Property"
+            },
+            "maxItems": 100,
+            "title": "Properties",
+            "type": "array"
+          },
+          "sets": {
+            "description": "Наборы свойств, по порядку",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Sets",
+            "type": "array"
+          },
+          "shape": {
+            "default": "box",
+            "maxLength": 40,
+            "title": "Shape",
+            "type": "string"
+          },
+          "sort": {
+            "default": 0,
+            "title": "Sort",
+            "type": "integer"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Значения свойств, хранимых у типа",
+            "title": "Values",
+            "type": "object"
+          },
+          "w": {
+            "description": "Ширина, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "W",
+            "type": "number"
+          },
+          "wall_mounted": {
+            "default": false,
+            "title": "Wall Mounted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "category_id",
+          "name",
+          "w",
+          "d",
+          "h"
+        ],
+        "title": "TypeIn",
+        "type": "object"
+      },
+      "TypePatch": {
+        "properties": {
+          "article": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article"
+          },
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "container": {
+            "default": false,
+            "description": "В объект можно вкладывать другие",
+            "title": "Container",
+            "type": "boolean"
+          },
+          "currency": {
+            "default": "RUB",
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "d": {
+            "description": "Глубина, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "D",
+            "type": "number"
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Высота установки по умолчанию, м",
+            "title": "Elevation"
+          },
+          "h": {
+            "description": "Высота, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "H",
+            "type": "number"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "portable": {
+            "default": false,
+            "description": "Перемещать может и ответственный",
+            "title": "Portable",
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "properties": {
+            "description": "Собственные свойства",
+            "items": {
+              "$ref": "#/components/schemas/Property"
+            },
+            "maxItems": 100,
+            "title": "Properties",
+            "type": "array"
+          },
+          "sets": {
+            "description": "Наборы свойств, по порядку",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Sets",
+            "type": "array"
+          },
+          "shape": {
+            "default": "box",
+            "maxLength": 40,
+            "title": "Shape",
+            "type": "string"
+          },
+          "sort": {
+            "default": 0,
+            "title": "Sort",
+            "type": "integer"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Значения свойств, хранимых у типа",
+            "title": "Values",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "w": {
+            "description": "Ширина, м",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "W",
+            "type": "number"
+          },
+          "wall_mounted": {
+            "default": false,
+            "title": "Wall Mounted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "category_id",
+          "name",
+          "w",
+          "d",
+          "h",
+          "version"
+        ],
+        "title": "TypePatch",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Каталог: типы оборудования и мебели",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/catalog/v1/categories": {
+      "get": {
+        "operationId": "list_categories_api_catalog_v1_categories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Categories Api Catalog V1 Categories Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Разделы каталога",
+        "tags": [
+          "categories"
+        ]
+      },
+      "post": {
+        "operationId": "create_category_api_catalog_v1_categories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Category Api Catalog V1 Categories Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Добавить раздел",
+        "tags": [
+          "categories"
+        ]
+      }
+    },
+    "/api/catalog/v1/categories/{category_id}": {
+      "delete": {
+        "operationId": "delete_category_api_catalog_v1_categories__category_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Category Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Удалить пустой раздел",
+        "tags": [
+          "categories"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_category_api_catalog_v1_categories__category_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Category Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Category Api Catalog V1 Categories  Category Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Изменить раздел",
+        "tags": [
+          "categories"
+        ]
+      }
+    },
+    "/api/catalog/v1/property-sets": {
+      "get": {
+        "operationId": "list_sets_api_catalog_v1_property_sets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Sets Api Catalog V1 Property Sets Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Наборы свойств",
+        "tags": [
+          "property sets"
+        ]
+      },
+      "post": {
+        "operationId": "create_set_api_catalog_v1_property_sets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Set Api Catalog V1 Property Sets Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Создать набор свойств",
+        "tags": [
+          "property sets"
+        ]
+      }
+    },
+    "/api/catalog/v1/property-sets/{set_id}": {
+      "delete": {
+        "operationId": "delete_set_api_catalog_v1_property_sets__set_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Удалить набор, которым никто не пользуется",
+        "tags": [
+          "property sets"
+        ]
+      },
+      "get": {
+        "operationId": "get_set_api_catalog_v1_property_sets__set_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Set Api Catalog V1 Property Sets  Set Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Набор свойств",
+        "tags": [
+          "property sets"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_set_api_catalog_v1_property_sets__set_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Set Api Catalog V1 Property Sets  Set Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Изменить набор: меняет схему всех типов, которые его используют",
+        "tags": [
+          "property sets"
+        ]
+      }
+    },
+    "/api/catalog/v1/types": {
+      "get": {
+        "operationId": "list_types_api_catalog_v1_types_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": true,
+              "title": "Active"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Types Api Catalog V1 Types Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Типы",
+        "tags": [
+          "types"
+        ]
+      },
+      "post": {
+        "operationId": "create_type_api_catalog_v1_types_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Type Api Catalog V1 Types Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Создать тип",
+        "tags": [
+          "types"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/batch-get": {
+      "post": {
+        "operationId": "batch_types_api_catalog_v1_types_batch_get_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Ids"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Batch Types Api Catalog V1 Types Batch Get Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Типы по идентификаторам, со схемами",
+        "tags": [
+          "types"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}": {
+      "get": {
+        "operationId": "get_type_api_catalog_v1_types__type_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Type Api Catalog V1 Types  Type Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Тип со схемой свойств",
+        "tags": [
+          "types"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_type_api_catalog_v1_types__type_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Type Api Catalog V1 Types  Type Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Изменить тип",
+        "tags": [
+          "types"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}/archive": {
+      "post": {
+        "operationId": "archive_type_api_catalog_v1_types__type_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Archive Type Api Catalog V1 Types  Type Id  Archive Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Убрать тип из выбора; объекты этого типа остаются, тип открывается по ссылке",
+        "tags": [
+          "types"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}/model": {
+      "delete": {
+        "operationId": "delete_model_api_catalog_v1_types__type_id__model_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Убрать модель: тип показывается фигурой",
+        "tags": [
+          "models"
+        ]
+      },
+      "put": {
+        "operationId": "put_model_api_catalog_v1_types__type_id__model_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rotation",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Rotation",
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_model_api_catalog_v1_types__type_id__model_put"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Model Api Catalog V1 Types  Type Id  Model Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Загрузить 3D-модель типа (GLB); о подозрительном размере — предупреждение",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}/model.glb": {
+      "get": {
+        "operationId": "get_model_api_catalog_v1_types__type_id__model_glb_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "3D-модель типа",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}/restore": {
+      "post": {
+        "operationId": "restore_type_api_catalog_v1_types__type_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Type Api Catalog V1 Types  Type Id  Restore Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Вернуть тип в выбор",
+        "tags": [
+          "types"
+        ]
+      }
+    },
+    "/api/catalog/v1/types/{type_id}/schema": {
+      "get": {
+        "operationId": "get_schema_api_catalog_v1_types__type_id__schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Schema Api Catalog V1 Types  Type Id  Schema Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Схема свойств типа: свойства наборов по порядку, затем собственные",
+        "tags": [
+          "types"
+        ]
+      }
+    }
+  }
+}

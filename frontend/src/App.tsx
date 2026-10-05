@@ -8,6 +8,7 @@ import { useTheme } from './lib/theme'
 import { Access } from './pages/Access'
 import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
+import { Catalog } from './pages/Catalog'
 import { Home } from './pages/Home'
 import { People } from './pages/People'
 import { Plan } from './pages/Plan'
@@ -111,7 +112,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   // «Я» and the system pages keep the menu of the building one came from
   const [last, setLast] = useState<string | null>(null)
   if (current && current !== last) setLast(current)
-  const buildingId = current ?? (route.page === 'me' || route.page === 'system' ? last : null)
+  const buildingId = current ?? (route.page === 'me' || route.page === 'system' || route.page === 'catalog' ? last : null)
   const { scope, error, reload } = useScope(buildingId)
   const b = scope?.building ?? null
   // what the building's administrator may: drawings, the editor, people, rights
@@ -123,6 +124,9 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   const crumbs: Crumb[] = []
   if (route.page === 'editor' && admin) {
     content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene editable={admin} /></Suspense>
+  } else if (route.page === 'catalog' && sys) {
+    crumbs.push({ label: 'Каталог', href: '#/catalog' })
+    content = <Catalog kind={route.kind} item={route.item} />
   } else if (route.page === 'system' && sys) {
     crumbs.push({ label: 'Состояние системы' })
     content = <System />
@@ -197,7 +201,7 @@ function Profile({ me, building, editor }: { me: Me; building: BuildingInfo | nu
   const links: [string, string][] = [
     ...(admin && building ? [[to.drawings(building.id), 'Чертежи здания'], [to.people(building.id), 'Люди'], [to.access(building.id), 'Доступ']] as [string, string][] : []),
     ...(admin && editor ? [[to.editor(editor), 'Редактор']] as [string, string][] : []),
-    ...(sys ? [[to.buildings, 'Здания'], ['#/system', 'Состояние системы']] as [string, string][] : []),
+    ...(sys ? [[to.buildings, 'Здания'], ['#/catalog', 'Каталог'], ['#/system', 'Состояние системы']] as [string, string][] : []),
   ]
   return (
     <section className="max-w-md space-y-4">

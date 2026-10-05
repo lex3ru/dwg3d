@@ -72,7 +72,7 @@ services:
       TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
       TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
       # the services requests are passed on to: name=address, comma-separated
-      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000}
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000,catalog=http://catalog:8000}
 
   ping:
     <<: *service
@@ -138,6 +138,14 @@ services:
       TWIN_DATABASE_URL: postgresql+psycopg://people:${TWIN_DB_PASSWORD_PEOPLE:-people}@db:5432/people
       TWIN_SERVICES: access=http://access:8000
 
+  catalog:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: catalog}}
+    image: twin-catalog:${TWIN_TAG:-dev}
+    environment:
+      <<: [*service-env, *s3-env]
+      TWIN_DATABASE_URL: postgresql+psycopg://catalog:${TWIN_DB_PASSWORD_CATALOG:-catalog}@db:5432/catalog
+
   # -- new services go above this line (tools/new-service adds them) --
 
   db:
@@ -166,7 +174,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
       PGDATABASE: postgres
       # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
-      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people}
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people catalog}
       TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
       TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
       TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
@@ -174,6 +182,7 @@ services:
       TWIN_DB_PASSWORD_BUILDINGS: ${TWIN_DB_PASSWORD_BUILDINGS:-buildings}
       TWIN_DB_PASSWORD_ACCESS: ${TWIN_DB_PASSWORD_ACCESS:-access}
       TWIN_DB_PASSWORD_PEOPLE: ${TWIN_DB_PASSWORD_PEOPLE:-people}
+      TWIN_DB_PASSWORD_CATALOG: ${TWIN_DB_PASSWORD_CATALOG:-catalog}
       # -- passwords of new databases go above this line --
     volumes:
       - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro
