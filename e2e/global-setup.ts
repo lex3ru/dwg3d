@@ -56,4 +56,5 @@ export default async function globalSetup() {
   process.env.E2E_RUN = run
   process.env.E2E_BOSS_PASSWORD = await ensureUser(token, `e2e-boss-${run}`, 'Проверка', 'Начальник', false)
   process.env.E2E_CLERK_PASSWORD = await ensureUser(token, `e2e-clerk-${run}`, 'Проверка', 'Сотрудник', false)
+  process.env.E2E_KEEPER_PASSWORD = await ensureUser(token, `e2e-keeper-${run}`, 'Проверка', 'Хранитель', false)
 }

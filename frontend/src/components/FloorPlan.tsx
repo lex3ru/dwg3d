@@ -11,8 +11,14 @@ const path = (polygons: Ring[][]) => polygons.map(rings => rings.map(
  * The plan of a floor for reading, not for editing: walls, openings, rooms by name.
  * A room can be chosen; the chosen one is highlighted.
  */
-export function FloorPlan({ plan, selected, onSelect, className }: {
+export type Dot = { id: string; x: number; y: number; title: string; tone: 'ok' | 'bad' | 'warn'; chosen?: boolean }
+
+export function FloorPlan({ plan, selected, onSelect, dots, onDot, onPoint, className }: {
   plan: FloorPlanData; selected?: string | null; onSelect?: (room: string) => void; className?: string
+  /** objects standing on the floor */
+  dots?: Dot[]; onDot?: (id: string) => void
+  /** when given, a click anywhere on the plan picks a point (plan coordinates, m) instead of a room */
+  onPoint?: (x: number, y: number) => void
 }) {
   const [x0, y0, x1, y1] = plan.bounds
   const pad = Math.max(x1 - x0, y1 - y0) * 0.03
@@ -22,12 +28,17 @@ export function FloorPlan({ plan, selected, onSelect, className }: {
   const stairs = useMemo(() => path(plan.stairs ?? []), [plan])
   const font = Math.max(x1 - x0, y1 - y0) / 55
   return (
-    <svg viewBox={view} className={cn('w-full rounded-lg border bg-card', className)} role="img" aria-label="План этажа" data-testid="plan">
+    <svg viewBox={view} className={cn('w-full rounded-lg border bg-card', onPoint && 'cursor-crosshair', className)} role="img" aria-label="План этажа" data-testid="plan"
+      onClick={onPoint && (e => {
+        const svg = e.currentTarget
+        const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse())
+        onPoint(Number(p.x.toFixed(3)), Number((-p.y).toFixed(3)))
+      })}>
       {plan.rooms.map((r, i) => (
         <path key={r.id ?? i} d={path([r.poly])} fillRule="evenodd" data-room={r.id ?? undefined} data-selected={r.id === selected || undefined}
           className={cn('stroke-transparent', r.id === selected ? 'fill-primary/25' : 'fill-secondary/60',
-            onSelect && r.id && 'cursor-pointer hover:fill-primary/15')}
-          onClick={() => r.id && onSelect?.(r.id)}>
+            onSelect && !onPoint && r.id && 'cursor-pointer hover:fill-primary/15')}
+          onClick={() => !onPoint && r.id && onSelect?.(r.id)}>
           <title>{r.name || 'Помещение'} · {r.area} м²</title>
         </path>
       ))}
@@ -43,6 +54,14 @@ export function FloorPlan({ plan, selected, onSelect, className }: {
           className={cn('pointer-events-none fill-muted-foreground', r.id === selected && 'fill-foreground font-medium')}>
           {r.name.length > 22 ? `${r.name.slice(0, 20)}…` : r.name}
         </text>
+      ))}
+      {dots?.map(d => (
+        <circle key={d.id} cx={d.x} cy={-d.y} r={font * (d.chosen ? 0.85 : 0.6)} data-asset={d.id}
+          className={cn('stroke-card', d.tone === 'bad' ? 'fill-destructive' : d.tone === 'warn' ? 'fill-warning' : 'fill-primary',
+            onDot && !onPoint && 'cursor-pointer')}
+          strokeWidth={font * 0.12} onClick={e => { if (!onPoint) { e.stopPropagation(); onDot?.(d.id) } }}>
+          <title>{d.title}</title>
+        </circle>
       ))}
     </svg>
   )

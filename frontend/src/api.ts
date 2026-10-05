@@ -196,3 +196,49 @@ export const typeModelUrl = (t: CatalogType) => `${CATALOG}/types/${t.id}/model.
 export const saveSet = (body: { name: string; description: string; properties: Prop[] }, existing?: PropertySet) => existing
   ? api<PropertySet>(`${CATALOG}/property-sets/${existing.id}`, { method: 'PATCH', json: { ...body, version: existing.version } })
   : api<PropertySet>(`${CATALOG}/property-sets`, { method: 'POST', json: body })
+
+// ---- objects: furniture and equipment on the plan
+
+const ASSETS = '/api/assets/v1'
+export type AssetState = 'in_use' | 'faulty' | 'in_repair' | 'in_storage' | 'retired'
+export const STATES: Record<AssetState, string> = {
+  in_use: 'в работе', faulty: 'неисправен', in_repair: 'в ремонте', in_storage: 'на складе', retired: 'списан' }
+export type Asset = {
+  id: string; type_id: string; type_name: string; building_id: string; floor_id: string; room_id: string
+  x: number | null; y: number | null; container_id: string | null; inventory_no: string; serial_no: string | null
+  state: AssetState; responsible_id: string | null; props: Record<string, unknown>; note: string
+  needs_placement: boolean; needs_fill: boolean; qr_code: string; version: number
+}
+/** How an object looks in a list and on the plan: fine, needs attention, out of order. */
+export const assetTone = (a: Asset) => (a.state === 'faulty' ? 'bad' : a.state !== 'in_use' || a.needs_fill || a.needs_placement ? 'warn' : 'ok')
+export type AssetCard = Asset & {
+  schema: Prop[]; portable: boolean; container: boolean; children: Asset[]
+  can: { edit: boolean; manage: boolean; move: boolean }
+}
+export type HistoryEntry = {
+  id: string; at: string; action: string; changes: Record<string, [unknown, unknown]>
+  actor: { kind: string; id: string; person_id: string | null }; reverts: string | null; reason: string | null
+}
+export type AssetFile = { id: string; kind: 'photo' | 'document'; name: string; size: number }
+
+export const listAssets = (params: Record<string, string | undefined>) => {
+  const q = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]))
+  return api<{ items: Asset[]; total: number }>(`${ASSETS}/assets?${q}`)
+}
+export const getAsset = (id: string) => api<AssetCard>(`${ASSETS}/assets/${id}`)
+export const createAsset = (body: { type_id: string; floor_id: string; x: number; y: number; inventory_no: string }) =>
+  api<Asset>(`${ASSETS}/assets`, { method: 'POST', json: body })
+export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string }) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}`, { method: 'PATCH', json: { ...patch, version: a.version } })
+export const setAssetState = (a: Asset, state: AssetState) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}/state`, { method: 'POST', json: { state, version: a.version } })
+export const setAssetResponsible = (a: Asset, person_id: string | null) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}/responsible`, { method: 'POST', json: { person_id, version: a.version } })
+export const moveAsset = (a: Asset, floor_id: string, x: number, y: number) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}/move`, { method: 'POST', json: { floor_id, x, y, version: a.version } })
+export const assetHistory = (id: string) => api<{ items: HistoryEntry[] }>(`${ASSETS}/assets/${id}/history`).then(r => r.items)
+export const revertAsset = (id: string, entry: string) => api<Asset>(`${ASSETS}/assets/${id}/history/${entry}/revert`, { method: 'POST' })
+export const assetFiles = (id: string) => api<{ items: AssetFile[] }>(`${ASSETS}/assets/${id}/files`).then(r => r.items)
+export const addAssetFile = (id: string, file: File) => api<AssetFile>(`${ASSETS}/assets/${id}/files`, { method: 'POST', body: fileForm(file) })
+export const deleteAssetFile = (id: string) => api<void>(`${ASSETS}/files/${id}`, { method: 'DELETE' })
+export const assetFileUrl = (id: string) => `${ASSETS}/files/${id}`

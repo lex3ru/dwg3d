@@ -6,6 +6,8 @@ import {
 import { Button } from './components/ui/button'
 import { useTheme } from './lib/theme'
 import { Access } from './pages/Access'
+import { AssetCard } from './pages/AssetCard'
+import { Assets } from './pages/Assets'
 import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { Catalog } from './pages/Catalog'
@@ -18,6 +20,8 @@ import { System } from './pages/System'
 import { to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
 import { useEvents } from './stream'
+
+const noop = () => {}
 
 // the 3D scene is heavy (three.js): loaded when the editor is opened
 const Scene = lazy(() => import('./scene/entry'))
@@ -154,6 +158,13 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
       } else if (route.section === 'drawings' && admin) {
         crumbs.push({ label: 'Чертежи' })
         content = <Building key={building.id} id={building.id} />
+      } else if (route.section === 'assets') {
+        crumbs.push({ label: 'Объекты', href: to.assets(building.id) })
+        content = <Assets building={building.id} floors={floors} selected={route.item} />
+        if (route.item) {
+          panel = <AssetCard key={route.item} id={route.item} building={building.id} floors={floors} onGone={noop} />
+          closePanel = () => { location.hash = to.assets(building.id) }
+        }
       } else if (route.section === 'rooms') {
         const chosen = room(route.item)
         crumbs.push({ label: 'Помещения', href: to.rooms(building.id) })
@@ -169,7 +180,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         crumbs.push({ label: 'План', href: to.plan(building.id) })
         if (floor) crumbs.push({ label: floor.name, href: to.plan(building.id, floor.id) })
         if (chosen) crumbs.push({ label: chosen.room.name || 'Без названия' })
-        content = <Plan building={building.id} floors={floors} floor={route.item} room={route.sub} />
+        content = <Plan building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} />
         if (chosen) {
           // beside the plan on a wide screen; on a phone the plan stays and the card is one tap away
           panel = <div className="max-md:hidden"><RoomCard key={chosen.room.id + chosen.room.version} building={building.id} {...chosen} admin={admin} onChanged={reload} /></div>

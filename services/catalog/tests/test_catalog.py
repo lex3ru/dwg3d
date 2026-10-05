@@ -173,7 +173,7 @@ async def test_property_with_values_at_objects_stays(client, tokens, used):
     admin = tokens.admin()
     couch = (await named(client, admin, "types"))["Кушетка"]
     sset = (await named(client, admin, "property-sets"))["Мебель"]             # material, wear — both kept with objects
-    used["wear"] = 3                                                            # three objects have their wear filled in
+    used["wear"] = 3                                 # three objects have their wear filled in
 
     without = {"name": sset["name"], "version": sset["version"], "properties": [sset["properties"][0]]}
     r = await client.patch(f"{API}/property-sets/{sset['id']}", json=without, headers=admin)

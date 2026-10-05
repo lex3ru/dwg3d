@@ -4,6 +4,8 @@ const run = () => process.env.E2E_RUN!
 export const users = {
   // made anew for every run (global-setup.ts); their e-mail is <login>@example.test
   boss: { get login() { return `e2e-boss-${run()}` }, name: 'Проверка Начальник', password: () => process.env.E2E_BOSS_PASSWORD! },
+  // answers for objects in the scenario of stage 4 (one account is one person: scenarios do not share them)
+  keeper: { get login() { return `e2e-keeper-${run()}` }, name: 'Проверка Хранитель', password: () => process.env.E2E_KEEPER_PASSWORD! },
   clerk: { get login() { return `e2e-clerk-${run()}` }, name: 'Проверка Сотрудник', password: () => process.env.E2E_CLERK_PASSWORD! },
   admin: { login: 'e2e-admin', name: 'Проверка Администратор', password: () => process.env.E2E_ADMIN_PASSWORD! },
   user: { login: 'e2e-user', name: 'Проверка Пользователь', password: () => process.env.E2E_USER_PASSWORD! },

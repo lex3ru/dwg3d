@@ -1,5 +1,5 @@
 import {
-  Activity, BookOpen, Building2, ChevronRight, DoorOpen, FileStack, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun, User,
+  Activity, BookOpen, Box, Building2, ChevronRight, DoorOpen, FileStack, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun, User,
   Users, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -21,6 +21,7 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
   const main: Item[] = b ? [
     { key: 'home', href: to.home(b), label: 'Кабинет', icon: Home, active: section === 'home' },
     { key: 'rooms', href: to.rooms(b), label: 'Помещения', icon: DoorOpen, active: section === 'rooms' },
+    { key: 'assets', href: to.assets(b), label: 'Объекты', icon: Box, active: section === 'assets' },
     { key: 'plan', href: to.plan(b), label: 'План', icon: MapIcon, active: section === 'plan' },
   ] : []
   const manage: Item[] = b && manages(me, b) ? [
@@ -92,7 +93,7 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
             {rail ? children : <div className="mx-auto w-full max-w-5xl px-4 py-5">{children}</div>}
           </main>
           {panel && (
-            <aside className={cn('flex w-80 shrink-0 flex-col overflow-y-auto border-l bg-card max-md:w-full max-md:border-l-0', keepMain && 'max-md:hidden')} aria-label="Карточка" data-testid="panel">
+            <aside className={cn('flex w-96 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-l bg-card max-md:w-full max-md:border-l-0', keepMain && 'max-md:hidden')} aria-label="Карточка" data-testid="panel">
               <div className="flex justify-end px-2 pt-2">
                 <Button variant="ghost" size="icon" title="Закрыть" onClick={onClosePanel}><X className="size-4" /></Button>
               </div>

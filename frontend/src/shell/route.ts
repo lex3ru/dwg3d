@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 //   /buildings                         the buildings one may see
 //   /b/<building>                      «Кабинет» of a building
 //   /b/<building>/rooms[/<room>]       rooms; with a room — its card is open
+//   /b/<building>/assets[/<asset>]     objects; with one — its card is open
 //   /b/<building>/plan[/<floor>][/<room>]   the 2D plan of a floor
 //   /b/<building>/drawings             drawings (the building's administrator)
 //   /b/<building>/people, /access      the directory of people; who may do what in the building
@@ -13,7 +14,7 @@ import { useEffect, useState } from 'react'
 //   /me                                the user (on a phone: also what the menu holds)
 //   /system                            the state of the services (the system administrator)
 
-export type Section = 'home' | 'rooms' | 'plan' | 'drawings' | 'people' | 'access'
+export type Section = 'home' | 'rooms' | 'assets' | 'plan' | 'drawings' | 'people' | 'access'
 export type Route =
   | { page: 'buildings' }
   | { page: 'building'; building: string; section: Section; item?: string; sub?: string; q?: string }
@@ -28,7 +29,7 @@ export function parseRoute(hash: string): Route {
   if (first === 'f' && second) return { page: 'editor', drawing: second }
   if (first === 'p' && second) return { page: 'building', building: second, section: 'drawings' }     // the old address
   if (first === 'b' && second) {
-    const sections: Section[] = ['rooms', 'plan', 'drawings', 'people', 'access']
+    const sections: Section[] = ['rooms', 'assets', 'plan', 'drawings', 'people', 'access']
     const section: Section = sections.includes(third as Section) ? third as Section : 'home'
     return { page: 'building', building: second, section, item: fourth || undefined, sub: fifth || undefined,
       q: new URLSearchParams(query).get('q') ?? undefined }
@@ -42,6 +43,7 @@ export const to = {
   buildings: '#/buildings',
   home: (b: string) => `#/b/${b}`,
   rooms: (b: string, room?: string, q?: string) => `#/b/${b}/rooms${room ? `/${room}` : ''}${q ? `?q=${encodeURIComponent(q)}` : ''}`,
+  assets: (b: string, asset?: string) => `#/b/${b}/assets${asset ? `/${asset}` : ''}`,
   plan: (b: string, floor?: string, room?: string) => `#/b/${b}/plan${floor ? `/${floor}` : ''}${floor && room ? `/${room}` : ''}`,
   drawings: (b: string) => `#/b/${b}/drawings`,
   people: (b: string) => `#/b/${b}/people`,
