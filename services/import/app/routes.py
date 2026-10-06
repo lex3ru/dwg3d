@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 from uuid import UUID
@@ -301,6 +302,38 @@ async def get_build_file(build_id: UUID, path: str, request: Request,
     if rel.suffix.lower() in (".ifc", ".zip", ".dxf"):
         headers["Content-Disposition"] = f'attachment; filename="{rel.name}"'
     return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)), media_type=media, headers=headers)
+
+
+class ObjectsExport(BaseModel):
+    format: str = Field(default="dxf", pattern="^(dxf|dwg)$")
+    objects: list[dict] = Field(max_length=20000, description="floor (id этажа в сборке), at [x, y], angle, type, "
+                                "name, inventory_no, state, responsible, room, note")
+    types: dict[str, dict] = Field(default_factory=dict, description="id типа → {id, w, d} в метрах")
+
+
+@router.post("/drawings/{drawing_id}/export", tags=["export"], response_class=StreamingResponse,
+             summary="Чертёж с объектами: блоки с атрибутами на своих местах (DXF или DWG)")
+async def export_with_objects(drawing_id: UUID, body: ObjectsExport, request: Request,
+                              _: Identity = Depends(manages_drawing)) -> StreamingResponse:
+    from .export import drawing_with_objects
+
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
+        b = None
+        if d.current_build_id:
+            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
+    if b is None:
+        raise Problem(409, "not_ready", "Чертёж ещё не обработан")
+    path, filename, stats = await asyncio.to_thread(drawing_with_objects, d, f, b, body.format, body.objects,
+                                                    body.types)
+    data = await asyncio.to_thread(path.read_bytes)
+    shutil.rmtree(path.parent, ignore_errors=True)
+    from urllib.parse import quote
+    headers = {"Content-Length": str(len(data)), "X-Objects-Drawn": str(stats["drawn"]),
+               "X-Objects-Skipped": str(stats["skipped"]),
+               "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+    return StreamingResponse(iter([data]), media_type=storage.MEDIA[f".{body.format}"], headers=headers)
 
 
 # ------------------------------------------------------------------- export ---

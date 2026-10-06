@@ -3,7 +3,7 @@ name = "twin-gateway"
 version = "0.1.0"
 description = "Digital twin: the gateway: sign-in sessions, passing requests on to services, events to the browser"
 requires-python = ">=3.12"
-dependencies = ["twin-chassis", "httpx>=0.28"]
+dependencies = ["twin-chassis[pdf]", "httpx>=0.28", "openpyxl>=3.1"]
 
 [dependency-groups]
 dev = ["twin-chassis[testing]", "ruff>=0.8"]

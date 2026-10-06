@@ -269,3 +269,54 @@ export async function importAssets(building: string, file: File): Promise<{ crea
   error.rows = (body.errors ?? []).map((e: { field: string; message: string }) => `${e.field}: ${e.message}`)
   throw error
 }
+
+// ---- stage 5: the cabinet, QR, comments, reports
+
+export type Cabinet = {
+  person_id: string | null
+  /** the whole building is visible: an administrator, or a right on the building */
+  whole: boolean
+  rooms: { id: string; name: string; number: string | null; floor_id: string; floor_name: string; level: number | null }[]
+  attention: Asset[]; mine: Asset[]; partial: string[]
+}
+export const getCabinet = (building: string) => api<Cabinet>(`/api/views/cabinet?building_id=${building}`)
+/** Whose label this is; 404 both when there is no such code and when the object is not ours to see. */
+export const byQr = (code: string) => api<{ asset_id: string; building_id: string }>(`${ASSETS}/qr/${encodeURIComponent(code)}`)
+export const assetLabelUrl = (id: string, size = 40) => `${ASSETS}/assets/${id}/label?size=${size}`
+export const assetsReportUrl = (params: Record<string, string | undefined>) =>
+  `/api/reports/assets.xlsx?${new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]))}`
+export const roomSheetUrl = (room: string) => `/api/reports/rooms/${room}/sheet.pdf`
+
+/** A file the services make on request (a sheet of labels, a drawing): fetched, then handed to the browser to save. */
+async function download(path: string, init: RequestInit & { json?: unknown }, fallback: string): Promise<void> {
+  const { json, ...rest } = init
+  const response = await fetch(path, { ...rest, headers: { 'Content-Type': 'application/json', ...rest.headers }, body: JSON.stringify(json) })
+  if (!response.ok) {
+    let problem: { code?: string; detail?: string } = {}
+    try { problem = await response.json() } catch { /* not JSON */ }
+    throw new ApiError(response.status, problem.code ?? 'error', problem.detail ?? `Ошибка ${response.status}`)
+  }
+  const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? fallback)
+  const url = URL.createObjectURL(await response.blob())
+  const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+export const labelsSheet = (body: { asset_ids?: string[]; building_id?: string; floor_id?: string; room_id?: string; size?: number }) =>
+  download(`${ASSETS}/labels`, { method: 'POST', json: body }, 'метки.pdf')
+export const drawingWithObjects = (building: string, drawing_id: string, format: 'dxf' | 'dwg') =>
+  download(`/api/reports/buildings/${building}/drawing`, { method: 'POST', json: { drawing_id, format } }, `drawing.${format}`)
+
+export type CommentTarget = 'point' | 'room' | 'asset'
+export type Comment = {
+  id: string; building_id: string; floor_id: string | null; room_id: string | null
+  target_kind: CommentTarget; target_id: string | null; x: number | null; y: number | null; body: string
+  author: { sub: string; person_id: string | null; name: string }
+  resolved_at: string | null; resolved_by: string | null; created_at: string; version: number
+}
+export const listComments = (params: { building_id: string; target_kind?: CommentTarget; target_id?: string; floor_id?: string; resolved?: 'true' }) =>
+  api<{ items: Comment[] }>(`${BUILDINGS}/comments?${new URLSearchParams(params as Record<string, string>)}`).then(r => r.items)
+export const addComment = (body: { building_id: string; target_kind: CommentTarget; target_id?: string; floor_id?: string; x?: number; y?: number; body: string }) =>
+  api<Comment>(`${BUILDINGS}/comments`, { method: 'POST', json: body })
+export const resolveComment = (id: string) => api<Comment>(`${BUILDINGS}/comments/${id}/resolve`, { method: 'POST' })
+export const deleteComment = (id: string) => api<void>(`${BUILDINGS}/comments/${id}`, { method: 'DELETE' })

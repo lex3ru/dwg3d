@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.comment.resolved",
+  "description": "Комментарий закрыт автором или администратором. subject — комментарий.",
+  "type": "object",
+  "required": [
+    "comment_id",
+    "target_kind"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "comment_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "target_kind": {
+      "type": "string",
+      "enum": [
+        "point",
+        "room",
+        "asset"
+      ]
+    },
+    "target_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "author": {
+      "type": "string"
+    }
+  }
+}

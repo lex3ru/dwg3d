@@ -233,3 +233,34 @@ async def test_progress_is_announced(client, app, worker, tokens, sample):
     from twin_chassis import events as contract
     for event in heard:
         contract.check(event)
+
+
+async def test_drawing_with_objects_has_blocks_with_attributes(client, worker, tokens, sample, tmp_path):
+    import ezdxf
+
+    drawing = (await upload(client, tokens, sample)).json()
+    await worker.run_once()
+    admin = tokens.admin()
+    build = (await client.get(f"{API}/drawings/{drawing['id']}", headers=admin)).json()["build"]
+    floor = (await client.get(f"{API}/builds/{build['id']}/result", headers=admin)).json()["result"]["floors"][0]
+    room = floor["rooms"][0]
+    plan = (await client.get(f"{API}/builds/{build['id']}/files/plans/floor_{floor['id']}.json", headers=admin)).json()
+    ring = plan["rooms"][0]["poly"][0]
+    cx, cy = sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring)
+    body = {"format": "dxf", "types": {"t1": {"id": "t1", "w": 1.4, "d": 0.7}},
+            "objects": [{"floor": floor["id"], "at": [cx, cy], "angle": 90, "type": "t1", "name": "Рабочий стол",
+                         "inventory_no": "СТ-0001", "state": "в работе", "responsible": "Иванов", "room": room["name"],
+                         "note": ""},
+                        {"floor": "no-such", "at": [1, 1], "type": "t1", "name": "x", "inventory_no": "x"}]}
+    r = await client.post(f"{API}/drawings/{drawing['id']}/export", json=body, headers=admin)
+    assert r.status_code == 200 and r.headers["x-objects-drawn"] == "1" and r.headers["x-objects-skipped"] == "1"
+    out = tmp_path / "objects.dxf"
+    out.write_bytes(r.content)
+    doc = ezdxf.readfile(str(out))
+    refs = [e for e in doc.modelspace().query("INSERT") if e.dxf.name.startswith("TWIN_")]
+    assert len(refs) == 1 and refs[0].dxf.layer == "Объекты" and refs[0].dxf.rotation == 90
+    assert {a.dxf.tag: a.dxf.text for a in refs[0].attribs} == {
+        "NAME": "Рабочий стол", "INVENTORY_NO": "СТ-0001", "STATE": "в работе", "RESPONSIBLE": "Иванов",
+        "ROOM": room["name"], "NOTE": ""}
+    stranger = tokens.bearer("nobody")
+    assert (await client.post(f"{API}/drawings/{drawing['id']}/export", json=body, headers=stranger)).status_code == 404

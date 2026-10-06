@@ -15,6 +15,10 @@
 | `migrate` | миграции Alembic сервиса: `python -m twin_chassis.migrate` |
 | `contracts` | запись запросов сервиса в `contracts/openapi/` |
 | `testing` | для тестов: временная база, подписанные токены, проверка контракта |
+| `pdf` | документы PDF: шрифт с кириллицей (DejaVu, `fonts/`), QR-код, подбор размера строки — нужна зависимость `twin-chassis[pdf]` |
 
 Сервисы подключают пакет по пути (`[tool.uv.sources]` в `pyproject.toml`).
 Новый сервис создаётся командой `tools/new-service <имя>`.
+
+Адрес системы для ссылок, которые сервисы пишут сами (QR-метки), — `TWIN_PUBLIC_URL` (`settings.public_url`,
+по умолчанию `http://localhost:8090`).

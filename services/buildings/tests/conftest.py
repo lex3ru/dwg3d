@@ -29,6 +29,7 @@ API = "/api/buildings/v1"
 DATA = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in (Path(__file__).parent / "data").glob("*.json")}
 IMPORT = "http://import.test"
 ACCESS = "http://access.test"
+ASSETS = "http://assets.test"
 
 
 class Import:
@@ -41,6 +42,7 @@ class Import:
         self.access_up = True
         self.calls: list[str] = []
         self.grants: dict[str, list[dict]] = {}     # account -> its grants, as the access service would say
+        self.assets: dict[str, dict] = {}           # objects the assets service would show (to anyone asking)
 
     def add(self, building_id: str, n: int, fixture: str) -> str:
         build_id = str(uuid4())
@@ -59,6 +61,9 @@ class Import:
             grants = self.grants.get(me.sub, [])
             return httpx.Response(200, json={"admin": False, "service": False, "person_id": None, "grants": grants,
                                              "buildings": sorted({g["building_id"] for g in grants})})
+        if url.startswith(ASSETS):
+            a = self.assets.get(request.url.path.rsplit("/", 1)[-1])
+            return httpx.Response(200, json=a) if a else httpx.Response(404, json={"code": "not_found"})
         assert url.startswith(IMPORT), url
         if not self.up:
             raise httpx.ConnectError("import is down")
@@ -107,7 +112,7 @@ def database_url():
 async def app(database_url, tokens, importer):
     settings = test_settings(SERVICE, database_url)
     http = httpx.AsyncClient(transport=httpx.MockTransport(importer.handle))
-    client = ServiceClient(settings, {"import": IMPORT, "access": ACCESS}, http)
+    client = ServiceClient(settings, {"import": IMPORT, "access": ACCESS, "assets": ASSETS}, http)
     async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 

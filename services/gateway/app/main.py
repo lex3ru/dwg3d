@@ -3,7 +3,8 @@
     uv run uvicorn app.main:build --factory --port 8000
 
 Sign-in sessions (/auth/*), who is signed in (/api/me), requests passed on to
-the services (/api/<service>/v1/...), events to the browser (/api/stream).
+the services (/api/<service>/v1/...), events to the browser (/api/stream), assembled
+answers (/api/views/*), reports (/api/reports/*), QR labels (/q/<code>).
 It keeps no data of its own except the sessions.
 """
 from __future__ import annotations
@@ -15,9 +16,11 @@ from twin_chassis.auth import TokenVerifier
 
 from .config import GatewayConfig
 from .oidc import Oidc
+from .reports import router as reports
 from .routes import router
 from .sessions import Sessions
 from .stream import Hub
+from .views import router as views
 
 SERVICE = "gateway"
 TITLE = "Шлюз"
@@ -37,5 +40,5 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
         state.hub = Hub()
         state.bus.listen(">", state.hub.dispatch)
 
-    return create_app(SERVICE, title=TITLE, routers=[router], settings=settings, verifier=verifier, setup=setup,
-                      prefix="")
+    return create_app(SERVICE, title=TITLE, routers=[router, views, reports], settings=settings, verifier=verifier,
+                      setup=setup, prefix="")

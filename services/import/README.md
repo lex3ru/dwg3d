@@ -31,6 +31,7 @@
 | `GET /builds/{id}`, `GET /builds/{id}/result` | состояние и результат сборки |
 | `GET /builds/{id}/files/{путь}` | `model.glb`, `plans/floor_<id>.json`, `model.ifc`, `model_obj.zip` |
 | `GET /drawings/{id}/export?format=dxf\|dwg` | исходный чертёж с правками 2D-редактора |
+| `POST /drawings/{id}/export` | `{format, objects, types}` → тот же чертёж с объектами: блок на тип (`TWIN_<id>`, контур w×d), вставки на слое «Объекты» с атрибутами NAME, INVENTORY_NO, STATE, RESPONSIBLE, ROOM, NOTE |
 
 Пока идёт сборка, изменяющие запросы к чертежу отвечают `409 busy`.
 

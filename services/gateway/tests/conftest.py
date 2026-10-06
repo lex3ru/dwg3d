@@ -44,6 +44,8 @@ class World:
         self.upstream_up = True
         self.seen: list[httpx.Request] = []        # requests that reached the upstream service
         self.token_calls: list[dict] = []
+        # answers of other services by (method, path) — for the assembled views and reports
+        self.answers: dict[tuple[str, str], object] = {}
 
     def _tokens(self) -> dict:
         access = self.tokens.make(self.user["sub"], roles=self.user["roles"], login=self.user["login"],
@@ -67,6 +69,13 @@ class World:
             if not self.upstream_up:
                 raise httpx.ConnectError("service is down")
             self.seen.append(request)
+            known = self.answers.get((request.method, request.url.path))
+            if known is not None:
+                status, payload = known(request) if callable(known) else (200, known)
+                if isinstance(payload, bytes):
+                    return httpx.Response(status, headers={"content-type": "application/octet-stream",
+                                                           "x-objects-drawn": "1"}, stream=_Body(payload))
+                return reply(status, payload)
             if request.url.path == "/healthz":
                 return reply(200, {"service": "ping", "ok": True, "db": True, "nats": True})
             if request.url.path.endswith("/missing"):

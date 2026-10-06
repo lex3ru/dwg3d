@@ -1,11 +1,12 @@
-import { FileText, Map as MapIcon, Move, Paperclip, Undo2 } from 'lucide-react'
+import { Camera, FileText, Map as MapIcon, Move, Paperclip, QrCode, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  addAssetFile, assetFileUrl, assetFiles, assetHistory, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
+  addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
   patchAsset, peopleByIds,
   revertAsset, setAssetResponsible, setAssetState, STATES,
-  type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Person, type Prop, type TreeFloor,
+  type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Me, type Person, type Prop, type TreeFloor,
 } from '../api'
+import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { to } from '../shell/route'
@@ -19,7 +20,9 @@ const ACTIONS: Record<string, string> = {
 const show = (v: unknown) => (v == null || v === '' ? '—' : typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v))
 
 /** The card of an object: the same from the list, the plan and the QR code. What one may change is a field; what not — text. */
-export function AssetCard({ id, building, floors, onGone }: { id: string; building: string; floors: TreeFloor[]; onGone: () => void }) {
+export function AssetCard({ id, me, building, floors, admin, onGone }: {
+  id: string; me: Me; building: string; floors: TreeFloor[]; admin: boolean; onGone: () => void
+}) {
   const [a, setA] = useState<Card | null>(null)
   const [files, setFiles] = useState<AssetFile[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -27,13 +30,17 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
   const [people, setPeople] = useState<Person[]>([])
   const [boxes, setBoxes] = useState<Asset[]>([])           // containers of the building this one could stand in
   const [error, setError] = useState<string | null>(null)
+  const [partial, setPartial] = useState(false)             // the people service did not answer: no names
   const picker = useRef<HTMLInputElement>(null)
+  const camera = useRef<HTMLInputElement>(null)
 
   const load = useCallback(() => {
     Promise.all([getAsset(id), assetFiles(id), assetHistory(id)]).then(async ([card, f, h]) => {
       setA(card); setFiles(f); setHistory(h); setError(null)
       const ids = [...new Set([card.responsible_id, ...h.map(x => x.actor.person_id)].filter((x): x is string => !!x))]
-      if (ids.length) setNames(Object.fromEntries((await peopleByIds(ids)).map(p => [p.id, p.full_name])))
+      if (ids.length) {
+        try { setNames(Object.fromEntries((await peopleByIds(ids)).map(p => [p.id, p.full_name]))); setPartial(false) } catch { setPartial(true) }
+      }
       if (card.can.manage) listPeople().then(setPeople, () => {})
       if (card.can.move && !card.container) {
         Promise.all([listTypes(true), listAssets({ building_id: building, limit: '500' })]).then(([types, all]) => {
@@ -59,6 +66,7 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
         <div className="mt-1 text-muted-foreground">{floor?.name} · {room?.name || 'помещение без названия'}</div>
       </div>
       {error && <p role="alert" className="text-destructive">{error}</p>}
+      {partial && <p role="status" className="rounded-md bg-muted px-2.5 py-1.5 text-muted-foreground" data-testid="partial">Данные неполные: сервис людей не отвечает, имена ответственного и авторов не показаны.</p>}
       {(a.needs_fill || a.needs_placement) && (
         <p role="status" className="rounded-md bg-warning/15 px-2.5 py-1.5 text-warning">
           {a.needs_placement ? 'Требует размещения: помещения или контейнера, где он стоял, больше нет. ' : ''}
@@ -79,6 +87,9 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
             <a href={to.move(building, floor.id, a.id)}><Move className="size-4" /> Переместить</a>
           </Button>
         )}
+        <Button asChild variant="outline" size="sm" title="QR-метка для печати (PDF, 40 мм)">
+          <a href={assetLabelUrl(a.id)} target="_blank" rel="noreferrer"><QrCode className="size-4" /> Метка</a>
+        </Button>
       </div>
       {a.container_id && <p className="text-muted-foreground">Стоит внутри: {boxes.find(b => b.id === a.container_id)?.type_name ?? 'другого объекта'}. «Переместить» вынет его на план.</p>}
       {a.can.move && a.state !== 'retired' && boxes.length > 0 && (
@@ -121,7 +132,10 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
         <div className="flex items-center gap-2">
           <h3 className="font-medium">Файлы</h3>
           {a.can.edit && <Button variant="ghost" size="sm" onClick={() => picker.current?.click()}><Paperclip className="size-4" /> Приложить</Button>}
-          <input ref={picker} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" capture={undefined} data-testid="asset-file"
+          {a.can.edit && <Button variant="ghost" size="sm" className="md:hidden" title="Снять фото камерой" onClick={() => camera.current?.click()}><Camera className="size-4" /> Снять</Button>}
+          <input ref={picker} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" data-testid="asset-file"
+            onChange={e => { const f = e.target.files?.[0]; if (f) act(addAssetFile(a.id, f)); e.target.value = '' }} />
+          <input ref={camera} type="file" className="hidden" accept="image/*" capture="environment" data-testid="asset-camera"
             onChange={e => { const f = e.target.files?.[0]; if (f) act(addAssetFile(a.id, f)); e.target.value = '' }} />
         </div>
         {files.length === 0 ? <p className="text-muted-foreground">Фотографий и документов нет.</p> : (
@@ -138,6 +152,7 @@ export function AssetCard({ id, building, floors, onGone }: { id: string; buildi
           </ul>
         )}
       </div>
+      <Comments me={me} building={building} target_kind="asset" target_id={a.id} admin={admin} />
       <div>
         <h3 className="font-medium">История</h3>
         <ul className="mt-1 grid gap-1.5" data-testid="asset-history">

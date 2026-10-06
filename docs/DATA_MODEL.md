@@ -201,11 +201,13 @@
 | target_kind | text | `point` \| `room` \| `asset` |
 | target_id | uuid null | → rooms / assets |
 | x, y | double null | для `point` |
-| parent_id | uuid null FK | ответ на комментарий |
+| room_id | uuid null | помещение цели — для права видеть (у объекта берётся из `assets`) |
 | body | text | |
-| author_person_id | uuid | → people |
+| author_sub, author_person_id, author_name | | учётная запись автора, его запись в справочнике и имя на момент написания (чтобы не спрашивать `people` при чтении) |
 | resolved_at, resolved_by | | |
-| created_at, updated_at, deleted_at | | |
+| created_at, updated_at, version | | |
+
+Ответов на комментарии (`parent_id`) и мягкого удаления (`deleted_at`) нет: комментарий удаляется насовсем автором или администратором.
 
 Индексы: `(building_id, floor_id)`, `(target_kind, target_id)`.
 

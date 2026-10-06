@@ -1,6 +1,143 @@
 {
   "components": {
     "schemas": {
+      "Cabinet": {
+        "properties": {
+          "attention": {
+            "description": "Объекты, требующие внимания: неисправные, без места, с незаполненными свойствами",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Attention",
+            "type": "array"
+          },
+          "mine": {
+            "description": "Объекты, за которые я отвечаю",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Mine",
+            "type": "array"
+          },
+          "partial": {
+            "description": "Сервисы, не ответившие: их части в ответе нет",
+            "items": {
+              "type": "string"
+            },
+            "title": "Partial",
+            "type": "array"
+          },
+          "person_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Человек, который вошёл; null — учётной записи нет в справочнике",
+            "title": "Person Id"
+          },
+          "rooms": {
+            "description": "Мои помещения: на которые есть право (пусто, если видно всё здание)",
+            "items": {
+              "$ref": "#/components/schemas/CabinetRoom"
+            },
+            "title": "Rooms",
+            "type": "array"
+          },
+          "whole": {
+            "description": "Видно всё здание (администратор или право на здание целиком)",
+            "title": "Whole",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "person_id",
+          "whole",
+          "rooms",
+          "attention",
+          "mine",
+          "partial"
+        ],
+        "title": "Cabinet",
+        "type": "object"
+      },
+      "CabinetRoom": {
+        "properties": {
+          "floor_id": {
+            "title": "Floor Id",
+            "type": "string"
+          },
+          "floor_name": {
+            "title": "Floor Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "number",
+          "floor_id",
+          "floor_name",
+          "level"
+        ],
+        "title": "CabinetRoom",
+        "type": "object"
+      },
+      "DrawingReport": {
+        "properties": {
+          "drawing_id": {
+            "format": "uuid",
+            "title": "Drawing Id",
+            "type": "string"
+          },
+          "format": {
+            "default": "dxf",
+            "pattern": "^(dxf|dwg)$",
+            "title": "Format",
+            "type": "string"
+          }
+        },
+        "required": [
+          "drawing_id"
+        ],
+        "title": "DrawingReport",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -289,6 +426,130 @@
         ]
       }
     },
+    "/api/reports/assets.xlsx": {
+      "get": {
+        "operationId": "assets_xlsx_api_reports_assets_xlsx_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Список объектов в Excel по тем же фильтрам, что у списка; свойства — отдельными столбцами",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/reports/buildings/{building_id}/drawing": {
+      "post": {
+        "operationId": "drawing_with_objects_api_reports_buildings__building_id__drawing_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawingReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Чертёж с объектами (DXF или DWG): объекты — блоками с атрибутами на своих местах",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/reports/rooms/{room_id}/sheet.pdf": {
+      "get": {
+        "operationId": "room_sheet_api_reports_rooms__room_id__sheet_pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ведомость помещения в PDF: объекты, номера, состояние, ответственные, место для подписи",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/api/stream": {
       "get": {
         "operationId": "stream_api_stream_get",
@@ -324,6 +585,49 @@
         "summary": "Состояние сервисов (администратор системы)",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/views/cabinet": {
+      "get": {
+        "operationId": "cabinet_api_views_cabinet_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cabinet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Личный кабинет в здании",
+        "tags": [
+          "views"
         ]
       }
     },
@@ -445,6 +749,41 @@
         "summary": "Выйти",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/q/{code}": {
+      "get": {
+        "operationId": "qr_q__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "QR-метка: без входа — на вход, затем к карточке объекта (если есть право на него)",
+        "tags": [
+          "qr"
         ]
       }
     }

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ApiError, getBuilding, getDrawing, getMe, getTree, listBuildings, listPlaced, manages, signIn, signOut,
+  ApiError, byQr, getBuilding, getDrawing, getMe, getTree, listBuildings, listPlaced, manages, signIn, signOut,
   type Building as BuildingInfo, type Me, type TreeFloor,
 } from './api'
 import { Button } from './components/ui/button'
@@ -16,6 +16,7 @@ import { People } from './pages/People'
 import { Plan } from './pages/Plan'
 import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
+import { Scan } from './pages/Scan'
 import { System } from './pages/System'
 import { to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
@@ -116,7 +117,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   // «Я» and the system pages keep the menu of the building one came from
   const [last, setLast] = useState<string | null>(null)
   if (current && current !== last) setLast(current)
-  const buildingId = current ?? (route.page === 'me' || route.page === 'system' || route.page === 'catalog' ? last : null)
+  const buildingId = current ?? (route.page === 'me' || route.page === 'system' || route.page === 'catalog' || route.page === 'scan' ? last : null)
   const { scope, error, reload } = useScope(buildingId)
   const b = scope?.building ?? null
   // what the building's administrator may: drawings, the editor, people, rights
@@ -134,6 +135,12 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   } else if (route.page === 'system' && sys) {
     crumbs.push({ label: 'Состояние системы' })
     content = <System />
+  } else if (route.page === 'qr') {
+    crumbs.push({ label: 'QR-метка' })
+    content = <ByQr code={route.code} />
+  } else if (route.page === 'scan') {
+    crumbs.push({ label: 'Сканировать' })
+    content = <Scan />
   } else if (route.page === 'me') {
     crumbs.push({ label: 'Я' })
     content = <Profile me={me} building={b} editor={scope?.editor ?? null} />
@@ -160,9 +167,9 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         content = <Building key={building.id} id={building.id} />
       } else if (route.section === 'assets') {
         crumbs.push({ label: 'Объекты', href: to.assets(building.id) })
-        content = <Assets building={building.id} floors={floors} selected={route.item} admin={admin} />
+        content = <Assets key={route.q ?? ''} building={building.id} floors={floors} selected={route.item} admin={admin} initialQuery={route.q} />
         if (route.item) {
-          panel = <AssetCard key={route.item} id={route.item} building={building.id} floors={floors} onGone={noop} />
+          panel = <AssetCard key={route.item} id={route.item} me={me} building={building.id} floors={floors} admin={admin} onGone={noop} />
           closePanel = () => { location.hash = to.assets(building.id) }
         }
       } else if (route.section === 'rooms') {
@@ -171,7 +178,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         if (chosen) crumbs.push({ label: chosen.floor.name, href: to.plan(building.id, chosen.floor.id) }, { label: chosen.room.name || 'Без названия' })
         content = <Rooms key={route.q ?? ''} building={building.id} floors={floors} selected={route.item} initialQuery={route.q} />
         if (chosen) {
-          panel = <RoomCard key={chosen.room.id + chosen.room.version} building={building.id} {...chosen} admin={admin} onChanged={reload} onPlan />
+          panel = <RoomCard key={chosen.room.id + chosen.room.version} me={me} building={building.id} {...chosen} admin={admin} onChanged={reload} onPlan />
           closePanel = () => { location.hash = to.rooms(building.id) }
         }
       } else if (route.section === 'plan') {
@@ -180,15 +187,15 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         crumbs.push({ label: 'План', href: to.plan(building.id) })
         if (floor) crumbs.push({ label: floor.name, href: to.plan(building.id, floor.id) })
         if (chosen) crumbs.push({ label: chosen.room.name || 'Без названия' })
-        content = <Plan building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} move={route.move} />
+        content = <Plan me={me} building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} move={route.move} />
         if (chosen) {
           // beside the plan on a wide screen; on a phone the plan stays and the card is one tap away
-          panel = <div className="max-md:hidden"><RoomCard key={chosen.room.id + chosen.room.version} building={building.id} {...chosen} admin={admin} onChanged={reload} /></div>
+          panel = <div className="max-md:hidden"><RoomCard key={chosen.room.id + chosen.room.version} me={me} building={building.id} {...chosen} admin={admin} onChanged={reload} /></div>
           closePanel = () => { location.hash = to.plan(building.id, route.item) }
         }
       } else {
         crumbs.push({ label: 'Кабинет' })
-        content = <Home building={building} floors={floors} admin={admin} />
+        content = <Home me={me} building={building} floors={floors} admin={admin} />
       }
     }
   } else {
@@ -230,6 +237,22 @@ function Profile({ me, building, editor }: { me: Me; building: BuildingInfo | nu
         <Button variant="outline" onClick={() => { void signOut() }}>Выйти</Button>
       </div>
     </section>
+  )
+}
+
+/** A QR label was scanned: the object's card, or the same «нет доступа» whether the object is someone else's or does not exist. */
+function ByQr({ code }: { code: string }) {
+  const [gone, setGone] = useState(false)
+  useEffect(() => {
+    byQr(code).then(a => location.replace(to.assets(a.building_id, a.asset_id)), () => setGone(true))
+  }, [code])
+  if (!gone) return <p className="text-sm text-muted-foreground">Открываю карточку…</p>
+  return (
+    <div className="max-w-md space-y-3" data-testid="qr-denied">
+      <h1 className="text-lg font-semibold">Нет доступа</h1>
+      <p className="text-sm text-muted-foreground">Объекта с такой меткой нет среди доступных вам. Если это ваш объект, попросите администратора здания выдать право на него.</p>
+      <Button asChild variant="outline" size="sm"><a href={to.buildings}>К моим зданиям</a></Button>
+    </div>
   )
 }
 

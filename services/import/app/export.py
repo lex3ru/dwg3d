@@ -55,3 +55,98 @@ def edited_drawing(d, f, b, fmt: str) -> tuple[str, str]:
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return f"{prefix}/edited.{fmt}", name
+
+
+# ------------------------------------------------------- with objects ---
+OBJECT_LAYER = "Объекты"
+ATTRIBUTES = ("NAME", "INVENTORY_NO", "STATE", "RESPONSIBLE", "ROOM", "NOTE")
+
+
+def _floors_of(src: Path, config: dict | None):
+    """The floors of the source as the pipeline recognises them (their sheet and offset), and the drawing's scale."""
+    from .dwg.config import load_config
+    from .dwg.edits import resolve_items
+    from .dwg.extract import read_doc, read_drawing
+    from .dwg.floors import align_floors, apply_manual, detect_candidates, resolve_stack
+
+    cfg = load_config(config)
+    d = read_drawing(src, cfg, doc=read_doc(src))
+    cands = detect_candidates(d, cfg)
+    resolve_items(cfg, cands)
+    apply_manual(cands, cfg)
+    floors = resolve_stack(cands, cfg)
+    align_floors(d, floors, cfg)
+    return {f.id: f for f in floors}, d.scale
+
+
+def _block(doc, kind: dict, scale: float) -> str:
+    """A block per type: its footprint centred on the origin, the front edge marked, the attributes."""
+    import re
+
+    from ezdxf.enums import TextEntityAlignment
+
+    name = "TWIN_" + re.sub(r"[^0-9A-Za-z_.-]", "_", kind["id"])
+    if name in doc.blocks:
+        return name
+    blk = doc.blocks.new(name)
+    w, d = max(kind["w"], 0.1) / scale, max(kind["d"], 0.1) / scale
+    blk.add_lwpolyline([(-w / 2, -d / 2), (w / 2, -d / 2), (w / 2, d / 2), (-w / 2, d / 2)], close=True,
+                       dxfattribs={"layer": "0"})
+    blk.add_line((-w / 2, -d / 2 + d * 0.08), (w / 2, -d / 2 + d * 0.08), dxfattribs={"layer": "0"})
+    h = max(min(w, d) * 0.12, 0.05 / scale)
+    for n, tag in enumerate(ATTRIBUTES):
+        a = blk.add_attdef(tag, insert=(0, -h * 1.5 * n), height=h, dxfattribs={"layer": "0"})
+        a.set_placement((0, -h * 1.5 * n), align=TextEntityAlignment.MIDDLE_CENTER)
+        a.is_invisible = tag != "NAME"
+    return name
+
+
+def drawing_with_objects(d, f, b, fmt: str, objects: list[dict], types: dict[str, dict]) -> tuple[Path, str, dict]:
+    """The source drawing (with the editor's corrections, when there are any) and the objects drawn
+    on their floors as blocks with attributes. objects: [{floor (candidate id), at [x, y] in plan metres,
+    angle, type, name, inventory_no, state, responsible, room, note}]; types: {id: {id, w, d}}.
+    Returns the file (in a work directory the caller removes), its name and what was drawn.
+    Blocking: call in a worker thread."""
+    import ezdxf
+
+    bucket = storage.bucket()
+    stem = Path(f.filename).stem
+    source_key = f.storage_key if f.filename.lower().endswith(".dxf") else f"{b.out_prefix}/{stem}.dxf"
+    digest = hashlib.sha1(json.dumps(objects, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    work = storage.workdir(d.id) / "objects" / digest
+    work.mkdir(parents=True, exist_ok=True)
+    source = work / "source.dxf"
+    if not bucket.download(source_key, source):
+        shutil.rmtree(work, ignore_errors=True)
+        raise Problem(409, "not_ready", "Исходный чертёж в формате DXF не найден — пересоберите чертёж")
+    edited = work / "edited.dxf"
+    export_edited_dxf(source, edited, d.config or {}, None)
+    floors, scale = _floors_of(source, d.config or {})
+    doc = ezdxf.readfile(str(edited))
+    if OBJECT_LAYER not in doc.layers:
+        doc.layers.add(OBJECT_LAYER, color=150)
+    stats = {"drawn": 0, "skipped": 0}
+    for o in objects:
+        floor, kind = floors.get(o.get("floor")), types.get(o.get("type"))
+        if floor is None or kind is None or not o.get("at"):
+            stats["skipped"] += 1
+            continue
+        layout = doc.modelspace() if floor.space == "Model" else doc.layouts.get(floor.space)
+        ox, oy = floor.offset
+        x, y = o["at"]
+        ref = layout.add_blockref(_block(doc, kind, scale), ((x - ox) / scale, (y - oy) / scale),
+                                  dxfattribs={"layer": OBJECT_LAYER, "rotation": float(o.get("angle") or 0)})
+        ref.add_auto_attribs({tag: str(o.get(tag.lower()) or "") for tag in ATTRIBUTES})
+        stats["drawn"] += 1
+    out = work / f"objects.{fmt}"
+    if fmt == "dxf":
+        doc.saveas(str(out))
+    else:
+        doc.saveas(str(work / "objects.dxf"))
+        try:
+            dxf_to_dwg(work / "objects.dxf", out)
+        except Exception as ex:
+            log.exception("DWG export failed")
+            shutil.rmtree(work, ignore_errors=True)
+            raise Problem(502, "conversion_failed", f"Не удалось записать DWG: {ex}. Скачайте DXF.") from ex
+    return out, f"{stem}_объекты.{fmt}", stats

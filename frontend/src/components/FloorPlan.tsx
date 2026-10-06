@@ -11,7 +11,7 @@ const path = (polygons: Ring[][]) => polygons.map(rings => rings.map(
  * The plan of a floor for reading, not for editing: walls, openings, rooms by name.
  * A room can be chosen; the chosen one is highlighted.
  */
-export type Dot = { id: string; x: number; y: number; title: string; tone: 'ok' | 'bad' | 'warn'; chosen?: boolean }
+export type Dot = { id: string; x: number; y: number; title: string; tone: 'ok' | 'bad' | 'warn' | 'note'; chosen?: boolean }
 
 export function FloorPlan({ plan, selected, onSelect, dots, onDot, onPoint, className }: {
   plan: FloorPlanData; selected?: string | null; onSelect?: (room: string) => void; className?: string
@@ -57,7 +57,7 @@ export function FloorPlan({ plan, selected, onSelect, dots, onDot, onPoint, clas
       ))}
       {dots?.map(d => (
         <circle key={d.id} cx={d.x} cy={-d.y} r={font * (d.chosen ? 0.85 : 0.6)} data-asset={d.id}
-          className={cn('stroke-card', d.tone === 'bad' ? 'fill-destructive' : d.tone === 'warn' ? 'fill-warning' : 'fill-primary',
+          className={cn('stroke-card', d.tone === 'bad' ? 'fill-destructive' : d.tone === 'warn' ? 'fill-warning' : d.tone === 'note' ? 'fill-muted-foreground' : 'fill-primary',
             onDot && !onPoint && 'cursor-pointer')}
           strokeWidth={font * 0.12} onClick={e => { if (!onPoint) { e.stopPropagation(); onDot?.(d.id) } }}>
           <title>{d.title}</title>

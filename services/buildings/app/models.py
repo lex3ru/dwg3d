@@ -5,7 +5,7 @@ the floor's drawing, metres; `drawings.placement` puts a drawing into the buildi
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Table, Text, Uuid, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, Table, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from twin_chassis import metadata
 
@@ -112,4 +112,27 @@ pins = Table(
     Column("created_by", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=NOW),
     Column("version", Integer, nullable=False, server_default="1"),
+)
+
+comments = Table(
+    "comments", metadata,                                    # to a point of a floor, a room, an object
+    Column("id", Uuid, primary_key=True),
+    Column("building_id", Uuid, ForeignKey("buildings.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("floor_id", Uuid, ForeignKey("floors.id", ondelete="CASCADE")),
+    Column("room_id", Uuid),                                 # where the target is: for the right to see it
+    Column("target_kind", Text, nullable=False),             # point | room | asset
+    Column("target_id", Uuid),                               # the room or the object
+    Column("x", Float(53)),                                  # for a point: plan coordinates of the floor
+    Column("y", Float(53)),
+    Column("body", Text, nullable=False),
+    Column("author_sub", Text, nullable=False),              # the account; their person and name, as known then
+    Column("author_person_id", Uuid),
+    Column("author_name", Text, nullable=False, server_default=""),
+    Column("resolved_at", DateTime(timezone=True)),
+    Column("resolved_by", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=NOW),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=NOW),
+    Column("version", Integer, nullable=False, server_default="1"),
+    Index("ix_comments_target", "target_kind", "target_id"),
+    Index("ix_comments_floor", "building_id", "floor_id"),
 )

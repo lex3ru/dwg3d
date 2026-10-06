@@ -3,7 +3,7 @@ name = "twin-assets"
 version = "0.1.0"
 description = "Digital twin: the assets service"
 requires-python = ">=3.12"
-dependencies = ["twin-chassis[files]", "python-multipart", "openpyxl>=3.1"]
+dependencies = ["twin-chassis[files,pdf]", "python-multipart", "openpyxl>=3.1"]
 
 [dependency-groups]
 dev = ["twin-chassis[testing]", "ruff>=0.8"]

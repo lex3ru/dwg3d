@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 testing = ["pytest>=8", "pytest-asyncio>=0.24"]
 files = ["boto3>=1.35"]
+pdf = ["reportlab>=4.2", "segno>=1.6"]
 
 [build-system]
 requires = ["hatchling"]

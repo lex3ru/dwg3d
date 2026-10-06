@@ -36,6 +36,7 @@
 | `POST /floors/{id}/locate` | в каком помещении каждая из точек |
 | `GET /rooms`, `GET /rooms/{id}`, `POST /rooms/batch-get`, `PATCH /rooms/{id}` | помещения |
 | `GET` / `POST /buildings/{id}/pins`, `PATCH` / `DELETE /pins/{id}` | метки на модели |
+| `GET` / `POST /comments`, `PATCH` / `DELETE /comments/{id}`, `POST …/resolve` | комментарии к точке этажа, помещению, объекту: видит тот, кто видит цель (точку — кто видит план; объект проверяется у `assets` с токеном автора); закрывает автор или администратор |
 
 Изменения несут `version`; при расхождении — `409 version_conflict` с текущим состоянием.
 
@@ -47,6 +48,7 @@
 | `buildings.revision.published` | сборка чертежа стала состоянием здания: какие этажи и помещения созданы, изменены, сняты |
 | `buildings.floor.changed`, `buildings.room.changed` | правки вручную |
 | `buildings.room.retired` | помещения больше нет |
+| `buildings.comment.created` / `.resolved` | комментарий оставлен, закрыт |
 
 | Получает | Реакция |
 |---|---|

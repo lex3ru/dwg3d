@@ -1378,10 +1378,12 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'testing'", specifier = ">=0.24" },
+    { name = "reportlab", marker = "extra == 'pdf'", specifier = ">=4.2" },
+    { name = "segno", marker = "extra == 'pdf'", specifier = ">=1.6" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["testing", "files"]
+provides-extras = ["testing", "files", "pdf"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.8" }]

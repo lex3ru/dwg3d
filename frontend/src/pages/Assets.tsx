@@ -1,6 +1,6 @@
-import { Search, Upload } from 'lucide-react'
+import { FileSpreadsheet, QrCode, Search, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, importAssets, listAssets, STATES, type Asset, type AssetState, type TreeFloor } from '../api'
+import { ApiError, assetsReportUrl, importAssets, labelsSheet, listAssets, STATES, type Asset, type AssetState, type TreeFloor } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { cn } from '../lib/utils'
@@ -14,16 +14,17 @@ export function StateBadge({ a }: { a: Asset }) {
 }
 
 /** The objects of a building the user may see: by number, type, state; what needs attention. */
-export function Assets({ building, floors, selected, admin }: {
+export function Assets({ building, floors, selected, admin, initialQuery }: {
   building: string; floors: TreeFloor[]; selected?: string
-  /** the building's administrator loads objects from a file */
+  /** the building's administrator loads objects from a file and prints labels */
   admin?: boolean
+  initialQuery?: string
 }) {
   const picker = useRef<HTMLInputElement>(null)
   const [report, setReport] = useState<{ created: number } | { refused: string; rows: string[] } | null>(null)
   const [items, setItems] = useState<Asset[]>([])
   const [total, setTotal] = useState(0)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(initialQuery ?? '')
   const [state, setState] = useState<AssetState | ''>('')
   const [attention, setAttention] = useState<'' | 'needs_fill' | 'needs_placement'>('')
   const [error, setError] = useState<string | null>(null)
@@ -56,9 +57,14 @@ export function Assets({ building, floors, selected, admin }: {
           <option value="needs_placement">требует размещения</option>
         </select>
         <span className="text-sm text-muted-foreground" data-testid="assets-total">{total}</span>
+        <Button asChild size="sm" variant="outline" title="Список по текущему фильтру, свойства отдельными столбцами">
+          <a href={assetsReportUrl({ building_id: building, q, state, [attention || 'x']: attention ? 'true' : undefined })} download><FileSpreadsheet className="size-4" /> В Excel</a>
+        </Button>
         {admin && (
           <>
             <Button size="sm" variant="outline" onClick={() => picker.current?.click()}><Upload className="size-4" /> Из Excel</Button>
+            <Button size="sm" variant="outline" title="Лист QR-меток всех объектов здания (PDF, A4)"
+              onClick={() => labelsSheet({ building_id: building }).catch((ex: Error) => setError(ex.message))}><QrCode className="size-4" /> Метки</Button>
             <input ref={picker} type="file" accept=".xlsx" className="hidden" data-testid="assets-file"
               onChange={e => {
                 const file = e.target.files?.[0]

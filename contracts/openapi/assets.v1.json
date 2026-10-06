@@ -307,6 +307,73 @@
         "title": "Ids",
         "type": "object"
       },
+      "Labels": {
+        "properties": {
+          "asset_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 2000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Какие объекты; иначе — все в области",
+            "title": "Asset Ids"
+          },
+          "building_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Id"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Id"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Id"
+          },
+          "size": {
+            "default": 40,
+            "description": "Сторона наклейки, мм",
+            "maximum": 100.0,
+            "minimum": 20.0,
+            "title": "Size",
+            "type": "number"
+          }
+        },
+        "title": "Labels",
+        "type": "object"
+      },
       "MoveIn": {
         "properties": {
           "angle": {
@@ -1202,6 +1269,57 @@
         ]
       }
     },
+    "/api/assets/v1/assets/{asset_id}/label": {
+      "get": {
+        "operationId": "label_api_assets_v1_assets__asset_id__label_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 40,
+              "maximum": 100,
+              "minimum": 20,
+              "title": "Size",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "QR-метка объекта в PDF; size — сторона наклейки в мм",
+        "tags": [
+          "labels"
+        ]
+      }
+    },
     "/api/assets/v1/assets/{asset_id}/move": {
       "post": {
         "operationId": "move_api_assets_v1_assets__asset_id__move_post",
@@ -1434,6 +1552,43 @@
         "summary": "Файл объекта",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/assets/v1/labels": {
+      "post": {
+        "operationId": "label_sheet_api_assets_v1_labels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Labels"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Лист QR-меток в PDF (A4): выбранные объекты или все объекты помещения, этажа, здания",
+        "tags": [
+          "labels"
         ]
       }
     },

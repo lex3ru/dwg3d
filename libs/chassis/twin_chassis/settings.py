@@ -8,6 +8,7 @@
   TWIN_SERVICE_SECRET the secret of this service's own Keycloak client twin-svc-<service>, for calling other services
   TWIN_BUS_PREFIX     first part of event subjects and the stream's name (default twin; tests use their own)
   TWIN_CONTRACTS      the contracts/ directory (default: found above the working directory)
+  TWIN_PUBLIC_URL     the address users open (default http://localhost:8090): links the services write, e.g. in QR codes
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ class Settings:
     contracts: Path
     bus_prefix: str = "twin"
     service_secret: str | None = None
+    public_url: str = "http://localhost:8090"
 
     @classmethod
     def from_env(cls, service: str, **overrides) -> Settings:
@@ -52,5 +54,6 @@ class Settings:
             contracts=Path(env["TWIN_CONTRACTS"]) if env.get("TWIN_CONTRACTS") else find_contracts(),
             bus_prefix=env.get("TWIN_BUS_PREFIX", "twin"),
             service_secret=env.get("TWIN_SERVICE_SECRET") or None,
+            public_url=env.get("TWIN_PUBLIC_URL", cls.public_url).rstrip("/"),
         )
         return replace(s, **overrides)

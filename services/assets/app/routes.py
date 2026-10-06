@@ -9,16 +9,16 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import iterate_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from twin_chassis import Identity, Problem, current_identity, emit, uuid7
 from twin_chassis.access import decide
 
-from . import core, storage
+from . import core, labels, storage
 from .models import STATES, asset_files, asset_history, assets
 
 router = APIRouter()
@@ -141,6 +141,58 @@ async def by_qr(code: str, request: Request, me: Identity = Depends(current_iden
     if a is None or not decide(scopes, "view", core.chain(a)):       # a stranger does not learn whether it exists
         raise Problem(404, "not_found", "Объект не найден")
     return {"asset_id": str(a.id), "building_id": str(a.building_id)}
+
+
+# ------------------------------------------------------------------- labels ---
+def _pdf(data: bytes, filename: str) -> Response:
+    from urllib.parse import quote
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"})
+
+
+@router.get("/assets/{asset_id}/label", tags=["labels"], response_class=Response, responses={200: {"content": {"application/pdf": {}}}},
+            summary="QR-метка объекта в PDF; size — сторона наклейки в мм")
+async def label(asset_id: UUID, request: Request, size: float = Query(40, ge=labels.MIN_MM, le=labels.MAX_MM),
+                me: Identity = Depends(current_identity)) -> Response:
+    scopes = await _scopes(request, me, reading=True)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes)
+    url = labels.link(request.app.state.settings.public_url, a.qr_code)
+    return _pdf(await asyncio.to_thread(labels.single, url, a, size), f"метка-{a.inventory_no}.pdf")
+
+
+class Labels(BaseModel):
+    asset_ids: list[UUID] | None = Field(default=None, max_length=2000, description="Какие объекты; иначе — все в области")
+    building_id: UUID | None = None
+    floor_id: UUID | None = None
+    room_id: UUID | None = None
+    size: float = Field(default=40, ge=labels.MIN_MM, le=labels.MAX_MM, description="Сторона наклейки, мм")
+
+
+@router.post("/labels", tags=["labels"], response_class=Response, responses={200: {"content": {"application/pdf": {}}}},
+             summary="Лист QR-меток в PDF (A4): выбранные объекты или все объекты помещения, этажа, здания")
+async def label_sheet(body: Labels, request: Request, me: Identity = Depends(current_identity)) -> Response:
+    scopes = await _scopes(request, me, reading=True)
+    q = select(assets).where(assets.c.retired_at.is_(None)).order_by(assets.c.inventory_no)
+    if body.asset_ids is not None:
+        q = q.where(assets.c.id.in_(body.asset_ids))
+    elif body.room_id is not None:
+        q = q.where(assets.c.room_id == body.room_id)
+    elif body.floor_id is not None:
+        q = q.where(assets.c.floor_id == body.floor_id)
+    elif body.building_id is not None:
+        q = q.where(assets.c.building_id == body.building_id)
+    else:
+        raise Problem(422, "invalid", "Укажите объекты или область", errors=[{"field": "asset_ids", "message": "пусто"}])
+    async with request.app.state.db.begin() as session:
+        rows = [a for a in (await session.execute(q)).all() if decide(scopes, "view", core.chain(a))]
+    if not rows:
+        raise Problem(404, "not_found", "Объектов для меток нет")
+    for a in rows:                                  # the sheet is the administrator's: labels are printed by whoever keeps the objects
+        _need(scopes, "manage", core.chain(a), "Печатать листы меток может администратор здания")
+    base = request.app.state.settings.public_url
+    data = await asyncio.to_thread(labels.sheet, [(labels.link(base, a.qr_code), a) for a in rows], body.size, "QR-метки")
+    return _pdf(data, "метки.pdf")
 
 
 @router.get("/usage", tags=["assets"], summary="Есть ли объекты типа и значения свойства (для каталога)")

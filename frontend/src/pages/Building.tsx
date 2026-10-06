@@ -1,6 +1,7 @@
-import { Box, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Box, FileDown, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  drawingWithObjects,
   deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
   type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
@@ -113,6 +114,12 @@ export function Building({ id }: { id: string }) {
                   <Badge variant={tone}>{label}</Badge>
                   {shown && (
                     <Button asChild size="sm"><a href={`#/f/${d.id}`}><Box className="size-4" /> Открыть</a></Button>
+                  )}
+                  {shown && (
+                    <Button variant="outline" size="sm" disabled={busy || running} title="Чертёж с объектами блоками с атрибутами (DXF)"
+                      onClick={() => act(drawingWithObjects(id, d.id, 'dxf'))}>
+                      <FileDown className="size-4" /> <span className="max-sm:hidden">С объектами</span>
+                    </Button>
                   )}
                   <Button variant="outline" size="sm" disabled={busy || running} onClick={() => pick(d.id)} title="Загрузить новую версию файла">
                     <Upload className="size-4" /> <span className="max-sm:hidden">Новый файл</span>

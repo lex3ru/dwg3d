@@ -347,3 +347,21 @@ async def test_card_shows_what_is_kept_with_the_type(client, world, boss):
     a = await put(client, boss, world, "scope", "М-0001")
     card = await get(client, boss, a)
     assert [(p["title"], p["value"]) for p in card["type_props"]] == [("Производитель", "Olympus")]
+
+
+async def test_labels_are_pdf_and_only_for_those_who_see(client, world, boss):
+    a = await put(client, boss, world, "scope", "QR-0001", x=2.0)
+    b = await put(client, boss, world, "couch", "QR-0002", x=2.5)
+    one = await client.get(f"{API}/assets/{a['id']}/label?size=40", headers=boss)
+    assert one.status_code == 200 and one.headers["content-type"] == "application/pdf" and one.content.startswith(b"%PDF")
+    viewer = world.person("viewer", ("viewer", "room", ROOM_A))
+    assert (await client.get(f"{API}/assets/{a['id']}/label", headers=viewer)).status_code == 200
+    assert (await client.get(f"{API}/assets/{a['id']}/label", headers=world.person("stranger"))).status_code == 404
+    assert (await client.get(f"{API}/assets/{a['id']}/label?size=5", headers=boss)).status_code == 422
+    sheet = await client.post(f"{API}/labels", json={"room_id": ROOM_A, "size": 30}, headers=boss)
+    assert sheet.status_code == 200 and sheet.content.startswith(b"%PDF")
+    chosen = await client.post(f"{API}/labels", json={"asset_ids": [a["id"], b["id"]]}, headers=boss)
+    assert chosen.status_code == 200
+    # a sheet is printed by whoever manages the objects, not by whoever only looks
+    assert (await client.post(f"{API}/labels", json={"room_id": ROOM_A}, headers=viewer)).status_code == 403
+    assert (await client.post(f"{API}/labels", json={"room_id": ROOM_B}, headers=boss)).status_code == 404

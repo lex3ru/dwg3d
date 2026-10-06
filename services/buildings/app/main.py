@@ -13,6 +13,7 @@ from twin_chassis.auth import TokenVerifier
 from twin_chassis.client import ServiceClient
 
 from . import handlers
+from .comments import router as comments
 from .routes import router
 
 SERVICE = "buildings"
@@ -27,4 +28,5 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
         handlers.register(app.state.bus, app.state.client)
         app.state.rights = Rights(app.state.client)
 
-    return create_app(SERVICE, title=TITLE, routers=[router], settings=settings, verifier=verifier, setup=setup)
+    return create_app(SERVICE, title=TITLE, routers=[router, comments], settings=settings, verifier=verifier,
+                      setup=setup)

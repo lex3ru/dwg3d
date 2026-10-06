@@ -1,4 +1,4 @@
-import { crc32 } from 'node:zlib'
+import { crc32, inflateRawSync } from 'node:zlib'
 
 // A workbook of one sheet, enough for the import forms: rows of text and numbers.
 
@@ -43,4 +43,25 @@ export function xlsx(rows: (string | number)[][]): Buffer {
     ['xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${ns}/spreadsheetml/2006/main"><sheetData>` +
       rows.map(r => `<row>${r.map(cell).join('')}</row>`).join('') + '</sheetData></worksheet>'],
   ])
+}
+
+/** One file of a zip (an .xlsx is one), by name — through the central directory, as any reader does. */
+export function unzipEntry(zip: Buffer, name: string): string | null {
+  let end = zip.length - 22
+  while (end >= 0 && zip.readUInt32LE(end) !== 0x06054b50) end--
+  if (end < 0) return null
+  let at = zip.readUInt32LE(end + 16)
+  for (let n = zip.readUInt16LE(end + 10); n > 0 && zip.readUInt32LE(at) === 0x02014b50; n--) {
+    const method = zip.readUInt16LE(at + 10), size = zip.readUInt32LE(at + 20)
+    const nameLength = zip.readUInt16LE(at + 28), extraLength = zip.readUInt16LE(at + 30), commentLength = zip.readUInt16LE(at + 32)
+    const local = zip.readUInt32LE(at + 42)
+    const entry = zip.subarray(at + 46, at + 46 + nameLength).toString('utf8')
+    if (entry === name) {
+      const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
+      const data = zip.subarray(start, start + size)
+      return (method === 8 ? inflateRawSync(data) : data).toString('utf8')
+    }
+    at += 46 + nameLength + extraLength + commentLength
+  }
+  return null
 }

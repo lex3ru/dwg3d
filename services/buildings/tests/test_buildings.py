@@ -1,10 +1,18 @@
 """Buildings: requests, rights, invalid data, concurrent changes."""
 from __future__ import annotations
 
+from uuid import uuid4
+
 from sqlalchemy import select
 from twin_chassis.db import outbox
 
 from .conftest import API, grant
+
+
+async def events(app) -> list[dict]:
+    async with app.state.db.begin() as session:
+        rows = await session.execute(select(outbox.c.payload).order_by(outbox.c.created_at, outbox.c.id))
+        return [e for (e,) in rows]
 
 
 async def test_create_list_change_delete(client, app, tokens, building):
@@ -156,3 +164,61 @@ async def test_access_service_away(client, app, tokens, importer, building):
     assert (await client.get(url, headers=tokens.admin())).status_code == 200    # not asked about: the system admin
     age(600)
     assert (await client.get(url, headers=viewer)).status_code == 503            # too long ago to go by
+
+
+async def test_comments_are_seen_by_those_who_see_the_target(client, app, tokens, importer, building, site):
+    await site.build("base")
+    admin, b = tokens.admin(), building["id"]
+    tree = (await client.get(f"{API}/buildings/{b}/tree", headers=admin)).json()["floors"]
+    floor, room = tree[0], tree[0]["rooms"][0]
+    other = tree[1]["rooms"][0]
+    asset = str(uuid4())
+    importer.assets[asset] = {"id": asset, "building_id": b, "floor_id": floor["id"], "room_id": room["id"]}
+    url = f"{API}/comments"
+    keeper = grant(importer, "keeper", "responsible", "room", room["id"], b)
+    viewer = grant(importer, "viewer", "viewer", "room", other["id"], b)
+
+    # the keeper of a room comments on it, on an object in it and on a point of the floor
+    on_room = await client.post(url, headers=keeper, json={"building_id": b, "target_kind": "room",
+                                                      "target_id": room["id"], "body": "Течёт кран"})
+    assert on_room.status_code == 201 and on_room.json()["author"]["name"] == "Иван Иванов"
+    on_asset = await client.post(url, headers=keeper,
+                                 json={"building_id": b, "target_kind": "asset", "target_id": asset, "body": "Шумит"})
+    assert on_asset.status_code == 201 and on_asset.json()["room_id"] == room["id"]
+    on_point = await client.post(url, headers=keeper, json={"building_id": b, "target_kind": "point",
+                                                       "floor_id": floor["id"], "x": 1, "y": 2, "body": "Тут розетка"})
+    assert on_point.status_code == 201
+    bad = await client.post(url, headers=keeper,
+                            json={"building_id": b, "target_kind": "point", "floor_id": floor["id"], "body": "x"})
+    assert bad.status_code == 422
+    gone = await client.post(url, headers=keeper,
+                             json={"building_id": b, "target_kind": "asset", "target_id": str(uuid4()), "body": "x"})
+    assert gone.status_code == 404
+
+    # whoever sees the plan sees the point; the room's and the object's comments — only whoever sees the room
+    mine = (await client.get(url, params={"building_id": b}, headers=keeper)).json()["items"]
+    assert [c["target_kind"] for c in mine] == ["room", "asset", "point"]
+    theirs = (await client.get(url, params={"building_id": b}, headers=viewer)).json()["items"]
+    assert [c["target_kind"] for c in theirs] == ["point"]
+    by_target = (await client.get(url, params={"building_id": b, "target_kind": "room", "target_id": room["id"]},
+                                  headers=admin)).json()["items"]
+    assert [c["body"] for c in by_target] == ["Течёт кран"]
+    assert (await client.get(url, params={"building_id": str(uuid4())}, headers=viewer)).status_code == 404
+
+    # closing: the author or the administrator; the viewer of another room does not even find it
+    cid = on_room.json()["id"]
+    assert (await client.post(f"{url}/{cid}/resolve", headers=viewer)).status_code == 404
+    stranger = grant(importer, "stranger", "viewer", "room", room["id"], b)
+    assert (await client.post(f"{url}/{cid}/resolve", headers=stranger)).status_code == 403
+    assert (await client.patch(f"{url}/{cid}", json={"body": "x", "version": 1}, headers=stranger)).status_code == 403
+    edited = await client.patch(f"{url}/{cid}", json={"body": "Течёт кран в углу", "version": 1}, headers=keeper)
+    assert edited.status_code == 200 and edited.json()["version"] == 2
+    assert (await client.patch(f"{url}/{cid}", json={"body": "y", "version": 1}, headers=keeper)).status_code == 409
+    closed = await client.post(f"{url}/{cid}/resolve", headers=admin)
+    assert closed.status_code == 200 and closed.json()["resolved_at"] and closed.json()["resolved_by"] == "admin-1"
+    assert [c["id"] for c in (await client.get(url, params={"building_id": b}, headers=admin)).json()["items"]] != [cid]
+    kept = (await client.get(url, params={"building_id": b, "resolved": "true"}, headers=admin)).json()["items"]
+    assert cid in [c["id"] for c in kept]
+    assert (await client.delete(f"{url}/{on_point.json()['id']}", headers=keeper)).status_code == 204
+    types = [e["type"] for e in await events(app)]
+    assert types.count("buildings.comment.created") == 3 and types.count("buildings.comment.resolved") == 1

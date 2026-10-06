@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 import httpx
@@ -70,6 +71,21 @@ async def logout(request: Request, me: Signed = Depends(signed)):
     response = JSONResponse({"url": request.app.state.oidc.logout_url(id_token)})
     request.app.state.sessions.clear_cookie(response)
     return response
+
+
+# ----------------------------------------------------------------------- QR ---
+QR_CODE = re.compile(r"^[A-Za-z0-9]{4,32}$")
+
+
+@router.get("/q/{code}", tags=["qr"], status_code=302, response_class=RedirectResponse,
+            summary="QR-метка: без входа — на вход, затем к карточке объекта (если есть право на него)")
+async def qr(code: str, request: Request):
+    if not QR_CODE.match(code):
+        raise Problem(404, "not_found", "Нет такой метки")
+    me = await request.app.state.sessions.resolve(request.cookies.get(COOKIE))
+    if me is None:
+        return RedirectResponse(f"/auth/login?next=/q/{code}", 302)
+    return RedirectResponse(f"/#/q/{code}", 302)
 
 
 # ----------------------------------------------------------------------- me ---

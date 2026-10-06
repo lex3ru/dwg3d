@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listTypes, moveAsset,
-  type Asset, type CatalogType, type FloorPlanData, type TreeFloor,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listTypes, moveAsset,
+  type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type TreeFloor,
 } from '../api'
+import { CommentList } from '../components/Comments'
 import { FloorPlan, type Dot } from '../components/FloorPlan'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -11,8 +12,8 @@ import { cn } from '../lib/utils'
 import { to } from '../shell/route'
 
 /** The 2D plan of a floor: pick a floor, pick a room. */
-export function Plan({ building, floors, floor, room, admin, move }: {
-  building: string; floors: TreeFloor[]; floor?: string; room?: string
+export function Plan({ me, building, floors, floor, room, admin, move }: {
+  me: Me; building: string; floors: TreeFloor[]; floor?: string; room?: string
   /** the object being moved: the next click on the plan is its new place */
   move?: string
   /** the building's administrator places objects here */
@@ -43,6 +44,21 @@ export function Plan({ building, floors, floor, room, admin, move }: {
   const [placing, setPlacing] = useState<{ type: string; number: string } | null>(null)
   // several of a kind: the points are clicked one by one, the numbers go in a row
   const [series, setSeries] = useState<{ type: string; prefix: string; start: string; width: string; points: [number, number][] } | null>(null)
+  // comments to points of the floor: marks on the plan; a new one — a click, then the text
+  const [notes, setNotes] = useState<Comment[]>([])
+  const [noting, setNoting] = useState<{ x: number; y: number; text: string } | 'pick' | null>(null)
+  const [chosenNote, setChosenNote] = useState<string | undefined>()
+  const loadNotes = useCallback(() => {
+    if (activeId) listComments({ building_id: building, target_kind: 'point', floor_id: activeId }).then(setNotes, () => setNotes([]))
+  }, [activeId, building])
+  useEffect(loadNotes, [loadNotes])
+  useEvents(event => { if (event.type.startsWith('buildings.comment.')) loadNotes() })
+  const sendNote = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!noting || noting === 'pick' || !noting.text.trim() || !active) return
+    addComment({ building_id: building, target_kind: 'point', floor_id: active.id, x: noting.x, y: noting.y, body: noting.text.trim() })
+      .then(() => { setNoting(null); setError(null); loadNotes() }, (ex: Error) => setError(ex.message))
+  }
   const [fetched, setFetched] = useState<Asset | null>(null)
   useEffect(() => { if (move) getAsset(move).then(setFetched, (e: Error) => setError(e.message)) }, [move])
   const moving = fetched?.id === move ? fetched : null
@@ -116,6 +132,18 @@ export function Plan({ building, floors, floor, room, admin, move }: {
           <Button variant="ghost" size="sm" onClick={() => { setSeries(null); setError(null) }}>Отмена</Button>
         </div>
       )}
+      {noting && (
+        <form onSubmit={sendNote} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="noting">
+          {noting === 'pick' ? <span>Щёлкните точку на плане, к которой относится комментарий</span> : (
+            <>
+              <Input className="h-8 min-w-56 flex-1" autoFocus value={noting.text} aria-label="Текст комментария" placeholder="Что здесь не так или на что обратить внимание"
+                onChange={e => setNoting({ ...noting, text: e.target.value })} />
+              <Button type="submit" size="sm" disabled={!noting.text.trim()}>Оставить</Button>
+            </>
+          )}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setNoting(null)}>Отмена</Button>
+        </form>
+      )}
       {admin && !move && !series && (placing ? (
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-2" data-testid="placing">
           <label className="grid gap-0.5 text-xs text-muted-foreground">Тип
@@ -135,18 +163,29 @@ export function Plan({ building, floors, floor, room, admin, move }: {
         <div className="mt-2 flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setPlacing({ type: '', number: '' })}>Поставить объект</Button>
           <Button variant="outline" size="sm" onClick={() => setSeries({ type: '', prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
+          {!noting && <Button variant="outline" size="sm" onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
         </div>
       ))}
+      {!admin && !noting && !move && <Button className="mt-2" variant="outline" size="sm" onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       {plan?.floor === active.id && (
         <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]"
           dots={[
             ...assets.filter(a => a.x != null).map(a => ({ id: a.id, x: a.x!, y: a.y!, tone: assetTone(a) as Dot['tone'], title: `${a.type_name} · ${a.inventory_no}`, chosen: a.id === move })),
             ...(series?.points ?? []).map(([x, y], i) => ({ id: `new-${i}`, x, y, tone: 'warn' as const, title: number(series!, i), chosen: true })),
+            ...notes.filter(n => n.x != null).map(n => ({ id: `note-${n.id}`, x: n.x!, y: n.y!, tone: 'note' as const, title: n.body, chosen: n.id === chosenNote })),
+            ...(noting && noting !== 'pick' ? [{ id: 'note-new', x: noting.x, y: noting.y, tone: 'note' as const, title: 'новый комментарий', chosen: true }] : []),
           ]}
-          onDot={id => { if (!id.startsWith('new-')) location.hash = to.assets(building, id) }}
-          onPoint={moving ? moveTo : series ? (x, y) => setSeries({ ...series, points: [...series.points, [x, y]] }) : placing ? place : undefined}
+          onDot={id => { if (id.startsWith('note-')) setChosenNote(id.slice(5)); else if (!id.startsWith('new-')) location.hash = to.assets(building, id) }}
+          onPoint={moving ? moveTo : series ? (x, y) => setSeries({ ...series, points: [...series.points, [x, y]] }) : placing ? place
+            : noting === 'pick' ? (x, y) => setNoting({ x, y, text: '' }) : undefined}
           onSelect={id => { location.hash = to.plan(building, active.id, id) }} />
+      )}
+      {notes.length > 0 && (
+        <div className="mt-3" data-testid="plan-notes">
+          <h2 className="text-sm font-medium">Комментарии к точкам · {notes.length}</h2>
+          <CommentList items={notes} me={me} admin={!!admin} onChanged={loadNotes} onError={setError} chosen={chosenNote} />
+        </div>
       )}
       {/* on a phone the card is a page of its own; here: what is chosen, one tap from its card */}
       {chosen && (
