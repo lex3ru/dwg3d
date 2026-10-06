@@ -4,6 +4,7 @@ import type { Layer, LayerKindInfo, PlacedItem } from '@/scene/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { assetOf } from '@/scene/compat'
 import { catalogItem } from '@/scene/furniture/catalog'
 import { ISSUE_LABEL, LUX_LIT, LUX_WORK, camParams, itemElev, itemSize, lightZone, roomAt, type Issue, type PlanIndex } from '@/scene/furniture/geom'
 import { layersFor } from '@/scene/furniture/layers'
@@ -31,6 +32,8 @@ export default function ItemInspector(p: {
 }) {
   const sel = p.item
   const c = catalogItem(sel.item)
+  // an object of accounting: its size is its type's, it is retired in its card rather than deleted here
+  const asset = assetOf(sel.id)
   const [w, d, h] = itemSize(sel, c)
   const [row, setRow] = useState<{ n: number; gap: number } | null>(null)
   const setSize = (k: 0 | 1 | 2, v: number) => {
@@ -47,6 +50,7 @@ export default function ItemInspector(p: {
         <ItemSymbol c={c} />
         <div className="min-w-0 flex-1">
           <b className="block truncate">{c.name}</b>
+          {asset && <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">инв. № {asset.number} — карточка</a>}
           <small className="text-xs text-muted-foreground">{(p.plan && roomAt(p.plan, sel.at)) || 'вне помещений'}</small>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="Снять выделение" onClick={() => p.onSelect(null)}><X /></Button>
@@ -63,11 +67,13 @@ export default function ItemInspector(p: {
         </ul>
       )}
       <fieldset disabled={p.readOnly} className="m-0 grid gap-3 border-0 p-0">
-        <div className="grid grid-cols-3 gap-2">
-          <NumField label="Ширина, см" value={cm(w)} onChange={(v) => setSize(0, v)} />
-          <NumField label="Глубина, см" value={cm(d)} onChange={(v) => setSize(1, v)} />
-          <NumField label="Высота, см" value={cm(h)} onChange={(v) => setSize(2, v)} />
-        </div>
+        {asset ? <small className="text-xs text-muted-foreground">{cm(w)}×{cm(d)}×{cm(h)} см — габариты типа в каталоге</small> : (
+          <div className="grid grid-cols-3 gap-2">
+            <NumField label="Ширина, см" value={cm(w)} onChange={(v) => setSize(0, v)} />
+            <NumField label="Глубина, см" value={cm(d)} onChange={(v) => setSize(1, v)} />
+            <NumField label="Высота, см" value={cm(h)} onChange={(v) => setSize(2, v)} />
+          </div>
+        )}
         {sel.size && (
           <button className="-mt-2 cursor-pointer justify-self-start border-0 bg-transparent p-0 text-xs text-primary hover:underline" onClick={() => p.onUpdate(sel.id, { size: undefined })}>
             Размер по каталогу ({cm(c.w)}×{cm(c.d)}×{cm(c.h)})
@@ -122,7 +128,7 @@ export default function ItemInspector(p: {
           <div className="flex flex-wrap gap-1.5">
             <Button variant="outline" size="sm" title="Ctrl+D" onClick={() => p.onDuplicate(sel.id)}><Copy /> Копия</Button>
             <Button variant="outline" size="sm" title="Ряд одинаковых предметов вдоль ширины" onClick={() => setRow({ n: 3, gap: 0 })}><Columns3 /> Ряд…</Button>
-            <Button variant="ghost" size="sm" className="ml-auto text-destructive" title="Delete" onClick={() => p.onDelete(sel.id)}><Trash2 /> Удалить</Button>
+            {!asset && <Button variant="ghost" size="sm" className="ml-auto text-destructive" title="Delete" onClick={() => p.onDelete(sel.id)}><Trash2 /> Удалить</Button>}
           </div>
         )}
       </fieldset>

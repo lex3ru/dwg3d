@@ -8,6 +8,7 @@ import { footprint, itemElev, itemSize, serviceZone, snapPose, type Coverage, ty
 import { Materials, buildModel } from '../furniture/models'
 import type { Display, Projection } from '../state'
 import FloorFollower from './FloorFollower'
+import { FurnitureInstances, Outlines } from './FurnitureInstances'
 import type { SceneCtx } from './scene'
 
 export interface Placing {
@@ -68,8 +69,23 @@ export default function Furniture(p: Props) {
     return m
   }, [p.items])
 
-  // ---- item groups (picking) and walk collisions
+  // ---- item groups (picking) and walk collisions; the many items not selected are instances (FurnitureInstances)
   const groups = useRef(new Map<string, THREE.Object3D>())
+  const instanced = useRef(new Map<string, Map<string, THREE.InstancedMesh[]>>())
+  const registers = useMemo(() => new Map<string, (key: string, meshes: THREE.InstancedMesh[] | null) => void>(), [])
+  const registerOf = (fid: string) => {
+    let r = registers.get(fid)
+    if (!r) {
+      r = (key, meshes) => {
+        const m = instanced.current.get(fid) ?? new Map<string, THREE.InstancedMesh[]>()
+        if (meshes) m.set(key, meshes)
+        else m.delete(key)
+        instanced.current.set(fid, m)
+      }
+      registers.set(fid, r)
+    }
+    return r
+  }
   useEffect(() => {
     const added: THREE.Object3D[] = []
     for (const it of p.items) {
@@ -122,7 +138,9 @@ export default function Furniture(p: Props) {
       const s = latest.current
       aim(e)
       const objs = s.items.filter((it) => it.floor === s.active).map((it) => groups.current.get(it.id)).filter(Boolean) as THREE.Object3D[]
+      objs.push(...[...(instanced.current.get(s.active ?? '')?.values() ?? [])].flat())
       const hit = ray.intersectObjects(objs, true)[0]
+      if (hit?.instanceId != null && hit.object.userData.furnIds) return hit.object.userData.furnIds[hit.instanceId] as string
       for (let o: THREE.Object3D | null = hit?.object ?? null; o; o = o.parent) if (o.userData.furnId) return o.userData.furnId as string
       return null
     }
@@ -237,6 +255,12 @@ export default function Furniture(p: Props) {
       {[...byFloor.entries()].map(([fid, list]) => p.visible.has(fid) && (
         <FloorFollower key={fid} ctx={ctx} floor={fid}>
           <group visible={showAll}>
+            <FurnitureInstances ctx={ctx} items={list.filter((it) => it.id !== p.selected)} y0={elev.get(fid) ?? 0} center={center}
+              mats={mats} register={registerOf(fid)} />
+            {outlines && (
+              <Outlines y={(elev.get(fid) ?? 0) + Z_LINE} center={center}
+                items={list.filter((it) => it.id !== p.selected && !p.marks?.get(it.id) && !(p.editing && fid === p.active && p.issues.get(it.id)?.length))} />
+            )}
             {list.map((it) => {
               const c = catalogItem(it.item)
               const [w, d, h] = itemSize(it, c)
@@ -247,15 +271,20 @@ export default function Furniture(p: Props) {
               const y0 = elev.get(fid) ?? 0
               const zone = (sel || p.showZones) && editable ? serviceZone(it.at, it.angle, w, d, c.clear ?? 0) : null
               const mark = p.marks?.get(it.id)
+              const cov = p.showViews && p.coverage.get(it.id)
+              // only what is drawn one by one: the selected item, marks, issues, zones, camera views
+              if (!sel && !mark && !(editable && iss.length > 0) && !zone && !cov) return null
               return (
                 <group key={it.id}>
-                  <group position={toLocal(it.at, y0 + itemElev(it, c))} rotation-y={(it.angle * Math.PI) / 180}
-                    userData={{ furnId: it.id, role: 'furniture' }}
-                    ref={(g) => { if (g) groups.current.set(it.id, g); else groups.current.delete(it.id) }}>
-                    <ItemModel c={c} w={w} d={d} h={h} mats={mats} />
-                  </group>
+                  {sel && (
+                    <group position={toLocal(it.at, y0 + itemElev(it, c))} rotation-y={(it.angle * Math.PI) / 180}
+                      userData={{ furnId: it.id, role: 'furniture' }}
+                      ref={(g) => { if (g) groups.current.set(it.id, g); else groups.current.delete(it.id) }}>
+                      <ItemModel c={c} w={w} d={d} h={h} mats={mats} />
+                    </group>
+                  )}
                   {mark && <Outline quad={footprint(it.at, it.angle, w + 0.2, d + 0.2)} y={y0 + Z_LINE} center={center} color={MARK_COLOR[mark]} width={3} />}
-                  {!mark && (outlines || sel || (editable && iss.length > 0)) && (
+                  {!mark && (sel || (editable && iss.length > 0)) && (
                     <Outline quad={footprint(it.at, it.angle, w, d)} y={y0 + Z_LINE} center={center}
                       color={bad && editable ? '#e03131' : iss.length && editable ? '#f08c00' : sel ? '#1c7ed6' : '#495057'}
                       width={sel ? 2.5 : editable && iss.length ? 2 : 1} />

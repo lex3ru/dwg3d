@@ -268,7 +268,7 @@ export default function SceneTree(p: {
                 <DropdownMenuContent align="end" className="w-60">
                   {p.layers.length > 1 && <DropdownMenuItem onSelect={() => p.onAll(!allShown)}>{allShown ? <EyeOff /> : <Eye />} {allShown ? 'Скрыть все' : 'Показать все'}</DropdownMenuItem>}
                   {groups.length > 0 && <DropdownMenuItem onSelect={p.onCompare}><GitCompare /> Сравнить варианты</DropdownMenuItem>}
-                  {p.editable && (
+                  {p.editable && LATER.newLayers && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel>Новый слой</DropdownMenuLabel>

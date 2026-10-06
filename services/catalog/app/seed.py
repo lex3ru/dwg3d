@@ -53,7 +53,11 @@ SETS = [
 def _t(n, category, name, size, sets, properties, *, values=None, container=False, portable=False, color=None) -> dict:
     return {"id": _id(n), "category_id": category, "name": name, "w": size[0], "d": size[1], "h": size[2],
             "sets": sets, "properties": properties, "values": values or {}, "container": container,
-            "portable": portable, "color": color, "sort": n}
+            "portable": portable, "color": color, "sort": n, "shape": SHAPES.get(n, "box")}
+
+
+# how a type is drawn in 3D until a model is loaded for it: one of the viewer's procedural models
+SHAPES = {0x301: "ct", 0x302: "device", 0x303: "desk", 0x304: "couch", 0x305: "chair"}
 
 
 TYPES = [

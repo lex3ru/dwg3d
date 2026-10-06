@@ -4,12 +4,14 @@
 // the map, the facade). This module answers the viewer's old requests from the
 // new services, so the viewer itself is carried over unchanged.
 //
-// What is not built yet answers "empty": layers and placed objects (stage 4),
-// routes of people and zones (stage 8), the copilot (stage 9).
+// Furniture and equipment placed in the scene are the objects of the assets service, on one layer
+// «Объекты учёта»; the viewer's catalog is the catalog service. What is not built yet answers "empty":
+// other layers — routes of people, zones, cables, variants (stage 8), the copilot (stage 9).
 
 /** Parts of the viewer whose data arrives with later services; their entry points are hidden until then. */
 export const LATER = {
-  layers: false,       // layers and what is placed on them: the assets service, stage 4
+  layers: true,        // the layer of the objects of the assets service
+  newLayers: false,    // layers of planning: routes, zones, cables, variants — stage 8
   reports: false,      // the equipment list: stages 4–5
   catalog: false,      // the catalog editor: stage 3
   copilot: false,      // stage 9
@@ -55,6 +57,16 @@ const known = new Map<string, {
 }>()
 /** ids the viewer gave to pins it created -> the ids they got in the buildings service */
 const pinIds = new Map<string, string>()
+/** the same for objects placed in the scene: viewer id <-> object id in the assets service */
+const objectIds = new Map<string, string>()
+const viewerIds = new Map<string, string>()
+/** what the viewer shows of an object besides the placed item: its number, where its card is */
+const objectInfo = new Map<string, { number: string; card: string }>()
+
+/** An object of accounting (not a free piece of furniture): its inventory number and the address of its card. */
+export function assetOf(viewerId: string): { number: string; card: string } | null {
+  return objectInfo.get(objectIds.get(viewerId) ?? viewerId) ?? null
+}
 let admin = false
 export const setAdmin = (value: boolean) => { admin = value }
 
@@ -113,9 +125,9 @@ async function job(id: string): Promise<Json> {
       site: building.site ? { ...building.site, azimuth: building.site.bearing } : undefined,
       detail: facade ? { file: facade.name, size: facade.size, version: building.version,
         offset: [facade.dx, facade.dz, facade.dy], rotation: facade.rotation, scale: facade.scale } : undefined,
-      markers: marks.markers, comments: marks.comments, furniture: [], shapes: [],
+      markers: marks.markers, comments: marks.comments, furniture: shown ? await objects(id) : [], shapes: [],
     },
-    layers: [], my_role: admin ? 'owner' : 'viewer',
+    layers: [assetsLayer()], my_role: admin ? 'owner' : 'viewer',
   }
 }
 
@@ -178,6 +190,104 @@ async function putView(id: string, v: Json): Promise<Json> {
 
 const EMPTY_KINDS = { kinds: [], flows: {}, flow_conflicts: [], zone_kinds: {}, zone_forbidden: {}, cables: {} }
 
+// ---------------------------------------------------- objects and catalog ---
+const ASSETS = '/api/assets/v1'
+const CATALOG = '/api/catalog/v1'
+const LAYER = 'assets'
+const KINDS = { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Объекты учёта', geoms: ['point'], categories: null }] }
+const assetsLayer = (): Json => ({ id: LAYER, kind: 'furniture', name: 'Объекты учёта', visible: true, locked: !admin,
+  sort: 0, props: {}, version: 1 })
+
+/** The catalog's types as the viewer's catalog items: size, the procedural shape or the GLB of the type. */
+async function catalog(): Promise<Json> {
+  const [cats, on, off] = await Promise.all([call('GET', `${CATALOG}/categories`), call('GET', `${CATALOG}/types?active=true`),
+    call('GET', `${CATALOG}/types?active=false`)])
+  const color = new Map((cats.items as Json[]).map((c) => [c.id, c.color]))
+  const items = [...on.items, ...off.items].map((t: Json) => ({
+    id: t.id, name: t.name, cat: t.category_id, w: t.size[0], d: t.size[1], h: t.size[2], kind: t.shape || 'device',
+    color: t.color ?? color.get(t.category_id) ?? undefined, wall: t.wall_mounted, elev: t.elevation ?? undefined,
+    model: t.model?.name, modelUrl: t.model ? `${CATALOG}/types/${t.id}/model.glb?v=${t.version}` : undefined,
+    modelRot: t.model?.rotation ?? 0, article: t.article ?? undefined, supplier: t.supplier ?? undefined,
+    price: t.price ?? undefined, currency: t.currency ?? undefined, active: t.active,
+  }))
+  return { categories: (cats.items as Json[]).map((c) => ({ id: c.id, name: c.name, color: c.color })), items }
+}
+
+/** An object of the assets service as a placed item of the viewer, under the id the viewer knows it by. */
+function objectOut(a: Json, floor: string, id = viewerIds.get(a.id) ?? a.id): Json {
+  objectInfo.set(a.id, { number: a.inventory_no, card: `#/b/${a.building_id}/assets/${a.id}` })
+  return { id, version: a.version, layer: LAYER, geom: 'point', floor, item: a.type_id, at: [a.x, a.y],
+    angle: ((a.angle ?? 0) + 360) % 360, note: a.note ?? '', ...(a.elevation != null ? { elev: a.elevation } : {}) }
+}
+
+/** The objects standing on the floors of the drawing (those in containers stand with their container). */
+async function objects(id: string): Promise<Json[]> {
+  const k = known.get(id)!
+  const out: Json[] = []
+  for (const [candidate, floor] of k.floors) {
+    for (let cursor: number | null = 0; cursor != null;) {
+      const page: Json = await call('GET', `${ASSETS}/assets?floor_id=${floor}&limit=500&cursor=${cursor}`)
+      for (const a of page.items) if (a.x != null && !a.container_id) out.push(objectOut(a, candidate))
+      cursor = page.next
+    }
+  }
+  return out
+}
+
+const refuse = (detail: string) => new Failed(json({ detail }, 422))
+
+/** «КР-0007» and the next ones: КР-0008, КР-0009… (no number at the end — «-2», «-3» are added). */
+export function inRow(first: string, n: number): string[] {
+  const m = /^(.*?)(\d+)$/.exec(first)
+  if (!m) return [first, ...Array.from({ length: n - 1 }, (_, i) => `${first}-${i + 2}`)]
+  return Array.from({ length: n }, (_, i) => `${m[1]}${String(Number(m[2]) + i).padStart(m[2].length, '0')}`)
+}
+
+/** The viewer's changes of placed items: a new item is a new object (its inventory number is asked for),
+ * a moved or turned one is moved, a note is the object's note. Removing and resizing happen elsewhere. */
+async function objectOps(id: string, ops: Json[]): Promise<Json> {
+  const k = known.get(id)!
+  const byFloor = new Map([...k.floors].map(([candidate, floor]) => [floor, candidate]))
+  const items: Json[] = []
+  if (ops.some((op) => op.op === 'delete')) throw refuse('Объект учёта не удаляется из сцены: списать его можно в карточке объекта')
+  // several new at once (a copy, a row): one number asked, the next ones go in a row
+  const creates = ops.filter((op) => op.op === 'create')
+  let numbers: string[] = []
+  if (creates.length) {
+    const type = (await call('GET', `${CATALOG}/types/${creates[0].item}`)).name
+    const first = window.prompt(creates.length > 1
+      ? `Инвентарный номер первого из ${creates.length} новых объектов «${type}» — следующие пойдут подряд`
+      : `Инвентарный номер нового объекта «${type}»`)?.trim()
+    if (!first) throw refuse('Объект не поставлен: нужен инвентарный номер')
+    numbers = inRow(first, creates.length)
+  }
+  for (const op of ops) {
+    const server = objectIds.get(op.id) ?? op.id
+    if (op.op === 'create') {
+      const number = numbers.shift()!
+      const a = await call('POST', `${ASSETS}/assets`, { type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1],
+        angle: op.angle ?? 0, inventory_no: number, note: op.note ?? '' })
+      objectIds.set(op.id, a.id)
+      viewerIds.set(a.id, op.id)
+      items.push(objectOut(a, op.floor, op.id))
+      continue
+    }
+    if ('item' in op || 'size' in op) throw refuse('Тип и размер объекта задаёт каталог; тип меняется в карточке объекта')
+    let a: Json = await call('GET', `${ASSETS}/assets/${server}`)
+    if (a.version !== op.version) {
+      throw new Failed(json({ detail: 'Объект изменил кто-то другой', conflicts: [{ id: op.id, current: objectOut(a, byFloor.get(a.floor_id) ?? '', op.id) }] }, 409))
+    }
+    if ('at' in op || 'angle' in op || 'floor' in op || 'elev' in op) {
+      const at = op.at ?? [a.x, a.y]
+      a = await call('POST', `${ASSETS}/assets/${server}/move`, { floor_id: op.floor ? k.floors.get(op.floor) : a.floor_id,
+        x: at[0], y: at[1], angle: op.angle ?? a.angle ?? 0, elevation: 'elev' in op ? op.elev : a.elevation, version: a.version })
+    }
+    if ('note' in op) a = await call('PATCH', `${ASSETS}/assets/${server}`, { note: op.note ?? '', version: a.version })
+    items.push(objectOut(a, byFloor.get(a.floor_id) ?? op.floor ?? '', op.id))
+  }
+  return { items, deleted: [] }
+}
+
 // ------------------------------------------------------------------ routes ---
 type Handler = (m: RegExpExecArray, init: RequestInit | undefined, url: URL) => Promise<unknown> | unknown
 const routes: [string, RegExp, Handler][] = [
@@ -226,14 +336,21 @@ const routes: [string, RegExp, Handler][] = [
   }],
   ['GET', /^\/api\/drawings\/([^/]+)\/pins$/, async (m) => { if (!known.has(m[1])) await job(m[1]); return pins(m[1]) }],
   ['POST', /^\/api\/drawings\/([^/]+)\/pins:batch$/, (m, init) => pinOps(m[1], JSON.parse(String(init?.body)).ops)],
-  ['GET', /^\/api\/drawings\/([^/]+)\/objects$/, (m) => ({ build: known.get(m[1])?.n ?? 0, items: [], unplaced: [] })],
-  ['POST', /^\/api\/drawings\/([^/]+)\/objects:batch$/, () => ({ items: [], deleted: [] })],
-  ['GET', /^\/api\/projects\/([^/]+)\/layers$/, () => []],
+  ['GET', /^\/api\/drawings\/([^/]+)\/objects$/, async (m) => {
+    if (!known.has(m[1])) await job(m[1])
+    return { build: known.get(m[1])?.n ?? 0, items: await objects(m[1]), unplaced: [] }
+  }],
+  ['POST', /^\/api\/drawings\/([^/]+)\/objects:batch$/, async (m, init) => {
+    if (!known.has(m[1])) await job(m[1])
+    return objectOps(m[1], JSON.parse(String(init?.body)).ops)
+  }],
+  ['GET', /^\/api\/projects\/([^/]+)\/layers$/, () => [assetsLayer()]],
+  ['PATCH', /^\/api\/projects\/([^/]+)\/layers\/assets$/, (_, init) => ({ ...assetsLayer(), ...JSON.parse(String(init?.body ?? '{}')) })],
   ['GET', /^\/api\/projects\/([^/]+)\/checks$/, () => ({ fire: [] })],
   ['GET', /^\/api\/projects\/([^/]+)\/proposals$/, () => []],
   ['POST', /^\/api\/projects\/([^/]+)\/ui-context$/, () => null],
-  ['GET', /^\/api\/layer-kinds$/, () => EMPTY_KINDS],
-  ['GET', /^\/api\/catalog$/, () => ({ categories: [], items: [] })],
+  ['GET', /^\/api\/layer-kinds$/, () => KINDS],
+  ['GET', /^\/api\/catalog$/, catalog],
   ['GET', /^\/api\/copilot\/status$/, () => ({ enabled: false, model: null, daily_limit: 0, used_today: 0 })],
   ['GET', /^\/api\/config\/default$/, () => call('GET', `${IMPORT}/config/default`)],
 ]
