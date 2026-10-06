@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/select'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { compareLayers, type CompareObject, type Layer, type LayerComparison } from '../api'
 
@@ -46,13 +47,17 @@ export default function Compare({ projectId, layers, a: a0, b: b0, onClose, onSh
         <DialogHeader className="flex flex-wrap items-center gap-2 pr-8">
           <DialogTitle className="mr-auto">Сравнение вариантов</DialogTitle>
           <div className="flex items-center gap-1.5">
-            <Select className="max-w-56" value={a} onChange={(e) => setA(e.target.value)} aria-label="Вариант A">
-              {same.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </Select>
+            <Tip label="Откуда считать изменения: учёт как есть или один из вариантов" side="bottom">
+              <Select className="max-w-56" value={a} onChange={(e) => setA(e.target.value)} aria-label="Вариант A">
+                {same.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </Select>
+            </Tip>
             <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-            <Select className="max-w-56" value={b} onChange={(e) => setB(e.target.value)} aria-label="Вариант B">
-              {same.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </Select>
+            <Tip label="С чем сравнить: добавленное и убранное считается при переходе к нему" side="bottom">
+              <Select className="max-w-56" value={b} onChange={(e) => setB(e.target.value)} aria-label="Вариант B">
+                {same.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </Select>
+            </Tip>
           </div>
         </DialogHeader>
         <div className="grid max-h-[75vh] content-start gap-3 overflow-auto text-sm">
@@ -63,6 +68,7 @@ export default function Compare({ projectId, layers, a: a0, b: b0, onClose, onSh
               <div className="flex flex-wrap items-center gap-1.5">
                 {(['added', 'removed', 'moved', 'changed'] as const).map((k) => (
                   <Button key={k} variant="outline" size="sm" aria-pressed={filter === k}
+                    hint={filter === k ? 'Снова показать все изменения' : 'Оставить в списке ниже только такие изменения'}
                     className={cn('rounded-full', filter === k && 'border-primary bg-accent text-accent-foreground hover:bg-accent')}
                     onClick={() => setFilter(filter === k ? 'all' : k)}>
                     {CHANGE[k]}: <b className="tabular-nums">{cmp.counts[k]}</b>
@@ -104,7 +110,7 @@ export default function Compare({ projectId, layers, a: a0, b: b0, onClose, onSh
               )}
               <h3 className="m-0 flex items-center gap-2 text-sm font-semibold">
                 Изменения объектов
-                {filter !== 'all' && <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setFilter('all')}>показать все</Button>}
+                {filter !== 'all' && <Button variant="link" size="sm" className="h-auto px-0" hint="Снять фильтр по виду изменения" onClick={() => setFilter('all')}>показать все</Button>}
               </h3>
               {!objs.length && <p className="m-0 text-muted-foreground">Варианты совпадают.</p>}
               <ul className="m-0 grid list-none gap-0.5 p-0">
@@ -117,7 +123,10 @@ export default function Compare({ projectId, layers, a: a0, b: b0, onClose, onSh
                         {[o.drawing, o.floor_name, o.room].filter(Boolean).join(' · ')}{o.what.length ? ` — ${o.what.join(', ')}` : ''}
                       </div>
                     </div>
-                    {onShow && <Button variant="outline" size="sm" onClick={() => onShow(o)}><Eye /> Показать</Button>}
+                    {onShow && (
+                      <Button variant="outline" size="sm" onClick={() => onShow(o)}
+                        hint="Закрыть сравнение и подлететь к объекту в нужном варианте; если он на другом чертеже — открыть его"><Eye /> Показать</Button>
+                    )}
                   </li>
                 ))}
               </ul>

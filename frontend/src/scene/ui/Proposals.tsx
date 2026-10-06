@@ -6,6 +6,7 @@ import {
 import { useConfirm } from '@/components/confirm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Tip } from '@/components/ui/tooltip'
 import { catalogItem } from '../furniture/catalog'
 import { MARK_COLOR } from '../viewer/Furniture'
 
@@ -95,11 +96,13 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
   return (
     <div className={`fixed top-28 z-40 w-80 ${shifted ? 'right-[432px] max-[900px]:hidden' : 'right-4'}`}>
       <div className="max-w-[calc(100vw-32px)] rounded-lg border border-border bg-card text-card-foreground shadow-lg">
-      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)}>
-        <Bot className="size-4 text-primary" />
-        <span className="flex-1">Предложения копилота: {list.length}</span>
-        {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-      </button>
+      <Tip label={open ? 'Свернуть список; предложения дождутся решения' : 'Развернуть открытые предложения по этому чертежу'} side="left">
+        <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium" onClick={() => setOpen(!open)}>
+          <Bot className="size-4 text-primary" />
+          <span className="flex-1">Предложения копилота: {list.length}</span>
+          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </button>
+      </Tip>
       {open && (
         <div className="grid max-h-[60vh] gap-2 overflow-y-auto border-t border-border p-2">
           {err && <p className="m-0 text-xs text-destructive">{err}</p>}
@@ -126,21 +129,25 @@ export default function Proposals({ projectId, drawingId, nonce, editable, previ
                   }}>
                     <Input autoFocus className="h-8 text-xs" value={reason} placeholder="Причина — увидит копилот" maxLength={2000}
                       onChange={(e) => setReason(e.target.value)} />
-                    <Button size="sm" variant="destructive" disabled={busy === p.id}>Отклонить</Button>
+                    <Button size="sm" variant="destructive" disabled={busy === p.id} hint="Закрыть предложение без изменений; причину увидит копилот">Отклонить</Button>
                     <Button size="sm" type="button" variant="ghost" onClick={() => setRejecting(null)}>Отмена</Button>
                   </form>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="secondary" onClick={() => show(p)}>{on ? <EyeOff /> : <Eye />} {on ? 'Скрыть' : 'Показать'}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => show(p)}
+                      hint={on ? 'Вернуть план как есть, без предложения' : 'Показать на плане результат: новое, изменённое и удаляемое обведено цветом'}>
+                      {on ? <EyeOff /> : <Eye />} {on ? 'Скрыть' : 'Показать'}
+                    </Button>
                     {editable && (
                       <>
-                        <Button size="sm" disabled={busy === p.id} onClick={async () => {
+                        <Button size="sm" disabled={busy === p.id} hint="Внести изменения от вашего имени с пометкой копилота; сначала спросит подтверждение" onClick={async () => {
                           const total = n.create + n.update + n.delete + (n.layers ?? 0)
                           if (await ask({ title: 'Применить предложение?', text: `${p.summary}\n\nИзменений: ${total}. В журнале они будут записаны от вашего имени с пометкой копилота.`, confirm: 'Применить' })) {
                             run(p.id, () => applyProposal(p.id))
                           }
                         }}><Check /> Применить</Button>
-                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { setRejecting(p.id); setReason('') }}><X /> Отклонить</Button>
+                        <Button size="sm" variant="ghost" className="text-destructive" hint="Отказаться, указав причину для копилота; план не изменится"
+                          onClick={() => { setRejecting(p.id); setReason('') }}><X /> Отклонить</Button>
                       </>
                     )}
                   </div>

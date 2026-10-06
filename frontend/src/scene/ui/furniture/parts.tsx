@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
+import { Tip } from '@/components/ui/tooltip'
 import { CATEGORIES, type CatalogItem } from '@/scene/furniture/catalog'
 
 export const catColor = (id: string) => CATEGORIES.find((c) => c.id === id)?.color ?? '#868e96'
@@ -21,9 +22,9 @@ export function ItemSymbol({ c, size = 36 }: { c: CatalogItem; size?: number }) 
   )
 }
 
-/** A number typed in and applied on Enter or leaving the field (an invalid one is dropped). */
-export function NumField({ label, value, onChange, min = 1, max = 5000 }: {
-  label: string; value: number; onChange: (v: number) => void; min?: number; max?: number
+/** A number typed in and applied on Enter or leaving the field (an invalid one is dropped); `hint` — what it changes. */
+export function NumField({ label, value, onChange, min = 1, max = 5000, hint }: {
+  label: string; value: number; onChange: (v: number) => void; min?: number; max?: number; hint?: string
 }) {
   const [text, setText] = useState<string | null>(null)
   const commit = () => {
@@ -34,11 +35,13 @@ export function NumField({ label, value, onChange, min = 1, max = 5000 }: {
   }
   return (
     <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">{label}
-      <Input className="h-7 text-sm" inputMode="decimal" value={text ?? String(value)} onChange={(e) => setText(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } else if (e.key === 'Escape') setText(null)
-        }} />
+      <Tip label={hint}>
+        <Input className="h-7 text-sm" inputMode="decimal" value={text ?? String(value)} onChange={(e) => setText(e.target.value)} onBlur={commit}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } else if (e.key === 'Escape') setText(null)
+          }} />
+      </Tip>
     </label>
   )
 }

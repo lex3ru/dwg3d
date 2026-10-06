@@ -4,10 +4,14 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { deleteDetail, putView, uploadDetail, type ViewSettings, type V3 } from '../api'
 import type { DetailInfo } from '../viewer/Viewer'
 import { TILE_ATTRIBUTION } from '../viewer/tiles'
+
+/** the fields of the detailed model's alignment */
+const ALIGN = 'Подгонка детальной модели к распознанной: видно сразу, в здание записывается кнопкой «Сохранить»'
 
 const num = (s: string, d = 0) => {
   const v = Number(String(s).replace(',', '.'))
@@ -110,7 +114,9 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
           <h3 className={h3}>Здание</h3>
           <div className={grid}>
             <Label className={row}><span className="shrink-0">Название</span>
-              <Input value={name} placeholder="как в списке зданий" onChange={(e) => setName(e.target.value)} /></Label>
+              <Tip label="Имя этого чертежа в списке чертежей здания и в шапке редактора; пусто — не менять">
+                <Input value={name} placeholder="как в списке зданий" onChange={(e) => setName(e.target.value)} />
+              </Tip></Label>
           </div>
 
           <h3 className={cn(h3, 'mt-2')}>Привязка к карте</h3>
@@ -119,19 +125,31 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
             начерчен не в масштабе 1:1. Координаты можно вставить одной строкой «55.7539, 37.6208».</p>
           <div className={grid}>
             <Label className={row}><span className="flex-1">Широта</span>
-              <Input className="w-32" value={site.lat} placeholder="55.7539" onChange={(e) => updSite({ lat: e.target.value })} /></Label>
+              <Tip label="Градусы центра модели; можно вставить «55.7539, 37.6208» целиком, пусто — без карты">
+                <Input className="w-32" value={site.lat} placeholder="55.7539" onChange={(e) => updSite({ lat: e.target.value })} />
+              </Tip></Label>
             <Label className={row}><span className="flex-1">Долгота</span>
-              <Input className="w-32" value={site.lon} placeholder="37.6208" onChange={(e) => updSite({ lon: e.target.value })} /></Label>
+              <Tip label="Градусы центра модели, точка или запятая; пусто — без карты">
+                <Input className="w-32" value={site.lon} placeholder="37.6208" onChange={(e) => updSite({ lon: e.target.value })} />
+              </Tip></Label>
             <Label className={row}><span className="flex-1">Азимут, °</span>
-              <Input className={numCls} value={site.azimuth} onChange={(e) => updSite({ azimuth: e.target.value })} /></Label>
+              <Tip label="На сколько градусов по часовой ось Y плана отклонена от севера; карта поворачивается сразу">
+                <Input className={numCls} value={site.azimuth} onChange={(e) => updSite({ azimuth: e.target.value })} />
+              </Tip></Label>
             <Label className={row}><span className="flex-1">Масштаб подложки</span>
-              <Input className={numCls} value={site.scale} onChange={(e) => updSite({ scale: e.target.value })} /></Label>
+              <Tip label="Поправка, если план начерчен не 1:1; 1 — без поправки">
+                <Input className={numCls} value={site.scale} onChange={(e) => updSite({ scale: e.target.value })} />
+              </Tip></Label>
           </div>
           <div className="grid gap-2">
             <Label className={row}><span className="w-32 shrink-0">Тайлы (XYZ)</span>
-              <Input value={site.tiles} placeholder="по умолчанию OpenStreetMap" onChange={(e) => updSite({ tiles: e.target.value })} /></Label>
+              <Tip label="Свой источник карты: https://…/{z}/{x}/{y}.png; пусто — OpenStreetMap">
+                <Input value={site.tiles} placeholder="по умолчанию OpenStreetMap" onChange={(e) => updSite({ tiles: e.target.value })} />
+              </Tip></Label>
             <Label className={row}><span className="w-32 shrink-0">Атрибуция</span>
-              <Input value={site.attribution} placeholder={TILE_ATTRIBUTION} onChange={(e) => updSite({ attribution: e.target.value })} /></Label>
+              <Tip label="Подпись правообладателя своих тайлов; сохраняется только вместе с адресом тайлов">
+                <Input value={site.attribution} placeholder={TILE_ATTRIBUTION} onChange={(e) => updSite({ attribution: e.target.value })} />
+              </Tip></Label>
           </div>
           <p className={hint}>По умолчанию — растровые тайлы OpenStreetMap ({TILE_ATTRIBUTION}), обесцвеченные
             в просмотрщике; серверы OSM рассчитаны на небольшую нагрузку, для публичного сервиса укажите свой
@@ -149,36 +167,38 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
                 <b className="break-all">{view.detail.file}</b>
                 <span className="text-muted-foreground">{((view.detail.size ?? 0) / 1048576).toFixed(1)} МБ</span>
                 {detailInfo && <span className="text-muted-foreground">этажных узлов {detailInfo.floors}, фасад {detailInfo.building}, мебель {detailInfo.furniture}</span>}
-                <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive" disabled={busy} onClick={remove}>
+                <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive" disabled={busy} onClick={remove}
+                  hint="Убрать детальную модель у всего здания сразу, без подтверждения; вернуть — только загрузив файл снова">
                   <Trash2 /> Удалить
                 </Button>
               </div>
               <div className={grid}>
                 <Label className={row}><span className="flex-1">Сдвиг X, м</span>
-                  <Input className={numCls} value={det.x} onChange={(e) => updDet({ x: e.target.value })} /></Label>
+                  <Tip label={ALIGN}><Input className={numCls} value={det.x} onChange={(e) => updDet({ x: e.target.value })} /></Tip></Label>
                 <Label className={row}><span className="flex-1">Сдвиг Y (вверх), м</span>
-                  <Input className={numCls} value={det.y} onChange={(e) => updDet({ y: e.target.value })} /></Label>
+                  <Tip label={ALIGN}><Input className={numCls} value={det.y} onChange={(e) => updDet({ y: e.target.value })} /></Tip></Label>
                 <Label className={row}><span className="flex-1">Сдвиг Z, м</span>
-                  <Input className={numCls} value={det.z} onChange={(e) => updDet({ z: e.target.value })} /></Label>
+                  <Tip label={ALIGN}><Input className={numCls} value={det.z} onChange={(e) => updDet({ z: e.target.value })} /></Tip></Label>
                 <Label className={row}><span className="flex-1">Поворот, °</span>
-                  <Input className={numCls} value={det.rotation} onChange={(e) => updDet({ rotation: e.target.value })} /></Label>
+                  <Tip label={ALIGN}><Input className={numCls} value={det.rotation} onChange={(e) => updDet({ rotation: e.target.value })} /></Tip></Label>
                 <Label className={row}><span className="flex-1">Масштаб</span>
-                  <Input className={numCls} value={det.scale} onChange={(e) => updDet({ scale: e.target.value })} /></Label>
+                  <Tip label={ALIGN}><Input className={numCls} value={det.scale} onChange={(e) => updDet({ scale: e.target.value })} /></Tip></Label>
               </div>
             </>
           ) : null}
           <div>
             <input ref={fileRef} type="file" accept=".glb" hidden disabled={busy}
               onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} />
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => fileRef.current?.click()}
+              hint={view.detail?.file ? 'Новый файл .glb сразу заменит прежний у всего здания' : 'Файл .glb уходит на сервер сразу и показывается у всего здания поверх распознанной модели'}>
               <Upload /> {view.detail?.file ? 'Заменить GLB…' : 'Загрузить GLB…'}
             </Button>
           </div>
           {err && <p className="m-0 text-sm text-destructive">{err}</p>}
         </div>
         <DialogFooter>
-          <Button variant="secondary" onClick={onClose}>Отмена</Button>
-          <Button disabled={busy} onClick={save}>Сохранить</Button>
+          <Button variant="secondary" hint="Закрыть, ничего не записывая; предпросмотр сбросится" onClick={onClose}>Отмена</Button>
+          <Button disabled={busy} hint="Записать название чертежа, привязку здания к карте и подгонку модели" onClick={save}>Сохранить</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

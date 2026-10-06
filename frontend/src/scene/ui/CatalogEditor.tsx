@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { createCatalogItem, saveCategory, updateCatalogItem, uploadCatalogModel } from '../api'
 import { loadCatalog, type CatalogItem, type Category } from '../furniture/catalog'
@@ -197,23 +198,34 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
         <div className={cn('grid min-h-0 flex-1 overflow-y-auto lg:overflow-hidden lg:grid-rows-[minmax(0,1fr)]',
           f ? 'lg:grid-cols-[13rem_minmax(0,1fr)_minmax(20rem,23rem)]' : 'lg:grid-cols-[13rem_minmax(0,1fr)]')}>
           <nav className="flex flex-wrap gap-0.5 border-b border-border p-2 lg:flex-col lg:flex-nowrap lg:overflow-y-auto lg:border-r lg:border-b-0">
-            <CatButton on={cat === 'all'} onClick={() => setCat('all')} count={items.filter((c) => withInactive || c.active !== false).length}>Все</CatButton>
+            <Tip label="Позиции всех категорий; справа — сколько их" side="right">
+              <CatButton on={cat === 'all'} onClick={() => setCat('all')} count={items.filter((c) => withInactive || c.active !== false).length}>Все</CatButton>
+            </Tip>
             {cats.map((c) => (
-              <CatButton key={c.id} on={cat === c.id} onClick={() => setCat(c.id)} color={c.color} count={count(c.id)}
-                onDoubleClick={() => setCatEdit({ ...c, isNew: false })} title="Двойной щелчок — переименовать">
-                {c.name}
-              </CatButton>
+              <Tip key={c.id} label="Позиции этой категории; двойной щелчок — переименовать или сменить цвет" side="right">
+                <CatButton on={cat === c.id} onClick={() => setCat(c.id)} color={c.color} count={count(c.id)}
+                  onDoubleClick={() => setCatEdit({ ...c, isNew: false })}>
+                  {c.name}
+                </CatButton>
+              </Tip>
             ))}
-            <Button variant="link" size="sm" className="justify-start px-2" onClick={() => setCatEdit({ id: '', name: '', color: '#868e96', isNew: true })}>
+            <Button variant="link" size="sm" className="justify-start px-2" hint="Завести категорию: id латиницей, название и цвет на плане"
+              onClick={() => setCatEdit({ id: '', name: '', color: '#868e96', isNew: true })}>
               <Plus /> Категория
             </Button>
             {catEdit && (
               <div className="grid w-full gap-1.5 rounded-md bg-secondary p-2">
-                {catEdit.isNew && <Input placeholder="id (латиница)" value={catEdit.id} onChange={(e) => setCatEdit({ ...catEdit, id: e.target.value })} />}
+                {catEdit.isNew && (
+                  <Tip label="Постоянный ключ категории латиницей; потом не меняется">
+                    <Input placeholder="id (латиница)" value={catEdit.id} onChange={(e) => setCatEdit({ ...catEdit, id: e.target.value })} />
+                  </Tip>
+                )}
                 <Input placeholder="Название" value={catEdit.name} onChange={(e) => setCatEdit({ ...catEdit, name: e.target.value })} />
-                <ColorInput value={catEdit.color} onChange={(v) => setCatEdit({ ...catEdit, color: v })} />
+                <Tip label="Цвет категории в списках и у её предметов без своего цвета">
+                  <ColorInput value={catEdit.color} onChange={(v) => setCatEdit({ ...catEdit, color: v })} />
+                </Tip>
                 <div className="flex gap-1.5">
-                  <Button size="sm" onClick={saveCat}>Сохранить</Button>
+                  <Button size="sm" hint="Записать категорию в каталог; её увидят все" onClick={saveCat}>Сохранить</Button>
                   <Button size="sm" variant="secondary" onClick={() => setCatEdit(null)}>Отмена</Button>
                 </div>
               </div>
@@ -226,10 +238,12 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
                 <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input className="pl-7" placeholder="Поиск: название, id, артикул, поставщик" value={q} onChange={(e) => setQ(e.target.value)} />
               </div>
-              <label className="flex cursor-pointer items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
-                <Switch checked={withInactive} onCheckedChange={setWithInactive} /> снятые
-              </label>
-              <Button size="sm" onClick={() => open('')}><Plus /> Позиция</Button>
+              <Tip label="Показывать и снятые с продажи: при расстановке их не выбрать, но уже поставленные остаются">
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
+                  <Switch checked={withInactive} onCheckedChange={setWithInactive} /> снятые
+                </label>
+              </Tip>
+              <Button size="sm" hint="Завести новую позицию каталога: размеры, цена, параметры камеры или света" onClick={() => open('')}><Plus /> Позиция</Button>
             </div>
             <div className="max-h-[50vh] min-h-0 flex-1 overflow-auto lg:max-h-none">
               <table className="w-full border-collapse text-xs">
@@ -240,18 +254,20 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
                 </thead>
                 <tbody>
                   {shown.map((c) => (
-                    <tr key={c.id} onClick={() => open(c.id)}
-                      className={cn('cursor-pointer align-top [&>td]:border-b [&>td]:border-border [&>td]:px-2 [&>td]:py-1.5',
-                        sel === c.id ? 'bg-accent' : 'hover:bg-secondary/60', c.active === false && 'text-muted-foreground')}>
-                      <td>
-                        <b className="font-medium">{c.name}</b>
-                        <small className="block text-[11px] text-muted-foreground">{c.id}{c.model ? ' · GLB' : ''}{c.active === false ? ' · снята' : ''}</small>
-                      </td>
-                      <td>{c.article}</td>
-                      <td>{c.supplier}</td>
-                      <td className="text-right whitespace-nowrap tabular-nums">{money(c.price, c.currency)}</td>
-                      <td className="text-right whitespace-nowrap tabular-nums">{Math.round(c.w * 100)}×{Math.round(c.d * 100)}×{Math.round(c.h * 100)}</td>
-                    </tr>
+                    <Tip key={c.id} label="Открыть позицию справа для правки" side="left">
+                      <tr onClick={() => open(c.id)}
+                        className={cn('cursor-pointer align-top [&>td]:border-b [&>td]:border-border [&>td]:px-2 [&>td]:py-1.5',
+                          sel === c.id ? 'bg-accent' : 'hover:bg-secondary/60', c.active === false && 'text-muted-foreground')}>
+                        <td>
+                          <b className="font-medium">{c.name}</b>
+                          <small className="block text-[11px] text-muted-foreground">{c.id}{c.model ? ' · GLB' : ''}{c.active === false ? ' · снята' : ''}</small>
+                        </td>
+                        <td>{c.article}</td>
+                        <td>{c.supplier}</td>
+                        <td className="text-right whitespace-nowrap tabular-nums">{money(c.price, c.currency)}</td>
+                        <td className="text-right whitespace-nowrap tabular-nums">{Math.round(c.w * 100)}×{Math.round(c.d * 100)}×{Math.round(c.h * 100)}</td>
+                      </tr>
+                    </Tip>
                   ))}
                   {!shown.length && <tr><td colSpan={5} className="px-2 py-3 text-muted-foreground">Ничего не найдено</td></tr>}
                 </tbody>
@@ -265,78 +281,136 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
               <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 py-3">
                 <h3 className="m-0 text-sm font-semibold">{sel ? 'Позиция' : 'Новая позиция'}</h3>
                 <div className="grid gap-2">
-                  {!sel && <Row label="id"><Input value={f.id} placeholder="diag.mri3t" onChange={(e) => set('id', e.target.value)} /></Row>}
+                  {!sel && <Row label="id"><Tip label="Постоянный ключ позиции латиницей, обычно «категория.название»; потом не меняется"><Input value={f.id} placeholder="diag.mri3t" onChange={(e) => set('id', e.target.value)} /></Tip></Row>}
                   <Row label="Категория">
-                    <Select className="w-full" value={f.cat} onChange={(e) => set('cat', e.target.value)}>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+                    <Tip label="От категории зависят цвет по умолчанию и слой инженерной системы, куда встанет предмет">
+                      <Select className="w-full" value={f.cat} onChange={(e) => set('cat', e.target.value)}>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+                    </Tip>
                   </Row>
                   <Row label="Наименование"><Input value={f.name} onChange={(e) => set('name', e.target.value)} /></Row>
                   <Row label="Артикул"><Input value={f.article} onChange={(e) => set('article', e.target.value)} /></Row>
                   <Row label="Поставщик"><Input value={f.supplier} onChange={(e) => set('supplier', e.target.value)} /></Row>
                   <Row label="Цена">
                     <div className="flex gap-1">
-                      <Input className={NUM} inputMode="decimal" value={f.price} onChange={(e) => set('price', e.target.value)} />
-                      <Input className="w-14 uppercase" aria-label="Валюта" value={f.currency} maxLength={3} onChange={(e) => set('currency', e.target.value)} />
+                      <Tip label="За штуку; пусто — без цены, в сумму спецификации не войдёт">
+                        <Input className={NUM} inputMode="decimal" value={f.price} onChange={(e) => set('price', e.target.value)} />
+                      </Tip>
+                      <Tip label="Код валюты из трёх букв; пусто — RUB">
+                        <Input className="w-14 uppercase" aria-label="Валюта" value={f.currency} maxLength={3} onChange={(e) => set('currency', e.target.value)} />
+                      </Tip>
                     </div>
                   </Row>
                   <Row label="Габариты Ш×Г×В, м">
                     <div className="grid w-full grid-cols-3 gap-1">
-                      {(['w', 'd', 'h'] as const).map((k) => <Input key={k} className="min-w-0 text-right tabular-nums" inputMode="decimal" aria-label={{ w: 'Ширина', d: 'Глубина', h: 'Высота' }[k]} value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                      {(['w', 'd', 'h'] as const).map((k) => (
+                        <Tip key={k} label="В метрах; по габаритам масштабируется модель и ищутся пересечения на плане">
+                          <Input className="min-w-0 text-right tabular-nums" inputMode="decimal" aria-label={{ w: 'Ширина', d: 'Глубина', h: 'Высота' }[k]} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+                        </Tip>
+                      ))}
                     </div>
                   </Row>
-                  <Row label="Высота установки, м"><Input className={NUM} inputMode="decimal" value={f.elev} placeholder="на полу" onChange={(e) => set('elev', e.target.value)} /></Row>
-                  <Row label="Зона обслуживания, м"><Input className={NUM} inputMode="decimal" value={f.clear} onChange={(e) => set('clear', e.target.value)} /></Row>
-                  <Row label="Ставится к стене"><Switch checked={f.wall} onCheckedChange={(v) => set('wall', v)} /></Row>
+                  <Row label="Высота установки, м">
+                    <Tip label="Высота над полом; пусто — стоит на полу">
+                      <Input className={NUM} inputMode="decimal" value={f.elev} placeholder="на полу" onChange={(e) => set('elev', e.target.value)} />
+                    </Tip>
+                  </Row>
+                  <Row label="Зона обслуживания, м">
+                    <Tip label="Сколько места перед предметом держать свободным; занятое попадает в замечания на плане">
+                      <Input className={NUM} inputMode="decimal" value={f.clear} onChange={(e) => set('clear', e.target.value)} />
+                    </Tip>
+                  </Row>
+                  <Row label="Ставится к стене">
+                    <Tip label="При расстановке прилипает к ближайшей стене; с Alt — ставится свободно">
+                      <Switch checked={f.wall} onCheckedChange={(v) => set('wall', v)} />
+                    </Tip>
+                  </Row>
                   <Row label="Процедурная модель">
-                    <Select className="w-full" value={f.kind} onChange={(e) => set('kind', e.target.value)}>
-                      {[...new Set([...MODEL_KINDS, f.kind])].map((k) => <option key={k}>{k}</option>)}
-                    </Select>
+                    <Tip label="Готовая форма, которой предмет рисуется в 3D, пока у него нет своего GLB">
+                      <Select className="w-full" value={f.kind} onChange={(e) => set('kind', e.target.value)}>
+                        {[...new Set([...MODEL_KINDS, f.kind])].map((k) => <option key={k}>{k}</option>)}
+                      </Select>
+                    </Tip>
                   </Row>
                   <Row label="Цвет">
                     <div className="flex items-center gap-1.5">
-                      <ColorInput value={f.color || '#adb5bd'} onChange={(v) => set('color', v)} />
-                      {f.color && <Button size="sm" variant="ghost" onClick={() => set('color', '')}>по умолчанию</Button>}
+                      <Tip label="Свой цвет предмета на плане и в 3D вместо цвета категории">
+                        <ColorInput value={f.color || '#adb5bd'} onChange={(v) => set('color', v)} />
+                      </Tip>
+                      {f.color && <Button size="sm" variant="ghost" hint="Сбросить свой цвет: предмет примет цвет категории" onClick={() => set('color', '')}>по умолчанию</Button>}
                     </div>
                   </Row>
-                  <Row label="Теги для поиска"><Input value={f.tags} onChange={(e) => set('tags', e.target.value)} /></Row>
-                  <Row label="Камера видеонаблюдения"><Switch checked={f.cam} onCheckedChange={(v) => set('cam', v)} /></Row>
+                  <Row label="Теги для поиска">
+                    <Tip label="Другие слова, по которым позицию найдут в каталоге при расстановке">
+                      <Input value={f.tags} onChange={(e) => set('tags', e.target.value)} />
+                    </Tip>
+                  </Row>
+                  <Row label="Камера видеонаблюдения">
+                    <Tip label="Рисовать сектор обзора и считать, какую долю помещений видят камеры">
+                      <Switch checked={f.cam} onCheckedChange={(v) => set('cam', v)} />
+                    </Tip>
+                  </Row>
                   {f.cam && (
                     <Row label="Угол° · дальность · опознание, м">
                       <div className="flex gap-1">
-                        {(['fov', 'range', 'ident'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                        {(['fov', 'range', 'ident'] as const).map((k) => (
+                          <Tip key={k} label={{ fov: 'Ширина сектора обзора, градусы', range: 'Как далеко камера видит, м', ident: 'До скольких метров различимы лица' }[k]}>
+                            <Input className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />
+                          </Tip>
+                        ))}
                       </div>
                     </Row>
                   )}
-                  <Row label="Источник света"><Switch checked={f.light} onCheckedChange={(v) => set('light', v)} /></Row>
+                  <Row label="Источник света">
+                    <Tip label="Считать освещённость под светильником и рисовать её на плане">
+                      <Switch checked={f.light} onCheckedChange={(v) => set('light', v)} />
+                    </Tip>
+                  </Row>
                   {f.light && (
                     <>
                       <Row label="Световой поток, лм · мощность, Вт">
                         <div className="flex gap-1">
-                          {(['flux', 'power'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                          {(['flux', 'power'] as const).map((k) => (
+                            <Tip key={k} label={{ flux: 'Световой поток, лм: от него зависит освещённость', power: 'Потребляемая мощность, Вт' }[k]}>
+                              <Input className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />
+                            </Tip>
+                          ))}
                         </div>
                       </Row>
                       <Row label="Угол луча, ° · цветовая температура, К">
                         <div className="flex gap-1">
-                          {(['beam', 'cct'] as const).map((k) => <Input key={k} className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />)}
+                          {(['beam', 'cct'] as const).map((k) => (
+                            <Tip key={k} label={{ beam: 'Ширина светового пятна, градусы', cct: 'Тёплый свет — около 3000 К, холодный — 5000 К и выше' }[k]}>
+                              <Input className={NUM} inputMode="decimal" value={f[k]} onChange={(e) => set(k, e.target.value)} />
+                            </Tip>
+                          ))}
                         </div>
                       </Row>
                     </>
                   )}
-                  <Row label="В продаже (видна в каталоге)"><Switch checked={f.active} onCheckedChange={(v) => set('active', v)} /></Row>
+                  <Row label="В продаже (видна в каталоге)">
+                    <Tip label="Выключите, чтобы убрать из выбора при расстановке; уже поставленные останутся на местах">
+                      <Switch checked={f.active} onCheckedChange={(v) => set('active', v)} />
+                    </Tip>
+                  </Row>
                 </div>
                 {sel && (
                   <div className="grid gap-2 border-t border-border pt-3">
                     <h3 className="m-0 text-sm font-semibold">3D-модель (GLB)</h3>
                     <p className="m-0 text-xs text-muted-foreground">{current?.model
-                      ? <>Файл: <a className="text-primary hover:underline" href={current.modelUrl} download>{current.model}</a>. Масштабируется до габаритов, фасад — к +Z.</>
+                      ? <>Файл: <Tip label="Скачать загруженный файл модели"><a className="text-primary hover:underline" href={current.modelUrl} download>{current.model}</a></Tip>. Масштабируется до габаритов, фасад — к +Z.</>
                       : 'Нет — используется процедурная модель.'}</p>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => file.current?.click()}>
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => file.current?.click()}
+                        hint="Свой файл .glb вместо процедурной модели; записывается сразу, без «Сохранить»">
                         <Upload /> {current?.model ? 'Заменить…' : 'Загрузить GLB…'}
                       </Button>
-                      {current?.model && <Button size="sm" variant="destructive" disabled={busy} onClick={dropModel}><Trash2 /> Убрать</Button>}
+                      {current?.model && (
+                        <Button size="sm" variant="destructive" disabled={busy} onClick={dropModel}
+                          hint="Удалить файл модели сразу, без подтверждения: вернётся процедурная модель"><Trash2 /> Убрать</Button>
+                      )}
                       {current?.model && (
                         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          поворот°<Input className={NUM} inputMode="decimal" value={f.modelRot} onChange={(e) => set('modelRot', e.target.value)} />
+                          поворот°<Tip label="Довернуть модель, если её фасад смотрит не в +Z; записывается с «Сохранить»"><Input className={NUM} inputMode="decimal" value={f.modelRot} onChange={(e) => set('modelRot', e.target.value)} /></Tip>
                         </label>
                       )}
                     </div>
@@ -346,8 +420,10 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
                 {err && <p className="m-0 text-sm text-destructive">{err}</p>}
               </div>
               <DialogFooter className="border-t border-border px-4 py-2.5">
-                <Button variant="secondary" onClick={() => open(null)}>Закрыть</Button>
-                <Button disabled={busy || !f.name.trim() || (!sel && !f.id.trim())} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</Button>
+                <Button variant="secondary" hint="Закрыть форму; несохранённые правки пропадут" onClick={() => open(null)}>Закрыть</Button>
+                <Button disabled={busy || !f.name.trim() || (!sel && !f.id.trim())} onClick={save}
+                  hint={!f.name.trim() ? 'Нужно наименование' : !sel && !f.id.trim() ? 'Нужен id позиции'
+                    : 'Записать позицию в каталог; при расстановке её увидят все'}>{busy ? 'Сохранение…' : 'Сохранить'}</Button>
               </DialogFooter>
             </section>
           )}
@@ -367,8 +443,8 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
   </div>
 )
 
-const ColorInput = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-  <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
+const ColorInput = ({ value, onChange, ...props }: { value: string; onChange: (v: string) => void } & Omit<React.ComponentProps<'input'>, 'value' | 'onChange'>) => (
+  <input {...props} type="color" value={value} onChange={(e) => onChange(e.target.value)}
     className="h-8 w-12 cursor-pointer rounded-md border border-input bg-card p-0.5" />
 )
 

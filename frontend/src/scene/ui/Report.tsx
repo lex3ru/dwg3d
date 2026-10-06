@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
   equipmentReport, equipmentReportXlsx, listLayers, roomReport, type EquipmentReport, type Layer, type RoomReport,
@@ -58,16 +59,26 @@ export default function Report({ projectId, onClose }: { projectId: string; onCl
         <DialogHeader className="flex flex-wrap items-center gap-2 pr-8">
           <DialogTitle className="mr-auto">Спецификация оборудования</DialogTitle>
           {scope !== 'all' && layers.length > 1 && (
-            <Select className="max-w-56" value={layer} onChange={(e) => setLayer(e.target.value)} aria-label="Слой">
-              <option value="">Все слои</option>
-              {layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </Select>
+            <Tip label="Считать только объекты одного слоя или варианта" side="bottom">
+              <Select className="max-w-56" value={layer} onChange={(e) => setLayer(e.target.value)} aria-label="Слой">
+                <option value="">Все слои</option>
+                {layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </Select>
+            </Tip>
           )}
           <Tabs value={scope} onValueChange={(v) => setScope(v as Scope)}>
             <TabsList>
-              <TabsTrigger value="project">По этажам</TabsTrigger>
-              <TabsTrigger value="rooms">По помещениям</TabsTrigger>
-              {!me?.guest && <TabsTrigger value="all">Все проекты</TabsTrigger>}
+              <Tip label="Сколько каждого типа на каждом этаже, с ценами и суммами" side="bottom">
+                <TabsTrigger value="project">По этажам</TabsTrigger>
+              </Tip>
+              <Tip label="Что стоит в каждом помещении, с суммой по помещению" side="bottom">
+                <TabsTrigger value="rooms">По помещениям</TabsTrigger>
+              </Tip>
+              {!me?.guest && (
+                <Tip label="Сводная по всем проектам, что вам доступны: столбец на проект, слой не выбирается" side="bottom">
+                  <TabsTrigger value="all">Все проекты</TabsTrigger>
+                </Tip>
+              )}
             </TabsList>
           </Tabs>
         </DialogHeader>
@@ -148,7 +159,7 @@ export default function Report({ projectId, onClose }: { projectId: string; onCl
           {rep && rep.unpriced > 0 && <p className="m-0 text-xs text-muted-foreground">Без цены: {rep.unpriced} поз. — не вошли в сумму. Цены задаются в каталоге оборудования.</p>}
         </div>
         <DialogFooter>
-          <Button asChild className={cn(noDownload && 'pointer-events-none opacity-50')}>
+          <Button asChild className={cn(noDownload && 'pointer-events-none opacity-50')} hint="Таблица как на экране — файлом Excel, с тем же разрезом и слоем">
             <a href={xlsx} download aria-disabled={noDownload || undefined} tabIndex={noDownload ? -1 : undefined}><Download /> Скачать XLSX</a>
           </Button>
         </DialogFooter>

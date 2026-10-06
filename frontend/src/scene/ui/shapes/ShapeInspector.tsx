@@ -5,6 +5,7 @@ import { useConfirm } from '@/components/confirm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Tip } from '@/components/ui/tooltip'
 import { polyArea, polyLength, routeProps, type ShapeDraft, type ShapeEditor } from '@/scene/hooks/useShapeEditor'
 import { cn } from '@/lib/utils'
 import { fmtTime, type CableProps, type Conflict, type RouteStop, type Rules, type ZoneProps } from '@/scene/viewer/routing'
@@ -15,18 +16,29 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 )
 const stop = (e: React.KeyboardEvent) => e.stopPropagation()
 
+// hints of the fields shared by drafts and saved lines
+const NAME = 'Под этим именем видна в списке слоя'
+const NAME_ROUTE = 'Под этим именем маршрут виден в списке слоя и в нарушениях'
+const FLOW = 'Кто идёт по маршруту: от потока зависят цвет и проверка пересечений с другими'
+const ZONE = 'Назначение зоны: по нему маршруты проверяются на запретные проходы'
+const CABLE = 'Тип кабеля: по нему складываются длины в итогах слоя'
+const RESERVE = 'Добавка к длине по плану на спуски и разделку, 0–100 %'
+const REMOVE = 'Убрать из слоя для всех; сначала спросит подтверждение, отменить нельзя'
+
 /** A room as a route stop (instead of a click on the plan). */
 function RoomPicker({ floors, planOf, onPick }: { floors: FloorMeta[]; planOf: (v: V3) => XY; onPick: (st: RouteStop) => void }) {
   const rooms = floors.flatMap((f) => f.rooms.filter((r) => r.id && (r.name || r.type)).map((r) => ({ f, r })))
   return (
     <Field label="…или помещение">
-      <Select value="" onChange={(e) => {
-        const hit = rooms.find((x) => String(x.r.id) === e.target.value)
-        if (hit) onPick({ floor: hit.f.id, at: planOf(hit.r.label_pos), room: hit.r.id ?? null, label: hit.r.name || hit.r.type || 'помещение' })
-      }}>
-        <option value="">— выбрать —</option>
-        {rooms.map(({ f, r }) => <option key={`${f.id}-${r.id}`} value={String(r.id)}>{f.name} · {r.name || r.type} · {r.area.toFixed(0)} м²</option>)}
-      </Select>
+      <Tip label="Добавить помещение остановкой вместо щелчка на плане">
+        <Select value="" onChange={(e) => {
+          const hit = rooms.find((x) => String(x.r.id) === e.target.value)
+          if (hit) onPick({ floor: hit.f.id, at: planOf(hit.r.label_pos), room: hit.r.id ?? null, label: hit.r.name || hit.r.type || 'помещение' })
+        }}>
+          <option value="">— выбрать —</option>
+          {rooms.map(({ f, r }) => <option key={`${f.id}-${r.id}`} value={String(r.id)}>{f.name} · {r.name || r.type} · {r.area.toFixed(0)} м²</option>)}
+        </Select>
+      </Tip>
     </Field>
   )
 }
@@ -36,7 +48,7 @@ function Head({ color, square, title, sub, onClose }: { color: string; square?: 
     <div className="flex items-start gap-2">
       <i className={cn('mt-1 size-3 shrink-0', square ? 'rounded-[3px]' : 'rounded-full')} style={{ background: color }} />
       <div className="min-w-0 flex-1"><b className="block truncate">{title}</b><small className="text-xs text-muted-foreground">{sub}</small></div>
-      {onClose && <Button variant="ghost" size="icon-sm" aria-label="Снять выделение" onClick={onClose}><X /></Button>}
+      {onClose && <Button variant="ghost" size="icon-sm" aria-label="Снять выделение" hint="Закрыть свойства; объект остаётся на плане" onClick={onClose}><X /></Button>}
     </div>
   )
 }
@@ -49,11 +61,13 @@ export function DraftCard({ ed, draft, rules, floors, planOf }: { ed: ShapeEdito
       <div className="rounded-md bg-accent p-2 text-xs text-accent-foreground">{ed.hint}</div>
       {draft.what === 'route' && (
         <>
-          <Field label="Название"><Input autoFocus value={draft.name} maxLength={200} placeholder="Например, «Первичный приём»" onChange={(e) => set({ name: e.target.value })} /></Field>
+          <Field label="Название"><Tip label={NAME_ROUTE}><Input autoFocus value={draft.name} maxLength={200} placeholder="Например, «Первичный приём»" onChange={(e) => set({ name: e.target.value })} /></Tip></Field>
           <Field label="Поток">
-            <Select value={draft.flow} onChange={(e) => set({ flow: e.target.value })}>
-              {Object.entries(rules.flows).map(([k, f]) => <option key={k} value={k}>{f.name}</option>)}
-            </Select>
+            <Tip label={FLOW}>
+              <Select value={draft.flow} onChange={(e) => set({ flow: e.target.value })}>
+                {Object.entries(rules.flows).map(([k, f]) => <option key={k} value={k}>{f.name}</option>)}
+              </Select>
+            </Tip>
           </Field>
           <ol className="m-0 grid gap-0.5 pl-5 text-xs">{draft.stops.map((s, i) => <li key={i}>{s.label || `Точка ${i + 1}`} <small className="text-muted-foreground">{floorName(floors, s.floor)}</small></li>)}</ol>
           <RoomPicker floors={floors} planOf={planOf} onPick={(st) => ed.addStop(st)} />
@@ -62,33 +76,42 @@ export function DraftCard({ ed, draft, rules, floors, planOf }: { ed: ShapeEdito
       {draft.what === 'zone' && (
         <>
           <Field label="Вид зоны">
-            <Select value={draft.zone} onChange={(e) => set({ zone: e.target.value })}>
-              {Object.entries(rules.zone_kinds).map(([k, z]) => <option key={k} value={k}>{z.name}</option>)}
-            </Select>
+            <Tip label={ZONE}>
+              <Select value={draft.zone} onChange={(e) => set({ zone: e.target.value })}>
+                {Object.entries(rules.zone_kinds).map(([k, z]) => <option key={k} value={k}>{z.name}</option>)}
+              </Select>
+            </Tip>
           </Field>
-          <Field label="Название"><Input value={draft.name} maxLength={200} placeholder="Например, «Стерилизационная»" onChange={(e) => set({ name: e.target.value })} /></Field>
+          <Field label="Название"><Tip label={NAME}><Input value={draft.name} maxLength={200} placeholder="Например, «Стерилизационная»" onChange={(e) => set({ name: e.target.value })} /></Tip></Field>
           <small className="text-xs text-muted-foreground">{floorName(floors, draft.floor)} · углов: {draft.pts.length}{draft.pts.length >= 3 ? ` · ${polyArea(draft.pts).toFixed(1)} м²` : ''}</small>
         </>
       )}
       {draft.what === 'cable' && (
         <>
           <Field label="Кабель">
-            <Select value={draft.cable} onChange={(e) => set({ cable: e.target.value })}>
-              {Object.entries(rules.cables).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
-            </Select>
+            <Tip label={CABLE}>
+              <Select value={draft.cable} onChange={(e) => set({ cable: e.target.value })}>
+                {Object.entries(rules.cables).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
+              </Select>
+            </Tip>
           </Field>
-          <Field label="Название"><Input value={draft.name} maxLength={200} placeholder="Например, «Стояк серверной»" onChange={(e) => set({ name: e.target.value })} /></Field>
+          <Field label="Название"><Tip label={NAME}><Input value={draft.name} maxLength={200} placeholder="Например, «Стояк серверной»" onChange={(e) => set({ name: e.target.value })} /></Tip></Field>
           <Field label="Запас, %">
-            <Input type="number" min={0} max={100} value={draft.reserve} onChange={(e) => set({ reserve: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+            <Tip label={RESERVE}>
+              <Input type="number" min={0} max={100} value={draft.reserve} onChange={(e) => set({ reserve: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+            </Tip>
           </Field>
           <small className="text-xs text-muted-foreground">{floorName(floors, draft.floor)} · {polyLength(draft.pts).toFixed(1)} м по плану</small>
         </>
       )}
       <div className="flex gap-1.5">
         {draft.what !== 'route' && (
-          <Button size="sm" disabled={draft.pts.length < (draft.what === 'cable' ? 2 : 3)} onClick={ed.finish}><Check /> Готово</Button>
+          <Button size="sm" disabled={draft.pts.length < (draft.what === 'cable' ? 2 : 3)} onClick={ed.finish}
+            hint={draft.pts.length < (draft.what === 'cable' ? 2 : 3)
+              ? (draft.what === 'cable' ? 'Нужно хотя бы две точки трассы' : 'Нужно хотя бы три угла зоны')
+              : 'Сохранить в слой (Enter); после этого видно всем'}><Check /> Готово</Button>
         )}
-        <Button size="sm" variant="secondary" onClick={ed.cancel}>Отмена</Button>
+        <Button size="sm" variant="secondary" hint="Бросить рисование, ничего не сохраняя (Esc)" onClick={ed.cancel}>Отмена</Button>
       </div>
     </div>
   )
@@ -114,16 +137,20 @@ export function RouteInspector({ ed, r, rules, floors, conflicts, editable, plan
       {ed.hint && <div className="rounded-md bg-accent p-2 text-xs text-accent-foreground">{ed.hint}</div>}
       {x.problem && <p className="m-0 flex gap-1.5 rounded-md bg-destructive/10 p-2 text-xs text-destructive"><AlertTriangle className="size-3.5 shrink-0" /> {x.problem}</p>}
       {mine.map((c, i) => (
-        <button key={i} className="flex cursor-pointer gap-1.5 rounded-md border-0 bg-warning/15 p-2 text-left text-xs text-warning" onClick={() => flyTo(c.floor, c.at)}>
-          <AlertTriangle className="size-3.5 shrink-0" /> {c.text}
-        </button>
+        <Tip key={i} label="Показать место нарушения на плане">
+          <button className="flex cursor-pointer gap-1.5 rounded-md border-0 bg-warning/15 p-2 text-left text-xs text-warning" onClick={() => flyTo(c.floor, c.at)}>
+            <AlertTriangle className="size-3.5 shrink-0" /> {c.text}
+          </button>
+        </Tip>
       ))}
       <fieldset disabled={!editable} className="m-0 grid gap-3 border-0 p-0">
-        <Field label="Название"><Input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} onBlur={() => name !== x.name && change({ ...x, name })} /></Field>
+        <Field label="Название"><Tip label={`${NAME_ROUTE}; сохраняется, когда поле теряет фокус`}><Input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} onBlur={() => name !== x.name && change({ ...x, name })} /></Tip></Field>
         <Field label="Поток">
-          <Select value={x.flow} onChange={(e) => change({ ...x, flow: e.target.value })}>
-            {Object.entries(rules.flows).map(([k, f]) => <option key={k} value={k}>{f.name}</option>)}
-          </Select>
+          <Tip label={`${FLOW}; путь пересчитается и сохранится сразу`}>
+            <Select value={x.flow} onChange={(e) => change({ ...x, flow: e.target.value })}>
+              {Object.entries(rules.flows).map(([k, f]) => <option key={k} value={k}>{f.name}</option>)}
+            </Select>
+          </Tip>
         </Field>
         <div className="grid gap-1">
           <b className="text-xs">Остановки</b>
@@ -131,14 +158,19 @@ export function RouteInspector({ ed, r, rules, floors, conflicts, editable, plan
             {stops.map((st, i) => (
               <li key={i} className="flex items-center gap-1 rounded-md px-1 text-xs hover:bg-secondary">
                 <span className="w-4 text-muted-foreground">{i + 1}</span>
-                <button className="min-w-0 flex-1 cursor-pointer truncate border-0 bg-transparent py-1 text-left text-xs text-foreground" onClick={() => flyTo(st.floor, st.at)}>
-                  {st.label || `Точка ${i + 1}`} <small className="text-muted-foreground">{floorName(floors, st.floor)}</small>
-                </button>
+                <Tip label="Показать остановку на плане" side="left">
+                  <button className="min-w-0 flex-1 cursor-pointer truncate border-0 bg-transparent py-1 text-left text-xs text-foreground" onClick={() => flyTo(st.floor, st.at)}>
+                    {st.label || `Точка ${i + 1}`} <small className="text-muted-foreground">{floorName(floors, st.floor)}</small>
+                  </button>
+                </Tip>
                 {editable && (
                   <>
-                    <Button variant="ghost" size="icon-sm" aria-label="Выше" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp /></Button>
-                    <Button variant="ghost" size="icon-sm" aria-label="Ниже" disabled={i === stops.length - 1} onClick={() => move(i, 1)}><ArrowDown /></Button>
-                    <Button variant="ghost" size="icon-sm" aria-label="Убрать" disabled={stops.length <= 2} onClick={() => change({ ...x, stops: stops.filter((_, k) => k !== i) })}><X /></Button>
+                    <Button variant="ghost" size="icon-sm" aria-label="Выше" disabled={i === 0} onClick={() => move(i, -1)}
+                      hint={i === 0 ? 'Это первая остановка' : 'Поменять местами с предыдущей; путь пересчитается'}><ArrowUp /></Button>
+                    <Button variant="ghost" size="icon-sm" aria-label="Ниже" disabled={i === stops.length - 1} onClick={() => move(i, 1)}
+                      hint={i === stops.length - 1 ? 'Это последняя остановка' : 'Поменять местами со следующей; путь пересчитается'}><ArrowDown /></Button>
+                    <Button variant="ghost" size="icon-sm" aria-label="Убрать" disabled={stops.length <= 2} onClick={() => change({ ...x, stops: stops.filter((_, k) => k !== i) })}
+                      hint={stops.length <= 2 ? 'В маршруте нужны хотя бы две остановки' : 'Убрать остановку из маршрута; путь пересчитается'}><X /></Button>
                   </>
                 )}
               </li>
@@ -148,13 +180,14 @@ export function RouteInspector({ ed, r, rules, floors, conflicts, editable, plan
         {editable && (
           <>
             <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant={adding ? 'default' : 'outline'} onClick={() => ed.setAdding(adding ? null : r.id)}>
+              <Button size="sm" variant={adding ? 'default' : 'outline'} onClick={() => ed.setAdding(adding ? null : r.id)}
+                hint={adding ? 'Больше не добавлять остановки щелчками (Esc)' : 'Добавлять щелчками на плане новые остановки в конец маршрута'}>
                 {adding ? <><Check /> Закончить</> : <><MapPin /> Остановка на плане</>}
               </Button>
-              <Button size="sm" variant="outline" title="Пересчитать путь по текущему плану и мебели" onClick={() => change(x)}><RefreshCw /> Пересчитать</Button>
+              <Button size="sm" variant="outline" hint="Проложить путь заново по текущему плану и расстановке, если что-то сдвинули" onClick={() => change(x)}><RefreshCw /> Пересчитать</Button>
             </div>
             <RoomPicker floors={floors} planOf={planOf} onPick={(st) => change({ ...x, stops: [...stops, st] })} />
-            <Button size="sm" variant="ghost" className="justify-self-start text-destructive" onClick={async () => {
+            <Button size="sm" variant="ghost" className="justify-self-start text-destructive" hint={REMOVE} onClick={async () => {
               if (await ask({ title: `Удалить маршрут «${x.name || 'без названия'}»?`, confirm: 'Удалить', danger: true })) ed.remove(r)
             }}><Trash2 /> Удалить маршрут</Button>
           </>
@@ -181,28 +214,34 @@ export function OutlineInspector({ ed, s, rules, floors, editable, onClose }: {
         sub={`${floorName(floors, s.floor)} · ${zone ? `${polyArea(s.points ?? []).toFixed(1)} м²` : `${len.toFixed(1)} м${z.reserve ? ` (запас ${z.reserve}%)` : ''}`}`} onClose={onClose} />
       {ed.hint && <div className="rounded-md bg-accent p-2 text-xs text-accent-foreground">{ed.hint}</div>}
       <fieldset disabled={!editable} className="m-0 grid gap-3 border-0 p-0">
-        <Field label="Название"><Input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} onBlur={() => name !== (z.name ?? '') && ed.update(s, { ...z, name })} /></Field>
+        <Field label="Название"><Tip label={`${NAME}; сохраняется, когда поле теряет фокус`}><Input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} onBlur={() => name !== (z.name ?? '') && ed.update(s, { ...z, name })} /></Tip></Field>
         {zone ? (
           <Field label="Вид зоны">
-            <Select value={z.zone} onChange={(e) => ed.update(s, { ...z, zone: e.target.value })}>
-              {Object.entries(rules.zone_kinds).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
-            </Select>
+            <Tip label={`${ZONE}; сохраняется сразу`}>
+              <Select value={z.zone} onChange={(e) => ed.update(s, { ...z, zone: e.target.value })}>
+                {Object.entries(rules.zone_kinds).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
+              </Select>
+            </Tip>
           </Field>
         ) : (
           <div className="grid grid-cols-[1fr_6rem] gap-2">
             <Field label="Кабель">
-              <Select value={z.cable} onChange={(e) => ed.update(s, { ...z, cable: e.target.value })}>
-                {Object.entries(rules.cables).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
-              </Select>
+              <Tip label={`${CABLE}; сохраняется сразу`}>
+                <Select value={z.cable} onChange={(e) => ed.update(s, { ...z, cable: e.target.value })}>
+                  {Object.entries(rules.cables).map(([k, x]) => <option key={k} value={k}>{x.name}</option>)}
+                </Select>
+              </Tip>
             </Field>
             <Field label="Запас, %">
-              <Input type="number" min={0} max={100} defaultValue={z.reserve ?? 0}
-                onBlur={(e) => { const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)); if (v !== (z.reserve ?? 0)) ed.update(s, { ...z, reserve: v }) }} />
+              <Tip label={`${RESERVE}; сохраняется, когда поле теряет фокус`}>
+                <Input type="number" min={0} max={100} defaultValue={z.reserve ?? 0}
+                  onBlur={(e) => { const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)); if (v !== (z.reserve ?? 0)) ed.update(s, { ...z, reserve: v }) }} />
+              </Tip>
             </Field>
           </div>
         )}
         {editable && (
-          <Button size="sm" variant="ghost" className="justify-self-start text-destructive" onClick={async () => {
+          <Button size="sm" variant="ghost" className="justify-self-start text-destructive" hint={REMOVE} onClick={async () => {
             if (await ask({ title: zone ? 'Удалить зону?' : 'Удалить трассу?', confirm: 'Удалить', danger: true })) ed.remove(s)
           }}><Trash2 /> Удалить</Button>
         )}
@@ -251,11 +290,13 @@ export function LayerShapes({ ed, layer, shapes, rules, floors, conflicts, edita
           const it = item(s)
           return (
             <li key={s.id}>
-              <button className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-left text-foreground hover:bg-secondary" onClick={() => onSelect(s)}>
-                <i className={cn('size-2.5 shrink-0', s.geom === 'route' ? 'rounded-full' : 'rounded-[3px]')} style={{ background: it.color ?? '#868e96' }} />
-                <span className="min-w-0 flex-1 leading-tight"><span className="block truncate text-sm">{it.title}</span><small className="text-[11px] text-muted-foreground">{it.sub}</small></span>
-                {it.bad && <AlertTriangle className="size-3.5 shrink-0 text-warning" />}
-              </button>
+              <Tip label={it.bad ? 'Выделить и открыть свойства: у маршрута есть нарушения' : 'Выделить на плане и открыть свойства'} side="left">
+                <button className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-left text-foreground hover:bg-secondary" onClick={() => onSelect(s)}>
+                  <i className={cn('size-2.5 shrink-0', s.geom === 'route' ? 'rounded-full' : 'rounded-[3px]')} style={{ background: it.color ?? '#868e96' }} />
+                  <span className="min-w-0 flex-1 leading-tight"><span className="block truncate text-sm">{it.title}</span><small className="text-[11px] text-muted-foreground">{it.sub}</small></span>
+                  {it.bad && <AlertTriangle className="size-3.5 shrink-0 text-warning" />}
+                </button>
+              </Tip>
             </li>
           )
         })}
@@ -268,9 +309,11 @@ export function LayerShapes({ ed, layer, shapes, rules, floors, conflicts, edita
           {conflicts.map((c, i) => {
             const s = shapes.find((x) => x.id === c.a)
             return (
-              <button key={i} className="flex cursor-pointer gap-1.5 rounded-md border-0 bg-warning/15 p-1.5 text-left text-xs text-warning" onClick={() => s && onSelect(s)}>
-                <AlertTriangle className="size-3.5 shrink-0" /> {c.text} <small className="ml-auto text-muted-foreground">{floorName(floors, c.floor)}</small>
-              </button>
+              <Tip key={i} label="Выделить маршрут с этим нарушением и открыть его свойства" side="left">
+                <button className="flex cursor-pointer gap-1.5 rounded-md border-0 bg-warning/15 p-1.5 text-left text-xs text-warning" onClick={() => s && onSelect(s)}>
+                  <AlertTriangle className="size-3.5 shrink-0" /> {c.text} <small className="ml-auto text-muted-foreground">{floorName(floors, c.floor)}</small>
+                </button>
+              </Tip>
             )
           })}
           <small className="text-[11px] text-muted-foreground">Правила: {rules.flow_conflicts.map(([a, b]) => `${rules.flows[a]?.name.toLowerCase()} × ${rules.flows[b]?.name.toLowerCase()}`).join('; ')}</small>

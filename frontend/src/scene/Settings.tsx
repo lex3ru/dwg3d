@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { fileUrl, type Job, type Role } from './api'
 
@@ -115,7 +116,9 @@ export default function Settings({ job, onRebuild, onClose }: {
                 {rows.map((x, i) => (
                   <tr key={x.candidate} className={cn(!x.include && '[&>td]:opacity-55')}>
                     <td className={td}>
-                      <Switch checked={x.include} aria-label="Строить лист" onCheckedChange={(v) => upd(i, { include: v })} />
+                      <Tip label={x.include ? 'Не строить этот лист: этаж уйдёт из модели при пересборке' : 'Строить этот лист этажом модели'}>
+                        <Switch checked={x.include} aria-label="Строить лист" onCheckedChange={(v) => upd(i, { include: v })} />
+                      </Tip>
                     </td>
                     <td className={td}>{(() => {
                       const pv = r.candidates[i]?.preview
@@ -125,19 +128,31 @@ export default function Settings({ job, onRebuild, onClose }: {
                         </svg>
                       ) : null
                     })()}</td>
-                    <td className={td}><Input value={x.name} onChange={(e) => upd(i, { name: e.target.value })} /></td>
-                    <td className={td}><Input className={numCls} type="number" value={x.level} onChange={(e) => upd(i, { level: e.target.value })} /></td>
+                    <td className={td}><Tip label="Имя этажа в дереве и на ленте этажей"><Input value={x.name} onChange={(e) => upd(i, { name: e.target.value })} /></Tip></td>
                     <td className={td}>
-                      <Input className={numCls} type="number" step="0.05" value={x.height}
-                        onChange={(e) => { upd(i, { height: e.target.value }); setManualHeights((s) => new Set(s).add(x.candidate)) }} />
+                      <Tip label="Номер этажа: по нему этажи подписываются и встают по порядку">
+                        <Input className={numCls} type="number" value={x.level} onChange={(e) => upd(i, { level: e.target.value })} />
+                      </Tip>
                     </td>
                     <td className={td}>
-                      <Input className={numCls} type="number" step="0.05" value={x.elevation}
-                        onChange={(e) => { upd(i, { elevation: e.target.value }); setManualElev((s) => new Set(s).add(x.candidate)) }} />
+                      <Tip label="От пола до пола следующего, м; не трогайте — возьмётся из высотных отметок плана">
+                        <Input className={numCls} type="number" step="0.05" value={x.height}
+                          onChange={(e) => { upd(i, { height: e.target.value }); setManualHeights((s) => new Set(s).add(x.candidate)) }} />
+                      </Tip>
+                    </td>
+                    <td className={td}>
+                      <Tip label="Уровень пола этажа, м; не трогайте — возьмётся из высотных отметок плана">
+                        <Input className={numCls} type="number" step="0.05" value={x.elevation}
+                          onChange={(e) => { upd(i, { elevation: e.target.value }); setManualElev((s) => new Set(s).add(x.candidate)) }} />
+                      </Tip>
                     </td>
                     <td className={td}>
                       {built.has(x.candidate)
-                        ? <a className="text-primary underline-offset-4 hover:underline" href={fileUrl(job.id, `debug/floor_${x.candidate}.png`, job.build)} target="_blank" rel="noreferrer">план</a>
+                        ? (
+                          <Tip label="Картинка распознанного этажа в новой вкладке — проверить стены и помещения">
+                            <a className="text-primary underline-offset-4 hover:underline" href={fileUrl(job.id, `debug/floor_${x.candidate}.png`, job.build)} target="_blank" rel="noreferrer">план</a>
+                          </Tip>
+                        )
                         : '—'}
                     </td>
                   </tr>
@@ -150,15 +165,17 @@ export default function Settings({ job, onRebuild, onClose }: {
             <h3 className="m-0 text-sm font-semibold">Параметры</h3>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-5 gap-y-2">
               {([
-                ['floor_height', 'Высота этажа по умолчанию'],
-                ['door_height', 'Высота дверей'],
-                ['window_sill', 'Низ окна (подоконник)'],
-                ['window_head', 'Верх окна'],
-              ] as const).map(([k, label]) => (
+                ['floor_height', 'Высота этажа по умолчанию', 'Для этажей, у которых высота не задана выше и не найдена на плане'],
+                ['door_height', 'Высота дверей', 'Высота дверных проёмов в 3D-модели'],
+                ['window_sill', 'Низ окна (подоконник)', 'От пола до низа оконных проёмов в 3D-модели'],
+                ['window_head', 'Верх окна', 'От пола до верха оконных проёмов в 3D-модели'],
+              ] as const).map(([k, label, hint]) => (
                 <Label key={k} className="flex items-center justify-between gap-2 font-normal">
                   <span className="flex-1">{label}, м</span>
-                  <Input className={numCls} type="number" step="0.05" value={params[k]}
-                    onChange={(e) => setParams((p) => ({ ...p, [k]: e.target.value }))} />
+                  <Tip label={hint}>
+                    <Input className={numCls} type="number" step="0.05" value={params[k]}
+                      onChange={(e) => setParams((p) => ({ ...p, [k]: e.target.value }))} />
+                  </Tip>
                 </Label>
               ))}
             </div>
@@ -175,12 +192,14 @@ export default function Settings({ job, onRebuild, onClose }: {
                     <td className={cn(td, 'break-all')}>{n}</td>
                     <td className={cn(td, 'text-right text-muted-foreground tabular-nums')}>{r.layers[n].count}</td>
                     <td className={td}>
-                      <Select value={roles[n]} aria-label={`Роль слоя ${n}`} onChange={(e) => {
-                        setRoles((s) => ({ ...s, [n]: e.target.value as Role | '' }))
-                        setLayersDirty(true)
-                      }}>
-                        {ROLES.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
-                      </Select>
+                      <Tip label="Чем считать линии этого слоя CAD в модели; «Игнор» — не строить вовсе" side="left">
+                        <Select value={roles[n]} aria-label={`Роль слоя ${n}`} onChange={(e) => {
+                          setRoles((s) => ({ ...s, [n]: e.target.value as Role | '' }))
+                          setLayersDirty(true)
+                        }}>
+                          {ROLES.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
+                        </Select>
+                      </Tip>
                     </td>
                   </tr>
                 ))}
@@ -189,8 +208,8 @@ export default function Settings({ job, onRebuild, onClose }: {
           </section>
         </div>
         <DialogFooter>
-          <Button variant="secondary" onClick={onClose}>Отмена</Button>
-          <Button onClick={submit}>Перестроить модель</Button>
+          <Button variant="secondary" hint="Закрыть без пересборки; изменения в окне пропадут" onClick={onClose}>Отмена</Button>
+          <Button onClick={submit} hint="Собрать модель заново с этими настройками; если пропадут помещения, сборка подождёт проверки как черновик">Перестроить модель</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

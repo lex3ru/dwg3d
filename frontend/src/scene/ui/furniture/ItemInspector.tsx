@@ -4,11 +4,15 @@ import type { Layer, LayerKindInfo, PlacedItem } from '@/scene/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Tip } from '@/components/ui/tooltip'
 import { assetOf } from '@/scene/compat'
 import { catalogItem } from '@/scene/furniture/catalog'
 import { ISSUE_LABEL, LUX_LIT, LUX_WORK, camParams, itemElev, itemSize, lightZone, roomAt, type Issue, type PlanIndex } from '@/scene/furniture/geom'
 import { layersFor } from '@/scene/furniture/layers'
 import { cm, ItemSymbol, NumField } from './parts'
+
+/** placed items are objects of accounting or items of variants: their size is their type's */
+const OWN_SIZE = 'Свой размер вместо каталожного; сервер его не примет — габариты задаёт тип в каталоге'
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label className="grid gap-1 text-xs text-muted-foreground">{label}{children}</label>
@@ -50,18 +54,22 @@ export default function ItemInspector(p: {
         <ItemSymbol c={c} />
         <div className="min-w-0 flex-1">
           <b className="block truncate">{c.name}</b>
-          {asset && <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">инв. № {asset.number} — карточка</a>}
+          {asset && (
+            <Tip label="Открыть карточку объекта: свойства, ответственный, история">
+              <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">инв. № {asset.number} — карточка</a>
+            </Tip>
+          )}
           <small className="text-xs text-muted-foreground">{(p.plan && roomAt(p.plan, sel.at)) || 'вне помещений'}</small>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label="Снять выделение" onClick={() => p.onSelect(null)}><X /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Снять выделение" hint="Закрыть свойства предмета (Esc); он останется на месте" onClick={() => p.onSelect(null)}><X /></Button>
       </div>
       {p.issues.length > 0 && (
         <ul className="m-0 grid list-none gap-1 p-0">
           {p.issues.map((x, i) => (
             <li key={i} className={`flex items-start gap-1.5 rounded-md p-1.5 text-xs ${x.kind === 'zone' ? 'bg-warning/15 text-warning' : 'bg-destructive/10 text-destructive'}`}>
               <AlertTriangle className="mt-px size-3.5 shrink-0" />
-              <span>{ISSUE_LABEL[x.kind]}{x.with && <>: <button className="cursor-pointer border-0 bg-transparent p-0 text-xs underline" onClick={() => p.onSelect(x.with!)}>
-                {catalogItem(p.items.find((o) => o.id === x.with)?.item ?? '').name}</button></>}</span>
+              <span>{ISSUE_LABEL[x.kind]}{x.with && <>: <Tip label="Выделить второй предмет этого замечания"><button className="cursor-pointer border-0 bg-transparent p-0 text-xs underline" onClick={() => p.onSelect(x.with!)}>
+                {catalogItem(p.items.find((o) => o.id === x.with)?.item ?? '').name}</button></Tip></>}</span>
             </li>
           ))}
         </ul>
@@ -69,23 +77,28 @@ export default function ItemInspector(p: {
       <fieldset disabled={p.readOnly} className="m-0 grid gap-3 border-0 p-0">
         {asset ? <small className="text-xs text-muted-foreground">{cm(w)}×{cm(d)}×{cm(h)} см — габариты типа в каталоге</small> : (
           <div className="grid grid-cols-3 gap-2">
-            <NumField label="Ширина, см" value={cm(w)} onChange={(v) => setSize(0, v)} />
-            <NumField label="Глубина, см" value={cm(d)} onChange={(v) => setSize(1, v)} />
-            <NumField label="Высота, см" value={cm(h)} onChange={(v) => setSize(2, v)} />
+            <NumField label="Ширина, см" value={cm(w)} onChange={(v) => setSize(0, v)} hint={OWN_SIZE} />
+            <NumField label="Глубина, см" value={cm(d)} onChange={(v) => setSize(1, v)} hint={OWN_SIZE} />
+            <NumField label="Высота, см" value={cm(h)} onChange={(v) => setSize(2, v)} hint={OWN_SIZE} />
           </div>
         )}
         {sel.size && (
-          <button className="-mt-2 cursor-pointer justify-self-start border-0 bg-transparent p-0 text-xs text-primary hover:underline" onClick={() => p.onUpdate(sel.id, { size: undefined })}>
-            Размер по каталогу ({cm(c.w)}×{cm(c.d)}×{cm(c.h)})
-          </button>
+          <Tip label="Сбросить свои габариты: предмет снова примет размер своего типа">
+            <button className="-mt-2 cursor-pointer justify-self-start border-0 bg-transparent p-0 text-xs text-primary hover:underline" onClick={() => p.onUpdate(sel.id, { size: undefined })}>
+              Размер по каталогу ({cm(c.w)}×{cm(c.d)}×{cm(c.h)})
+            </button>
+          </Tip>
         )}
         {(c.elev != null || sel.elev != null) && (
-          <NumField label="Высота установки, см" value={cm(itemElev(sel, c))} min={0} max={2000} onChange={(v) => p.onUpdate(sel.id, { elev: v / 100 })} />
+          <NumField label="Высота установки, см" value={cm(itemElev(sel, c))} min={0} max={2000} onChange={(v) => p.onUpdate(sel.id, { elev: v / 100 })}
+            hint={asset ? 'От пола этажа, 0–2000 см; уходит в учёт вместе с положением объекта' : 'От пола этажа, 0–2000 см; в вариант не сохраняется — только для расчёта здесь'} />
         )}
         {cp && (
           <div className="grid grid-cols-2 gap-2">
-            <NumField label="Угол обзора, °" value={Math.round(cp.fov)} min={1} max={360} onChange={(v) => p.onUpdate(sel.id, { fov: v })} />
-            <NumField label="Дальность, м" value={Math.round(cp.range * 10) / 10} min={0.5} max={300} onChange={(v) => p.onUpdate(sel.id, { range: v })} />
+            <NumField label="Угол обзора, °" value={Math.round(cp.fov)} min={1} max={360} onChange={(v) => p.onUpdate(sel.id, { fov: v })}
+              hint="Ширина сектора на плане, 1–360°; только для расчёта здесь — после перезагрузки снова как в каталоге" />
+            <NumField label="Дальность, м" value={Math.round(cp.range * 10) / 10} min={0.5} max={300} onChange={(v) => p.onUpdate(sel.id, { range: v })}
+              hint="Длина сектора на плане, 0,5–300 м; только для расчёта здесь — после перезагрузки снова как в каталоге" />
             <small className="col-span-2 text-xs text-muted-foreground">Лица различимы до {cp.ident.toFixed(1)} м</small>
           </div>
         )}
@@ -97,38 +110,45 @@ export default function ItemInspector(p: {
           </small>
         )}
         <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
-          <NumField label="Поворот, °" value={Math.round(sel.angle)} min={-360} max={360} onChange={(v) => p.onUpdate(sel.id, { angle: ((v % 360) + 360) % 360 })} />
+          <NumField label="Поворот, °" value={Math.round(sel.angle)} min={-360} max={360} onChange={(v) => p.onUpdate(sel.id, { angle: ((v % 360) + 360) % 360 })}
+            hint="Угол в градусах, плюс — против часовой; сохраняется сразу, Ctrl+Z отменяет" />
           <div className="flex gap-1">
-            <Button variant="outline" size="sm" title="90° против часовой (R)" onClick={() => p.onRotate(sel.id, 90)}><RotateCcw /> 90°</Button>
-            <Button variant="outline" size="sm" title="90° по часовой (Shift+R)" onClick={() => p.onRotate(sel.id, -90)}><RotateCw /> 90°</Button>
-            <Button variant="outline" size="sm" title="15° против часовой (Q)" onClick={() => p.onRotate(sel.id, 15)}>15°</Button>
+            <Button variant="outline" size="sm" hint="Против часовой стрелки (R); сохраняется сразу, Ctrl+Z отменяет" onClick={() => p.onRotate(sel.id, 90)}><RotateCcw /> 90°</Button>
+            <Button variant="outline" size="sm" hint="По часовой стрелке (Shift+R)" onClick={() => p.onRotate(sel.id, -90)}><RotateCw /> 90°</Button>
+            <Button variant="outline" size="sm" hint="Против часовой (Q); E — на 15° по часовой" onClick={() => p.onRotate(sel.id, 15)}>15°</Button>
           </div>
         </div>
         {(opts.length > 1 || (sel.layer && !opts.some((l) => l.id === sel.layer))) && (
           <Field label="Слой">
-            <Select value={sel.layer ?? ''} onChange={(e) => e.target.value && p.onUpdate(sel.id, { layer: e.target.value })}>
-              {!sel.layer && <option value="">—</option>}
-              {p.layers.filter((l) => l.id === sel.layer || opts.includes(l)).map((l) => (
-                <option key={l.id} value={l.id}>{l.name}{l.locked ? ' (заблокирован)' : ''}</option>
-              ))}
-            </Select>
+            <Tip label="Перенести в другой слой; объектам учёта и предметам вариантов не сохраняется — их слой задаёт раздел каталога">
+              <Select value={sel.layer ?? ''} onChange={(e) => e.target.value && p.onUpdate(sel.id, { layer: e.target.value })}>
+                {!sel.layer && <option value="">—</option>}
+                {p.layers.filter((l) => l.id === sel.layer || opts.includes(l)).map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}{l.locked ? ' (заблокирован)' : ''}</option>
+                ))}
+              </Select>
+            </Tip>
           </Field>
         )}
         <Field label="Примечание">
-          <Input value={sel.note ?? ''} placeholder="артикул, поставщик…" maxLength={500} onChange={(e) => p.onUpdate(sel.id, { note: e.target.value || undefined })} />
+          <Tip label={asset ? 'До 500 знаков; уходит в учёт с историей и видно в карточке объекта' : 'До 500 знаков; сохраняется в варианте вместе с предметом'}>
+            <Input value={sel.note ?? ''} placeholder="артикул, поставщик…" maxLength={500} onChange={(e) => p.onUpdate(sel.id, { note: e.target.value || undefined })} />
+          </Tip>
         </Field>
         {row ? (
           <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-2">
-            <NumField label="Штук" value={row.n} min={2} max={50} onChange={(v) => setRow({ ...row, n: Math.round(v) })} />
-            <NumField label="Зазор, см" value={cm(row.gap)} min={0} max={1000} onChange={(v) => setRow({ ...row, gap: v / 100 })} />
-            <Button size="sm" onClick={() => { p.onRow(sel.id, row.n, row.gap); setRow(null) }}>Создать ряд</Button>
+            <NumField label="Штук" value={row.n} min={2} max={50} onChange={(v) => setRow({ ...row, n: Math.round(v) })} hint="Всего в ряду вместе с выбранным, 2–50" />
+            <NumField label="Зазор, см" value={cm(row.gap)} min={0} max={1000} onChange={(v) => setRow({ ...row, gap: v / 100 })} hint="Расстояние между соседними предметами, 0–1000 см" />
+            <Button size="sm" hint={asset ? 'Поставить копии вдоль ширины; спросит номер первого нового объекта, остальные пойдут подряд' : 'Поставить копии вдоль ширины предмета'}
+              onClick={() => { p.onRow(sel.id, row.n, row.gap); setRow(null) }}>Создать ряд</Button>
             <Button size="sm" variant="secondary" onClick={() => setRow(null)}>Отмена</Button>
           </div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            <Button variant="outline" size="sm" title="Ctrl+D" onClick={() => p.onDuplicate(sel.id)}><Copy /> Копия</Button>
-            <Button variant="outline" size="sm" title="Ряд одинаковых предметов вдоль ширины" onClick={() => setRow({ n: 3, gap: 0 })}><Columns3 /> Ряд…</Button>
-            {!asset && <Button variant="ghost" size="sm" className="ml-auto text-destructive" title="Delete" onClick={() => p.onDelete(sel.id)}><Trash2 /> Удалить</Button>}
+            <Button variant="outline" size="sm" hint={asset ? 'Такой же рядом (Ctrl+D): новый объект учёта, спросит инвентарный номер' : 'Такой же предмет рядом (Ctrl+D)'}
+              onClick={() => p.onDuplicate(sel.id)}><Copy /> Копия</Button>
+            <Button variant="outline" size="sm" hint="Несколько одинаковых в линию вдоль ширины, с заданным зазором" onClick={() => setRow({ n: 3, gap: 0 })}><Columns3 /> Ряд…</Button>
+            {!asset && <Button variant="ghost" size="sm" className="ml-auto text-destructive" hint="Убрать предмет из варианта (Delete); Ctrl+Z вернёт" onClick={() => p.onDelete(sel.id)}><Trash2 /> Удалить</Button>}
           </div>
         )}
       </fieldset>

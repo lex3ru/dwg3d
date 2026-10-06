@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tip } from '@/components/ui/tooltip'
-import { variantGroups } from '@/scene/furniture/layers'
+import { variantGroup, variantGroups } from '@/scene/furniture/layers'
 import { cn } from '@/lib/utils'
 import { jobColor } from '@/scene/state'
 
@@ -34,11 +34,13 @@ function Section({ title, icon: Icon, action, children, open, onOpen }: {
   return (
     <section className="mb-1">
       <div className="flex items-center gap-1 px-1">
-        <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent px-1 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
-          onClick={() => onOpen(!open)} aria-expanded={open}>
-          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          <Icon className="size-3.5" /> {title}
-        </button>
+        <Tip label={open ? 'Свернуть раздел, чтобы освободить место в дереве' : 'Развернуть раздел'} side="right">
+          <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent px-1 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
+            onClick={() => onOpen(!open)} aria-expanded={open}>
+            {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            <Icon className="size-3.5" /> {title}
+          </button>
+        </Tip>
         {action}
       </div>
       {open && children}
@@ -105,12 +107,15 @@ export default function SceneTree(p: {
   const toggleRoom = (k: string) => setOpenRooms((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const objectRow = (o: TreeObject) => (
     <li key={o.id}>
-      <button className={cn(row, 'py-0.5 text-xs', p.selectedObject === o.id && 'bg-accent font-medium text-accent-foreground')}
-        title={p.editLayer === o.layer ? 'Выбрать' : 'Показать на плане'} onClick={() => p.onObject(o.layer, o)}>
-        <i className={cn('size-2 shrink-0', o.kind === 'item' ? 'rounded-[2px]' : 'rounded-full')} style={{ background: o.color ?? '#adb5bd' }} />
-        <span className="min-w-0 flex-1 truncate">{o.name}</span>
-        <small className="max-w-24 shrink-0 truncate text-muted-foreground">{group === 'rooms' ? p.layers.find((l) => l.id === o.layer)?.name : o.sub}</small>
-      </button>
+      <Tip label={p.editLayer === o.layer ? 'Приблизить объект на плане и открыть его свойства справа'
+        : 'Приблизить объект на плане; свойства открываются, когда правится его слой'} side="right">
+        <button className={cn(row, 'py-0.5 text-xs', p.selectedObject === o.id && 'bg-accent font-medium text-accent-foreground')}
+          onClick={() => p.onObject(o.layer, o)}>
+          <i className={cn('size-2 shrink-0', o.kind === 'item' ? 'rounded-[2px]' : 'rounded-full')} style={{ background: o.color ?? '#adb5bd' }} />
+          <span className="min-w-0 flex-1 truncate">{o.name}</span>
+          <small className="max-w-24 shrink-0 truncate text-muted-foreground">{group === 'rooms' ? p.layers.find((l) => l.id === o.layer)?.name : o.sub}</small>
+        </button>
+      </Tip>
     </li>
   )
   const toggleLayer = (id: string) => setOpenLayers((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -136,11 +141,16 @@ export default function SceneTree(p: {
       <div className="relative shrink-0 border-b border-border p-2">
         <Search className="pointer-events-none absolute top-4 left-4 size-3.5 text-muted-foreground" />
         <div className="flex gap-1">
-          <Input className="h-7 pl-7 text-xs" placeholder="Помещение или этаж" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Tip label="Оставить в дереве помещения, этажи и слои с этим текстом в названии" side="bottom">
+            <Input className="h-7 pl-7 text-xs" placeholder="Помещение или этаж" value={q} onChange={(e) => setQ(e.target.value)} />
+          </Tip>
           <div role="group" aria-label="Объекты в дереве" className="flex shrink-0 rounded-md bg-secondary p-0.5">
-            {([['layers', LayersIcon, 'Объекты — под своими слоями'], ['rooms', DoorOpen, 'Объекты — в помещениях, из всех показанных слоёв']] as const).map(([g, Icon, hint]) => (
+            {([
+              ['layers', LayersIcon, 'Объекты — под своими слоями', 'Раскладывать объекты по слоям, скрытые слои тоже; выбор запоминается в браузере'],
+              ['rooms', DoorOpen, 'Объекты — в помещениях, из всех показанных слоёв', 'Раскладывать объекты по помещениям этажей, только из показанных слоёв'],
+            ] as const).map(([g, Icon, label, hint]) => (
               <Tip key={g} label={hint} side="bottom">
-                <button aria-pressed={group === g} aria-label={hint} onClick={() => setGroup(g)}
+                <button aria-pressed={group === g} aria-label={label} onClick={() => setGroup(g)}
                   className={cn('grid size-6 cursor-pointer place-items-center rounded border-0 p-0', group === g ? 'bg-card text-foreground shadow-sm' : 'bg-transparent text-muted-foreground hover:text-foreground')}>
                   <Icon className="size-3.5" />
                 </button>
@@ -153,32 +163,50 @@ export default function SceneTree(p: {
         <Section title="Здание" icon={Building} open={sec.building} onOpen={(v) => setSec({ ...sec, building: v })}>
           {(jobs.length > 1 ? jobs : current ? [current] : []).filter(() => !s).map((j) => (
             <div key={j.id} className={cn('group flex items-center rounded-md hover:bg-secondary', j.id === p.jobId && p.drawingSelected && 'bg-accent')}>
-              <button className={cn(row, 'hover:bg-transparent', j.id === p.jobId && 'font-medium')}
-                onClick={() => (j.id === p.jobId ? p.onDrawing() : p.onOpenJob(j.id))}
-                title={j.id === p.jobId ? 'Сводка чертежа: этажи, предупреждения, экспорт' : 'Открыть этот чертёж'}>
-                <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
-                <span className="min-w-0 flex-1 truncate">{j.name}</span>
-                <small className="text-muted-foreground">{j.floors} эт.</small>
-              </button>
+              <Tip label={j.id === p.jobId ? 'Сводка чертежа справа: этажи, замечания распознавания, выгрузка DXF и DWG'
+                : 'Перейти в редакторе к другому чертежу этого здания'} side="right">
+                <button className={cn(row, 'hover:bg-transparent', j.id === p.jobId && 'font-medium')}
+                  onClick={() => (j.id === p.jobId ? p.onDrawing() : p.onOpenJob(j.id))}>
+                  <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
+                  <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                  <small className="text-muted-foreground">{j.floors} эт.</small>
+                </button>
+              </Tip>
               {j.id === p.jobId && (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild><button className={cn(iconBtn, 'mr-1')} aria-label="Действия с чертежом"><MoreHorizontal /></button></DropdownMenuTrigger>
+                  <Tip label="Сводка, выгрузка файла, настройка этажей и ролей слоёв CAD" side="right">
+                    <DropdownMenuTrigger asChild><button className={cn(iconBtn, 'mr-1')} aria-label="Действия с чертежом"><MoreHorizontal /></button></DropdownMenuTrigger>
+                  </Tip>
                   <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuItem onSelect={p.onDrawing}><FileText /> Сводка и предупреждения</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF с правками</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG с правками</DropdownMenuItem>
-                    {p.editable && <DropdownMenuItem onSelect={p.onFloorSettings}><Settings2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>}
+                    <Tip label="Открыть справа этажи чертежа, файлы 3D-модели и замечания распознавания" side="left">
+                      <DropdownMenuItem onSelect={p.onDrawing}><FileText /> Сводка и предупреждения</DropdownMenuItem>
+                    </Tip>
+                    <Tip label="Скачать исходный чертёж с исправлениями из редактора плана; объекты слоёв в файл не входят" side="left">
+                      <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF с правками</DropdownMenuItem>
+                    </Tip>
+                    <Tip label="То же в формате AutoCAD: исходный чертёж с исправлениями плана, без объектов слоёв" side="left">
+                      <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG с правками</DropdownMenuItem>
+                    </Tip>
+                    {p.editable && (
+                      <Tip label="Какие листы строить, номера и высоты этажей, роли слоёв CAD; после правки модель собирается заново" side="left">
+                        <DropdownMenuItem onSelect={p.onFloorSettings}><Settings2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>
+                      </Tip>
+                    )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}`}><ExternalLink /> Чертежи здания, новый файл</a></DropdownMenuItem>
+                    <Tip label="Страница здания: загрузить новый чертёж или новую версию этого, расставить этажи" side="left">
+                      <DropdownMenuItem asChild><a href={`#/p/${p.projectId}`}><ExternalLink /> Чертежи здания, новый файл</a></DropdownMenuItem>
+                    </Tip>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
             </div>
           ))}
           {!s && (
-            <button className={cn(row, 'pl-5', p.active == null && 'bg-accent font-medium text-accent-foreground')} onClick={() => p.onFloor(null)}>
-              <Building className="size-4 shrink-0" /> Всё здание
-            </button>
+            <Tip label="Показать все этажи вместе, без активного этажа" side="right">
+              <button className={cn(row, 'pl-5', p.active == null && 'bg-accent font-medium text-accent-foreground')} onClick={() => p.onFloor(null)}>
+                <Building className="size-4 shrink-0" /> Всё здание
+              </button>
+            </Tip>
           )}
           <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-px p-0 pl-3">
             {floors.map((f) => {
@@ -189,17 +217,21 @@ export default function SceneTree(p: {
               return (
                 <li key={f.id}>
                   <div className={cn('group flex items-center rounded-md hover:bg-secondary', isActive && 'bg-accent')}>
-                    <button aria-label={expanded ? 'Свернуть' : 'Развернуть'} className={cn(iconBtn, 'hover:bg-transparent')} onClick={() => toggle(f.id)}>
-                      {expanded ? <ChevronDown /> : <ChevronRight />}
-                    </button>
-                    <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent py-1.5 pr-1 text-left text-sm text-foreground"
-                      onClick={() => p.onFloor(f.id)}>
-                      <span className="grid h-5 min-w-6 shrink-0 place-items-center rounded-full bg-secondary px-1 text-[11px] font-bold">{f.level}</span>
-                      <span className={cn('min-w-0 flex-1 truncate', isActive && 'font-medium text-accent-foreground')}>{f.name}</span>
-                      <small className="text-muted-foreground">{f.stats.rooms}</small>
-                    </button>
+                    <Tip label={expanded ? 'Скрыть список помещений этажа' : 'Показать помещения этажа'} side="right">
+                      <button aria-label={expanded ? 'Свернуть' : 'Развернуть'} className={cn(iconBtn, 'hover:bg-transparent')} onClick={() => toggle(f.id)}>
+                        {expanded ? <ChevronDown /> : <ChevronRight />}
+                      </button>
+                    </Tip>
+                    <Tip label="Сделать этаж активным: на нём смотрят план и ставят объекты; справа — число помещений" side="right">
+                      <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent py-1.5 pr-1 text-left text-sm text-foreground"
+                        onClick={() => p.onFloor(f.id)}>
+                        <span className="grid h-5 min-w-6 shrink-0 place-items-center rounded-full bg-secondary px-1 text-[11px] font-bold">{f.level}</span>
+                        <span className={cn('min-w-0 flex-1 truncate', isActive && 'font-medium text-accent-foreground')}>{f.name}</span>
+                        <small className="text-muted-foreground">{f.stats.rooms}</small>
+                      </button>
+                    </Tip>
                     {p.editable && (
-                      <Tip label="Редактировать план этажа: стены, проёмы, помещения" side="right">
+                      <Tip label="Исправить стены, проёмы и помещения в 2D-редакторе; после применения модель собирается заново" side="right">
                         <button className={cn(iconBtn, 'mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100')} aria-label="Редактировать план этажа"
                           onClick={() => p.onPlan(f.id)}><PencilRuler /></button>
                       </Tip>
@@ -215,16 +247,20 @@ export default function SceneTree(p: {
                           <li key={r.node}>
                             <div className={cn('flex items-center rounded-md hover:bg-secondary', p.selectedRoom === r.node && 'bg-accent')}>
                               {group === 'rooms' && (
-                                <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'}
-                                  onClick={() => toggleRoom(k)}>{roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
+                                <Tip label={roomOpen ? 'Скрыть объекты помещения' : 'Список объектов в помещении из показанных слоёв'} side="right">
+                                  <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'}
+                                    onClick={() => toggleRoom(k)}>{roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
+                                </Tip>
                               )}
-                              <button className={cn(row, 'py-1 text-xs hover:bg-transparent', p.selectedRoom === r.node && 'font-medium text-accent-foreground')}
-                                onClick={() => p.onRoom(f, r)}>
-                                <i className="size-2.5 shrink-0 rounded-[3px] border border-black/10" style={{ background: types.get(r.type ?? '')?.color ?? '#adb5bd' }} />
-                                <span className="min-w-0 flex-1 truncate">{roomName(r)}</span>
-                                {objs.length > 0 && <span className="rounded-full bg-secondary px-1.5 text-[10px] text-muted-foreground">{objs.length}</span>}
-                                <small className="text-muted-foreground">{r.area.toFixed(0)} м²</small>
-                              </button>
+                              <Tip label="Приблизить помещение; справа — его площадь, объекты и путь отсюда или сюда" side="right">
+                                <button className={cn(row, 'py-1 text-xs hover:bg-transparent', p.selectedRoom === r.node && 'font-medium text-accent-foreground')}
+                                  onClick={() => p.onRoom(f, r)}>
+                                  <i className="size-2.5 shrink-0 rounded-[3px] border border-black/10" style={{ background: types.get(r.type ?? '')?.color ?? '#adb5bd' }} />
+                                  <span className="min-w-0 flex-1 truncate">{roomName(r)}</span>
+                                  {objs.length > 0 && <span className="rounded-full bg-secondary px-1.5 text-[10px] text-muted-foreground">{objs.length}</span>}
+                                  <small className="text-muted-foreground">{r.area.toFixed(0)} м²</small>
+                                </button>
+                              </Tip>
                             </div>
                             {roomOpen && objs.length > 0 && (
                               <ul className="m-0 mb-1 ml-5 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">{objs.map(objectRow)}</ul>
@@ -241,12 +277,16 @@ export default function SceneTree(p: {
                         return (
                           <li>
                             <div className="flex items-center rounded-md hover:bg-secondary">
-                              <button className={cn(iconBtn, 'hover:bg-transparent')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'} onClick={() => toggleRoom(k)}>
-                                {roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
-                              <button className={cn(row, 'py-1 text-xs text-muted-foreground hover:bg-transparent')} onClick={() => toggleRoom(k)}>
-                                <span className="min-w-0 flex-1 truncate">Вне помещений и между ними</span>
-                                <span className="rounded-full bg-secondary px-1.5 text-[10px]">{objs.length}</span>
-                              </button>
+                              <Tip label={roomOpen ? 'Скрыть эти объекты' : 'Список объектов вне помещений из показанных слоёв'} side="right">
+                                <button className={cn(iconBtn, 'hover:bg-transparent')} aria-label={roomOpen ? 'Свернуть' : 'Показать объекты'} onClick={() => toggleRoom(k)}>
+                                  {roomOpen ? <ChevronDown /> : <ChevronRight />}</button>
+                              </Tip>
+                              <Tip label="Объекты, что стоят вне помещений или проходят через несколько; щелчок раскрывает список" side="right">
+                                <button className={cn(row, 'py-1 text-xs text-muted-foreground hover:bg-transparent')} onClick={() => toggleRoom(k)}>
+                                  <span className="min-w-0 flex-1 truncate">Вне помещений и между ними</span>
+                                  <span className="rounded-full bg-secondary px-1.5 text-[10px]">{objs.length}</span>
+                                </button>
+                              </Tip>
                             </div>
                             {roomOpen && <ul className="m-0 mb-1 ml-5 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">{objs.map(objectRow)}</ul>}
                           </li>
@@ -264,19 +304,35 @@ export default function SceneTree(p: {
           <Section title="Слои" icon={LayersIcon} open={sec.layers} onOpen={(v) => setSec({ ...sec, layers: v })}
             action={(
               <DropdownMenu>
-                <DropdownMenuTrigger asChild><button className={iconBtn} aria-label="Слои: действия"><MoreHorizontal /></button></DropdownMenuTrigger>
+                <Tip label="Видимость всех слоёв разом, сравнение вариантов" side="right">
+                  <DropdownMenuTrigger asChild><button className={iconBtn} aria-label="Слои: действия"><MoreHorizontal /></button></DropdownMenuTrigger>
+                </Tip>
                 <DropdownMenuContent align="end" className="w-60">
-                  {p.layers.length > 1 && <DropdownMenuItem onSelect={() => p.onAll(!allShown)}>{allShown ? <EyeOff /> : <Eye />} {allShown ? 'Скрыть все' : 'Показать все'}</DropdownMenuItem>}
-                  {groups.length > 0 && <DropdownMenuItem onSelect={p.onCompare}><GitCompare /> Сравнить варианты</DropdownMenuItem>}
+                  {p.layers.length > 1 && (
+                    <Tip label="Только на вашем экране: другим ничего не меняется, выбор запоминается в браузере" side="left">
+                      <DropdownMenuItem onSelect={() => p.onAll(!allShown)}>{allShown ? <EyeOff /> : <Eye />} {allShown ? 'Скрыть все' : 'Показать все'}</DropdownMenuItem>
+                    </Tip>
+                  )}
+                  {groups.length > 0 && (
+                    <Tip label="Что добавлено, убрано и перемещено между двумя вариантами слоя, со спецификацией и суммами по ценам каталога" side="left">
+                      <DropdownMenuItem onSelect={p.onCompare}><GitCompare /> Сравнить варианты</DropdownMenuItem>
+                    </Tip>
+                  )}
                   {p.editable && LATER.newLayers && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel>Новый слой</DropdownMenuLabel>
-                      {p.kinds.map((k) => <DropdownMenuItem key={k.kind} onSelect={() => p.onAddLayer(k.kind)}><Plus /> {k.name}</DropdownMenuItem>)}
+                      {p.kinds.map((k) => (
+                        <Tip key={k.kind} label="Пустой слой этого вида в проекте: его увидят все, править можно сразу" side="left">
+                          <DropdownMenuItem onSelect={() => p.onAddLayer(k.kind)}><Plus /> {k.name}</DropdownMenuItem>
+                        </Tip>
+                      ))}
                     </>
                   )}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/layers`}><Settings2 /> Слои проекта: имена, варианты</a></DropdownMenuItem>
+                  <Tip label="Страница здания; варианты размещения заводятся и применяются в его разделе «Варианты»" side="left">
+                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/layers`}><Settings2 /> Слои проекта: имена, варианты</a></DropdownMenuItem>
+                  </Tip>
                 </DropdownMenuContent>
               </DropdownMenu>
             )}>
@@ -290,14 +346,20 @@ export default function SceneTree(p: {
                 const off = p.hidden.has(l.id)
                 const variant = inVariants(l)
                 const editing = p.editLayer === l.id
+                // a variant of a layer (not its base, the fact): what is done in it goes to the variant
+                const ofVariant = variantGroup(l) !== l.id
                 const objs = group === 'layers' ? p.objects.get(l.id) ?? [] : []
                 const expanded = openLayers.has(l.id) || (editing && objs.some((o) => o.id === p.selectedObject))
                 return (
                   <li key={l.id}>
                   <div className={cn('flex items-center gap-0.5 rounded-md pr-1 hover:bg-secondary', editing && 'bg-accent ring-1 ring-primary/40')}>
-                    <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={expanded ? 'Свернуть' : 'Показать объекты'}
-                      onClick={() => toggleLayer(l.id)}>{expanded ? <ChevronDown /> : <ChevronRight />}</button>
-                    <Tip label={off ? (variant ? 'Показать этот вариант (остальные скроются)' : 'Показать слой') : 'Скрыть слой'} side="right">
+                    <Tip label={expanded ? 'Скрыть список объектов слоя' : 'Список объектов слоя на этом чертеже'} side="right">
+                      <button className={cn(iconBtn, 'hover:bg-transparent', !objs.length && 'invisible')} aria-label={expanded ? 'Свернуть' : 'Показать объекты'}
+                        onClick={() => toggleLayer(l.id)}>{expanded ? <ChevronDown /> : <ChevronRight />}</button>
+                    </Tip>
+                    <Tip label={off
+                      ? (variant ? 'Вывести на план этот вариант, другие варианты слоя скроются; только на вашем экране' : 'Вернуть слой на план; только на вашем экране')
+                      : 'Убрать слой с плана; только на вашем экране, запоминается в браузере'} side="right">
                       <button className={iconBtn} aria-pressed={!off} aria-label={off ? 'Показать слой' : 'Скрыть слой'}
                         onClick={() => (variant && off ? p.onVariant(l.id) : p.onToggle(l.id))}>
                         {off ? <EyeOff /> : <Eye className="text-foreground" />}
@@ -311,17 +373,24 @@ export default function SceneTree(p: {
                     </div>
                     {p.editable ? (
                       <>
-                        <Tip label={l.locked ? 'Слой заблокирован — разблокировать' : 'Заблокировать: слой нельзя менять'} side="right">
+                        <Tip label={l.locked ? 'Снять запрет на правку слоя' : 'Запретить правку слоя; пока не действует — сервис объектов замок не хранит'} side="right">
                           <button className={cn(iconBtn, l.locked && 'text-foreground')} aria-pressed={l.locked} aria-label="Блокировка"
                             onClick={() => p.onLock(l, { locked: !l.locked })}>{l.locked ? <Lock /> : <LockOpen />}</button>
                         </Tip>
-                        <Tip label={editing ? 'Закончить редактирование' : l.locked ? 'Слой заблокирован' : 'Редактировать слой: инструменты появятся сверху'} side="right">
+                        <Tip label={editing ? 'Закончить правку слоя (Esc, когда ничего не выбрано)'
+                          : l.locked ? 'Слой закрыт для правки: сначала снимите замок слева'
+                            : ofVariant ? 'Править вариант: ставить из каталога, двигать, убирать; правки уходят в вариант, учёт не меняется'
+                              : 'Править объекты слоя: ставить из каталога, двигать, поворачивать; изменения сразу уходят в учёт'} side="right">
                           <button className={cn(iconBtn, editing && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground')}
                             aria-pressed={editing} aria-label="Редактировать слой" disabled={l.locked && !editing}
                             onClick={() => p.onEdit(editing ? null : l.id)}><Pencil /></button>
                         </Tip>
                       </>
-                    ) : l.locked && <Lock className="mx-1.5 size-3.5 text-muted-foreground" />}
+                    ) : l.locked && (
+                      <Tip label="Слой только для просмотра: править его может администратор здания" side="right">
+                        <Lock className="mx-1.5 size-3.5 text-muted-foreground" />
+                      </Tip>
+                    )}
                   </div>
                   {expanded && objs.length > 0 && (
                     <ul className="m-0 mb-1 ml-6 grid list-none grid-cols-[minmax(0,1fr)] gap-px border-l border-border p-0 pl-1">
@@ -336,9 +405,11 @@ export default function SceneTree(p: {
           </Section>
         )}
       </div>
-      <a href={`#/p/${p.projectId}`} className="flex shrink-0 items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground no-underline hover:text-foreground">
-        <ExternalLink className="size-3.5" /> Здание: чертежи и этажи
-      </a>
+      <Tip label="Уйти из редактора на страницу здания: загрузка и версии чертежей, расстановка этажей" side="top">
+        <a href={`#/p/${p.projectId}`} className="flex shrink-0 items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground no-underline hover:text-foreground">
+          <ExternalLink className="size-3.5" /> Здание: чертежи и этажи
+        </a>
+      </Tip>
     </div>
   )
 }

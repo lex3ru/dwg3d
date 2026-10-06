@@ -6,6 +6,7 @@ import {
 } from '@/scene/api'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { MARK_COLOR } from '../viewer/Furniture'
 
@@ -40,7 +41,7 @@ function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable
       )}
       {state ? <div className="text-xs text-muted-foreground">{state}</div> : (
         <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" variant="secondary" onClick={async () => {
+          <Button size="sm" variant="secondary" hint="Показать на плане результат: новое, изменённое и удаляемое обведено цветом" onClick={async () => {
             try {
               const full = await getProposal(p.id)
               if (full.status === 'open') onPreview(full)
@@ -48,7 +49,7 @@ function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable
             } catch (e) { setState((e as Error).message) }
           }}><Eye /> Показать</Button>
           {editable && (
-            <Button size="sm" onClick={async () => {
+            <Button size="sm" hint="Внести изменения сразу, без подтверждения, от вашего имени с пометкой копилота" onClick={async () => {
               try { await applyProposal(p.id); setState('Применено'); onPreview(null) } catch (e) { setState((e as Error).message) }
             }}><Check /> Применить</Button>
           )}
@@ -129,19 +130,22 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
             {status.model}{status.daily_limit ? ` · сегодня ${status.used_today} из ${status.daily_limit}` : ''}
           </div>
         </div>
-        <Button size="icon" variant="ghost" title="Прошлые разговоры" onClick={async () => {
+        <Button size="icon" variant="ghost" aria-label="Прошлые разговоры"
+          hint={history ? 'Вернуться к текущему разговору' : 'Разговоры с копилотом по этому проекту: открыть и продолжить или удалить'} onClick={async () => {
           setHistory(history ? null : await listCopilotChats(projectId).catch(() => []))
         }}><History /></Button>
-        <Button size="icon" variant="ghost" title="Новый разговор" onClick={fresh}><Plus /></Button>
-        <Button size="icon" variant="ghost" title="Закрыть" onClick={onClose}><X /></Button>
+        <Button size="icon" variant="ghost" aria-label="Новый разговор" hint="Начать с чистого листа; этот останется в прошлых разговорах" onClick={fresh}><Plus /></Button>
+        <Button size="icon" variant="ghost" aria-label="Закрыть" hint="Свернуть панель в кнопку; разговор останется в прошлых" onClick={onClose}><X /></Button>
       </div>
       {history ? (
         <div className="grid flex-1 content-start gap-1 overflow-y-auto p-2">
           {!history.length && <p className="m-2 text-sm text-muted-foreground">Разговоров пока нет.</p>}
           {history.map((h) => (
             <div key={h.id} className="flex items-center gap-1 rounded-md hover:bg-secondary/60">
-              <button type="button" className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-sm" onClick={() => open(h.id)}>{h.title || 'Без названия'}</button>
-              <Button size="icon" variant="ghost" title="Удалить" onClick={async () => {
+              <Tip label="Открыть разговор и продолжить с того места" side="left">
+                <button type="button" className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-sm" onClick={() => open(h.id)}>{h.title || 'Без названия'}</button>
+              </Tip>
+              <Button size="icon" variant="ghost" aria-label="Удалить" hint="Удалить разговор сразу, без подтверждения" onClick={async () => {
                 await deleteCopilotChat(projectId, h.id).catch(() => {})
                 setHistory((x) => (x ?? []).filter((y) => y.id !== h.id))
                 if (chat === h.id) fresh()
@@ -155,7 +159,11 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
             <div className="grid gap-2 text-sm text-muted-foreground">
               <p className="m-0">Спросите о проекте или попросите что-то сделать. «Здесь» и «это» — то, что открыто и выделено на экране.</p>
               <div className="flex flex-wrap gap-1.5">
-                {EXAMPLES.map((x) => <button key={x} type="button" className="rounded-full border border-border px-2.5 py-1 text-xs hover:bg-secondary" onClick={() => send(x)}>{x}</button>)}
+                {EXAMPLES.map((x) => (
+                  <Tip key={x} label="Отправить этот вопрос копилоту сразу">
+                    <button type="button" className="rounded-full border border-border px-2.5 py-1 text-xs hover:bg-secondary" onClick={() => send(x)}>{x}</button>
+                  </Tip>
+                ))}
               </div>
             </div>
           )}
@@ -179,12 +187,14 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
         </div>
       )}
       <form className="flex items-end gap-2 border-t border-border p-2" onSubmit={(e) => { e.preventDefault(); send(text) }}>
-        <Textarea rows={2} className="min-h-0 flex-1 resize-none text-sm" value={text} placeholder="Сообщение копилоту…"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(text) } e.stopPropagation() }} />
+        <Tip label="Enter — отправить, Shift+Enter — новая строка">
+          <Textarea rows={2} className="min-h-0 flex-1 resize-none text-sm" value={text} placeholder="Сообщение копилоту…"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(text) } e.stopPropagation() }} />
+        </Tip>
         {busy
-          ? <Button type="button" size="icon" variant="secondary" title="Остановить" onClick={() => abort.current?.abort()}><Square /></Button>
-          : <Button size="icon" title="Отправить" disabled={!text.trim()}><Send /></Button>}
+          ? <Button type="button" size="icon" variant="secondary" aria-label="Остановить" hint="Прервать ответ модели; уже написанное останется" onClick={() => abort.current?.abort()}><Square /></Button>
+          : <Button size="icon" aria-label="Отправить" hint={text.trim() ? 'Спросить копилота (Enter); он видит, что открыто и выделено на экране' : 'Сначала напишите сообщение'} disabled={!text.trim()}><Send /></Button>}
       </form>
     </div>
   )

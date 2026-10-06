@@ -2,6 +2,7 @@ import { AlertTriangle, Download, FileBox, PencilRuler, X } from 'lucide-react'
 import { useState } from 'react'
 import { fileUrl, type Job } from '@/scene/api'
 import { Button } from '@/components/ui/button'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /**
@@ -41,7 +42,7 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
           <b className="block truncate">{job.filename}</b>
           <small className="text-xs text-muted-foreground">{r.floors.length} этажей · {r.floors.reduce((s, f) => s + f.stats.rooms, 0)} помещений{shown.build > 1 ? ` · сборка ${shown.build}` : ''}</small>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label="Закрыть" onClick={onClose}><X /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Закрыть" hint="Убрать сводку из панели; снова открыть — щелчком по чертежу в дереве" onClick={onClose}><X /></Button>
       </div>
 
       {r.quality?.status === 'suspect' && (
@@ -57,25 +58,28 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
         <ul className="m-0 grid list-none gap-0.5 p-0">
           {floors.map((f) => (
             <li key={f.id}>
-              <button className={cn('grid w-full cursor-pointer gap-0.5 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-foreground hover:bg-secondary', active === f.id && 'bg-accent')}
-                onClick={() => onFloor(f.id)}>
-                <span className="flex items-center gap-2 text-sm">
-                  <span className={cn('grid h-5 min-w-6 place-items-center rounded-full px-1 text-[11px] font-bold', active === f.id ? 'bg-primary text-primary-foreground' : 'bg-secondary')}>{f.level}</span>
-                  <span className="truncate">{f.name}</span>
-                </span>
-                <span className="flex flex-wrap gap-x-2.5 pl-8 text-[11px] text-muted-foreground">
-                  <span>{f.elevation! >= 0 ? '+' : ''}{f.elevation!.toFixed(2)} м</span>
-                  <span>h {f.height!.toFixed(2)} м</span>
-                  <span>{f.stats.rooms} пом.</span>
-                  <span>{Math.round(f.stats.footprint_m2)} м²</span>
-                </span>
-              </button>
+              <Tip label="Сделать этаж активным: его план можно править, на нём ставятся объекты" side="left">
+                <button className={cn('grid w-full cursor-pointer gap-0.5 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-foreground hover:bg-secondary', active === f.id && 'bg-accent')}
+                  onClick={() => onFloor(f.id)}>
+                  <span className="flex items-center gap-2 text-sm">
+                    <span className={cn('grid h-5 min-w-6 place-items-center rounded-full px-1 text-[11px] font-bold', active === f.id ? 'bg-primary text-primary-foreground' : 'bg-secondary')}>{f.level}</span>
+                    <span className="truncate">{f.name}</span>
+                  </span>
+                  <span className="flex flex-wrap gap-x-2.5 pl-8 text-[11px] text-muted-foreground">
+                    <span>{f.elevation! >= 0 ? '+' : ''}{f.elevation!.toFixed(2)} м</span>
+                    <span>h {f.height!.toFixed(2)} м</span>
+                    <span>{f.stats.rooms} пом.</span>
+                    <span>{Math.round(f.stats.footprint_m2)} м²</span>
+                  </span>
+                </button>
+              </Tip>
             </li>
           ))}
         </ul>
         {editable && (
           <Button variant="outline" size="sm" className="justify-self-start" disabled={running || !act} onClick={onEditor}
-            title="Исправить стены, проёмы и помещения на плане этажа">
+            hint={running ? 'Недоступно, пока модель собирается' : !act ? 'Сначала выберите этаж в списке выше'
+              : 'Исправить стены, проёмы и помещения в 2D-редакторе; применённые правки пересобирают модель'}>
             <PencilRuler /> {act ? `Редактировать план: ${act.name}` : 'Выберите этаж, чтобы править план'}
           </Button>
         )}
@@ -84,14 +88,19 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
       <section className="grid gap-2 rounded-md border border-border p-2.5">
         <b className="text-xs">Сохранить чертёж{editCount > 0 && <span className="ml-1.5 rounded-full bg-success/15 px-1.5 font-normal text-success">правок: {editCount}</span>}</b>
         {objectCount > 0 && (
-          <label className="flex items-center gap-2 text-xs" title="Мебель — блоками с атрибутами, камеры — с зоной обзора, маршруты — полилиниями, зоны — штриховкой; каждый слой проекта — отдельный слой чертежа">
-            <input type="checkbox" className="accent-primary" checked={withLayers} onChange={(e) => setWithLayers(e.target.checked)} />
-            со слоями проекта ({objectCount} объектов)
-          </label>
+          <Tip label="Положить в файл объекты показанных слоёв; пока выгрузка их не включает — в файле только план с исправлениями">
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" className="accent-primary" checked={withLayers} onChange={(e) => setWithLayers(e.target.checked)} />
+              со слоями проекта ({objectCount} объектов)
+            </label>
+          </Tip>
         )}
         <div className="flex gap-1.5">
           {(['dxf', 'dwg'] as const).map((f) => (
             <Button key={f} variant="secondary" size="sm" className="flex-1" disabled={!!saving || running || (!editCount && !(withLayers && objectCount > 0))}
+              hint={saving ? 'Файл уже готовится' : running ? 'Недоступно, пока модель собирается'
+                : !editCount && !(withLayers && objectCount > 0) ? 'Нечего сохранять: нет исправлений плана и объектов слоёв'
+                  : f === 'dxf' ? 'Скачать исходный чертёж с исправлениями из редактора плана' : 'То же в формате AutoCAD: исходный чертёж с исправлениями плана'}
               onClick={() => onSave(f, withLayers && objectCount > 0)}>
               <Download /> {saving === f ? 'Готовлю…' : f.toUpperCase()}
             </Button>
@@ -105,7 +114,9 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
         <section className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">3D-модель:</span>
           {Object.entries(r.exports).map(([k, name]) => (
-            <Button key={k} asChild variant="outline" size="sm"><a href={fileUrl(shown.id, name, shown.build)} download>{k.toUpperCase()}</a></Button>
+            <Button key={k} asChild variant="outline" size="sm" hint="Скачать файл 3D-модели текущей сборки — для других программ">
+              <a href={fileUrl(shown.id, name, shown.build)} download>{k.toUpperCase()}</a>
+            </Button>
           ))}
         </section>
       )}

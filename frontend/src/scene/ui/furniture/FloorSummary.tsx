@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import type { FloorMeta, Layer, PlacedItem } from '@/scene/api'
 import { catalogItem } from '@/scene/furniture/catalog'
 import { roomAt, type Issue, type PlanIndex, type RoomCover } from '@/scene/furniture/geom'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
@@ -43,18 +44,24 @@ export default function FloorSummary(p: {
         <small className="text-xs text-muted-foreground">{p.floor?.name ?? 'Этаж не выбран'} · {mine.length} шт. на этаже</small>
       </div>
       <p className="m-0 text-xs text-muted-foreground">Перетащите предмет из каталога слева на план. Щелчок по предмету — его свойства здесь.</p>
-      <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-primary" checked={p.showZones} onChange={(e) => p.onZones(e.target.checked)} /> Показывать зоны обслуживания</label>
+      <Tip label="Обвести у всех предметов место перед ними, которое должно оставаться свободным; занятое попадает в замечания">
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-primary" checked={p.showZones} onChange={(e) => p.onZones(e.target.checked)} /> Показывать зоны обслуживания</label>
+      </Tip>
       {withIssues.length > 0 && (
-        <button className="flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-destructive/10 p-2 text-left text-xs text-destructive hover:bg-destructive/15"
-          onClick={() => p.onSelect(withIssues[0].id)}>
-          <AlertTriangle className="size-3.5 shrink-0" /> Замечания у {withIssues.length} шт. — показать
-        </button>
+        <Tip label="Выделить первый предмет с замечанием: задевает стену, другой предмет, дверь или зону обслуживания">
+          <button className="flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-destructive/10 p-2 text-left text-xs text-destructive hover:bg-destructive/15"
+            onClick={() => p.onSelect(withIssues[0].id)}>
+            <AlertTriangle className="size-3.5 shrink-0" /> Замечания у {withIssues.length} шт. — показать
+          </button>
+        </Tip>
       )}
       {cams && (
         <section className="grid gap-1.5">
           <div className="flex items-center gap-2">
             <b className="flex-1 text-xs">Видеонаблюдение</b>
-            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" className="accent-primary" checked={p.camViews} onChange={(e) => p.onCamViews(e.target.checked)} /> обзор</label>
+            <Tip label="Рисовать на плане сектора обзора камер; доли площади ниже считаются и без них">
+              <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" className="accent-primary" checked={p.camViews} onChange={(e) => p.onCamViews(e.target.checked)} /> обзор</label>
+            </Tip>
           </div>
           <small className="text-xs text-muted-foreground">Доля площади помещения в поле зрения (в скобках — где различимы лица)</small>
           <ul className="m-0 grid list-none gap-0.5 p-0">
@@ -73,20 +80,24 @@ export default function FloorSummary(p: {
             const open = !closed.has(room)
             return (
               <div key={room}>
-                <button className="flex w-full cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1 py-1 text-left text-xs text-foreground hover:bg-secondary"
-                  onClick={() => setClosed((c) => { const n = new Set(c); if (n.has(room)) n.delete(room); else n.add(room); return n })}>
-                  {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                  <span className="flex-1 truncate">{room}</span><small className="text-muted-foreground">{list.length}</small>
-                </button>
+                <Tip label={open ? 'Скрыть предметы этого помещения' : 'Показать предметы этого помещения'} side="left">
+                  <button className="flex w-full cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1 py-1 text-left text-xs text-foreground hover:bg-secondary"
+                    onClick={() => setClosed((c) => { const n = new Set(c); if (n.has(room)) n.delete(room); else n.add(room); return n })}>
+                    {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                    <span className="flex-1 truncate">{room}</span><small className="text-muted-foreground">{list.length}</small>
+                  </button>
+                </Tip>
                 {open && (
                   <ul className="m-0 ml-4 grid list-none p-0">
                     {list.map((it) => (
                       <li key={it.id}>
-                        <button className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-0.5 text-left text-xs text-foreground hover:bg-secondary"
-                          onClick={() => p.onSelect(it.id)}>
-                          {p.issues.get(it.id)?.length ? <i className="size-1.5 shrink-0 rounded-full bg-destructive" /> : null}
-                          <span className="truncate">{catalogItem(it.item).name}</span>
-                        </button>
+                        <Tip label={p.issues.get(it.id)?.length ? 'Выделить предмет и посмотреть его замечания' : 'Выделить предмет на плане и открыть его свойства'} side="left">
+                          <button className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-0.5 text-left text-xs text-foreground hover:bg-secondary"
+                            onClick={() => p.onSelect(it.id)}>
+                            {p.issues.get(it.id)?.length ? <i className="size-1.5 shrink-0 rounded-full bg-destructive" /> : null}
+                            <span className="truncate">{catalogItem(it.item).name}</span>
+                          </button>
+                        </Tip>
                       </li>
                     ))}
                   </ul>
