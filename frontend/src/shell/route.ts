@@ -59,7 +59,8 @@ export const to = {
   scan: '#/scan',
   plan: (b: string, floor?: string, room?: string) => `#/b/${b}/plan${floor ? `/${floor}` : ''}${floor && room ? `/${room}` : ''}`,
   move: (b: string, floor: string, asset: string) => `#/b/${b}/plan/${floor}?move=${asset}`,
-  drawings: (b: string) => `#/b/${b}/drawings`,
+  /** `review`: the draft revision to open for checking */
+  drawings: (b: string, review?: string) => `#/b/${b}/drawings${review ? `?review=${review}` : ''}`,
   people: (b: string) => `#/b/${b}/people`,
   access: (b: string) => `#/b/${b}/access`,
   variants: (b: string, v?: string) => `#/b/${b}/variants${v ? `/${v}` : ''}`,

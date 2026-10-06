@@ -163,6 +163,8 @@ export interface Job {
   result?: Result
   model_url?: string
   build: number
+  /** a newer build waits for the administrator's review: the model shown is the published one */
+  draft?: { revision: string; n: number; retired: number; merged: number }
   config?: Record<string, unknown>
   view?: ViewSettings
   /** layers of the drawing's project */

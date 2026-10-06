@@ -20,7 +20,7 @@ import {
 import { Legend, SideControls, TopRight } from './ui/Controls'
 import DisplayMenu from './ui/DisplayMenu'
 import FloorRail from './ui/FloorRail'
-import { Armchair, BookOpen, Bot, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints } from 'lucide-react'
+import { Armchair, BookOpen, Bot, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import Dock from './dock/Dock'
@@ -75,6 +75,7 @@ export default function App() {
   const [pollNonce, setPollNonce] = useState(0)
   const { job, setJob, error } = useJobPolling(jobId, pollNonce)
   const [shown, setShown] = useState<Job | null>(null)
+  const [draftSeen, setDraftSeen] = useState<string | null>(null)      // the draft notice closed for this revision
   useEffect(() => { if (job?.status === 'done') setShown(job) }, [job])
 
   // ---- preferences (localStorage) and view state (URL hash)
@@ -759,6 +760,19 @@ export default function App() {
             )}
             {display.map && shownView.site && proj === '3d' && <div className="pointer-events-none absolute bottom-1 left-32 z-12 rounded bg-white/70 px-1.5 py-px text-[10.5px] text-[#495057] @max-3xl:bottom-16 @max-3xl:left-2.5">{shownView.site.tiles ? shownView.site.attribution || 'Источник карты не указан' : TILE_ATTRIBUTION}</div>}
           </>
+        )}
+        {job?.status === 'done' && job.draft && draftSeen !== job.draft.revision && (
+          <div className="absolute top-[70px] left-1/2 z-30 flex w-[min(560px,calc(100%-2rem))] -translate-x-1/2 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-warning/40 bg-card p-3 text-sm shadow-lg" data-testid="draft-notice">
+            <span className="min-w-0 flex-1">
+              <b>Сборка {job.draft.n} ждёт проверки</b>
+              <span className="block text-muted-foreground">
+                Показана опубликованная сборка {job.build}. Новая снимет помещений: {job.draft.retired}
+                {job.draft.merged ? `, объединит: ${job.draft.merged}` : ''}.
+              </span>
+            </span>
+            <Button asChild size="sm"><a href={`#/b/${job.project_id}/drawings?review=${job.draft.revision}`}>Проверить</a></Button>
+            <Button size="icon-sm" variant="ghost" aria-label="Скрыть" onClick={() => setDraftSeen(job.draft!.revision)}><X /></Button>
+          </div>
         )}
         {job?.status === 'error' && (
           <div className="absolute top-[70px] left-1/2 z-40 grid w-[min(520px,calc(100%-2rem))] -translate-x-1/2 gap-1.5 rounded-xl border border-destructive/30 bg-card p-3 text-sm shadow-lg">

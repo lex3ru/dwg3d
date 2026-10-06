@@ -172,7 +172,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         content = <Journal building={building.id} floors={floors} filter={route.query} />
       } else if (route.section === 'drawings' && admin) {
         crumbs.push({ label: 'Чертежи' })
-        content = <Building key={building.id} id={building.id} />
+        content = <Building key={building.id} id={building.id} review={route.query.review} />
       } else if (route.section === 'assets') {
         crumbs.push({ label: 'Объекты', href: to.assets(building.id) })
         content = <Assets key={route.q ?? ''} building={building.id} floors={floors} selected={route.item} admin={admin} initialQuery={route.q} />

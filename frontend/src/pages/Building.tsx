@@ -17,7 +17,7 @@ const STATUS: Record<string, [string, 'default' | 'accent' | 'success' | 'destru
 const size = (n: number | null) => (n == null ? '' : n > 1e6 ? `${(n / 1e6).toFixed(1)} МБ` : `${Math.ceil(n / 1e3)} КБ`)
 
 /** One building: its drawings (upload, state of the build, opening in the viewer), floors and rooms. */
-export function Building({ id }: { id: string }) {
+export function Building({ id, review }: { id: string; review?: string }) {
   const [building, setBuilding] = useState<BuildingInfo | null>(null)
   const [drawings, setDrawings] = useState<Drawing[]>([])
   const [placed, setPlaced] = useState<PlacedDrawing[]>([])
@@ -25,7 +25,7 @@ export function Building({ id }: { id: string }) {
   const [live, setLive] = useState<Record<string, { progress: number; message: string }>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [reviewing, setReviewing] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState<string | null>(review ?? null)
   const picker = useRef<HTMLInputElement>(null)
   const target = useRef<string | null>(null)        // the drawing a picked file is a new version of
 

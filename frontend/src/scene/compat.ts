@@ -124,6 +124,9 @@ async function job(id: string): Promise<Json> {
     status: publishing ? 'running' : b.status, stage: publishing ? 'export' : b.stage,
     progress: publishing ? 0.99 : b.progress, message: publishing ? 'Публикация' : b.message, error: b.error ?? undefined,
     result: shown?.result, model_url: shown ? shown.model_url : undefined, build: shown?.build_n ?? 0,
+    draft: revision?.status === 'draft' && revision.n >= (b.n ?? 0)
+      ? { revision: revision.id, n: revision.n, retired: revision.summary?.retired ?? 0, merged: revision.summary?.merged ?? 0 }
+      : undefined,
     config: config.config,
     view: {
       name: d.name,

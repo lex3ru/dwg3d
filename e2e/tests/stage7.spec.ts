@@ -73,10 +73,13 @@ test('a changed drawing waits as a draft, is corrected and published; objects wi
   await row.getByRole('link', { name: 'Открыть' }).click()
   await expect(root.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await expect(root.getByText('Публикация')).toHaveCount(0)
-  await root.goto(`/#/b/${building}/drawings`)
-
-  await draft.getByRole('button', { name: 'Проверить' }).click()
+  const notice = root.getByTestId('draft-notice')
+  await expect(notice).toContainText('Сборка 2 ждёт проверки')
+  await expect(notice).toContainText('снимет помещений: 1')
+  // «Проверить» leads to the drawings with the review open
+  await notice.getByRole('link', { name: 'Проверить' }).click()
   const review = row.getByTestId('revision')
+  await expect(review).toBeVisible()
   await expect(review.getByTestId('retired')).toContainText('34.78 м²')
   await expect(review).toContainText('переименовано')
   await expect(review).toContainText('Ординаторская')
