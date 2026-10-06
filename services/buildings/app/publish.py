@@ -313,6 +313,8 @@ async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans
             fid = row.id
             if "name" not in row.manual:
                 values["name"] = f.get("name") or ""
+            if "level" in row.manual:                       # a number given by hand stays
+                del values["level"]
             await session.execute(update(floors).where(floors.c.id == fid)
                                   .values(**values, version=floors.c.version + 1))
         floor_ids[f["id"]] = fid

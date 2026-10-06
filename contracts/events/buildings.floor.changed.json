@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "buildings.floor.changed",
-  "description": "Изменён этаж (название). subject — этаж.",
+  "description": "Изменён этаж (название или номер). subject — этаж.",
   "type": "object",
   "required": [
     "fields"

@@ -244,11 +244,32 @@
       },
       "FloorPatch": {
         "properties": {
+          "level": {
+            "anyOf": [
+              {
+                "maximum": 300.0,
+                "minimum": -10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Номер этажа: подвал — отрицательный",
+            "title": "Level"
+          },
           "name": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "version": {
             "title": "Version",
@@ -256,7 +277,6 @@
           }
         },
         "required": [
-          "name",
           "version"
         ],
         "title": "FloorPatch",
@@ -1871,6 +1891,7 @@
     },
     "/api/buildings/v1/floors/{floor_id}": {
       "patch": {
+        "description": "What is set here a new build of the drawing does not change: a plan without the floor's title written on\nit gets its name and number by hand. The number orders and labels the floors; where a floor stands in 3D is\nthe placement of its drawing.",
         "operationId": "patch_floor_api_buildings_v1_floors__floor_id__patch",
         "parameters": [
           {
@@ -1918,7 +1939,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Переименовать этаж",
+        "summary": "Название и номер этажа",
         "tags": [
           "structure"
         ]

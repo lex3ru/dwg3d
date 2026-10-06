@@ -2,7 +2,7 @@ import { Box, FileDown, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   drawingWithObjects,
-  deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
+  deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, patchFloor, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
   type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
 import { RevisionReview } from '../components/RevisionReview'
@@ -173,10 +173,8 @@ export function Building({ id, review }: { id: string; review?: string }) {
           <h2 className="text-base font-semibold">Этажи</h2>
           <ul className="mt-3 divide-y rounded-lg border bg-card text-sm" data-testid="floors">
             {floors.map(f => (
-              <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <span>{f.name || `Этаж ${f.level ?? ''}`}</span>
-                <span className="text-muted-foreground">помещений: {f.rooms.length}</span>
-              </li>
+              <FloorRow key={f.id + f.version} floor={f} drawing={drawings.length > 1 ? drawings.find(d => d.id === f.drawing_id)?.name : undefined}
+                twin={floors.find(o => o.id !== f.id && o.level != null && o.level === f.level)} onSaved={load} />
             ))}
           </ul>
         </div>
@@ -215,5 +213,58 @@ function PlacementForm({ value, disabled, onSave }: { value: Placement; disabled
           : !changed ? 'Переставить чертёж в здании; доступно, когда значения изменены'
             : 'Переставить чертёж: его этажи встанут на новое место в 3D-модели здания относительно других чертежей'}>Сохранить</Button>
     </form>
+  )
+}
+
+/** A floor of the building: its number and name, which can be given by hand — a plan converted from a PDF or a
+ * scan has no title written on it, and the import calls such a floor «Этаж (c0)», number 1. */
+function FloorRow({ floor, drawing, twin, onSaved }: {
+  floor: TreeFloor; drawing?: string
+  /** another floor with the same number: the plan cannot tell them apart */
+  twin?: TreeFloor
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [level, setLevel] = useState(String(floor.level ?? ''))
+  const [name, setName] = useState(floor.name)
+  const [error, setError] = useState<string | null>(null)
+  const save = (e: React.FormEvent) => {
+    e.preventDefault()
+    const n = Number(level)
+    if (level.trim() === '' || !Number.isInteger(n)) { setError('Номер — целое число, подвал — с минусом'); return }
+    patchFloor(floor, { level: n, name: name.trim() || undefined }).then(() => { setEditing(false); setError(null); onSaved() },
+      (ex: Error) => setError(ex.message))
+  }
+  if (editing) return (
+    <li className="px-3 py-2" data-floor={floor.id}>
+      <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+        <label className="grid gap-1 text-xs text-muted-foreground">№
+          <Tip label="Номер этажа: по нему этажи идут по порядку и подписываются на плане; подвал — с минусом">
+            <Input className="h-8 w-20" inputMode="numeric" value={level} aria-label="Номер этажа" onChange={e => setLevel(e.target.value)} />
+          </Tip>
+        </label>
+        <label className="grid min-w-48 flex-1 gap-1 text-xs text-muted-foreground">Название
+          <Input className="h-8" value={name} maxLength={200} aria-label="Название этажа" onChange={e => setName(e.target.value)} />
+        </label>
+        <Button type="submit" size="sm" hint="Новые сборки чертежа номер и название больше не поменяют">Сохранить</Button>
+        <Button type="button" size="sm" variant="ghost" hint="Оставить как было" onClick={() => { setEditing(false); setError(null) }}>Отмена</Button>
+      </form>
+      {error && <p role="alert" className="mt-1 text-sm text-destructive">{error}</p>}
+    </li>
+  )
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" data-floor={floor.id}>
+      <span className="grid h-6 min-w-8 place-items-center rounded-md bg-secondary px-1.5 text-xs font-semibold">{floor.level ?? '?'}</span>
+      <span className="min-w-40 flex-1">{floor.name || `Этаж ${floor.level ?? ''}`}
+        {drawing && <span className="ml-2 text-xs text-muted-foreground">{drawing}</span>}</span>
+      {twin && (
+        <Tip label={`Тот же номер, что у «${twin.name || 'без названия'}»: на плане их не различить; задайте этажу его настоящий номер`}>
+          <Badge variant="warning" data-testid="floor-twin">номер повторяется</Badge>
+        </Tip>
+      )}
+      <span className="text-muted-foreground">помещений: {floor.rooms.length}</span>
+      <Button size="sm" variant="ghost" hint="Задать номер и название этажа, если чертёж их не подписал; новые сборки их не поменяют"
+        onClick={() => setEditing(true)}>Изменить</Button>
+    </li>
   )
 }

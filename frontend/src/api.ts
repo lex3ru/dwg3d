@@ -109,7 +109,7 @@ export type Room = {
   id: string; floor_id: string; name: string; number: string | null; type: string | null; area: number
   status: 'active' | 'retired'; version: number
 }
-export type TreeFloor = { id: string; drawing_id: string; name: string; level: number | null; rooms: Room[] }
+export type TreeFloor = { id: string; drawing_id: string; name: string; level: number | null; version: number; rooms: Room[] }
 type Ring = [number, number][]
 /** The 2D plan of a floor: plan coordinates of its drawing, metres, Y up. */
 export type FloorPlanData = {
@@ -156,6 +156,9 @@ export const placeDrawing = (building: string, d: PlacedDrawing, placement: Plac
   api<PlacedDrawing>(`${BUILDINGS}/buildings/${building}/drawings/${d.id}`, { method: 'PATCH', json: { placement, version: d.version } })
 export const getFloorPlan = (floor: string) =>
   api<{ plan: FloorPlanData }>(`${BUILDINGS}/floors/${floor}/plan`).then(r => r.plan)
+/** The name and number of a floor, kept by new builds of its drawing (for plans without titles written on them). */
+export const patchFloor = (floor: TreeFloor, patch: { name?: string; level?: number }) =>
+  api<TreeFloor>(`${BUILDINGS}/floors/${floor.id}`, { method: 'PATCH', json: { ...patch, version: floor.version } })
 export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
   api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
 export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)

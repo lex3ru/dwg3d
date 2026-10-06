@@ -381,20 +381,29 @@ async def floor_plan(floor_id: UUID, request: Request, _: Identity = Depends(rea
 
 
 class FloorPatch(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    level: int | None = Field(default=None, ge=-10, le=300, description="Номер этажа: подвал — отрицательный")
     version: int
 
 
-@router.patch("/floors/{floor_id}", tags=["structure"], summary="Переименовать этаж")
+@router.patch("/floors/{floor_id}", tags=["structure"], summary="Название и номер этажа")
 async def patch_floor(floor_id: UUID, body: FloorPatch, request: Request,
                       _: Identity = Depends(manages_floor)) -> dict:
+    """What is set here a new build of the drawing does not change: a plan without the floor's title written on
+    it gets its name and number by hand. The number orders and labels the floors; where a floor stands in 3D is
+    the placement of its drawing."""
+    given = (("name", body.name.strip() if body.name else None), ("level", body.level))
+    values = {k: v for k, v in given if v is not None}
+    if not values:
+        raise Problem(422, "invalid", "Нечего менять: укажите название или номер",
+                      errors=[{"field": "name", "message": "нет ни названия, ни номера"}])
     async with request.app.state.db.begin() as session:
         f = await _floor(session, floor_id, lock=True)
         _stale(f, body.version, floor_json(f))
         f = (await session.execute(update(floors).where(floors.c.id == floor_id).values(
-            name=body.name.strip(), manual=sorted({*f.manual, "name"}), version=floors.c.version + 1)
+            **values, manual=sorted({*f.manual, *values}), version=floors.c.version + 1)
             .returning(floors))).one()
-        await emit(session, "buildings.floor.changed", ("floor", f.id), {"fields": ["name"]},
+        await emit(session, "buildings.floor.changed", ("floor", f.id), {"fields": sorted(values)},
                    building_id=f.building_id, floor_id=f.id)
     return floor_json(f)
 

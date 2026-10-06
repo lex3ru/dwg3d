@@ -159,6 +159,25 @@ async def test_name_given_by_hand_survives_a_rebuild(client, app, tokens, buildi
     assert next(r for r in plan["rooms"] if r["id"] == room["id"])["name"] == "Процедурная"
 
 
+async def test_number_of_a_floor_given_by_hand_survives_a_rebuild(client, app, tokens, building, site):
+    """A plan without its title written on it: the floor gets its number (and name) by hand, and keeps them."""
+    admin = tokens.admin()
+    await site.build("base")
+    first, second = await tree(client, tokens, building)
+    r = await client.patch(f"{API}/floors/{second['id']}", json={"level": -1, "name": "Подвал",
+                                                                "version": second["version"]}, headers=admin)
+    assert r.status_code == 200 and (r.json()["level"], r.json()["name"]) == (-1, "Подвал")
+    assert (await client.patch(f"{API}/floors/{first['id']}", json={"version": first["version"]},
+                               headers=admin)).status_code == 422
+    changed = await events(app, "buildings.floor.changed")
+    assert changed[-1]["data"] == {"fields": ["level", "name"]}
+
+    await site.build("base")
+    floors = await tree(client, tokens, building)
+    assert [(f["id"], f["level"], f["name"]) for f in floors][0] == (second["id"], -1, "Подвал")    # it comes first
+    assert floors[1]["id"] == first["id"] and floors[1]["level"] == first["level"]
+
+
 async def test_events_out_of_order_and_twice(client, app, tokens, building, site):
     first = site.finished("split", n=1)
     second = site.finished("base", n=2)

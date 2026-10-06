@@ -103,6 +103,8 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
                 className={cn('min-w-8 rounded-md border px-2 py-1 text-center text-sm hover:bg-secondary',
                   f.id === active.id && 'border-primary bg-primary text-primary-foreground hover:bg-primary')}>
                 {f.level ?? '?'}
+                {/* the same number twice (a plan without its title): the start of the name tells them apart */}
+                {floors.some(o => o.id !== f.id && o.level === f.level) && <span className="ml-1 text-xs opacity-80">{(f.name || '').slice(0, 14)}</span>}
               </a>
             </Tip>
           ))}
