@@ -8,6 +8,8 @@ export const users = {
   keeper: { get login() { return `e2e-keeper-${run()}` }, name: 'Проверка Хранитель', password: () => process.env.E2E_KEEPER_PASSWORD! },
   // the person of the cabinet scenario of stage 5
   tenant: { get login() { return `e2e-tenant-${run()}` }, name: 'Проверка Жилец', password: () => process.env.E2E_TENANT_PASSWORD! },
+  // the person assigned to a room in the scenario of stage 6
+  worker: { get login() { return `e2e-worker-${run()}` }, name: 'Проверка Работник', password: () => process.env.E2E_WORKER_PASSWORD! },
   clerk: { get login() { return `e2e-clerk-${run()}` }, name: 'Проверка Сотрудник', password: () => process.env.E2E_CLERK_PASSWORD! },
   admin: { login: 'e2e-admin', name: 'Проверка Администратор', password: () => process.env.E2E_ADMIN_PASSWORD! },
   user: { login: 'e2e-user', name: 'Проверка Пользователь', password: () => process.env.E2E_USER_PASSWORD! },

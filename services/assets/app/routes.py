@@ -195,6 +195,17 @@ async def label_sheet(body: Labels, request: Request, me: Identity = Depends(cur
     return _pdf(data, "метки.pdf")
 
 
+@router.get("/responsibles", tags=["assets"], summary="Кто за какой объект отвечает (служебный: для сверки прав)")
+async def responsibles(request: Request, me: Identity = Depends(current_identity)) -> dict:
+    if not me.is_admin and me.kind != "service":
+        raise Problem(403, "forbidden", "Служебный запрос")
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(assets.c.id, assets.c.responsible_id, assets.c.building_id).where(
+            assets.c.responsible_id.is_not(None), assets.c.retired_at.is_(None)))).all()
+    return {"items": [{"asset_id": str(a.id), "person_id": str(a.responsible_id), "building_id": str(a.building_id)}
+                      for a in rows]}
+
+
 @router.get("/usage", tags=["assets"], summary="Есть ли объекты типа и значения свойства (для каталога)")
 async def usage(request: Request, type_id: UUID, prop: str | None = None, me: Identity = Depends(current_identity)) -> dict:
     if not me.is_admin and me.kind != "service":

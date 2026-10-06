@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, insert, select, update
 from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis.access import decide
 
 from .models import persons
 
@@ -106,9 +107,26 @@ def _clean(values: dict) -> dict:
 
 @router.get("/people", tags=["people"], summary="Справочник людей")
 async def list_people(request: Request, q: str | None = None, department: str | None = None, status: str = "active",
-                      limit: int = 500, me: Identity = Depends(current_identity)) -> dict:
-    await _keeper(request, me)
+                      building_id: UUID | None = None, room_id: UUID | None = None, limit: int = 500,
+                      me: Identity = Depends(current_identity)) -> dict:
+    """The keepers of the directory see everyone (`building_id`, `room_id` narrow it to the people assigned there);
+    anyone else sees, with `building_id`, the people of the rooms they have a right to."""
+    try:
+        await _keeper(request, me)
+        keeper = True
+    except Problem:
+        keeper = False
+        if building_id is None:
+            raise Problem(403, "forbidden", "Справочник целиком ведут администраторы зданий; укажите здание") from None
     where = [] if status == "all" else [persons.c.status == status]
+    if building_id is not None or room_id is not None:
+        from .assignments import chain
+        from .models import assignments
+        if room_id is not None:
+            where.append(persons.c.id.in_(select(assignments.c.person_id).where(assignments.c.room_id == room_id)))
+        if building_id is not None:
+            where.append(persons.c.id.in_(
+                select(assignments.c.person_id).where(assignments.c.building_id == building_id)))
     if department:
         where.append(persons.c.department == department)
     if q and q.strip():
@@ -117,6 +135,12 @@ async def list_people(request: Request, q: str | None = None, department: str | 
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(persons).where(*where).order_by(persons.c.full_name, persons.c.id)
                                       .limit(max(1, min(limit, 500))))).all()
+        if not keeper:                                   # only those in rooms the asker may see
+            scopes = await request.app.state.rights.scopes(request, me)
+            seen = (await session.execute(select(assignments).where(
+                assignments.c.person_id.in_([p.id for p in rows] or [uuid7()])))).all()
+            visible = {a.person_id for a in seen if decide(scopes, "view", chain(a))}
+            rows = [p for p in rows if p.id in visible]
     return {"items": [person_json(p) for p in rows], "next": None}
 
 
@@ -143,9 +167,22 @@ async def batch_people(body: Ids, request: Request, _: Identity = Depends(curren
 
 @router.get("/people/{person_id}", tags=["people"], summary="Человек")
 async def get_person(person_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
-    await _keeper(request, me)
+    """With contacts — to the keepers of the directory, to the person themself and to whoever sees a room
+    the person is assigned to; to the rest the person is not there (404)."""
+    from .assignments import chain
+    from .models import assignments
     async with request.app.state.db.begin() as session:
-        return person_json(await _person(session, person_id))
+        p = await _person(session, person_id)
+        try:
+            await _keeper(request, me)
+            return person_json(p)
+        except Problem:
+            pass
+        scopes = await request.app.state.rights.scopes(request, me)
+        rows = (await session.execute(select(assignments).where(assignments.c.person_id == person_id))).all()
+        if scopes.get("person_id") == str(person_id) or any(decide(scopes, "view", chain(a)) for a in rows):
+            return person_json(p)
+    raise Problem(404, "not_found", "Человек не найден")
 
 
 @router.patch("/people/{person_id}", tags=["people"], summary="Изменить запись")

@@ -429,10 +429,10 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 | person_id | uuid FK | PK (person_id, room_id) |
 | room_id | uuid | → buildings |
 | building_id, floor_id | uuid | → buildings |
-| workplace_asset_id | uuid null | → assets |
+| workplace_asset_id | uuid null | → assets, в этом помещении |
 | created_by, created_at | | |
 
-Индексы: `(room_id)`, `(building_id)`.
+Индексы: `(room_id)`, `(building_id)`. Привязка существует, пока есть помещение; списание рабочего места обнуляет `workplace_asset_id`.
 
 ## 8. Журнал (`journal`)
 
@@ -453,7 +453,8 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 `(asset_id, time desc)`, `(person_id, time desc)`, `(actor_person_id, time desc)`,
 `(type, time desc)`.
 
-Срок хранения — настройка (по умолчанию 5 лет); устаревшие секции удаляются целиком.
+Срок хранения — настройка (по умолчанию 5 лет). Как сделано: одна таблица без секций, индексы те же;
+устаревшие строки удаляются раз в сутки.
 
 ## 9. Проектирование (`planning`) — этап 8
 

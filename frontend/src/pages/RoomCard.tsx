@@ -1,6 +1,7 @@
-import { FileText, Map as MapIcon, Pencil, QrCode } from 'lucide-react'
-import { useState } from 'react'
-import { labelsSheet, patchRoom, roomSheetUrl, type Me, type Room, type TreeFloor } from '../api'
+import { FileText, History, Map as MapIcon, Pencil, QrCode } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { labelsSheet, patchRoom, roomPeople, roomSheetUrl, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
+import { useEvents } from '../stream'
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -15,6 +16,10 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(room.name)
   const [error, setError] = useState<string | null>(null)
+  const [people, setPeople] = useState<RoomPerson[]>([])
+  const loadPeople = useCallback(() => { roomPeople(room.id).then(setPeople, () => setPeople([])) }, [room.id])
+  useEffect(loadPeople, [loadPeople])
+  useEvents(event => { if (event.type.startsWith('people.') || event.type.startsWith('access.')) loadPeople() })
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     patchRoom(room, { name: name.trim() }).then(() => { setEditing(false); setError(null); onChanged() }, (ex: Error) => setError(ex.message))
@@ -54,9 +59,26 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
           <Button variant="outline" size="sm" title="Лист QR-меток объектов помещения (PDF, A4)"
             onClick={() => labelsSheet({ room_id: room.id }).catch((ex: Error) => setError(ex.message))}><QrCode className="size-4" /> Метки</Button>
         )}
+        {admin && (
+          <Button asChild variant="outline" size="sm" title="События помещения"><a href={to.journal(building, { room: room.id })}><History className="size-4" /> Журнал</a></Button>
+        )}
       </div>
       {error && !editing && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <p className="text-sm text-muted-foreground">Объекты помещения — в разделе «Объекты»; люди помещения появятся на следующем этапе.</p>
+      <div data-testid="room-people">
+        <h3 className="text-sm font-medium">Люди помещения{people.length > 0 && ` · ${people.length}`}</h3>
+        {people.length === 0 ? <p className="text-sm text-muted-foreground">Никто не привязан.</p> : (
+          <ul className="mt-1 grid gap-1 text-sm">
+            {people.map(p => (
+              <li key={p.id} data-person={p.full_name}>
+                <div className="font-medium">{p.full_name}</div>
+                <div className="text-xs text-muted-foreground">{[p.position, p.department, p.email, p.phone].filter(Boolean).join(' · ')}</div>
+                {p.workplace_asset_id && <a className="text-xs text-primary" href={to.assets(building, p.workplace_asset_id)}>рабочее место</a>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">Объекты помещения — в разделе «Объекты».</p>
       <Comments me={me} building={building} target_kind="room" target_id={room.id} admin={admin} />
     </div>
   )

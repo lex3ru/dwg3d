@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "AssignmentIn": {
+        "properties": {
+          "workplace_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Рабочее место: объект в этом помещении",
+            "title": "Workplace Asset Id"
+          }
+        },
+        "title": "AssignmentIn",
+        "type": "object"
+      },
       "Body_import_people_api_people_v1_people_import_post": {
         "properties": {
           "file": {
@@ -237,6 +256,29 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/people/v1/assignments": {
+      "get": {
+        "operationId": "all_assignments_api_people_v1_assignments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response All Assignments Api People V1 Assignments Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Все привязки (служебный: для сверки прав)",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/api/people/v1/me": {
       "get": {
         "description": "`person` is null when the account is not in the directory; `reason` says why:\n`unknown` — nobody with this e-mail, `ambiguous` — several people share it (an\nadministrator links by hand), `left` — the person has left.",
@@ -263,6 +305,7 @@
     },
     "/api/people/v1/people": {
       "get": {
+        "description": "The keepers of the directory see everyone (`building_id`, `room_id` narrow it to the people assigned there);\nanyone else sees, with `building_id`, the people of the rooms they have a right to.",
         "operationId": "list_people_api_people_v1_people_get",
         "parameters": [
           {
@@ -305,6 +348,40 @@
               "default": "active",
               "title": "Status",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "room_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Room Id"
             }
           },
           {
@@ -478,6 +555,7 @@
     },
     "/api/people/v1/people/{person_id}": {
       "get": {
+        "description": "With contacts — to the keepers of the directory, to the person themself and to whoever sees a room\nthe person is assigned to; to the rest the person is not there (404).",
         "operationId": "get_person_api_people_v1_people__person_id__get",
         "parameters": [
           {
@@ -571,6 +649,161 @@
         "summary": "Изменить запись",
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/api/people/v1/people/{person_id}/assignments": {
+      "get": {
+        "description": "All of them — to the keepers of the directory and to the person themself; to others — in rooms they see.",
+        "operationId": "list_assignments_api_people_v1_people__person_id__assignments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Assignments Api People V1 People  Person Id  Assignments Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Помещения человека",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/api/people/v1/people/{person_id}/assignments/{room_id}": {
+      "delete": {
+        "operationId": "unassign_api_people_v1_people__person_id__assignments__room_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Person Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Отвязать человека от помещения",
+        "tags": [
+          "assignments"
+        ]
+      },
+      "put": {
+        "operationId": "assign_api_people_v1_people__person_id__assignments__room_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Person Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Assign Api People V1 People  Person Id  Assignments  Room Id  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Привязать человека к помещению, необязательно — к рабочему месту в нём",
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -714,6 +947,51 @@
         "summary": "Связать человека с учётной записью вручную",
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/api/people/v1/rooms/{room_id}/people": {
+      "get": {
+        "operationId": "room_people_api_people_v1_rooms__room_id__people_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Room People Api People V1 Rooms  Room Id  People Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Люди помещения, с контактами",
+        "tags": [
+          "assignments"
         ]
       }
     }

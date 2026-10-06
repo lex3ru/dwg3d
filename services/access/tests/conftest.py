@@ -7,8 +7,9 @@ from uuid import uuid4
 import httpx
 import pytest
 import pytest_asyncio
+from twin_chassis.client import ServiceClient
 from twin_chassis.events import envelope
-from twin_chassis.testing import Tokens, running, scratch_database, test_settings
+from twin_chassis.testing import ISSUER, Tokens, running, scratch_database, test_settings
 
 from app.main import SERVICE, build
 
@@ -26,9 +27,40 @@ def database_url():
         yield url
 
 
+class Sources:
+    """Plays the people and assets services for the reconciliation: what the automatic grants should follow."""
+
+    def __init__(self, tokens: Tokens):
+        self.tokens = tokens
+        self.assignments: list[dict] = []
+        self.responsibles: list[dict] = []
+        self.up = True
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url.startswith(ISSUER):
+            token = self.tokens.make("svc-access", login="twin-svc-access", service=True)
+            return httpx.Response(200, json={"access_token": token, "expires_in": 300})
+        if not self.up:
+            raise httpx.ConnectError("down")
+        if request.url.path.endswith("/assignments"):
+            return httpx.Response(200, json={"items": self.assignments})
+        if request.url.path.endswith("/responsibles"):
+            return httpx.Response(200, json={"items": self.responsibles})
+        return httpx.Response(404, json={"code": "not_found"})
+
+
+@pytest.fixture
+def sources(tokens) -> Sources:
+    return Sources(tokens)
+
+
 @pytest_asyncio.fixture
-async def app(database_url, tokens):
-    async with running(build(test_settings(SERVICE, database_url), tokens.verifier())) as app:
+async def app(database_url, tokens, sources):
+    settings = test_settings(SERVICE, database_url)
+    http = httpx.AsyncClient(transport=httpx.MockTransport(sources.handle))
+    client = ServiceClient(settings, {"people": "http://people.test", "assets": "http://assets.test"}, http)
+    async with running(build(settings, tokens.verifier(), client, reconcile_s=3600)) as app:
         yield app
 
 

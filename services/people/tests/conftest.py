@@ -12,23 +12,50 @@ from app.main import SERVICE, build
 
 API = "/api/people/v1"
 ACCESS = "http://access.test"
+BUILDINGS = "http://buildings.test"
+ASSETS = "http://assets.test"
 BUILDING = "0192f000-0000-7000-8000-00000000000b"
+FLOOR = "0192f000-0000-7000-8000-00000000000f"
+ROOM_A = "0192f000-0000-7000-8000-0000000000a1"
+ROOM_B = "0192f000-0000-7000-8000-0000000000b2"
+DESK = "0192f000-0000-7000-8000-0000000000d1"
 
 
 class Access:
-    """Answers GET /me/scopes: accounts listed in `admins` administer a building."""
+    """Answers GET /me/scopes: accounts listed in `admins` administer the building; `grants` adds more.
+    Also plays buildings (two rooms of one floor) and assets (a desk in room A)."""
 
     def __init__(self, tokens: Tokens):
         self.tokens, self.admins, self.up = tokens, {"boss"}, True
+        self.grants: dict[str, list[dict]] = {}
+        self.persons: dict[str, str] = {}
+
+    def person(self, sub: str, person_id: str, *grants: tuple[str, str, str]) -> dict[str, str]:
+        self.persons[sub] = person_id
+        self.grants[sub] = [{"role": r, "scope": {"kind": k, "id": i}, "building_id": BUILDING} for r, k, i in grants]
+        return self.tokens.bearer(sub)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        assert str(request.url).startswith(ACCESS) and not str(request.url).startswith(ISSUER)
+        url = str(request.url)
+        assert not url.startswith(ISSUER)
+        if url.startswith(BUILDINGS):
+            room = request.url.path.rsplit("/", 1)[-1]
+            if room in (ROOM_A, ROOM_B):
+                return httpx.Response(200, json={"id": room, "building_id": BUILDING, "floor_id": FLOOR,
+                                                 "name": "Кабинет"})
+            return httpx.Response(404, json={"code": "not_found"})
+        if url.startswith(ASSETS):
+            if request.url.path.endswith(DESK):
+                return httpx.Response(200, json={"id": DESK, "room_id": ROOM_A, "building_id": BUILDING})
+            return httpx.Response(404, json={"code": "not_found"})
+        assert url.startswith(ACCESS)
         if not self.up:
             raise httpx.ConnectError("access is down")
         me = self.tokens.verifier().identity(request.headers["authorization"].removeprefix("Bearer "))
         grants = [{"role": "admin", "scope": {"kind": "building", "id": BUILDING}, "building_id": BUILDING}]
-        return httpx.Response(200, json={"admin": False, "person_id": None, "buildings": [],
-                                         "grants": grants if me.sub in self.admins else []})
+        mine = (grants if me.sub in self.admins else []) + self.grants.get(me.sub, [])
+        return httpx.Response(200, json={"admin": False, "person_id": self.persons.get(me.sub), "buildings": [BUILDING],
+                                         "grants": mine})
 
 
 @pytest.fixture(scope="session")
@@ -51,7 +78,8 @@ def database_url():
 async def app(database_url, tokens, access):
     settings = test_settings(SERVICE, database_url)
     http = httpx.AsyncClient(transport=httpx.MockTransport(access.handle))
-    async with running(build(settings, tokens.verifier(), ServiceClient(settings, {"access": ACCESS}, http))) as app:
+    client = ServiceClient(settings, {"access": ACCESS, "buildings": BUILDINGS, "assets": ASSETS}, http)
+    async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 
 

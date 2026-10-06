@@ -1,4 +1,4 @@
-import { Camera, FileText, Map as MapIcon, Move, Paperclip, QrCode, Undo2 } from 'lucide-react'
+import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, QrCode, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
@@ -90,6 +90,9 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
         <Button asChild variant="outline" size="sm" title="QR-метка для печати (PDF, 40 мм)">
           <a href={assetLabelUrl(a.id)} target="_blank" rel="noreferrer"><QrCode className="size-4" /> Метка</a>
         </Button>
+        {admin && (
+          <Button asChild variant="outline" size="sm" title="События объекта в журнале"><a href={to.journal(building, { asset: a.id })}><History className="size-4" /></a></Button>
+        )}
       </div>
       {a.container_id && <p className="text-muted-foreground">Стоит внутри: {boxes.find(b => b.id === a.container_id)?.type_name ?? 'другого объекта'}. «Переместить» вынет его на план.</p>}
       {a.can.move && a.state !== 'retired' && boxes.length > 0 && (

@@ -1,13 +1,17 @@
-import { Upload, UserPlus } from 'lucide-react'
+import { History, Upload, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPerson, importPeople, leavePerson, linkPerson, listPeople, type ImportReport, type Person } from '../api'
+import {
+  assignPerson, createPerson, importPeople, leavePerson, linkPerson, listAssets, listAssignments, listPeople, unassignPerson,
+  type Asset, type Assignment, type ImportReport, type Person, type TreeFloor,
+} from '../api'
+import { to } from '../shell/route'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { useEvents } from '../stream'
 
 /** The directory of people: one for the organisation, kept by administrators of buildings. */
-export function People() {
+export function People({ building, floors }: { building: string; floors: TreeFloor[] }) {
   const [items, setItems] = useState<Person[]>([])
   const [q, setQ] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -60,15 +64,58 @@ export function People() {
                 <div className="text-xs text-muted-foreground">{[p.position, p.department, p.email].filter(Boolean).join(' · ')}</div>
               </div>
               {p.linked ? <Badge variant="success">есть учётная запись</Badge> : <LinkAccount onLink={sub => act(linkPerson(p.id, sub))} />}
+              <Button asChild variant="ghost" size="sm" title="События этого человека"><a href={to.journal(building, { person: p.id })}><History className="size-4" /></a></Button>
               <Button variant="ghost" size="sm" title="Человек выбыл: все его права будут отозваны"
                 onClick={() => { if (confirm(`Отметить, что «${p.full_name}» выбыл? Все его права будут отозваны.`)) act(leavePerson(p.id)) }}>
                 Выбыл
               </Button>
+              <Rooms person={p} building={building} floors={floors} onError={setError} />
             </li>
           ))}
         </ul>
       )}
     </section>
+  )
+}
+
+/** Where the person works: their rooms in this building, a workplace in each; assigned here, seen in the room's card. */
+function Rooms({ person, building, floors, onError }: { person: Person; building: string; floors: TreeFloor[]; onError: (m: string | null) => void }) {
+  const [items, setItems] = useState<Assignment[]>([])
+  const [adding, setAdding] = useState<{ room: string; workplace: string; assets: Asset[] } | null>(null)
+  const load = useCallback(() => { listAssignments(person.id).then(a => setItems(a.filter(x => x.building_id === building)), () => setItems([])) }, [person.id, building])
+  useEffect(load, [load])
+  const room = (id: string) => { for (const f of floors) { const r = f.rooms.find(x => x.id === id); if (r) return `${f.name || f.level} · ${r.name || 'без названия'}` } return 'помещение' }
+  const pickRoom = (id: string) => {
+    setAdding({ room: id, workplace: '', assets: [] })
+    if (id) listAssets({ room_id: id, limit: '500' }).then(r => setAdding(a => a && a.room === id ? { ...a, assets: r.items } : a), () => {})
+  }
+  const act = (work: Promise<unknown>) => work.then(() => { onError(null); setAdding(null); load() }, (ex: Error) => onError(ex.message))
+  return (
+    <div className="basis-full text-xs" data-testid="assignments">
+      <span className="text-muted-foreground">Помещения: </span>
+      {items.length === 0 && !adding && <span className="text-muted-foreground">нет · </span>}
+      {items.map(a => (
+        <span key={a.room_id} className="mr-2 inline-flex items-center gap-1" data-assignment={a.room_id}>
+          {room(a.room_id)}
+          <button type="button" className="text-primary" title="Отвязать" onClick={() => act(unassignPerson(person.id, a.room_id))}>отвязать</button>
+        </span>
+      ))}
+      {adding ? (
+        <form className="mt-1 flex flex-wrap items-center gap-1" data-testid="assign-form"
+          onSubmit={e => { e.preventDefault(); if (adding.room) act(assignPerson(person.id, adding.room, adding.workplace || null)) }}>
+          <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.room} aria-label="Помещение" onChange={e => pickRoom(e.target.value)}>
+            <option value="">— помещение —</option>
+            {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
+          </select>
+          <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.workplace} aria-label="Рабочее место" onChange={e => setAdding({ ...adding, workplace: e.target.value })}>
+            <option value="">без рабочего места</option>
+            {adding.assets.map(a => <option key={a.id} value={a.id}>{a.type_name} · {a.inventory_no}</option>)}
+          </select>
+          <Button type="submit" size="sm" className="h-7" disabled={!adding.room}>Привязать</Button>
+          <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setAdding(null)}>Отмена</Button>
+        </form>
+      ) : <button type="button" className="text-primary" onClick={() => pickRoom('')}>привязать к помещению</button>}
+    </div>
   )
 }
 

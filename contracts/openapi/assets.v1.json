@@ -1636,6 +1636,29 @@
         ]
       }
     },
+    "/api/assets/v1/responsibles": {
+      "get": {
+        "operationId": "responsibles_api_assets_v1_responsibles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Responsibles Api Assets V1 Responsibles Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Кто за какой объект отвечает (служебный: для сверки прав)",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
     "/api/assets/v1/usage": {
       "get": {
         "operationId": "usage_api_assets_v1_usage_get",

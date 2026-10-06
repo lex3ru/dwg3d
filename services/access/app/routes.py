@@ -145,3 +145,11 @@ async def revoke_grant(grant_id: UUID, request: Request, me: Identity = Depends(
 def grant_event(g) -> dict:
     return {"grant_id": str(g.id), "person_id": str(g.person_id), "role": g.role,
             "scope": {"kind": g.scope_kind, "id": str(g.scope_id)}, "origin": g.origin}
+
+
+@router.post("/reconcile", tags=["grants"], summary="Сверить автоматические назначения с привязками и ответственными")
+async def reconcile_now(request: Request, me: Identity = Depends(current_identity)) -> dict:
+    """Also happens by itself on start and every TWIN_RECONCILE_S seconds."""
+    if not me.is_admin and me.kind != "service":
+        raise Problem(403, "forbidden", "Сверку запускает администратор системы")
+    return await request.app.state.reconcile()

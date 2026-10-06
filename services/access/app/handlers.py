@@ -1,9 +1,10 @@
-"""Reactions to the events of the people service."""
+"""Reactions to the events of the people, assets and buildings services: the automatic grants
+(docs/CONTRACTS.md, section 2) follow what happens there; `reconcile.py` is the safety net."""
 from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from twin_chassis import emit, uuid7
@@ -11,6 +12,28 @@ from twin_chassis.bus import Bus
 
 from .models import grants, subjects
 from .routes import grant_event
+
+
+async def revoke(session: AsyncSession, *where) -> int:
+    """Delete the grants matching `where`, an event for each; returns how many."""
+    gone = (await session.execute(delete(grants).where(*where).returning(grants))).all()
+    for g in gone:
+        await emit(session, "access.grant.revoked", ("grant", g.id), grant_event(g),
+                   building_id=g.building_id, person_id=g.person_id)
+    return len(gone)
+
+
+async def give(session: AsyncSession, person_id: UUID, role: str, kind: str, scope_id: UUID, building_id: UUID,
+               origin: str, by: str) -> bool:
+    """An automatic grant, unless it is there already; returns whether it was added."""
+    g = (await session.execute(pg_insert(grants).values(
+        id=uuid7(), person_id=person_id, role=role, scope_kind=kind, scope_id=scope_id, building_id=building_id,
+        origin=origin, created_by=by).on_conflict_do_nothing(constraint="uq_grants_once").returning(grants))
+         ).one_or_none()
+    if g is not None:
+        await emit(session, "access.grant.created", ("grant", g.id), grant_event(g),
+                   building_id=g.building_id, person_id=g.person_id)
+    return g is not None
 
 
 def register(bus: Bus) -> None:
@@ -44,6 +67,40 @@ def register(bus: Bus) -> None:
             if g is not None:
                 await emit(session, "access.grant.created", ("grant", g.id), grant_event(g),
                            building_id=g.building_id, person_id=g.person_id)
+
+    @bus.consumer("people.person.assigned", name="person-assigned")
+    async def assigned(session: AsyncSession, event: dict) -> None:
+        """Whoever works in a room sees it: «viewer» on the room, from the assignment."""
+        d = event["data"]
+        await give(session, UUID(d["person_id"]), "viewer", "room", UUID(d["room_id"]), UUID(d["building_id"]),
+                   "assignment", "people")
+
+    @bus.consumer("people.person.unassigned", name="person-unassigned")
+    async def unassigned(session: AsyncSession, event: dict) -> None:
+        """The assignment's grant goes with it; one given by hand on the same room stays."""
+        d = event["data"]
+        await revoke(session, grants.c.person_id == UUID(d["person_id"]), grants.c.scope_kind == "room",
+                     grants.c.scope_id == UUID(d["room_id"]), grants.c.origin == "assignment")
+
+    @bus.consumer("assets.asset.retired", name="asset-retired")
+    async def asset_retired(session: AsyncSession, event: dict) -> None:
+        await revoke(session, grants.c.scope_kind == "asset", grants.c.scope_id == UUID(event["data"]["asset_id"]))
+
+    @bus.consumer("assets.asset.moved", name="asset-moved")
+    async def asset_moved(session: AsyncSession, event: dict) -> None:
+        """An object taken to another building: its grants are in that building now."""
+        if event.get("building_id") and event["data"].get("from_building_id") != event["building_id"]:
+            await session.execute(update(grants).where(
+                grants.c.scope_kind == "asset", grants.c.scope_id == UUID(event["data"]["asset_id"]))
+                .values(building_id=UUID(event["building_id"])))
+
+    @bus.consumer("buildings.room.retired", name="room-retired")
+    async def room_retired(session: AsyncSession, event: dict) -> None:
+        await revoke(session, grants.c.scope_kind == "room", grants.c.scope_id == UUID(event["data"]["room_id"]))
+
+    @bus.consumer("buildings.building.deleted", name="building-deleted")
+    async def building_deleted(session: AsyncSession, event: dict) -> None:
+        await revoke(session, grants.c.building_id == UUID(event["building_id"]))
 
     @bus.consumer("people.person.left", name="person-left")
     async def left(session: AsyncSession, event: dict) -> None:

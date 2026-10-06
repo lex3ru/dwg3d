@@ -30,7 +30,7 @@ async def test_who_keeps_the_directory(client, tokens, access):
     await add(client, boss, full_name="Петрова Анна")
     assert (await client.post(f"{API}/people", json={"full_name": "x"}, headers=clerk)).status_code == 403
     assert (await client.get(f"{API}/people", headers=clerk)).status_code == 403
-    assert (await client.get(f"{API}/people/{person['id']}", headers=clerk)).status_code == 403
+    assert (await client.get(f"{API}/people/{person['id']}", headers=clerk)).status_code == 404   # nobody's colleague
     # name and position by id are open to anyone signed in — nothing more
     brief = await client.post(f"{API}/people/batch-get", json={"ids": [person["id"]]}, headers=clerk)
     assert brief.json()["items"] == [{"id": person["id"], "full_name": "Иванов Иван", "position": ""}]

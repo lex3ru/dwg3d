@@ -252,4 +252,12 @@ image:assets:
   extends: .service-image
   variables: {SERVICE: assets}
 
+service:journal:
+  extends: .service
+  variables: {SERVICE: journal}
+
+image:journal:
+  extends: .service-image
+  variables: {SERVICE: journal}
+
 # -- jobs of new services go above this line (tools/new-service adds them) --

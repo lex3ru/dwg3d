@@ -320,3 +320,28 @@ export const addComment = (body: { building_id: string; target_kind: CommentTarg
   api<Comment>(`${BUILDINGS}/comments`, { method: 'POST', json: body })
 export const resolveComment = (id: string) => api<Comment>(`${BUILDINGS}/comments/${id}/resolve`, { method: 'POST' })
 export const deleteComment = (id: string) => api<void>(`${BUILDINGS}/comments/${id}`, { method: 'DELETE' })
+
+// ---- stage 6: people in rooms, the journal
+
+export type Assignment = { person_id: string; room_id: string; building_id: string; floor_id: string; workplace_asset_id: string | null; created_at: string }
+export type RoomPerson = Person & { workplace_asset_id: string | null }
+export const listAssignments = (person: string) =>
+  api<{ items: Assignment[] }>(`${PEOPLE}/people/${person}/assignments`).then(r => r.items)
+export const assignPerson = (person: string, room: string, workplace_asset_id: string | null) =>
+  api<Assignment>(`${PEOPLE}/people/${person}/assignments/${room}`, { method: 'PUT', json: { workplace_asset_id } })
+export const unassignPerson = (person: string, room: string) =>
+  api<void>(`${PEOPLE}/people/${person}/assignments/${room}`, { method: 'DELETE' })
+export const roomPeople = (room: string) => api<{ items: RoomPerson[] }>(`${PEOPLE}/rooms/${room}/people`).then(r => r.items)
+
+const JOURNAL = '/api/journal/v1'
+export type JournalEvent = {
+  id: string; type: string; time: string
+  actor: { kind: string; id: string; person_id?: string }
+  subject: { kind: string; id: string }
+  data: Record<string, unknown>
+  building_id?: string; floor_id?: string; room_id?: string; asset_id?: string; person_id?: string
+}
+export const listEvents = (params: Record<string, string | undefined>) => {
+  const q = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]))
+  return api<{ items: JournalEvent[]; next: string | null }>(`${JOURNAL}/events?${q}`)
+}

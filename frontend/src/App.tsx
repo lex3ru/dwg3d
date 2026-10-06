@@ -12,6 +12,7 @@ import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { Catalog } from './pages/Catalog'
 import { Home } from './pages/Home'
+import { Journal } from './pages/Journal'
 import { People } from './pages/People'
 import { Plan } from './pages/Plan'
 import { RoomCard } from './pages/RoomCard'
@@ -158,10 +159,13 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
       crumbs.push({ label: building.name, href: to.home(building.id) })
       if (route.section === 'people' && admin) {
         crumbs.push({ label: 'Люди' })
-        content = <People />
+        content = <People building={building.id} floors={floors} />
       } else if (route.section === 'access' && admin) {
         crumbs.push({ label: 'Доступ' })
         content = <Access building={building} floors={floors} />
+      } else if (route.section === 'journal' && admin) {
+        crumbs.push({ label: 'Журнал' })
+        content = <Journal building={building.id} floors={floors} filter={route.query} />
       } else if (route.section === 'drawings' && admin) {
         crumbs.push({ label: 'Чертежи' })
         content = <Building key={building.id} id={building.id} />

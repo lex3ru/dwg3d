@@ -14,6 +14,8 @@ from twin_chassis.access import Rights
 from twin_chassis.auth import TokenVerifier
 from twin_chassis.client import ServiceClient, services_from_env
 
+from . import handlers
+from .assignments import router as assignments
 from .routes import router
 
 SERVICE = "people"
@@ -23,9 +25,13 @@ TITLE = "Люди: справочник"
 def build(settings: Settings | None = None, verifier: TokenVerifier | None = None,
           client: ServiceClient | None = None) -> FastAPI:
     def setup(app: FastAPI) -> None:
-        # whom the directory may be kept by is asked of the access service
+        # the directory's keepers are asked of access; rooms — of buildings; workplaces — of assets
         app.state.client = client or ServiceClient(
-            app.state.settings, services_from_env(os.environ.get("TWIN_SERVICES", "access=http://access:8000")))
+            app.state.settings, services_from_env(os.environ.get(
+                "TWIN_SERVICES",
+                "access=http://access:8000,buildings=http://buildings:8000,assets=http://assets:8000")))
         app.state.rights = Rights(app.state.client)
+        handlers.register(app.state.bus)
 
-    return create_app(SERVICE, title=TITLE, routers=[router], settings=settings, verifier=verifier, setup=setup)
+    return create_app(SERVICE, title=TITLE, routers=[router, assignments], settings=settings, verifier=verifier,
+                      setup=setup)

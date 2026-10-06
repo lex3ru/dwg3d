@@ -162,3 +162,63 @@ async def test_who_answers_for_an_object_may_edit_it(client, app, tokens, people
     assert await can(old_h, "view")                         # what was given by hand stays
     await named(new, None)                                  # nobody answers
     assert not await can(new_h, "view")
+
+
+async def test_assignment_to_a_room_gives_sight_of_it(client, app, tokens, people):
+    from twin_chassis.events import envelope
+    person, me = await people.person("worker")
+    chain = [{"kind": "room", "id": ROOM}, {"kind": "floor", "id": FLOOR}, {"kind": "building", "id": B1}]
+
+    async def can(action) -> bool:
+        r = await client.post(f"{API}/check", json={"checks": [{"action": action, "chain": chain}]}, headers=me)
+        return r.json()["results"][0]["allowed"]
+
+    async def room_event(type_: str, handler: str) -> None:
+        data = {"person_id": person, "building_id": B1, "floor_id": FLOOR, "room_id": ROOM}
+        event = envelope(type_, ("person", person), data, actor={"kind": "user", "id": "boss"},
+                         building_id=B1, room_id=ROOM, person_id=person)
+        assert await app.state.bus.handle(handler, event) is True
+
+    assert not await can("view")
+    await room_event("people.person.assigned", "person-assigned")
+    assert await can("view") and await can("plan") and not await can("edit")
+    assert [g["origin"] for g in (await scopes(client, me))["grants"]] == ["assignment"]
+    # given by hand too: the assignment going does not take that away
+    await client.post(f"{API}/grants", json=grant(person, "viewer", "room", ROOM), headers=tokens.admin())
+    await room_event("people.person.unassigned", "person-unassigned")
+    assert await can("view") and [g["origin"] for g in (await scopes(client, me))["grants"]] == ["manual"]
+    # the room is no more: every grant on it goes
+    gone = envelope("buildings.room.retired", ("room", ROOM), {"room_id": ROOM, "floor_id": FLOOR},
+                    actor={"kind": "service", "id": "buildings"}, building_id=B1, room_id=ROOM)
+    assert await app.state.bus.handle("room-retired", gone) is True
+    assert not await can("view")
+
+
+async def test_reconciliation_restores_and_removes_automatic_grants(client, app, tokens, people, sources):
+    from sqlalchemy import delete
+
+    from app.models import grants as table
+    person, me = await people.person("worker")
+    other, _ = await people.person("other")
+    asset = str(uuid4())
+    sources.assignments = [{"person_id": person, "room_id": ROOM, "building_id": B1, "floor_id": FLOOR}]
+    sources.responsibles = [{"asset_id": asset, "person_id": person, "building_id": B1}]
+    # a stale automatic grant nobody is the source of any more, and a manual one that is nobody's business
+    await client.post(f"{API}/grants", json=grant(other, "viewer", "room", ROOM), headers=tokens.admin())
+    async with app.state.db.begin() as session:
+        from sqlalchemy import insert
+        from twin_chassis import uuid7
+        await session.execute(insert(table).values(id=uuid7(), person_id=other, role="viewer", scope_kind="room",
+                                                   scope_id=ROOM, building_id=B1, origin="assignment"))
+    first = await client.post(f"{API}/reconcile", headers=tokens.admin())
+    assert first.status_code == 200 and first.json() == {"added": 2, "removed": 1}
+    mine = (await scopes(client, me))["grants"]
+    assert sorted((g["role"], g["origin"]) for g in mine) == [("responsible", "responsible"), ("viewer", "assignment")]
+    assert (await client.post(f"{API}/reconcile", headers=tokens.admin())).json() == {"added": 0, "removed": 0}
+    # someone deletes the automatic grant by hand: the next reconciliation brings it back
+    async with app.state.db.begin() as session:
+        await session.execute(delete(table).where(table.c.person_id == person, table.c.origin == "assignment"))
+    assert (await client.post(f"{API}/reconcile", headers=tokens.admin())).json() == {"added": 1, "removed": 0}
+    assert (await client.post(f"{API}/reconcile", headers=me)).status_code == 403
+    sources.up = False
+    assert (await client.post(f"{API}/reconcile", headers=tokens.admin())).status_code == 503

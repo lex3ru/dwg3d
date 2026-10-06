@@ -370,6 +370,30 @@
         ]
       }
     },
+    "/api/access/v1/reconcile": {
+      "post": {
+        "description": "Also happens by itself on start and every TWIN_RECONCILE_S seconds.",
+        "operationId": "reconcile_now_api_access_v1_reconcile_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reconcile Now Api Access V1 Reconcile Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Сверить автоматические назначения с привязками и ответственными",
+        "tags": [
+          "grants"
+        ]
+      }
+    },
     "/api/access/v1/scopes": {
       "get": {
         "operationId": "person_scopes_api_access_v1_scopes_get",

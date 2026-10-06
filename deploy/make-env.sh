@@ -41,9 +41,11 @@ set_var TWIN_DB_PASSWORD_ACCESS "$(rand 16)"
 set_var TWIN_DB_PASSWORD_PEOPLE "$(rand 16)"
 set_var TWIN_DB_PASSWORD_CATALOG "$(rand 16)"
 set_var TWIN_DB_PASSWORD_ASSETS "$(rand 16)"
+set_var TWIN_DB_PASSWORD_JOURNAL "$(rand 16)"
 # -- passwords of new databases go above this line --
 set_var TWIN_SVC_SECRET_BUILDINGS "$(rand 24)"
 set_var TWIN_SVC_SECRET_ASSETS "$(rand 24)"
+set_var TWIN_SVC_SECRET_ACCESS "$(rand 24)"
 # -- secrets of new service accounts go above this line --
 sed -e "$exprs" .env.example > .env
 if [ "$site" != ":80" ]; then

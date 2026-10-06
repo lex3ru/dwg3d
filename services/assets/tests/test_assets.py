@@ -365,3 +365,14 @@ async def test_labels_are_pdf_and_only_for_those_who_see(client, world, boss):
     # a sheet is printed by whoever manages the objects, not by whoever only looks
     assert (await client.post(f"{API}/labels", json={"room_id": ROOM_A}, headers=viewer)).status_code == 403
     assert (await client.post(f"{API}/labels", json={"room_id": ROOM_B}, headers=boss)).status_code == 404
+
+
+async def test_responsibles_for_the_reconciliation_of_rights(client, world, boss, tokens):
+    a = await put(client, boss, world, "scope", "RS-0001", x=2.0)
+    keeper = world.person("keeper", ("viewer", "room", ROOM_A))
+    person = world.persons["keeper"]
+    await client.post(f"{API}/assets/{a['id']}/responsible", json={"person_id": person, "version": a["version"]}, headers=boss)
+    svc = tokens.bearer("svc", service=True, login="twin-svc-access")
+    rows = (await client.get(f"{API}/responsibles", headers=svc)).json()["items"]
+    assert rows == [{"asset_id": a["id"], "person_id": person, "building_id": BUILDING}]
+    assert (await client.get(f"{API}/responsibles", headers=keeper)).status_code == 403

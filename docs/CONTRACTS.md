@@ -132,6 +132,7 @@
 | `GET /shares?building_id=` | гостевые ссылки | admin здания |
 | `POST /shares` | `{scope, building_id, expires_at, note}` → `{id, url}` | admin здания |
 | `DELETE /shares/{id}` | отозвать | admin здания |
+| `POST /reconcile` | сверить автоматические назначения с `people` и `assets` (также само: на старте и раз в `TWIN_RECONCILE_S`) | admin системы, служебный |
 | `POST /shares/open` | `{token}` → гостевой токен: `viewer` на область, без людей | без токена |
 | `GET /.well-known/jwks.json` | ключи для проверки гостевых токенов | без токена |
 
@@ -398,17 +399,18 @@ Asset {
 | Запрос | Что делает | Право |
 |---|---|---|
 | `GET /me` | запись человека для текущей учётной записи; при первом входе связывает по почте | любой вошедший |
-| `GET /people?building_id=&room_id=&department=&q=` | люди, привязанные к видимым субъекту помещениям | view помещения |
+| `GET /people?building_id=&room_id=&department=&q=` | хранителям справочника — все (с фильтрами); остальным, с `building_id`, — люди, привязанные к видимым субъекту помещениям | view помещения |
 | `GET /people/{id}` | карточка | view помещения человека |
 | `POST /people/batch-get` | `{ids, fields: brief}` — только имя и должность | любой вошедший, служебный |
 | `GET /rooms/{room_id}/people` | люди помещения | view |
 | `POST /people`, `PATCH /people/{id}` | создать, изменить | manage здания |
-| `POST /people/import` | Excel → задача | manage здания |
+| `POST /people/import` | Excel → отчёт в ответе (без задачи) | manage здания |
 | `POST /people/{id}/leave` | человек выбыл | manage здания |
 | `PUT` / `DELETE /people/{id}/link` | связать с учётной записью / разорвать | manage здания |
 | `GET /people/{id}/assignments` | привязки | view |
 | `PUT /people/{id}/assignments/{room_id}` | привязать к помещению, необязательно — к рабочему месту | manage помещения |
 | `DELETE /people/{id}/assignments/{room_id}` | отвязать | manage помещения |
+| `GET /assignments` | все привязки — для сверки прав | служебный |
 
 Краткие данные (имя и должность) отдаются по идентификатору любому
 вошедшему: это нужно для карточки объекта («ответственный») и истории.
@@ -435,7 +437,7 @@ Asset {
 
 | Запрос | Что делает | Право |
 |---|---|---|
-| `GET /events?building_id=&floor_id=&room_id=&asset_id=&person_id=&actor_id=&type=&from=&to=` | лента, новые сверху | view области события; без фильтра по зданию — админ системы |
+| `GET /events?building_id=&floor_id=&room_id=&asset_id=&person_id=&actor_id=&type=&from=&to=&limit=&cursor=` | лента, новые сверху; `type` точно или по началу (`assets.`) | view области события; события о человеке — он сам; без области — админ системы |
 | `GET /events/{id}` | событие | то же |
 
 Область события (здание, этаж, помещение, объект) журнал берёт из самого
@@ -514,7 +516,7 @@ Asset {
 | catalog | assets | можно ли менять схему |
 | assets | access; buildings; catalog | права; помещение по точке; схема типа (при промахе кеша) |
 | people | access | права |
-| access | — | — |
+| access | people, assets | только сверка автоматических назначений (своей учётной записью); права выдаются и проверяются без обращений |
 | journal | access | права на чтение ленты |
 | planning | access, assets, buildings, catalog | всё, что нужно для вариантов и расчётов |
 | copilot | все | через их открытые запросы |

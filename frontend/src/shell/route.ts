@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 //   /b/<building>/plan[/<floor>][/<room>]   the 2D plan of a floor
 //   /b/<building>/drawings             drawings (the building's administrator)
 //   /b/<building>/people, /access      the directory of people; who may do what in the building
+//   /b/<building>/journal?…           the feed of events (the building's administrator)
 //   /f/<drawing>/…                     the editor: the 3D / 2D scene of a drawing
 //   /catalog[/types/<id>|/sets/<id>]   the catalog (the system administrator; «new» instead of an id — a new one)
 //   /q/<code>                          a QR label: leads to the card of its object (or «нет доступа»)
@@ -16,11 +17,12 @@ import { useEffect, useState } from 'react'
 //   /me                                the user (on a phone: also what the menu holds)
 //   /system                            the state of the services (the system administrator)
 
-export type Section = 'home' | 'rooms' | 'assets' | 'plan' | 'drawings' | 'people' | 'access'
+export type Section = 'home' | 'rooms' | 'assets' | 'plan' | 'drawings' | 'people' | 'access' | 'journal'
 export type Route =
   | { page: 'buildings' }
   | { page: 'building'; building: string; section: Section; item?: string; sub?: string; q?: string
-      /** on the plan: the object being moved */ move?: string }
+      /** on the plan: the object being moved */ move?: string
+      /** the rest of the query, e.g. the journal's filters */ query: Record<string, string> }
   | { page: 'editor'; drawing: string }
   | { page: 'me' }
   | { page: 'qr'; code: string }
@@ -32,12 +34,13 @@ export function parseRoute(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?')
   const [first, second, third, fourth, fifth] = path.split('/')
   if (first === 'f' && second) return { page: 'editor', drawing: second }
-  if (first === 'p' && second) return { page: 'building', building: second, section: 'drawings' }     // the old address
+  if (first === 'p' && second) return { page: 'building', building: second, section: 'drawings', query: {} }     // the old address
   if (first === 'b' && second) {
-    const sections: Section[] = ['rooms', 'assets', 'plan', 'drawings', 'people', 'access']
+    const sections: Section[] = ['rooms', 'assets', 'plan', 'drawings', 'people', 'access', 'journal']
     const section: Section = sections.includes(third as Section) ? third as Section : 'home'
     return { page: 'building', building: second, section, item: fourth || undefined, sub: fifth || undefined,
-      q: new URLSearchParams(query).get('q') ?? undefined, move: new URLSearchParams(query).get('move') ?? undefined }
+      q: new URLSearchParams(query).get('q') ?? undefined, move: new URLSearchParams(query).get('move') ?? undefined,
+      query: Object.fromEntries(new URLSearchParams(query)) }
   }
   if (first === 'catalog') return { page: 'catalog', kind: second === 'sets' ? 'sets' : second === 'types' ? 'types' : undefined, item: third || undefined }
   if (first === 'q' && second) return { page: 'qr', code: second }
@@ -58,6 +61,8 @@ export const to = {
   drawings: (b: string) => `#/b/${b}/drawings`,
   people: (b: string) => `#/b/${b}/people`,
   access: (b: string) => `#/b/${b}/access`,
+  journal: (b: string, filter: Record<string, string | undefined> = {}) =>
+    `#/b/${b}/journal${Object.values(filter).some(Boolean) ? `?${new URLSearchParams(Object.entries(filter).filter((e): e is [string, string] => !!e[1]))}` : ''}`,
   editor: (drawing: string) => `#/f/${drawing}`,
 }
 
