@@ -117,6 +117,88 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Open": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Откуда открыли (передаёт шлюз)",
+            "title": "Address"
+          },
+          "renew": {
+            "default": false,
+            "description": "Продление уже открытого просмотра, а не новое открытие",
+            "title": "Renew",
+            "type": "boolean"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 10,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "Open",
+        "type": "object"
+      },
+      "ShareIn": {
+        "properties": {
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "До какого времени ссылка открывается",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Для помещения — его этаж (план этого этажа увидит гость)",
+            "title": "Floor Id"
+          },
+          "note": {
+            "default": "",
+            "description": "Кому и зачем",
+            "maxLength": 200,
+            "title": "Note",
+            "type": "string"
+          },
+          "scope": {
+            "additionalProperties": true,
+            "description": "{kind: building | floor | room, id}",
+            "title": "Scope",
+            "type": "object"
+          }
+        },
+        "required": [
+          "building_id",
+          "scope",
+          "expires_at"
+        ],
+        "title": "ShareIn",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -165,6 +247,29 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/access/v1/.well-known/jwks.json": {
+      "get": {
+        "operationId": "jwks_api_access_v1__well_known_jwks_json_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Jwks Api Access V1  Well Known Jwks Json Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ключи, которыми подписаны гостевые токены",
+        "tags": [
+          "shares"
+        ]
+      }
+    },
     "/api/access/v1/check": {
       "post": {
         "operationId": "check_api_access_v1_check_post",
@@ -436,6 +541,173 @@
         "summary": "Области доступа человека (служебный)",
         "tags": [
           "scopes"
+        ]
+      }
+    },
+    "/api/access/v1/shares": {
+      "get": {
+        "operationId": "list_shares_api_access_v1_shares_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Shares Api Access V1 Shares Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ссылки для просмотра без учётной записи",
+        "tags": [
+          "shares"
+        ]
+      },
+      "post": {
+        "description": "The answer holds the link once: it is not kept anywhere and cannot be shown again.",
+        "operationId": "create_share_api_access_v1_shares_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Share Api Access V1 Shares Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Выдать ссылку: на здание, этаж или помещение, до даты",
+        "tags": [
+          "shares"
+        ]
+      }
+    },
+    "/api/access/v1/shares/open": {
+      "post": {
+        "description": "No sign-in needed: the link itself is the proof. A link unknown, revoked or expired — 404, all alike.",
+        "operationId": "open_share_api_access_v1_shares_open_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Open"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Open Share Api Access V1 Shares Open Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Открыть ссылку: гостевой токен на её область",
+        "tags": [
+          "shares"
+        ]
+      }
+    },
+    "/api/access/v1/shares/{share_id}": {
+      "delete": {
+        "operationId": "revoke_share_api_access_v1_shares__share_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Share Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Отозвать ссылку",
+        "tags": [
+          "shares"
         ]
       }
     }

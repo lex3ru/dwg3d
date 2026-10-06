@@ -42,6 +42,7 @@ x-s3-env: &s3-env
 
 x-service-env: &service-env
   TWIN_NATS_URL: nats://nats:4222
+  TWIN_GUEST_JWKS: http://access:8000/api/access/v1/.well-known/jwks.json
   TWIN_PUBLIC_URL: ${TWIN_PUBLIC_URL:-http://localhost:8090}
   TWIN_OIDC_ISSUER: ${TWIN_PUBLIC_URL:-http://localhost:8090}/kc/realms/twin
   TWIN_OIDC_INTERNAL: http://keycloak:8080/kc/realms/twin
@@ -93,7 +94,7 @@ services:
       <<: [*service-env, *s3-env]
       TWIN_DATABASE_URL: postgresql+psycopg://import:${TWIN_DB_PASSWORD_IMPORT:-import}@db:5432/import
       TWIN_DATA: /data
-      TWIN_SERVICES: access=http://access:8000
+      TWIN_SERVICES: access=http://access:8000,buildings=http://buildings:8000
       TWIN_MAX_UPLOAD_MB: ${TWIN_MAX_UPLOAD_MB:-200}
       # ODA File Converter (optional, better DWG support): path inside the container of a binary mounted into it
       DWG3D_ODA: ${TWIN_ODA:-}

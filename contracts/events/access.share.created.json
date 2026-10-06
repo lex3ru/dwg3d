@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.share.created",
+  "description": "Выдана ссылка для просмотра без учётной записи. subject — ссылка; building_id (и floor_id) — в конверте.",
+  "type": "object",
+  "required": [
+    "share_id",
+    "scope",
+    "expires_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "share_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "building",
+            "floor",
+            "room"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

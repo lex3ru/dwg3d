@@ -222,3 +222,36 @@ async def test_comments_are_seen_by_those_who_see_the_target(client, app, tokens
     assert (await client.delete(f"{url}/{on_point.json()['id']}", headers=keeper)).status_code == 204
     types = [e["type"] for e in await events(app)]
     assert types.count("buildings.comment.created") == 3 and types.count("buildings.comment.resolved") == 1
+
+
+async def test_a_guest_of_a_floor_sees_that_floor_only(client, app, tokens, building, site):
+    await site.build("base")
+    admin, b = tokens.admin(), building["id"]
+    floors = (await client.get(f"{API}/buildings/{b}/tree", headers=admin)).json()["floors"]
+    mine, other = floors[0], floors[1]
+    guest = tokens.guest("floor", mine["id"], b, mine["id"])
+    seen = (await client.get(f"{API}/buildings/{b}/tree", headers=guest)).json()["floors"]
+    assert [f["id"] for f in seen] == [mine["id"]] and len(seen[0]["rooms"]) == 2
+    assert (await client.get(f"{API}/floors/{mine['id']}/plan", headers=guest)).status_code == 200
+    assert (await client.get(f"{API}/floors/{other['id']}/plan", headers=guest)).status_code == 404
+    assert (await client.get(f"{API}/rooms/{other['rooms'][0]['id']}", headers=guest)).status_code == 404
+    assert (await client.get(f"{API}/rooms/{mine['rooms'][0]['id']}", headers=guest)).status_code == 200
+    rooms = (await client.get(f"{API}/rooms", params={"building_id": b}, headers=guest)).json()["items"]
+    assert {r["floor_id"] for r in rooms} == {mine["id"]}
+    model = (await client.get(f"{API}/buildings/{b}/model", headers=guest)).json()["drawings"][0]
+    assert [f["floor_id"] for f in model["result"]["floors"]] == [mine["id"]]
+    assert model["model_url"].endswith(f"model.glb?floor={mine['id']}")
+    # no comments, no changes, nothing of another building
+    assert (await client.get(f"{API}/comments", params={"building_id": b}, headers=guest)).json() == {"items": []}
+    point = {"building_id": b, "target_kind": "point", "floor_id": mine["id"], "x": 1, "y": 1, "body": "x"}
+    assert (await client.post(f"{API}/comments", json=point, headers=guest)).status_code == 403
+    assert (await client.patch(f"{API}/rooms/{mine['rooms'][0]['id']}", json={"name": "x", "version": 1},
+                               headers=guest)).status_code == 403
+    assert (await client.get(f"{API}/buildings/{b}/revisions", headers=guest)).status_code == 403
+    stranger = tokens.guest("floor", mine["id"], str(uuid4()), mine["id"])
+    assert (await client.get(f"{API}/buildings/{b}/tree", headers=stranger)).status_code == 404
+    # a guest of the whole building sees every floor
+    whole = tokens.guest("building", b, b)
+    assert len((await client.get(f"{API}/buildings/{b}/tree", headers=whole)).json()["floors"]) == 2
+    whole_model = (await client.get(f"{API}/buildings/{b}/model", headers=whole)).json()["drawings"][0]
+    assert "?floor=" not in whole_model["model_url"]

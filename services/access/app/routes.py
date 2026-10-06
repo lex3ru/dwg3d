@@ -9,13 +9,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from twin_chassis import Identity, Problem, current_identity, emit, require_service, uuid7
-from twin_chassis.access import NEEDS, decide
+from twin_chassis.access import NEEDS, decide, guest_scopes
 
 from .models import grants, subjects
 
 router = APIRouter()
 Role = Literal["viewer", "responsible", "admin"]
 ScopeKind = Literal["building", "floor", "room", "asset"]
+
+
+def iso(t) -> str | None:
+    return t.isoformat().replace("+00:00", "Z") if t else None
 
 
 def grant_json(g) -> dict:
@@ -37,6 +41,8 @@ async def scopes_of_person(session, person_id: UUID | None) -> dict:
 async def scopes_of(session, me: Identity) -> dict:
     """What the caller may do where. The system administrator may everything; an account
     that is no person of the directory — nothing."""
+    if me.kind == "guest":
+        return guest_scopes(me)
     if me.is_admin or me.kind == "service":
         return {"admin": me.is_admin, "service": me.kind == "service", "person_id": None, "grants": [],
                 "buildings": []}

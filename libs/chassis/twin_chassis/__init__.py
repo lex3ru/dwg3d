@@ -19,11 +19,11 @@ handlers; everything the services must do the same way lives here:
 The rules behind it are in docs/CONTRACTS.md, section 1.
 """
 from .app import create_app
-from .auth import Identity, current_identity, require_admin, require_admin_or_service, require_service
+from .auth import Identity, current_identity, forbid_guests, require_admin, require_admin_or_service, require_service
 from .db import Database, metadata, uuid7
 from .errors import Problem
 from .events import emit
 from .settings import Settings
 
 __all__ = ["Database", "Identity", "Problem", "Settings", "create_app", "current_identity", "emit",
-           "metadata", "require_admin", "require_admin_or_service", "require_service", "uuid7"]
+           "forbid_guests", "metadata", "require_admin", "require_admin_or_service", "require_service", "uuid7"]

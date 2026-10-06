@@ -201,7 +201,8 @@ async def default_config(_: Identity = Depends(current_identity)) -> dict:
 
 @router.get("/drawings/{drawing_id}/config", tags=["config"],
             summary="Настройки разбора чертежа и правки 2D-редактора (config.edits)")
-async def get_config(drawing_id: UUID, request: Request, _: Identity = Depends(reads_drawing)) -> dict:
+async def get_config(drawing_id: UUID, request: Request, me: Identity = Depends(reads_drawing)) -> dict:
+    _no_guest(me)
     async with request.app.state.db.begin() as session:
         return {"config": (await _drawing(session, drawing_id)).config or {}}
 
@@ -274,7 +275,8 @@ async def get_build(build_id: UUID, request: Request, _: Identity = Depends(read
 
 @router.get("/builds/{build_id}/result", tags=["builds"],
             summary="Результат сборки: этажи, помещения, входы, предупреждения")
-async def get_result(build_id: UUID, request: Request, _: Identity = Depends(reads_build)) -> dict:
+async def get_result(build_id: UUID, request: Request, me: Identity = Depends(reads_build)) -> dict:
+    _no_guest(me)
     async with request.app.state.db.begin() as session:
         b = await _build(session, build_id)
         if b.status != "done":
@@ -283,17 +285,58 @@ async def get_result(build_id: UUID, request: Request, _: Identity = Depends(rea
         return {"build": store.build_json(b), "building_id": str(d.building_id), "result": b.result}
 
 
+def _no_guest(me: Identity) -> None:
+    if me.kind == "guest":
+        raise Problem(403, "guest", "Гостю по ссылке это недоступно")
+
+
+async def _guest_model(request: Request, me: Identity, b, floor: UUID | None) -> str:
+    """The model a guest of a floor or a room may have: their floor only, cut out of the drawing's model
+    (and kept for the next guest). Which floor of the build that is, the buildings service says."""
+    kind, _, building, own = me.guest
+    if kind == "building":
+        return f"{b.out_prefix}/model.glb"
+    if floor is None or str(floor) != own:
+        raise Problem(404, "not_found", "Файл не найден")
+    token = request.headers.get("authorization", "").partition(" ")[2].strip()
+    client = request.app.state.client
+    plan, placed = await asyncio.gather(
+        client.request("GET", "buildings", f"/floors/{floor}/plan", token=token),
+        client.request("GET", "buildings", f"/buildings/{building}/drawings", token=token))
+    if plan.status_code != 200 or placed.status_code != 200:
+        raise Problem(404, "not_found", "Файл не найден")
+    f = plan.json()["floor"]
+    published = {d["id"]: d["build_id"] for d in placed.json()["items"]}
+    if f["drawing_id"] != str(b.drawing_id) or published.get(f["drawing_id"]) != str(b.id) or not f.get("candidate"):
+        raise Problem(404, "not_found", "Файл не найден")
+    key = f"{b.out_prefix}/guest/floor_{f['candidate']}.glb"
+    bucket = storage.bucket()
+    if await asyncio.to_thread(bucket.size, key) is None:
+        whole = await asyncio.to_thread(bucket.get_bytes, f"{b.out_prefix}/model.glb")
+        if whole is None:
+            raise Problem(404, "not_found", "Файл не найден")
+        from .glb import cut
+        await asyncio.to_thread(bucket.put_bytes, key, cut(whole, {f"floor_{f['candidate']}"}), storage.MEDIA[".glb"])
+    return key
+
+
 @router.get("/builds/{build_id}/files/{path:path}", tags=["builds"], response_class=StreamingResponse,
             summary="Файл сборки: model.glb, plans/floor_<id>.json, model.ifc, model_obj.zip")
-async def get_build_file(build_id: UUID, path: str, request: Request,
-                         _: Identity = Depends(reads_build)) -> StreamingResponse:
+async def get_build_file(build_id: UUID, path: str, request: Request, floor: UUID | None = None,
+                         me: Identity = Depends(reads_build)) -> StreamingResponse:
+    """A guest gets only the model, and a guest of a floor or a room — only their floor of it (`floor`)."""
     rel = PurePosixPath(path)
     media = storage.MEDIA.get(rel.suffix.lower())
     if rel.is_absolute() or ".." in rel.parts or not rel.parts or media is None:
         raise Problem(404, "not_found", "Файл не найден")
     async with request.app.state.db.begin() as session:
         b = await _build(session, build_id)
-    key = f"{b.out_prefix}/{rel.as_posix()}" if b.out_prefix else None
+    if me.kind == "guest":
+        if rel.as_posix() != "model.glb" or not b.out_prefix:
+            raise Problem(403, "guest", "Гостю по ссылке доступна только модель")
+        key = await _guest_model(request, me, b, floor)
+    else:
+        key = f"{b.out_prefix}/{rel.as_posix()}" if b.out_prefix else None
     size = await asyncio.to_thread(storage.bucket().size, key) if key else None
     if size is None:
         raise Problem(404, "not_found", "Файл не найден")

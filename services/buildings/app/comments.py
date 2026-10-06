@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
-from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, uuid7
 from twin_chassis.access import decide
 
 from .models import comments, floors, rooms
@@ -81,6 +81,8 @@ async def list_comments(request: Request, building_id: UUID, target_kind: Kind |
     scopes = await _scopes(request, me)
     if not decide(scopes, "plan", [("building", building_id)]):
         raise Problem(404, "not_found", "Здание не найдено")
+    if me.kind == "guest":                               # a guest by a link sees no comments
+        return {"items": []}
     q = select(comments).where(comments.c.building_id == building_id).order_by(comments.c.created_at, comments.c.id)
     if target_kind is not None:
         q = q.where(comments.c.target_kind == target_kind)
@@ -131,7 +133,7 @@ async def _target(request: Request, session, me: Identity, scopes: dict, body: C
 
 
 @router.post("/comments", status_code=201, tags=["comments"], summary="Оставить комментарий")
-async def create_comment(body: CommentIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def create_comment(body: CommentIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes = await _scopes(request, me, reading=False)
     async with request.app.state.db.begin() as session:
         where = await _target(request, session, me, scopes, body)

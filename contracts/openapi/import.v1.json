@@ -215,6 +215,7 @@
     },
     "/api/import/v1/builds/{build_id}/files/{path}": {
       "get": {
+        "description": "A guest gets only the model, and a guest of a floor or a room — only their floor of it (`floor`).",
         "operationId": "get_build_file_api_import_v1_builds__build_id__files__path__get",
         "parameters": [
           {
@@ -234,6 +235,23 @@
             "schema": {
               "title": "Path",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "floor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Floor"
             }
           }
         ],

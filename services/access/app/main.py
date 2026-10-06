@@ -21,6 +21,8 @@ from twin_chassis.client import ServiceClient, services_from_env
 from . import handlers
 from .reconcile import reconcile
 from .routes import router
+from .shares import router as shares
+from .shares import signing_key
 
 SERVICE = "access"
 TITLE = "Доступ: права по областям"
@@ -50,6 +52,9 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            # the key of guest tokens; this service trusts it itself, the others fetch it from /.well-known
+            app.state.signing = await signing_key(app.state.db)
+            app.state.verifier.trust_guest_key(app.state.signing[0], app.state.signing[1].public_key())
             task = asyncio.create_task(regularly(), name="access-reconcile")
             try:
                 async with inner(app):
@@ -59,4 +64,4 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
 
         app.router.lifespan_context = lifespan
 
-    return create_app(SERVICE, title=TITLE, routers=[router], settings=settings, verifier=verifier, setup=setup)
+    return create_app(SERVICE, title=TITLE, routers=[router, shares], settings=settings, verifier=verifier, setup=setup)

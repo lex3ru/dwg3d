@@ -40,7 +40,7 @@ def create_app(service: str, *, title: str, routers: list[APIRouter] = (), setti
                   docs_url=f"{docs}/docs", redoc_url=None)
     app.state.settings, app.state.db, app.state.bus = settings, db, bus
     app.state.verifier = verifier or TokenVerifier(settings.oidc_issuer, settings.oidc_internal,
-                                                   settings.oidc_client_id)
+                                                   settings.oidc_client_id, guest_jwks=settings.guest_jwks)
     errors.install(app)
     app.add_middleware(log.RequestLog)
 

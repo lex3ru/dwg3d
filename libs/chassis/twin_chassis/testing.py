@@ -22,7 +22,7 @@ import jwt
 import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from .auth import TokenVerifier
+from .auth import GUEST_ISSUER, TokenVerifier
 from .migrate import upgrade
 from .settings import Settings, find_contracts
 
@@ -83,7 +83,8 @@ class Tokens:
         self.kid = "test-key"
 
     def verifier(self) -> TokenVerifier:
-        return TokenVerifier(ISSUER, ISSUER, CLIENT_ID, keys={self.kid: self._key.public_key()})
+        keys = {self.kid: self._key.public_key()}
+        return TokenVerifier(ISSUER, ISSUER, CLIENT_ID, keys=keys, guest_keys=keys)
 
     def make(self, sub: str = "user-1", *, roles: tuple[str, ...] = (), login: str = "ivanov",
              name: str = "Иван Иванов", email: str | None = "ivanov@example.test", service: bool = False,
@@ -98,6 +99,15 @@ class Tokens:
 
     def bearer(self, sub: str = "user-1", **kw) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.make(sub, **kw)}"}
+
+    def guest(self, kind: str, scope_id: str, building_id: str, floor_id: str | None = None,
+              share: str = "share-1") -> dict[str, str]:
+        """The headers of a guest by a link to an area, as the access service would sign it."""
+        now = int(time.time())
+        payload = {"iss": GUEST_ISSUER, "sub": f"guest:{share}", "iat": now, "exp": now + 600,
+                   "area": {"kind": kind, "id": scope_id}, "building_id": building_id, "floor_id": floor_id}
+        token = jwt.encode(payload, self._key, algorithm="RS256", headers={"kid": self.kid})
+        return {"Authorization": f"Bearer {token}"}
 
     def admin(self, sub: str = "admin-1") -> dict[str, str]:
         return self.bearer(sub, roles=("twin.admin",), login="admin", name="Администратор")

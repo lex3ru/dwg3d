@@ -238,3 +238,75 @@ async def test_rights_on_merged_rooms_go_to_the_heir(client, app, tokens, people
     mine = sorted((g["role"], g["scope"]["id"]) for g in (await scopes(client, me))["grants"])
     assert mine == [("responsible", ROOM), ("viewer", ROOM)]
 
+
+
+async def test_a_link_for_guests(client, app, tokens, people):
+    from datetime import UTC, datetime, timedelta
+
+    import jwt as pyjwt
+    from twin_chassis.db import outbox
+
+    admin = tokens.admin()
+    boss, boss_h = await people.person("boss")
+    await client.post(f"{API}/grants", json=grant(boss, "admin"), headers=admin)
+    later = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    body = {"building_id": B1, "scope": {"kind": "floor", "id": FLOOR}, "expires_at": later, "note": "подрядчик"}
+    made = await client.post(f"{API}/shares", json=body, headers=boss_h)
+    assert made.status_code == 201
+    share = made.json()
+    assert share["url"].endswith(f"/s/{share['token']}") and share["state"] == "active" and share["floor_id"] == FLOOR
+    # the token is shown once: the list does not have it
+    listed = (await client.get(f"{API}/shares", params={"building_id": B1}, headers=boss_h)).json()["items"]
+    assert [x["id"] for x in listed] == [share["id"]] and "token" not in listed[0]
+    clerk, clerk_h = await people.person("clerk")
+    await client.post(f"{API}/grants", json=grant(clerk, "viewer"), headers=admin)
+    assert (await client.post(f"{API}/shares", json=body, headers=clerk_h)).status_code == 403
+    assert (await client.post(f"{API}/shares", json={**body, "expires_at": "2020-01-01T00:00:00Z"},
+                              headers=boss_h)).status_code == 422
+    room = {**body, "scope": {"kind": "room", "id": ROOM}}
+    assert (await client.post(f"{API}/shares", json=room, headers=boss_h)).status_code == 422      # its floor is needed
+
+    # opened without an account: a guest token for the floor, checked by the published key
+    opened = await client.post(f"{API}/shares/open", json={"token": share["token"], "address": "10.0.0.7"})
+    assert opened.status_code == 200
+    token = opened.json()["token"]
+    keys = (await client.get(f"{API}/.well-known/jwks.json")).json()["keys"]
+    public = pyjwt.algorithms.RSAAlgorithm.from_jwk(keys[0])
+    claims = pyjwt.decode(token, public, algorithms=["RS256"], issuer="twin-access-guest")
+    assert claims["area"] == {"kind": "floor", "id": FLOOR} and claims["floor_id"] == FLOOR
+    guest = {"Authorization": f"Bearer {token}"}
+    mine = await scopes(client, guest)
+    assert mine["guest"] == {"kind": "floor", "id": FLOOR, "building_id": B1, "floor_id": FLOOR}
+    chain = lambda *area: [{"kind": k, "id": i} for k, i in area]                                   # noqa: E731
+    checks = {"checks": [{"action": "view", "chain": chain(("room", ROOM), ("floor", FLOOR), ("building", B1))},
+                         {"action": "plan", "chain": chain(("floor", FLOOR), ("building", B1))},
+                         {"action": "plan", "chain": chain(("floor", str(uuid4())), ("building", B1))},
+                         {"action": "plan", "chain": chain(("building", B1))},
+                         {"action": "edit", "chain": chain(("room", ROOM), ("floor", FLOOR), ("building", B1))},
+                         {"action": "plan", "chain": chain(("building", B2))}]}
+    results = (await client.post(f"{API}/check", json=checks, headers=guest)).json()["results"]
+    assert [r["allowed"] for r in results] == [True, True, False, True, False, False]
+    assert (await client.get(f"{API}/grants", params={"building_id": B1}, headers=guest)).status_code == 403
+    # opening is counted and is an event with the address; renewing is neither
+    assert (await client.post(f"{API}/shares/open", json={"token": share["token"], "renew": True})).status_code == 200
+    listed = (await client.get(f"{API}/shares", params={"building_id": B1}, headers=boss_h)).json()["items"]
+    assert listed[0]["opened"] == 1 and listed[0]["last_opened_at"]
+    async with app.state.db.begin() as session:
+        opened_events = [e for (e,) in await session.execute(select(outbox.c.payload))
+                         if e["type"] == "access.share.opened"]
+    assert len(opened_events) == 1 and opened_events[0]["data"]["address"] == "10.0.0.7"
+    assert opened_events[0]["building_id"] == B1
+
+    # revoked: opens nothing, nor renews; an unknown token is the same 404
+    assert (await client.delete(f"{API}/shares/{share['id']}", headers=boss_h)).status_code == 204
+    assert (await client.post(f"{API}/shares/open", json={"token": share["token"]})).status_code == 404
+    assert (await client.post(f"{API}/shares/open", json={"token": share["token"], "renew": True})).status_code == 404
+    assert (await client.post(f"{API}/shares/open", json={"token": "x" * 32})).status_code == 404
+    listed = (await client.get(f"{API}/shares", params={"building_id": B1}, headers=boss_h)).json()["items"]
+    assert listed[0]["state"] == "revoked"
+    # expired
+    soon = await client.post(f"{API}/shares", headers=boss_h,
+                             json={**body, "expires_at": (datetime.now(UTC) + timedelta(seconds=2)).isoformat()})
+    import asyncio
+    await asyncio.sleep(2.5)
+    assert (await client.post(f"{API}/shares/open", json={"token": soon.json()["token"]})).status_code == 404

@@ -25,6 +25,7 @@ from .rights import (
     reads_building,
     reads_floor,
     reads_room,
+    visible_floors,
 )
 
 router = APIRouter()
@@ -300,13 +301,15 @@ def _floor_order():
 
 
 @router.get("/buildings/{building_id}/tree", tags=["structure"], summary="Этажи и помещения здания кратко")
-async def tree(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
+async def tree(building_id: UUID, request: Request, me: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         b = await _building(session, building_id)
         floor_rows = (await session.execute(select(floors).where(
             floors.c.building_id == building_id, floors.c.status == "active").order_by(*_floor_order()))).all()
         room_rows = (await session.execute(select(rooms).where(
             rooms.c.building_id == building_id, rooms.c.status == "active").order_by(rooms.c.name, rooms.c.idx))).all()
+    seen = await visible_floors(request, me, building_id, [f.id for f in floor_rows])     # a guest of one floor
+    floor_rows = [f for f in floor_rows if f.id in seen]
     by_floor: dict[UUID, list] = {}
     for r in room_rows:
         by_floor.setdefault(r.floor_id, []).append(room_json(r))
@@ -316,7 +319,7 @@ async def tree(building_id: UUID, request: Request, _: Identity = Depends(reads_
 
 @router.get("/buildings/{building_id}/model", tags=["structure"],
             summary="3D-модель: по чертежу — файл модели, положение, этажи и помещения в нём")
-async def model(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
+async def model(building_id: UUID, request: Request, me: Identity = Depends(reads_building)) -> dict:
     """For each built drawing: `model_url` (GLB with a node per floor and per room), `placement`,
     and `result` — what the model consists of: floors (`floor_id`, `node`, level, elevation, height,
     rooms with `id`, `node`, name, type, area, label), entrances, stairs and lifts, room types."""
@@ -328,18 +331,27 @@ async def model(building_id: UUID, request: Request, _: Identity = Depends(reads
             select(rooms.c.id, rooms.c.name, rooms.c.type).where(rooms.c.building_id == building_id))}
         floor_names = {str(i): name for i, name in await session.execute(
             select(floors.c.id, floors.c.name).where(floors.c.building_id == building_id))}
+    seen = {str(f) for f in await visible_floors(request, me, building_id, [UUID(i) for i in floor_names])}
+    guest_floor = me.guest[3] if me.kind == "guest" and me.guest[0] != "building" else None
     out = []
     for d in rows:
         if d.build_id is None or not d.result:
             continue
         result = d.result
+        if len(seen) < len(floor_names):                          # a guest of one floor: only that floor
+            result = {**result, "floors": [f for f in result.get("floors") or [] if f.get("floor_id") in seen],
+                      "entrances": [e for e in result.get("entrances") or [] if e.get("floor_id") in seen],
+                      "pois": [e for e in result.get("pois") or [] if e.get("floor_id") in seen]}
+            if not result["floors"]:
+                continue
         for f in result.get("floors") or []:
             if f.get("floor_id") in floor_names:
                 f["name"] = floor_names[f["floor_id"]]            # names changed by hand since the build
             for m in f.get("rooms") or []:
                 if m.get("id") in names:
                     m["name"], m["type"] = names[m["id"]]
-        out.append({**drawing_json(d), "model_url": f"/api/import/v1/builds/{d.build_id}/files/model.glb",
+        url = f"/api/import/v1/builds/{d.build_id}/files/model.glb"
+        out.append({**drawing_json(d), "model_url": f"{url}?floor={guest_floor}" if guest_floor else url,
                     "result": result})
     return {"drawings": out}
 
@@ -407,7 +419,7 @@ async def locate(floor_id: UUID, body: Points, request: Request,
 @router.get("/rooms", tags=["rooms"], summary="Поиск помещений")
 async def list_rooms(request: Request, building_id: UUID, floor_id: UUID | None = None, q: str | None = None,
                      type: str | None = None, status: str = "active", limit: int = 200,
-                     _: Identity = Depends(reads_building)) -> dict:
+                     me: Identity = Depends(reads_building)) -> dict:
     where = [rooms.c.building_id == building_id]
     if status != "all":
         where.append(rooms.c.status == status)
@@ -421,7 +433,8 @@ async def list_rooms(request: Request, building_id: UUID, floor_id: UUID | None 
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(rooms).where(*where).order_by(rooms.c.name, rooms.c.id)
                                       .limit(max(1, min(limit, 500))))).all()
-    return {"items": [room_json(r) for r in rows], "next": None}
+    seen = await visible_floors(request, me, building_id, {r.floor_id for r in rows})
+    return {"items": [room_json(r) for r in rows if r.floor_id in seen], "next": None}
 
 
 class Ids(BaseModel):
@@ -434,7 +447,11 @@ async def batch_rooms(body: Ids, request: Request, me: Identity = Depends(curren
     visible = await request.app.state.rights.buildings(request, me)
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(rooms).where(rooms.c.id.in_(body.ids or [uuid7()])))).all()
-    return {"items": [room_json(r) for r in rows if visible is None or str(r.building_id) in visible]}
+    rows = [r for r in rows if visible is None or str(r.building_id) in visible]
+    if me.kind == "guest":
+        seen = await visible_floors(request, me, UUID(me.guest[2]), {r.floor_id for r in rows})
+        rows = [r for r in rows if r.floor_id in seen]
+    return {"items": [room_json(r) for r in rows]}
 
 
 async def _room(session, room_id: UUID, *, lock: bool = False):
@@ -498,11 +515,13 @@ def pin_json(p) -> dict:
 
 
 @router.get("/buildings/{building_id}/pins", tags=["pins"], summary="Метки на модели")
-async def list_pins(building_id: UUID, request: Request, _: Identity = Depends(reads_building)) -> dict:
+async def list_pins(building_id: UUID, request: Request, me: Identity = Depends(reads_building)) -> dict:
     async with request.app.state.db.begin() as session:
         await _building(session, building_id)
         rows = (await session.execute(select(pins).where(pins.c.building_id == building_id)
                                       .order_by(pins.c.created_at, pins.c.id))).all()
+    seen = await visible_floors(request, me, building_id, {p.floor_id for p in rows if p.floor_id})
+    rows = [p for p in rows if p.floor_id is None or p.floor_id in seen]
     return {"items": [pin_json(p) for p in rows]}
 
 

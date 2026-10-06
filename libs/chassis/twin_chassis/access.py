@@ -16,7 +16,9 @@ Roles: viewer < responsible < admin. Actions:
   manage          everything else — admin
 
 `chain` is the area and everything above it, e.g. [("room", r), ("floor", f), ("building", b)]:
-the access service does not know what is inside what. The system administrator
+the access service does not know what is inside what. A guest by a link may look at its
+area only: `plan` of its floor (of the floor of its room; any floor for a whole building)
+and `view` of what is inside the area; nothing else. The system administrator
 (Keycloak role twin.admin) may everything; another service calling with its own
 token may read everything and change nothing — changes come with a user's token.
 
@@ -47,6 +49,8 @@ def decide(scopes: dict, action: str, chain: Chain) -> bool:
     `scopes`: {admin, grants: [{role, scope: {kind, id}, building_id}]}."""
     if action not in NEEDS:
         raise ValueError(f"unknown action: {action}")
+    if scopes.get("guest"):
+        return _guest_may(scopes["guest"], action, chain)
     if scopes.get("admin") or (scopes.get("service") and action in READING):
         return True
     area = {(kind, str(id_)) for kind, id_ in chain}
@@ -58,6 +62,28 @@ def decide(scopes: dict, action: str, chain: Chain) -> bool:
     return best >= NEEDS[action]
 
 
+def _guest_may(area: dict, action: str, chain: Chain) -> bool:
+    if action not in READING:
+        return False
+    chain = {(kind, str(id_)) for kind, id_ in chain}
+    kind, id_, building, floor = area["kind"], area["id"], area["building_id"], area.get("floor_id") or ""
+    if not chain or any(k == "building" and i != building for k, i in chain):
+        return False                                     # another building does not exist for a guest
+    if action == "view":
+        return (kind, id_) in chain
+    if all(k == "building" for k, _ in chain):          # the building as a whole: its name, its list of floors
+        return True
+    return kind == "building" or ("floor", floor) in chain
+
+
+def guest_scopes(me: Identity) -> dict:
+    """The scopes of a guest, from the token itself: one area to look at."""
+    kind, id_, building, floor = me.guest
+    grant = {"role": "viewer", "scope": {"kind": kind, "id": id_}, "building_id": building}
+    return {"admin": False, "service": False, "person_id": None, "grants": [grant], "buildings": [building],
+            "guest": {"kind": kind, "id": id_, "building_id": building, "floor_id": floor}}
+
+
 class Rights:
     def __init__(self, client: ServiceClient):
         self.client = client
@@ -67,6 +93,8 @@ class Rights:
         self._known.clear()
 
     async def scopes(self, request: Request, me: Identity, *, reading: bool = True) -> dict:
+        if me.kind == "guest":
+            return guest_scopes(me)
         if me.is_admin or me.kind == "service":
             return {"admin": me.is_admin, "service": me.kind == "service", "person_id": None, "grants": [],
                     "buildings": []}
