@@ -29,12 +29,11 @@ export function Building({ id }: { id: string }) {
   const picker = useRef<HTMLInputElement>(null)
   const target = useRef<string | null>(null)        // the drawing a picked file is a new version of
 
-  const load = useCallback(() => {
+  const load = useCallback(() =>
     Promise.all([getBuilding(id), listDrawings(id), listPlaced(id), getTree(id)]).then(([b, d, p, f]) => {
       setBuilding(b); setDrawings(d); setPlaced(p); setFloors(f); setError(null)
-    }, (e: Error) => setError(e.message))
-  }, [id])
-  useEffect(load, [load])
+    }, (e: Error) => setError(e.message)), [id])
+  useEffect(() => { load() }, [load])
   useEvents(event => {
     if (event.type === 'import.build.progress') {
       const d = event.data as { drawing_id: string; progress: number; message: string }
@@ -44,7 +43,9 @@ export function Building({ id }: { id: string }) {
 
   const act = (work: Promise<unknown>) => {
     setBusy(true)
-    work.then(() => setError(null), (e: Error) => setError(e.message)).finally(() => { setBusy(false); load() })
+    // the reload clears the error, so a refusal is shown after it
+    let refused: string | null = null
+    work.catch((e: Error) => { refused = e.message }).then(load).then(() => setError(refused)).finally(() => setBusy(false))
   }
   const picked = (files: FileList | null) => {
     const file = files?.[0]
