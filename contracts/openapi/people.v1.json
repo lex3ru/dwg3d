@@ -305,7 +305,7 @@
     },
     "/api/people/v1/people": {
       "get": {
-        "description": "The keepers of the directory see everyone (`building_id`, `room_id` narrow it to the people assigned there);\nanyone else sees, with `building_id`, the people of the rooms they have a right to.",
+        "description": "The keepers of the directory see everyone. Narrowed by `building_id` or `room_id` to the people assigned\nthere, it shows who sits where — that only in rooms the asker may see (the system administrator sees all);\nanyone else sees, with `building_id`, the people of the rooms they have a right to.",
         "operationId": "list_people_api_people_v1_people_get",
         "parameters": [
           {
@@ -654,7 +654,7 @@
     },
     "/api/people/v1/people/{person_id}/assignments": {
       "get": {
-        "description": "All of them — to the keepers of the directory and to the person themself; to others — in rooms they see.",
+        "description": "All of them — to the system administrator and to the person themself; to others, administrators of\nbuildings too, — in rooms they see: where someone sits in another building is not theirs to know.",
         "operationId": "list_assignments_api_people_v1_people__person_id__assignments_get",
         "parameters": [
           {

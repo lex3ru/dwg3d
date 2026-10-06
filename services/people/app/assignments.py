@@ -17,7 +17,7 @@ from twin_chassis import Identity, Problem, current_identity, emit, require_serv
 from twin_chassis.access import decide
 
 from .models import assignments, persons
-from .routes import _keeper, _person, person_json
+from .routes import _person, person_json
 
 router = APIRouter()
 
@@ -51,20 +51,13 @@ def _chain_of(room: dict, room_id: UUID) -> list[tuple[str, object]]:
     return [("room", room_id), ("floor", UUID(room["floor_id"])), ("building", UUID(room["building_id"]))]
 
 
-async def _is_keeper(request: Request, me: Identity) -> bool:
-    try:
-        await _keeper(request, me)
-        return True
-    except Problem:
-        return False
-
-
 # ---------------------------------------------------------------- of a person ---
 @router.get("/people/{person_id}/assignments", tags=["assignments"], summary="Помещения человека")
 async def list_assignments(person_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
-    """All of them — to the keepers of the directory and to the person themself; to others — in rooms they see."""
+    """All of them — to the system administrator and to the person themself; to others, administrators of
+    buildings too, — in rooms they see: where someone sits in another building is not theirs to know."""
     scopes = await request.app.state.rights.scopes(request, me)
-    everything = await _is_keeper(request, me) or scopes.get("person_id") == str(person_id)
+    everything = me.is_admin or me.kind == "service" or scopes.get("person_id") == str(person_id)
     async with request.app.state.db.begin() as session:
         await _person(session, person_id)
         rows = (await session.execute(select(assignments).where(assignments.c.person_id == person_id)

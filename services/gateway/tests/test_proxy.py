@@ -1,6 +1,11 @@
 """Requests passed on to services."""
 from __future__ import annotations
 
+import asyncio
+import time
+
+from app import proxy
+
 from .conftest import PUBLIC, UPSTREAM
 
 
@@ -41,11 +46,32 @@ async def test_unknown_service_is_404(signed_in):
     assert r.status_code == 404 and r.json()["code"] == "not_found"
 
 
-async def test_service_down_is_503(signed_in, world):
+async def test_service_down_is_503(signed_in, world, monkeypatch):
+    monkeypatch.setattr(proxy, "RETRY_READS_FOR", 0.6)
     world.upstream_up = False
     r = await signed_in.get("/api/ping/v1/notes")
     assert r.status_code == 503
     assert r.json()["code"] == "service_unavailable" and r.json()["service"] == "ping"
+
+
+async def test_a_read_waits_for_a_service_being_updated(signed_in, world, monkeypatch):
+    monkeypatch.setattr(proxy, "RETRY_READS_FOR", 5.0)
+    world.upstream_up = False
+
+    async def back():
+        await asyncio.sleep(0.7)
+        world.upstream_up = True
+
+    task = asyncio.create_task(back())
+    started = time.monotonic()
+    assert (await signed_in.get("/api/ping/v1/notes")).status_code == 200
+    assert 0.5 < time.monotonic() - started < 3
+    await task
+    # a change is not sent twice: refused at once
+    world.upstream_up = False
+    started = time.monotonic()
+    r = await signed_in.post("/api/ping/v1/notes", json={"text": "x"}, headers={"Origin": PUBLIC})
+    assert r.status_code == 503 and time.monotonic() - started < 0.5
 
 
 async def test_changing_request_from_a_foreign_page_is_refused(signed_in, world):

@@ -3,6 +3,8 @@
 # with a service account for every entry of TWIN_SERVICE_CLIENTS. With its
 # token a service calls another one when no user is behind the call (reacting
 # to an event). Safe to run again: secrets are set to the current values.
+# The addresses the client of the interface may return to follow TWIN_PUBLIC_URL,
+# so a stack restored on a server with another address signs in there.
 set -eu
 kc=/opt/keycloak/bin/kcadm.sh
 export KCADM_CONFIG=/tmp/kcadm.config
@@ -15,6 +17,15 @@ until $kc config credentials --server "$KC_URL" --realm master --user "$KEYCLOAK
     sleep 2
 done
 until $kc get realms/twin >/dev/null 2>&1; do sleep 2; done      # the realm import may still be running
+
+ui=$($kc get clients -r twin -q clientId=twin --fields id --format csv --noquotes | head -1)
+if [ -n "$ui" ] && [ -n "${TWIN_PUBLIC_URL:-}" ]; then
+    $kc update "clients/$ui" -r twin \
+        -s "redirectUris=[\"$TWIN_PUBLIC_URL/auth/callback\",\"${TWIN_DEV_URL:-$TWIN_PUBLIC_URL}/auth/callback\"]" \
+        -s "webOrigins=[\"$TWIN_PUBLIC_URL\"]" \
+        -s "attributes.\"post.logout.redirect.uris\"=$TWIN_PUBLIC_URL/*##${TWIN_DEV_URL:-$TWIN_PUBLIC_URL}/*" >/dev/null
+    echo "ensure-clients: twin → $TWIN_PUBLIC_URL"
+fi
 
 for name in $TWIN_SERVICE_CLIENTS; do
     var="TWIN_SVC_SECRET_$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')"

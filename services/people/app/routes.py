@@ -109,11 +109,12 @@ def _clean(values: dict) -> dict:
 async def list_people(request: Request, q: str | None = None, department: str | None = None, status: str = "active",
                       building_id: UUID | None = None, room_id: UUID | None = None, limit: int = 500,
                       me: Identity = Depends(current_identity)) -> dict:
-    """The keepers of the directory see everyone (`building_id`, `room_id` narrow it to the people assigned there);
+    """The keepers of the directory see everyone. Narrowed by `building_id` or `room_id` to the people assigned
+    there, it shows who sits where — that only in rooms the asker may see (the system administrator sees all);
     anyone else sees, with `building_id`, the people of the rooms they have a right to."""
     try:
         await _keeper(request, me)
-        keeper = True
+        keeper = me.is_admin or me.kind == "service" or (building_id is None and room_id is None)
     except Problem:
         keeper = False
         if building_id is None:

@@ -41,6 +41,12 @@ async def test_assigning_and_seeing_people_by_rooms(client, app, tokens, access)
     assert [x["room_id"] for x in mine] == [ROOM_A]
     everyone = (await client.get(f"{API}/people", params={"building_id": BUILDING}, headers=boss)).json()["items"]
     assert len(everyone) == 2
+    # the administrator of another building keeps the directory, but who sits where here is not theirs to know
+    other = access.person("other-boss", str(uuid4()), ("admin", "building", str(uuid4())))
+    assert len((await client.get(f"{API}/people", headers=other)).json()["items"]) == 2
+    assert (await client.get(f"{API}/people", params={"building_id": BUILDING}, headers=other)).json()["items"] == []
+    assert (await client.get(f"{API}/people", params={"room_id": ROOM_A}, headers=other)).json()["items"] == []
+    assert (await client.get(f"{API}/people/{anna['id']}/assignments", headers=other)).json()["items"] == []
     # a person sees their own record and assignments without any right on a room
     me = access.person("kc-ivan", ivan["id"])
     assert (await client.get(f"{API}/people/{ivan['id']}", headers=me)).status_code == 200

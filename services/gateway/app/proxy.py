@@ -2,6 +2,8 @@
 with the caller's token instead of the cookie."""
 from __future__ import annotations
 
+import asyncio
+import time
 from urllib.parse import urlsplit
 
 import httpx
@@ -19,6 +21,8 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", 
 DROP_REQUEST = HOP | {"cookie", "authorization", "x-request-id"}
 DROP_RESPONSE = HOP | {"set-cookie", "x-request-id"}
 SAFE = {"GET", "HEAD", "OPTIONS"}
+# a service being updated does not take connections for a few seconds: a read waits for it this long
+RETRY_READS_FOR = 10.0
 
 
 def check_origin(request: Request, me: Signed) -> None:
@@ -46,12 +50,21 @@ async def forward(request: Request, service: str, path: str, me: Signed) -> Stre
         headers.append(("x-forwarded-for", request.client.host))
     body = request.stream() if request.method not in SAFE else None
     http: httpx.AsyncClient = request.app.state.http
-    try:
-        upstream_request = http.build_request(request.method, f"{upstream}/api/{service}/v1/{path}",
-                                              params=request.query_params, headers=headers, content=body)
-        response = await http.send(upstream_request, stream=True)
-    except httpx.HTTPError as ex:
-        raise Problem(503, "service_unavailable", f"Сервис «{service}» недоступен", extra={"service": service}) from ex
+    until = time.monotonic() + (RETRY_READS_FOR if request.method in SAFE else 0)
+    while True:
+        try:
+            upstream_request = http.build_request(request.method, f"{upstream}/api/{service}/v1/{path}",
+                                                  params=request.query_params, headers=headers, content=body)
+            response = await http.send(upstream_request, stream=True)
+            break
+        except httpx.ConnectError as ex:              # nothing was sent: a read may be asked again
+            if time.monotonic() >= until:
+                raise Problem(503, "service_unavailable", f"Сервис «{service}» недоступен",
+                              extra={"service": service}) from ex
+            await asyncio.sleep(0.5)
+        except httpx.HTTPError as ex:
+            raise Problem(503, "service_unavailable", f"Сервис «{service}» недоступен",
+                          extra={"service": service}) from ex
     return StreamingResponse(
         response.aiter_raw(), status_code=response.status_code,
         headers={k: v for k, v in response.headers.items() if k.lower() not in DROP_RESPONSE},

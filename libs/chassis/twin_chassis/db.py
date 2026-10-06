@@ -5,6 +5,10 @@
   inbox   events already handled, per handler — a redelivery does nothing
 
 Services declare their tables on `metadata`, so one Alembic history covers both.
+
+The pool of connections is small and bounded — TWIN_DB_POOL kept open (default 5), as many again
+when busy; past that a request waits for a free one rather than failing. All the services and
+Keycloak share one Postgres: see the budget of connections in deploy/README.md.
 """
 from __future__ import annotations
 
@@ -52,8 +56,9 @@ def uuid7() -> uuid.UUID:
 class Database:
     def __init__(self, url: str, *, pooled: bool = True):
         self.url = url
-        self.engine = (create_async_engine(url, pool_pre_ping=True) if pooled
-                       else create_async_engine(url, poolclass=NullPool))
+        size = int(os.environ.get("TWIN_DB_POOL", "5"))
+        self.engine = (create_async_engine(url, pool_pre_ping=True, pool_size=size, max_overflow=size, pool_timeout=30)
+                       if pooled else create_async_engine(url, poolclass=NullPool))
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         self.after_commit: Callable[[], None] = lambda: None     # the bus hooks in: "there may be new events"
 

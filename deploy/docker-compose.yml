@@ -46,6 +46,8 @@ x-service-env: &service-env
   TWIN_OIDC_ISSUER: ${TWIN_PUBLIC_URL:-http://localhost:8090}/kc/realms/twin
   TWIN_OIDC_INTERNAL: http://keycloak:8080/kc/realms/twin
   TWIN_OIDC_CLIENT_ID: twin
+  # connections to the database kept open, as many again when busy (deploy/README.md)
+  TWIN_DB_POOL: ${TWIN_DB_POOL:-5}
 
 services:
   web:
@@ -169,6 +171,8 @@ services:
       <<: *service-env
       TWIN_DATABASE_URL: postgresql+psycopg://journal:${TWIN_DB_PASSWORD_JOURNAL:-journal}@db:5432/journal
       TWIN_SERVICES: access=http://access:8000
+      # how long the journal keeps events, days (5 years)
+      TWIN_JOURNAL_KEEP_DAYS: ${TWIN_JOURNAL_KEEP_DAYS:-1825}
 
   planning:
     <<: *service
@@ -185,6 +189,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # the services and Keycloak share it: 11 processes x 10 + Keycloak 25 (deploy/README.md)
+    command: ["postgres", "-c", "max_connections=${TWIN_DB_MAX_CONNECTIONS:-200}"]
     environment:
       POSTGRES_USER: twin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twin}
@@ -246,6 +252,9 @@ services:
       KC_DB_URL: jdbc:postgresql://db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
+      KC_DB_POOL_INITIAL_SIZE: "5"
+      KC_DB_POOL_MIN_SIZE: "5"
+      KC_DB_POOL_MAX_SIZE: "25"
       KC_HOSTNAME: ${TWIN_PUBLIC_URL:-http://localhost:8090}/kc
       KC_HTTP_ENABLED: "true"
       KC_HTTP_RELATIVE_PATH: /kc
@@ -275,6 +284,8 @@ services:
     entrypoint: ["/bin/sh", "/ensure-clients.sh"]
     environment:
       KC_URL: http://keycloak:8080/kc
+      TWIN_PUBLIC_URL: ${TWIN_PUBLIC_URL:-http://localhost:8090}
+      TWIN_DEV_URL: ${TWIN_DEV_URL:-http://localhost:5180}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-kcadmin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
       # a client twin-svc-<name> for each; its secret is TWIN_SVC_SECRET_<NAME>
