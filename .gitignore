@@ -19,3 +19,4 @@ node_modules/
 dist/
 /deploy/backups/
 .ruff_cache/
+tools/acceptance/.state.json
