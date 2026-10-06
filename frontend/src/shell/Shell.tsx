@@ -1,5 +1,5 @@
 import {
-  Activity, BookOpen, Box, Building2, ChevronRight, DoorOpen, FileStack, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
+  Activity, BookOpen, Box, Building2, ChevronRight, DoorOpen, FileStack, GitBranch, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
   User, Users, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -29,6 +29,7 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
     ...(editor ? [{ key: 'editor', href: to.editor(editor), label: 'Редактор', icon: PencilRuler, active: route.page === 'editor' }] : []),
     { key: 'people', href: to.people(b), label: 'Люди', icon: Users, active: section === 'people' },
     { key: 'access', href: to.access(b), label: 'Доступ', icon: KeyRound, active: section === 'access' },
+    { key: 'variants', href: to.variants(b), label: 'Варианты', icon: GitBranch, active: section === 'variants' },
     { key: 'journal', href: to.journal(b), label: 'Журнал', icon: History, active: section === 'journal' },
   ] : []
   const system: Item[] = me.user.is_admin ? [

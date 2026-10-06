@@ -13,6 +13,7 @@ import { Buildings } from './pages/Buildings'
 import { Catalog } from './pages/Catalog'
 import { Home } from './pages/Home'
 import { Journal } from './pages/Journal'
+import { Variants } from './pages/Variants'
 import { People } from './pages/People'
 import { Plan } from './pages/Plan'
 import { RoomCard } from './pages/RoomCard'
@@ -163,6 +164,9 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
       } else if (route.section === 'access' && admin) {
         crumbs.push({ label: 'Доступ' })
         content = <Access building={building} floors={floors} />
+      } else if (route.section === 'variants' && admin) {
+        crumbs.push({ label: 'Варианты' })
+        content = <Variants building={building.id} selected={route.item} editor={scope?.editor ?? null} />
       } else if (route.section === 'journal' && admin) {
         crumbs.push({ label: 'Журнал' })
         content = <Journal building={building.id} floors={floors} filter={route.query} />

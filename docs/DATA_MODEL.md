@@ -458,12 +458,15 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 
 ## 9. Проектирование (`planning`) — этап 8
 
-Уточняется перед этапом. Ожидаемые таблицы:
+Как сделано (06.10.2026, варианты расстановки):
 
-- **variants**: `id`, `building_id`, `name`, `based_on` (вариант-источник),
-  `status` (`draft` | `applied` | `stale`), `created_by`, `version`.
-- **variant_ops**: `id`, `variant_id`, `op` (`add` | `move` | `change` | `remove`),
-  `asset_id` (для существующих), `data` (тип, место, свойства), `sort`.
+- **variants**: `id`, `building_id`, `name`, `based_on` (вариант-источник), `status` (`draft` | `applied`),
+  `stale` и `stale_reasons` (факт изменился под операциями), `last_result` (что выполнено и отклонено
+  при последнем применении), `created_by`, `created_at`, `updated_at`, `applied_at`, `version`.
+- **variant_ops**: `id`, `variant_id`, `op` (`add` | `move` | `change` | `remove`), `asset_id` (кроме `add`),
+  `base_version` (версия объекта, против которой сделана операция), `data` (тип, место, номер, примечание), `sort`.
+
+Ещё не сделаны (маршруты и расчёты):
 - **shapes**: маршруты, зоны, трассы — `id`, `building_id`, `variant_id null`,
   `kind`, `floor_id`, `points`, `props`, `version`.
 - **room_cache**, **asset_cache** — копии для расчётов, обновляются по событиям.

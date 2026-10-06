@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "planning.variant.deleted",
+  "description": "Вариант удалён. subject — вариант.",
+  "type": "object",
+  "required": [
+    "variant_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "variant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    }
+  }
+}

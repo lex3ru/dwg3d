@@ -379,3 +379,33 @@ export const mergeRooms = (room: string, others: string[]) =>
   api<Room>(`${BUILDINGS}/rooms/${room}/merge`, { method: 'POST', json: { with: others } })
 export const splitRoom = (room: string, line: [number, number][]) =>
   api<{ heir: string; rooms: Room[] }>(`${BUILDINGS}/rooms/${room}/split`, { method: 'POST', json: { line } })
+
+// ---- stage 8: variants of placing objects (the planning service)
+
+const PLANNING = '/api/planning/v1'
+export type VariantOp = { id: string; op: 'add' | 'move' | 'change' | 'remove'; asset_id: string | null; base_version: number | null
+  data: Record<string, unknown>; conflict?: string | null }
+export type Variant = {
+  id: string; building_id: string; name: string; based_on: string | null; status: 'draft' | 'applied'; stale: boolean
+  stale_reasons: { asset_id?: string; what: string; at: string }[]
+  last_result: { applied: { op_id: string; op: string }[]; refused: { op_id: string; op: string; reason: string; asset_id?: string | null }[]; at: string } | null
+  counts: { add: number; move: number; change: number; remove: number }; ops?: VariantOp[]
+  created_at: string; updated_at: string; applied_at: string | null; version: number
+}
+export type Comparison = {
+  counts: { added: number; removed: number; moved: number; changed: number; same: number }
+  objects: { key: string; change: 'added' | 'removed' | 'moved' | 'changed'; what: string[]; asset_id: string | null; op_id: string | null
+    type_id: string; name: string; inventory_no: string | null; floor_id: string }[]
+  items: { type_id: string; name: string; price: number | null; currency: string; qty_a: number; qty_b: number; delta: number; sum_a?: number; sum_b?: number }[]
+  totals: Record<string, { a: number; b: number; delta: number }>
+}
+export const listVariants = (building: string) => api<{ items: Variant[] }>(`${PLANNING}/variants?building_id=${building}`).then(r => r.items)
+export const getVariant = (id: string) => api<Variant>(`${PLANNING}/variants/${id}`)
+export const createVariant = (building_id: string, name: string, based_on: string | null) =>
+  api<Variant>(`${PLANNING}/variants`, { method: 'POST', json: { building_id, name, based_on } })
+export const deleteVariant = (id: string) => api<void>(`${PLANNING}/variants/${id}`, { method: 'DELETE' })
+export const compareWithFact = (building: string, id: string) =>
+  api<Comparison>(`${PLANNING}/compare?building_id=${building}&a=fact&b=${id}`)
+export const numberAdded = (id: string, op_id: string, inventory_no: string) =>
+  api<unknown>(`${PLANNING}/variants/${id}/edits`, { method: 'POST', json: { edits: [{ kind: 'move', op_id, inventory_no }] } })
+export const applyVariant = (id: string) => api<Variant & { result: NonNullable<Variant['last_result']> }>(`${PLANNING}/variants/${id}/apply`, { method: 'POST' })

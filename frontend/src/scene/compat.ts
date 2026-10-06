@@ -113,6 +113,7 @@ async function job(id: string): Promise<Json> {
   const neighbours = others.map((x) => ({ id: x.id, name: x.name, url: x.model_url, ...relative(shown!, x) }))
   known.set(id, { building: d.building_id, build: shown?.build_id ?? null, n: shown?.build_n ?? 0, floors, neighbours })
   const marks = await pins(id)
+  const variants = admin ? await variantsOf(d.building_id) : []
   const facade = building.facade
   return {
     id, project_id: d.building_id, name: d.name, filename: d.filename ?? '',
@@ -125,9 +126,10 @@ async function job(id: string): Promise<Json> {
       site: building.site ? { ...building.site, azimuth: building.site.bearing } : undefined,
       detail: facade ? { file: facade.name, size: facade.size, version: building.version,
         offset: [facade.dx, facade.dz, facade.dy], rotation: facade.rotation, scale: facade.scale } : undefined,
-      markers: marks.markers, comments: marks.comments, furniture: shown ? await objects(id) : [], shapes: [],
+      markers: marks.markers, comments: marks.comments,
+      furniture: shown ? [...await objects(id), ...await variantObjects(id, variants)] : [], shapes: [],
     },
-    layers: [assetsLayer()], my_role: admin ? 'owner' : 'viewer',
+    layers: [assetsLayer(), ...variants.map(variantLayer)], my_role: admin ? 'owner' : 'viewer',
   }
 }
 
@@ -196,7 +198,128 @@ const CATALOG = '/api/catalog/v1'
 const LAYER = 'assets'
 const KINDS = { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Объекты учёта', geoms: ['point'], categories: null }] }
 const assetsLayer = (): Json => ({ id: LAYER, kind: 'furniture', name: 'Объекты учёта', visible: true, locked: !admin,
-  sort: 0, props: {}, version: 1 })
+  sort: 0, props: { variant_group: LAYER }, version: 1 })
+
+// ------------------------------------------------------------- variants ---
+// Each draft variant of the planning service is a variant of the layer of objects: the viewer shows one of
+// them at a time and compares them. Its items are the fact with the variant laid over it; what is done to
+// them goes to the variant (planning), not to the objects. Without the planning service — the fact only.
+const PLANNING = '/api/planning/v1'
+const VARIANT = 'variant:'
+/** an item of a variant layer, by the id the viewer knows it by */
+const variantItems = new Map<string, { vid: string; asset_id?: string; op_id?: string; version?: number; floor: string; at: [number, number]; angle: number; note: string }>()
+
+async function variantsOf(building: string): Promise<Json[]> {
+  try {
+    const r = await real(`${PLANNING}/variants?building_id=${building}`)
+    return r.ok ? ((await r.json()).items as Json[]).filter((v) => v.status === 'draft') : []
+  } catch { return [] }
+}
+
+const variantLayer = (v: Json, i: number): Json => ({ id: VARIANT + v.id, kind: 'furniture',
+  name: `${v.name}${v.stale ? ' (устарел)' : ''}`, visible: true, locked: !admin, sort: i + 1,
+  props: { variant_group: LAYER }, version: v.version })
+
+/** The items of the variants on the floors of the drawing. */
+async function variantObjects(id: string, list: Json[]): Promise<Json[]> {
+  const k = known.get(id)!
+  const byFloor = new Map([...k.floors].map(([candidate, floor]) => [floor, candidate]))
+  const out: Json[] = []
+  for (const v of list) {
+    let view: Json
+    try { view = await call('GET', `${PLANNING}/variants/${v.id}/view`) } catch { continue }
+    for (const o of view.items as Json[]) {
+      const floor = byFloor.get(o.floor_id)
+      if (o.removed || o.x == null || !floor) continue
+      const vid = `${v.id}~${o.key}`
+      variantItems.set(vid, { vid: v.id, asset_id: o.asset_id ?? undefined, op_id: o.op_id ?? undefined, version: o.version ?? undefined,
+        floor, at: [o.x, o.y], angle: o.angle ?? 0, note: o.note ?? '' })
+      out.push({ id: vid, version: 1, layer: VARIANT + v.id, geom: 'point', floor, item: o.type_id, at: [o.x, o.y],
+        angle: ((o.angle ?? 0) + 360) % 360, note: o.note ?? '' })
+    }
+  }
+  return out
+}
+
+const isVariantOp = (op: Json) => (op.op === 'create' ? String(op.layer ?? '').startsWith(VARIANT) : variantItems.has(op.id))
+
+/** Changes of items of a variant layer, as edits of the variant. */
+async function variantOps(id: string, ops: Json[]): Promise<Json[]> {
+  const k = known.get(id)!
+  const byVariant = new Map<string, Json[]>()
+  for (const op of ops) {
+    const vid = op.op === 'create' ? String(op.layer).slice(VARIANT.length) : variantItems.get(op.id)!.vid
+    byVariant.set(vid, [...(byVariant.get(vid) ?? []), op])
+  }
+  const items: Json[] = []
+  for (const [vid, list] of byVariant) {
+    const edits: Json[] = []
+    const after: Json[] = []
+    for (const op of list) {
+      if (op.op === 'update' && (op.item !== undefined || op.size !== undefined)) throw refuse('Тип и размер объекта задаёт каталог')
+      if (op.op === 'create') {
+        const type = (await call('GET', `${CATALOG}/types/${op.item}`)).name
+        const number = window.prompt(`Инвентарный номер нового объекта «${type}» в варианте — можно оставить пустым и указать перед применением`)?.trim()
+        edits.push({ kind: 'place', type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1], angle: op.angle ?? 0,
+          inventory_no: number || null, note: op.note ?? '' })
+        after.push({ op, was: null })
+        continue
+      }
+      const was = variantItems.get(op.id)!
+      const who = was.asset_id ? { asset_id: was.asset_id, version: was.version } : { op_id: was.op_id }
+      if (op.op === 'delete') edits.push({ kind: 'remove', ...who })
+      else {
+        if ('at' in op || 'angle' in op || 'floor' in op) {
+          const at = op.at ?? was.at
+          edits.push({ kind: 'move', ...who, floor_id: k.floors.get(op.floor ?? was.floor), x: at[0], y: at[1], angle: op.angle ?? was.angle })
+        }
+        if ('note' in op) edits.push({ kind: 'note', ...who, note: op.note ?? '' })
+      }
+      after.push({ op, was })
+    }
+    const { results } = await call('POST', `${PLANNING}/variants/${vid}/edits`, { edits })
+    let i = 0
+    for (const { op, was } of after) {
+      if (op.op === 'create') {
+        const opId = results[i++].op_id
+        variantItems.set(op.id, { vid, op_id: opId, floor: op.floor, at: op.at, angle: op.angle ?? 0, note: op.note ?? '' })
+        items.push({ ...op, op: undefined, version: 1, layer: VARIANT + vid })
+        continue
+      }
+      i += op.op === 'delete' ? 1 : ('at' in op || 'angle' in op || 'floor' in op ? 1 : 0) + ('note' in op ? 1 : 0)
+      if (op.op === 'delete') { variantItems.delete(op.id); continue }
+      const now = { ...was, floor: op.floor ?? was.floor, at: op.at ?? was.at, angle: op.angle ?? was.angle, note: op.note ?? was.note }
+      variantItems.set(op.id, now)
+      items.push({ id: op.id, version: 1, layer: VARIANT + vid, geom: 'point', floor: now.floor, item: op.item ?? undefined,
+        at: now.at, angle: now.angle, note: now.note })
+    }
+  }
+  return items
+}
+
+/** Two variants (or the fact and a variant) compared, as the viewer's comparison of layers. */
+async function compareVariants(building: string, a: string, b: string): Promise<Json> {
+  const side = (l: string) => (l.startsWith(VARIANT) ? l.slice(VARIANT.length) : 'fact')
+  const [cmp, list] = await Promise.all([call('GET', `${PLANNING}/compare?building_id=${building}&a=${side(a)}&b=${side(b)}`),
+    variantsOf(building)])
+  const layers = [assetsLayer(), ...list.map(variantLayer)]
+  const floorOf = new Map<string, { drawing: string; name: string; floor: string }>()
+  for (const [drawing, k] of known) for (const [candidate, floor] of k.floors) floorOf.set(floor, { drawing, name: '', floor: candidate })
+  return {
+    a: layers.find((l) => l.id === a) ?? assetsLayer(), b: layers.find((l) => l.id === b) ?? assetsLayer(),
+    counts: cmp.counts,
+    objects: (cmp.objects as Json[]).map((o) => {
+      const f = floorOf.get(o.floor_id)
+      return { key: o.key, change: o.change, what: o.what, id_a: o.change === 'added' ? null : o.key, id_b: o.change === 'removed' ? null : o.key,
+        item: o.type_id, name: `${o.name}${o.inventory_no ? ` · ${o.inventory_no}` : ''}`, geom: 'point', drawing_id: f?.drawing ?? '',
+        drawing: '', floor: f?.floor ?? '', floor_name: '', room: '', at: o.at,
+        ...(o.from ? { from: { drawing_id: f?.drawing ?? '', floor: floorOf.get(o.from.floor_id)?.floor ?? '', floor_name: '', room: '', at: o.from.at } } : {}) }
+    }),
+    items: (cmp.items as Json[]).map((i) => ({ item: i.type_id, name: i.name, category: i.category_id ?? '', price: i.price, currency: i.currency,
+      qty_a: i.qty_a, qty_b: i.qty_b, delta: i.delta, sum_a: i.sum_a, sum_b: i.sum_b })),
+    totals: cmp.totals,
+  }
+}
 
 /** The catalog's types as the viewer's catalog items: size, the procedural shape or the GLB of the type. */
 async function catalog(): Promise<Json> {
@@ -245,10 +368,14 @@ export function inRow(first: string, n: number): string[] {
 
 /** The viewer's changes of placed items: a new item is a new object (its inventory number is asked for),
  * a moved or turned one is moved, a note is the object's note. Removing and resizing happen elsewhere. */
-async function objectOps(id: string, ops: Json[]): Promise<Json> {
+async function objectOps(id: string, all: Json[]): Promise<Json> {
   const k = known.get(id)!
   const byFloor = new Map([...k.floors].map(([candidate, floor]) => [floor, candidate]))
-  const items: Json[] = []
+  // which are the variants' is decided before any of them is done (a removed item is forgotten)
+  const mine = all.filter(isVariantOp)
+  const ops = all.filter((op) => !mine.includes(op))
+  const deleted = mine.filter((op) => op.op === 'delete').map((op) => op.id)
+  const items: Json[] = await variantOps(id, mine)
   if (ops.some((op) => op.op === 'delete')) throw refuse('Объект учёта не удаляется из сцены: списать его можно в карточке объекта')
   // several new at once (a copy, a row): one number asked, the next ones go in a row
   const creates = ops.filter((op) => op.op === 'create')
@@ -285,7 +412,7 @@ async function objectOps(id: string, ops: Json[]): Promise<Json> {
     if ('note' in op) a = await call('PATCH', `${ASSETS}/assets/${server}`, { note: op.note ?? '', version: a.version })
     items.push(objectOut(a, byFloor.get(a.floor_id) ?? op.floor ?? '', op.id))
   }
-  return { items, deleted: [] }
+  return { items, deleted }
 }
 
 // ------------------------------------------------------------------ routes ---
@@ -338,14 +465,22 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/drawings\/([^/]+)\/pins:batch$/, (m, init) => pinOps(m[1], JSON.parse(String(init?.body)).ops)],
   ['GET', /^\/api\/drawings\/([^/]+)\/objects$/, async (m) => {
     if (!known.has(m[1])) await job(m[1])
-    return { build: known.get(m[1])?.n ?? 0, items: await objects(m[1]), unplaced: [] }
+    const k = known.get(m[1])!
+    const variants = admin ? await variantsOf(k.building) : []
+    return { build: k.n, items: [...await objects(m[1]), ...await variantObjects(m[1], variants)], unplaced: [] }
   }],
   ['POST', /^\/api\/drawings\/([^/]+)\/objects:batch$/, async (m, init) => {
     if (!known.has(m[1])) await job(m[1])
     return objectOps(m[1], JSON.parse(String(init?.body)).ops)
   }],
-  ['GET', /^\/api\/projects\/([^/]+)\/layers$/, () => [assetsLayer()]],
-  ['PATCH', /^\/api\/projects\/([^/]+)\/layers\/assets$/, (_, init) => ({ ...assetsLayer(), ...JSON.parse(String(init?.body ?? '{}')) })],
+  ['GET', /^\/api\/projects\/([^/]+)\/layers$/, async (m) => [assetsLayer(), ...(admin ? (await variantsOf(m[1])).map(variantLayer) : [])]],
+  ['GET', /^\/api\/projects\/([^/]+)\/layers\/compare$/, (m, _, url) =>
+    compareVariants(m[1], url.searchParams.get('a') ?? LAYER, url.searchParams.get('b') ?? LAYER)],
+  ['PATCH', /^\/api\/projects\/([^/]+)\/layers\/([^/]+)$/, async (m, init) => {
+    const list = admin ? await variantsOf(m[1]) : []
+    const layer = [assetsLayer(), ...list.map(variantLayer)].find((l) => l.id === decodeURIComponent(m[2])) ?? assetsLayer()
+    return { ...layer, ...JSON.parse(String(init?.body ?? '{}')) }
+  }],
   ['GET', /^\/api\/projects\/([^/]+)\/checks$/, () => ({ fire: [] })],
   ['GET', /^\/api\/projects\/([^/]+)\/proposals$/, () => []],
   ['POST', /^\/api\/projects\/([^/]+)\/ui-context$/, () => null],

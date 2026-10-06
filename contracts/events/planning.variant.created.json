@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "planning.variant.created",
+  "description": "Создан вариант расстановки. subject — вариант.",
+  "type": "object",
+  "required": [
+    "variant_id",
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "variant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    },
+    "based_on": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

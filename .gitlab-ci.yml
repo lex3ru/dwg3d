@@ -260,4 +260,12 @@ image:journal:
   extends: .service-image
   variables: {SERVICE: journal}
 
+service:planning:
+  extends: .service
+  variables: {SERVICE: planning}
+
+image:planning:
+  extends: .service-image
+  variables: {SERVICE: planning}
+
 # -- jobs of new services go above this line (tools/new-service adds them) --

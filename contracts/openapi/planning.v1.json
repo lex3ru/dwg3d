@@ -1,0 +1,767 @@
+{
+  "components": {
+    "schemas": {
+      "Edit": {
+        "properties": {
+          "angle": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angle"
+          },
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Существующий объект",
+            "title": "Asset Id"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Id"
+          },
+          "inventory_no": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory No"
+          },
+          "kind": {
+            "enum": [
+              "place",
+              "move",
+              "remove",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "op_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Или объект, добавленный этим вариантом",
+            "title": "Op Id"
+          },
+          "type_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Версия объекта, против которой сделана правка",
+            "title": "Version"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "Edit",
+        "type": "object"
+      },
+      "Edits": {
+        "properties": {
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/Edit"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Edits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edits"
+        ],
+        "title": "Edits",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VariantIn": {
+        "properties": {
+          "based_on": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Скопировать операции другого варианта; иначе — от факта",
+            "title": "Based On"
+          },
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "building_id",
+          "name"
+        ],
+        "title": "VariantIn",
+        "type": "object"
+      },
+      "VariantPatch": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "VariantPatch",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Проектирование",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/planning/v1/compare": {
+      "get": {
+        "operationId": "compare_api_planning_v1_compare_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "a",
+            "required": false,
+            "schema": {
+              "default": "fact",
+              "title": "A",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "b",
+            "required": true,
+            "schema": {
+              "title": "B",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Compare Api Planning V1 Compare Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Сравнить два состояния (факт или вариант): что добавлено, убрано, перемещено, изменено; спецификации",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants": {
+      "get": {
+        "operationId": "list_variants_api_planning_v1_variants_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Variants Api Planning V1 Variants Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Варианты расстановки в здании",
+        "tags": [
+          "variants"
+        ]
+      },
+      "post": {
+        "operationId": "create_variant_api_planning_v1_variants_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Variant Api Planning V1 Variants Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Создать вариант: от факта или копией другого",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants/{variant_id}": {
+      "delete": {
+        "operationId": "delete_variant_api_planning_v1_variants__variant_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Удалить вариант",
+        "tags": [
+          "variants"
+        ]
+      },
+      "get": {
+        "operationId": "get_variant_api_planning_v1_variants__variant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Variant Api Planning V1 Variants  Variant Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Вариант с операциями; у каждой — устарела ли она (объект изменён после неё)",
+        "tags": [
+          "variants"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_variant_api_planning_v1_variants__variant_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Variant Api Planning V1 Variants  Variant Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Переименовать вариант",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants/{variant_id}/apply": {
+      "post": {
+        "description": "What is done leaves the variant; what is refused (the object changed since, no inventory number, a taken\none…) stays in it, listed with the reason — to be corrected and applied again.",
+        "operationId": "apply_api_planning_v1_variants__variant_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Apply Api Planning V1 Variants  Variant Id  Apply Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Применить вариант: операции выполняет сервис объектов от имени пользователя",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants/{variant_id}/edits": {
+      "post": {
+        "description": "An existing object gets one operation of each kind at most (the place moves, the note changes); one added by\nthe variant is its `add` operation itself. Every result is the operation it became (`op_id`); `null` — removed.",
+        "operationId": "edit_variant_api_planning_v1_variants__variant_id__edits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Edits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Edit Variant Api Planning V1 Variants  Variant Id  Edits Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Правки варианта из редактора: поставить, переместить, убрать, примечание; ответ — их результат",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants/{variant_id}/spec": {
+      "get": {
+        "operationId": "spec_api_planning_v1_variants__variant_id__spec_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Spec Api Planning V1 Variants  Variant Id  Spec Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Спецификация варианта с ценами каталога и разницей с фактом",
+        "tags": [
+          "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/variants/{variant_id}/view": {
+      "get": {
+        "operationId": "view_api_planning_v1_variants__variant_id__view_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "variant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "floor_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Floor Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response View Api Planning V1 Variants  Variant Id  View Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Объекты здания с наложенным вариантом — для показа на плане и в 3D",
+        "tags": [
+          "variants"
+        ]
+      }
+    }
+  }
+}
