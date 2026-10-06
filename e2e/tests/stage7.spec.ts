@@ -69,6 +69,11 @@ test('a changed drawing waits as a draft, is corrected and published; objects wi
   // nothing has changed yet
   expect((await tree()).map(f => f.rooms.length).sort()).toEqual([2, 2])
   expect((await (await root.request.get(`/api/assets/v1/assets/${lost}`)).json()).needs_placement).toBe(false)
+  // the 3D view shows the published build meanwhile, it does not wait for the draft
+  await row.getByRole('link', { name: 'Открыть' }).click()
+  await expect(root.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await expect(root.getByText('Публикация')).toHaveCount(0)
+  await root.goto(`/#/b/${building}/drawings`)
 
   await draft.getByRole('button', { name: 'Проверить' }).click()
   const review = row.getByTestId('revision')

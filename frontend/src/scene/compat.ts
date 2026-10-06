@@ -98,15 +98,19 @@ export const facadeUrl = (drawing: string, version: number) =>
 
 async function job(id: string): Promise<Json> {
   const d = await call('GET', `${IMPORT}/drawings/${id}`)
-  const [model, building, config] = await Promise.all([
+  const [model, building, config, placed] = await Promise.all([
     call('GET', `${BUILDINGS}/buildings/${d.building_id}/model`),
     call('GET', `${BUILDINGS}/buildings/${d.building_id}`),
     call('GET', `${IMPORT}/drawings/${id}/config`),
+    call('GET', `${BUILDINGS}/buildings/${d.building_id}/drawings`),
   ])
   const shown = (model.drawings as Json[]).find((x) => x.id === id)
   const b = d.build ?? { status: 'queued', stage: 'queued', progress: 0, message: '' }
+  // a build that would retire rooms waits as a draft: the model stays at the published one
+  const revision = (placed.items as Json[]).find((x) => x.id === id)?.revision
+  const decided = !!revision && revision.n >= (b.n ?? 0)
   // built, but the building has not taken the build in yet (it follows the event)
-  const publishing = b.status === 'done' && shown?.build_id !== b.id
+  const publishing = b.status === 'done' && shown?.build_id !== b.id && !decided
   const floors = new Map<string, string>()
   for (const f of shown?.result?.floors ?? []) if (f.floor_id) floors.set(f.id, f.floor_id)
   const others = shown ? (model.drawings as Json[]).filter((x) => x.id !== id && x.result) : []
