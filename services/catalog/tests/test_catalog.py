@@ -8,6 +8,8 @@ from sqlalchemy import select
 from twin_chassis.db import outbox
 from twin_chassis.migrate import upgrade
 
+from app import seed
+
 from .conftest import API
 
 
@@ -27,10 +29,13 @@ async def named(client, headers, path: str) -> dict[str, dict]:
 
 async def test_what_the_catalog_starts_with(client, tokens, database_url):
     user = tokens.bearer("user-1")                       # reading is open to anyone signed in
-    assert sorted(await named(client, user, "categories")) == ["Мебель", "Медицинская техника"]
-    assert sorted(await named(client, user, "property-sets")) == ["Мебель", "Медицинское изделие", "Учёт"]
+    assert sorted(await named(client, user, "categories")) == sorted(
+        ["Мебель", "Медицинская техника"] + [c["name"] for c in seed.EXTRA_CATEGORIES])
+    assert sorted(await named(client, user, "property-sets")) == sorted(
+        ["Мебель", "Медицинское изделие", "Учёт"] + [x["name"] for x in seed.EXTRA_SETS])
     types = await named(client, user, "types")
-    assert sorted(types) == ["Аппарат КТ", "Гастроскоп", "Кресло посетителя", "Кушетка", "Рабочий стол"]
+    first = ["Аппарат КТ", "Гастроскоп", "Кресло посетителя", "Кушетка", "Рабочий стол"]
+    assert set(first) <= set(types) and sorted(types) == sorted(first + [t["name"] for t in seed.MORE_TYPES])
     assert types["Гастроскоп"]["portable"] and types["Аппарат КТ"]["container"] and not types["Кушетка"]["portable"]
 
     # the schema: the properties of the sets in their order, then the type's own
@@ -51,7 +56,7 @@ async def test_what_the_catalog_starts_with(client, tokens, database_url):
     assert (await client.patch(f"{API}/types/{couch['id']}", json=body, headers=admin)).status_code == 200
     upgrade(database_url, "migrations")
     assert "Кушетка смотровая" in await named(client, user, "types")
-    assert len(await named(client, user, "types")) == 5
+    assert len(await named(client, user, "types")) == 5 + len(seed.MORE_TYPES)
 
 
 async def test_only_the_system_administrator_changes(client, tokens):
