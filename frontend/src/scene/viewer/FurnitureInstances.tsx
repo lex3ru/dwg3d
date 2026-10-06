@@ -1,11 +1,12 @@
 import { useGLTF } from '@react-three/drei'
-import { Component, Suspense, useEffect, useMemo, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import type { PlacedItem, XY } from '../api'
 import { catalogItem, type CatalogItem } from '../furniture/catalog'
 import { footprint, itemElev, itemSize } from '../furniture/geom'
 import { buildModel, type Materials } from '../furniture/models'
 import type { SceneCtx } from './scene'
+import { useFreeWhenUnused } from './lifetime'
 
 /**
  * Many placed items drawn at once: every mesh of their models becomes one instance of an
@@ -149,10 +150,14 @@ function fitted(scene: THREE.Object3D, rot: number, w: number, d: number, h: num
 }
 
 function Meshes({ ctx, meshes, register, name }: { ctx: SceneCtx; meshes: THREE.InstancedMesh[]; register: Props['register']; name: string }) {
-  const group = useMemo(() => {
-    const g = new THREE.Group()
+  // the meshes are put into an empty group by hand on every mount: a <primitive> taken off the scene by the
+  // unmount React does in development (StrictMode) was not put back by the mount after it — no models were drawn
+  const holder = useRef<THREE.Group>(null)
+  useEffect(() => {
+    const g = holder.current
+    if (!g) return
     meshes.forEach((m) => g.add(m))
-    return g
+    return () => { meshes.forEach((m) => g.remove(m)) }
   }, [meshes])
   useEffect(() => {
     register(name, meshes)
@@ -162,10 +167,10 @@ function Meshes({ ctx, meshes, register, name }: { ctx: SceneCtx; meshes: THREE.
       register(name, null)
       const gone = new Set<THREE.Object3D>(walls)
       ctx.solids = ctx.solids.filter((o) => !gone.has(o))
-      meshes.forEach((m) => m.dispose())
     }
   }, [meshes, ctx, register, name])
-  return <primitive object={group} />
+  useFreeWhenUnused(meshes, () => meshes.forEach((m) => m.dispose()))
+  return <group ref={holder} />
 }
 
 /** Thin outlines of many items as one set of segments (2D and editing). */

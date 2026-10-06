@@ -516,3 +516,20 @@ async def test_a_guest_gets_no_history_files_labels_or_changes(client, world, bo
         assert (r.status_code, r.json()["code"]) == (403, "guest"), (method, path, r.text)
     # nothing changed meanwhile
     assert (await get(client, boss, a))["version"] == 1
+
+
+async def test_free_inventory_numbers_for_one_who_has_none(client, world, boss, tokens):
+    url = f"{API}/inventory-numbers"
+    couch = world.types["couch"]["id"]
+    # a type without objects starts its series from the first letters of its name
+    assert (await client.get(url, params={"type_id": couch}, headers=boss)).json() == {"numbers": ["К-00001"]}
+    await put(client, boss, world, "couch", "К-00001")
+    # then the series goes on, past numbers taken by anything (an object of another type here)
+    await put(client, boss, world, "rack", "К-00003")
+    assert (await client.get(url, params={"type_id": couch, "count": 3}, headers=boss)).json() == \
+        {"numbers": ["К-00004", "К-00005", "К-00006"]}
+    # the series of the last object of the type, its own width
+    await put(client, boss, world, "couch", "КШ-17")
+    assert (await client.get(url, params={"type_id": couch}, headers=boss)).json() == {"numbers": ["КШ-18"]}
+    guest = tokens.guest("building", BUILDING, BUILDING)
+    assert (await client.get(url, params={"type_id": couch}, headers=guest)).status_code == 403

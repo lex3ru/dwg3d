@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { signIn } from './helpers'
+import { answerNumber, signIn } from './helpers'
 
 // Objects in the 3D editor (stage 4, criterion 2, deferred to the editor): the catalog's types are dragged
 // onto the floor, the objects of the assets service are moved and turned there.
@@ -46,7 +46,6 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   // dragged from the catalog into the office: the inventory number is asked; without one nothing is placed
   let dropped: readonly [number, number] = [0, 0]
   const drop = async (x: number, y: number, answer: string | null) => {
-    page.once('dialog', d => (answer === null ? d.dismiss() : d.accept(answer)))
     const item = (await page.getByText('Кресло посетителя').boundingBox())!
     await page.mouse.move(item.x + 20, item.y + 8)
     await page.mouse.down()
@@ -55,6 +54,7 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
     await page.mouse.move(sx - 40, sy, { steps: 5 })
     await page.mouse.move(sx, sy, { steps: 5 })
     await page.mouse.up()
+    await answerNumber(page, answer)
   }
   page.on('dialog', d => { if (d.type() === 'alert') void d.accept() })
   await drop(8.5, 4, null)
@@ -103,8 +103,8 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   await expect(page.getByRole('button', { name: 'Удалить' })).toHaveCount(0)
   // a row of three: the number asked once, the others go in a row
   await page.getByRole('button', { name: 'Ряд…' }).click()
-  page.once('dialog', d => d.accept(`РЯ-${stamp}-01`))
   await page.getByRole('button', { name: 'Создать ряд' }).click()
+  await answerNumber(page, `РЯ-${stamp}-01`)
   await expect.poll(async () => (await objects()).map(o => o.inventory_no).sort(), { timeout: 10_000 })
     .toEqual([`КР-${stamp}`, `РЯ-${stamp}-01`, `РЯ-${stamp}-02`])
   // the size is the type's in the catalog: shown, not edited
@@ -133,7 +133,9 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   await assetsLayer.getByRole('button', { name: 'Редактировать слой' }).click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
-  await page.mouse.click(tx, ty)
+  // the view is fitted anew after the reload: the chair is found by where it stands, not where it was clicked before
+  const now = (await objects()).find(o => o.id === chair.id)!
+  await page.mouse.click(...await screen(page, now.x, now.y))
   await page.getByTestId('asset-link').click()
   await expect(page).toHaveURL(new RegExp(`#/b/${building}/assets/${chair.id}`))
 

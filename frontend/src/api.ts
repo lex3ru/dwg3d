@@ -287,7 +287,7 @@ export async function listAllAssets(params: Record<string, string | undefined>):
 export const getAsset = (id: string) => api<AssetCard>(`${ASSETS}/assets/${id}`)
 export const createAsset = (body: { type_id: string; floor_id: string; x: number; y: number; inventory_no: string }) =>
   api<Asset>(`${ASSETS}/assets`, { method: 'POST', json: body })
-export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string }) =>
+export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string; inventory_no?: string }) =>
   api<Asset>(`${ASSETS}/assets/${a.id}`, { method: 'PATCH', json: { ...patch, version: a.version } })
 export const setAssetState = (a: Asset, state: AssetState) =>
   api<Asset>(`${ASSETS}/assets/${a.id}/state`, { method: 'POST', json: { state, version: a.version } })

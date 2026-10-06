@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { signIn } from './helpers'
+import { answerNumber, signIn } from './helpers'
 
 /** The floor fitted in the 2D view of the editor: a point of the plan (metres) on the screen (the sample: 12 × 8 m). */
 async function screen(page: Page, x: number, y: number) {
@@ -69,7 +69,6 @@ test('a camera and a light placed in the editor land in their systems\' layers a
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  page.on('dialog', d => { if (d.type() === 'prompt') void d.accept(`К-${stamp}-${Math.random().toString(36).slice(2, 5)}`); else void d.accept() })
   const drop = async (name: string, x: number, y: number) => {
     const item = page.getByText(name, { exact: true }).first()
     await item.scrollIntoViewIfNeeded()
@@ -77,6 +76,7 @@ test('a camera and a light placed in the editor land in their systems\' layers a
     await page.mouse.move(b.x + 20, b.y + 8); await page.mouse.down()
     const [sx, sy] = await screen(page, x, y)
     await page.mouse.move(sx - 40, sy, { steps: 5 }); await page.mouse.move(sx, sy, { steps: 5 }); await page.mouse.up()
+    await answerNumber(page, `К-${stamp}-${Math.random().toString(36).slice(2, 5)}`)
     await page.waitForTimeout(2500)
   }
   // a camera dragged while «Объекты учёта» is edited: the whole catalog is offered, the camera goes to «Видеонаблюдение»

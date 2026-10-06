@@ -27,6 +27,8 @@ const BODY = '#f8f9fa'
 const GLASS = 'glass'
 const SCREEN = '#212529'
 const LAMP = '#fff3bf'
+// a luminaire hangs high and is seen from above, its back to the eye: a warm housing, not white on white
+const LAMP_BODY = '#fcc419'
 
 /** Shared materials (by colour; ghosts are see-through). */
 export class Materials {
@@ -466,12 +468,12 @@ const GEN: Record<string, Gen> = {
   },
   // luminaires: the glowing face looks down (hung) or sits on a post (standing)
   lamp_panel(b, w, d, h) {
-    b.box(X0(w), w / 2, 0.005, h, -d / 2, d / 2, BODY)
+    b.box(X0(w), w / 2, 0.005, h, -d / 2, d / 2, LAMP_BODY)
     b.box(X0(w) + 0.015, w / 2 - 0.015, 0, 0.005, -d / 2 + 0.015, d / 2 - 0.015, LAMP)
   },
   lamp_round(b, w, d, h) {
     const r = Math.min(w, d) / 2
-    b.cyl(0, 0, 0.005, h, r, BODY)
+    b.cyl(0, 0, 0.005, h, r, LAMP_BODY)
     b.cyl(0, 0, 0, 0.005, r * 0.85, LAMP)
   },
   lamp_floor(b, w, d, h) {

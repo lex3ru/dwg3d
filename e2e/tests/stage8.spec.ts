@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 import { expect, test, type Page } from '@playwright/test'
-import { signIn } from './helpers'
+import { answerNumber, signIn } from './helpers'
 
 // Stage 8 (docs/ACCEPTANCE.md, section 10): variants of placing objects. Routes, zones and calculations
 // of the stage are not part of this.
@@ -23,11 +23,10 @@ async function editVariantLayer(page: Page, name: string) {
 test('a variant is made, edited in the editor, compared and priced, goes stale and is applied in part', async ({ page }) => {
   test.setTimeout(300_000)
   const stamp = Date.now().toString().slice(-7)
-  const answers: string[] = []
   const alerts: string[] = []
   page.on('dialog', d => {
     if (d.type() === 'alert') alerts.push(d.message())
-    void (d.type() === 'prompt' ? d.accept(answers.shift() ?? '') : d.accept())
+    void d.accept()
   })
   await page.setViewportSize({ width: 1400, height: 850 })
   await signIn(page, 'admin')
@@ -70,7 +69,6 @@ test('a variant is made, edited in the editor, compared and priced, goes stale a
   // ---- edited in the editor: a chair added (its number later), the couch taken out, the desk turned
   await card.getByRole('button', { name: 'Открыть в редакторе' }).click()
   await editVariantLayer(page, 'Перестановка')
-  answers.push('')                                                     // the number is left for later
   const item = (await page.getByText('Кресло посетителя').first().boundingBox())!
   const canvas = (await page.locator('canvas').first().boundingBox())!
   await page.mouse.move(item.x + 20, item.y + 8)
@@ -78,6 +76,7 @@ test('a variant is made, edited in the editor, compared and priced, goes stale a
   await page.mouse.move(canvas.x + canvas.width / 2 + 60, canvas.y + canvas.height / 2, { steps: 6 })
   await page.mouse.move(canvas.x + canvas.width / 2 + 80, canvas.y + canvas.height / 2, { steps: 4 })
   await page.mouse.up()
+  await answerNumber(page, '')                                         // the number is left for later
   await page.waitForTimeout(1500)
   const panel = page.getByRole('complementary').last()
   await page.getByRole('button', { name: 'Снять выделение' }).click()          // back to the list of the floor

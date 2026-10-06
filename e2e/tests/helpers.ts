@@ -24,3 +24,15 @@ export async function signIn(page: Page, who: keyof typeof users, path = '/') {
   await page.locator('#kc-login').click()
   await expect(page.getByTestId('user-name')).toHaveText(users[who].name)
 }
+
+/** The editor asks the inventory number of a new object in its own dialog: give it, or cancel (null). */
+export async function answerNumber(page: Page, answer: string | null) {
+  const ask = page.getByTestId('number-ask')
+  await expect(ask).toBeVisible({ timeout: 10_000 })
+  if (answer === null) await ask.getByRole('button', { name: 'Отмена' }).click()
+  else {
+    await ask.getByLabel('Инвентарный номер').fill(answer)
+    await ask.getByRole('button', { name: 'Поставить' }).click()
+  }
+  await expect(ask).toHaveCount(0)
+}

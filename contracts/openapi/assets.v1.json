@@ -1555,6 +1555,64 @@
         ]
       }
     },
+    "/api/assets/v1/inventory-numbers": {
+      "get": {
+        "description": "For one who has no number at hand: `count` numbers in a row, none of them taken in the whole system (the\nnumbers of objects written off included). They continue the series of the last object of the type («КК-00012» →\n«КК-00013»); a type without objects starts its own, from the first letters of its name («КК-00001»). Nothing is\nreserved: two who ask at once may get the same, and the second to place an object is told the number is taken.",
+        "operationId": "free_numbers_api_assets_v1_inventory_numbers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "count",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Free Numbers Api Assets V1 Inventory Numbers Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Свободные инвентарные номера для новых объектов типа",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
     "/api/assets/v1/labels": {
       "post": {
         "operationId": "label_sheet_api_assets_v1_labels_post",

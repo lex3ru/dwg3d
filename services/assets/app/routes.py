@@ -10,6 +10,7 @@ are not for guests (403 `guest`).
 from __future__ import annotations
 
 import asyncio
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
@@ -307,6 +308,42 @@ async def _insert(request: Request, session, me: Identity, who: dict, body: Asse
     await emit(session, "assets.asset.created", ("asset", a.id),
                {"asset_id": str(a.id), "type_id": str(a.type_id), "inventory_no": a.inventory_no}, **core.scope_fields(a))
     return a
+
+
+NUMBER = re.compile(r"^(.*?)(\d+)$")
+
+
+def _initials(name: str) -> str:
+    """«Камера купольная (потолок)» → «КК»: the first letters of the words before any brackets."""
+    words = re.findall(r"[^\W\d_]+", name.split("(")[0])
+    return "".join(w[0] for w in words[:3]).upper() or "ОБ"
+
+
+@router.get("/inventory-numbers", tags=["assets"], summary="Свободные инвентарные номера для новых объектов типа")
+async def free_numbers(request: Request, type_id: UUID, count: int = Query(default=1, ge=1, le=500),
+                       me: Identity = Depends(forbid_guests)) -> dict:
+    """For one who has no number at hand: `count` numbers in a row, none of them taken in the whole system (the
+    numbers of objects written off included). They continue the series of the last object of the type («КК-00012» →
+    «КК-00013»); a type without objects starts its own, from the first letters of its name («КК-00001»). Nothing is
+    reserved: two who ask at once may get the same, and the second to place an object is told the number is taken."""
+    async with request.app.state.db.begin() as session:
+        last = (await session.execute(select(assets.c.inventory_no).where(assets.c.type_id == type_id)
+                                      .order_by(assets.c.created_at.desc()).limit(1))).scalar()
+        hit = NUMBER.match(last or "")
+        if hit:
+            prefix, width = hit.group(1), len(hit.group(2))
+        else:
+            prefix, width = f"{_initials((await core.schema_of(request, session, type_id)).name)}-", 5
+        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        taken = {n for (n,) in await session.execute(select(assets.c.inventory_no).where(assets.c.inventory_no.like(like)))}
+    seqs = [int(m.group(2)) for n in taken if (m := NUMBER.match(n)) and m.group(1) == prefix]
+    n, out = max(seqs, default=0) + 1, []
+    while len(out) < count:
+        number = f"{prefix}{n:0{width}d}"
+        if number not in taken:
+            out.append(number)
+        n += 1
+    return {"numbers": out}
 
 
 @router.post("/assets", status_code=201, tags=["assets"], summary="Поставить объект: тип, точка этажа или контейнер, номер")

@@ -293,7 +293,9 @@ async function variantOps(id: string, ops: Json[]): Promise<Json[]> {
       if (op.op === 'update' && (op.item !== undefined || op.size !== undefined)) throw refuse('Тип и размер объекта задаёт каталог')
       if (op.op === 'create') {
         const type = (await call('GET', `${CATALOG}/types/${op.item}`)).name
-        const number = window.prompt(`Инвентарный номер нового объекта «${type}» в варианте — можно оставить пустым и указать перед применением`)?.trim()
+        const number = (await askNumber({ title: 'Новый объект в варианте', optional: true, suggestion: await nextNumber(k.building, op.item),
+          generate: generator(op.item, 1).generate,
+          text: `Инвентарный номер «${type}» — можно оставить пустым и указать перед применением варианта` }))?.trim()
         edits.push({ kind: 'place', type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1], angle: op.angle ?? 0,
           inventory_no: number || null, note: op.note ?? '' })
         after.push({ op, was: null })
@@ -407,6 +409,42 @@ async function objects(id: string): Promise<Json[]> {
 
 const refuse = (detail: string) => new Failed(json({ detail }, 422))
 
+/** How the inventory number of a new object is asked: the editor shows its own dialog (scene/ui/NumberAsk.tsx);
+ * the browser's prompt is only the fallback — a browser may be told to stop showing it, and then every object
+ * dropped would vanish. `null` — not placed. */
+export type NumberQuestion = { title: string; text: string; suggestion: string; optional: boolean
+  /** numbers free in the whole system, from the assets service: for one who has none at hand */
+  generate: () => Promise<string> }
+let askNumber: (q: NumberQuestion) => Promise<string | null> = async (q) => window.prompt(q.text, q.suggestion)
+export function setNumberAsker(ask: typeof askNumber): () => void {
+  const before = askNumber
+  askNumber = ask
+  return () => { askNumber = before }
+}
+
+/** The next number for a new object of a type: after the last one given in this building (КР-0007 → КР-0008). */
+/** Free numbers for `count` new objects of a type (the assets service checks the whole system); the first one
+ * is offered, the rest kept for a row. */
+function generator(type: string, count: number): { generate: () => Promise<string>; row: (first: string) => string[] | null } {
+  let got: string[] = []
+  return {
+    generate: async () => { got = (await call('GET', `${ASSETS}/inventory-numbers?type_id=${type}&count=${count}`)).numbers; return got[0] },
+    row: (first) => (got[0] === first ? got : null),
+  }
+}
+
+async function nextNumber(building: string, type: string): Promise<string> {
+  try {
+    // the numbers of objects written off stay taken too
+    const pages = await Promise.all(['', '&state=retired'].map((state) =>
+      call('GET', `${ASSETS}/assets?building_id=${building}&type_id=${type}${state}&limit=200`)))
+    const items = pages.flatMap((p) => p.items as Json[])
+    const numbered = items.map((a) => String(a.inventory_no)).filter((n) => /\d+$/.test(n))
+    const last = numbered.sort((a, b) => Number(/(\d+)$/.exec(a)![1]) - Number(/(\d+)$/.exec(b)![1])).pop()
+    return last ? inRow(last, 2)[1] : ''
+  } catch { return '' }
+}
+
 /** «КР-0007» and the next ones: КР-0008, КР-0009… (no number at the end — «-2», «-3» are added). */
 export function inRow(first: string, n: number): string[] {
   const m = /^(.*?)(\d+)$/.exec(first)
@@ -430,11 +468,12 @@ async function objectOps(id: string, all: Json[]): Promise<Json> {
   let numbers: string[] = []
   if (creates.length) {
     const type = (await call('GET', `${CATALOG}/types/${creates[0].item}`)).name
-    const first = window.prompt(creates.length > 1
-      ? `Инвентарный номер первого из ${creates.length} новых объектов «${type}» — следующие пойдут подряд`
-      : `Инвентарный номер нового объекта «${type}»`)?.trim()
+    const gen = generator(creates[0].item, creates.length)
+    const first = (await askNumber({ title: creates.length > 1 ? `Новые объекты: ${creates.length}` : 'Новый объект', optional: false,
+      suggestion: await nextNumber(k.building, creates[0].item), generate: gen.generate,
+      text: creates.length > 1 ? `Инвентарный номер первого из «${type}» — следующие пойдут подряд` : `Инвентарный номер «${type}»` }))?.trim()
     if (!first) throw refuse('Объект не поставлен: нужен инвентарный номер')
-    numbers = inRow(first, creates.length)
+    numbers = gen.row(first) ?? inRow(first, creates.length)
   }
   for (const op of ops) {
     const server = objectIds.get(op.id) ?? op.id

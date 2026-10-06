@@ -10,6 +10,7 @@ import type { Display, Projection } from '../state'
 import FloorFollower from './FloorFollower'
 import { FurnitureInstances, Outlines } from './FurnitureInstances'
 import type { SceneCtx } from './scene'
+import { useFreeWhenUnused } from './lifetime'
 
 export interface Placing {
   item: CatalogItem
@@ -59,7 +60,7 @@ const BAD = new Set(['wall', 'overlap', 'door'])
 export default function Furniture(p: Props) {
   const { ctx, center, floors } = p
   const mats = useMemo(() => new Materials(), [])
-  useEffect(() => () => mats.dispose(), [mats])
+  useFreeWhenUnused(mats, () => mats.dispose())
   useFrame(() => mats.setPlanes(ctx.activePlanes))
   const elev = useMemo(() => new Map(floors.map((f) => [f.id, f.elevation ?? 0])), [floors])
   const toLocal = (at: XY, y: number) => new THREE.Vector3(at[0] - center[0], y, -(at[1] - center[1]))
@@ -347,7 +348,8 @@ function CameraView({ cov, y, lensY, center, selected }: { cov: Coverage; y: num
   const k = selected ? 1.6 : 1
   const hex = VIEW_COLOR[cov.kind ?? 'cam']
   const VIEW = new THREE.Color(hex)
-  const cone = (cov.kind ?? 'cam') === 'cam'
+  // a camera's view and a light's beam: from the device down to what it covers, so one sees which device it is
+  const cone = (cov.kind ?? 'cam') === 'cam' || cov.kind === 'light'
   return (
     <group>
       <mesh geometry={geos.full} renderOrder={4}>

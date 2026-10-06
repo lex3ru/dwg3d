@@ -1,4 +1,4 @@
-import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, QrCode, Undo2 } from 'lucide-react'
+import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, Pencil, QrCode, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
@@ -32,6 +32,7 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
   const [people, setPeople] = useState<Person[]>([])
   const [boxes, setBoxes] = useState<Asset[]>([])           // containers of the building this one could stand in
   const [error, setError] = useState<string | null>(null)
+  const [renumbering, setRenumbering] = useState<string | null>(null)       // the number being changed
   const [partial, setPartial] = useState(false)             // the people service did not answer: no names
   const picker = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
@@ -64,7 +65,26 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
     <div className="grid min-w-0 gap-4 text-sm [&>*]:min-w-0" data-testid="asset-card">
       <div>
         <h2 className="text-base font-semibold">{a.type_name}</h2>
-        <div className="text-muted-foreground">{a.inventory_no}{a.serial_no ? ` · зав. № ${a.serial_no}` : ''}</div>
+        {renumbering != null ? (
+          <form className="mt-1 flex items-center gap-2" onSubmit={e => {
+            e.preventDefault()
+            if (renumbering.trim() && renumbering.trim() !== a.inventory_no) act(patchAsset(a, { inventory_no: renumbering.trim() }).then(() => setRenumbering(null)))
+            else setRenumbering(null)
+          }}>
+            <Input autoFocus className="h-7 w-40" value={renumbering} maxLength={60} aria-label="Новый инвентарный номер" onChange={e => setRenumbering(e.target.value)} />
+            <Button type="submit" size="sm" hint="Старый номер останется в истории объекта; новый должен быть свободен во всей системе">Сохранить</Button>
+            <Button type="button" size="sm" variant="ghost" hint="Оставить прежний номер" onClick={() => setRenumbering(null)}>Отмена</Button>
+          </form>
+        ) : (
+          <div className="flex items-center gap-1 text-muted-foreground">{a.inventory_no}{a.serial_no ? ` · зав. № ${a.serial_no}` : ''}
+            {a.can.manage && (
+              <Button size="icon-sm" variant="ghost" aria-label="Изменить инвентарный номер" onClick={() => setRenumbering(a.inventory_no)}
+                hint="Заменить номер, например сгенерированный при постановке, на настоящий из бухгалтерии; QR-метка по-прежнему откроет карточку, но напечатанный на ней номер станет старым">
+                <Pencil className="size-3.5" />
+              </Button>
+            )}
+          </div>
+        )}
         <div className="mt-1 text-muted-foreground">{floor?.name} · {room?.name || 'помещение без названия'}</div>
       </div>
       {error && <p role="alert" className="text-destructive">{error}</p>}

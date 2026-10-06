@@ -11,6 +11,7 @@ import CatalogEditor from './ui/CatalogEditor'
 import type { SettingsPane } from './ui/Controls'
 import Copilot from './ui/Copilot'
 import CopilotSettings from './ui/CopilotSettings'
+import NumberAsk from './ui/NumberAsk'
 import Proposals from './ui/Proposals'
 import Report from './ui/Report'
 import {
@@ -864,6 +865,7 @@ export default function App() {
           )
         })()}
         {settings === 'copilot' && <CopilotSettings onClose={() => setSettings(null)} />}
+        <NumberAsk />
         {settings === 'catalog' && <CatalogEditor onClose={() => setSettings(null)} onChanged={() => setCatalogTick((n) => n + 1)} />}
         {settings === 'site' && shown && (
           <SiteSettings jobId={shown.id} view={view} detailInfo={detailInfo} onPreview={setPreview}
