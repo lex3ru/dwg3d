@@ -32,6 +32,7 @@ export function RevisionReview({ id, onDone }: { id: string; onDone: () => void 
         <Badge variant="accent">новых {d.count.new}</Badge>
         <Badge variant="accent">изменено {d.count.changed}</Badge>
         <Badge variant={d.count.retired ? 'destructive' : 'accent'}>будет снято {d.count.retired}</Badge>
+        {!!d.count.merged && <Badge variant="accent">объединится {d.count.merged}</Badge>}
         <span className="text-muted-foreground">без изменений {d.count.same}</span>
       </div>
       <p className="text-muted-foreground">
@@ -71,6 +72,14 @@ export function RevisionReview({ id, onDone }: { id: string; onDone: () => void 
           <h4 className="text-xs font-medium text-destructive">Будут сняты</h4>
           <ul className="mt-1 grid gap-0.5">
             {d.retired.map(x => <li key={x.id}>{x.name || 'без названия'} · {x.area} м²</li>)}
+          </ul>
+        </div>
+      )}
+      {!!d.merged?.length && (
+        <div data-testid="merged">
+          <h4 className="text-xs font-medium">Войдут в соседние помещения (перегородка убрана)</h4>
+          <ul className="mt-1 grid gap-0.5">
+            {d.merged.map(x => <li key={x.id}>{x.name || 'без названия'} · {x.area} м² → {x.into_name || 'без названия'}</li>)}
           </ul>
         </div>
       )}

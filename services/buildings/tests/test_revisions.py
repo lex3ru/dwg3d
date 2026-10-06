@@ -46,7 +46,8 @@ async def test_draft_changes_nothing_until_corrected_and_published(client, app, 
     # the differences: one room new, the office changed in outline, the other renamed, one room retired
     r = (await client.get(f"{API}/revisions/{draft['id']}", headers=admin)).json()
     d = r["differences"]
-    assert d["count"] == {"new": 1, "same": 1, "changed": 2, "retired": 1, "floors_new": 0, "floors_retired": 0}
+    assert d["count"] == {"new": 1, "same": 1, "changed": 2, "retired": 1, "merged": 0, "floors_new": 0,
+                          "floors_retired": 0}
     by = {(x["candidate"], x["idx"]): x for x in d["rooms"]}
     assert by[("c1", 1)]["changes"] == ["outline"] and by[("c1", 1)]["room_id"] == before[(1, "Кабинет", 48.69)]
     assert by[("c1", 2)]["changes"] == ["new"]

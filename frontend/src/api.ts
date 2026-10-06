@@ -362,9 +362,11 @@ export type Differences = {
   floors: { candidate: string; floor_id: string | null; name: string; level: number | null }[]
   rooms: RevisionRoom[]
   retired: { id: string; name: string; floor_id: string; area: number }[]
+  /** rooms lying whole inside a room of the build (a partition erased): merged into it, what was in them goes there */
+  merged?: { id: string; name: string; floor_id: string; area: number; into: string; into_name: string }[]
   floors_retired: string[]
   choices: Record<string, { id: string; name: string; area: number }[]>
-  count: { new: number; same: number; changed: number; retired: number; floors_new: number; floors_retired: number }
+  count: { new: number; same: number; changed: number; retired: number; merged?: number; floors_new: number; floors_retired: number }
 }
 export type Revision = {
   id: string; drawing_id: string; n: number; status: 'draft' | 'published' | 'discarded'; summary: Record<string, unknown>

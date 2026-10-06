@@ -113,17 +113,14 @@ async def test_changed_floor_keeps_untouched_rooms(client, app, tokens, building
     assert change["created"] == [after[(1, "", 17.44)]] and change["retired"] == []
     assert change["changed"] == [{"id": after[(1, "Кабинет", 30.6)], "outline": True}]
 
-    await site.build("base")                         # the wall is removed again: the new room would go
-    assert room_ids(await tree(client, tokens, building)) == after                  # a draft waits: nothing changed yet
-    draft = (await client.get(f"{API}/buildings/{building['id']}/revisions", headers=tokens.admin())).json()["items"][0]
-    assert draft["status"] == "draft" and draft["summary"]["retired"] == 1
-    assert (await client.post(f"{API}/revisions/{draft['id']}/publish", headers=tokens.admin())).status_code == 200
+    await site.build("base")                         # the wall is erased again: the part is merged into the office
     floors = await tree(client, tokens, building)
-    assert room_ids(floors) == before
-    retired = await events(app, "buildings.room.retired")
-    assert [e["data"]["room_id"] for e in retired] == [after[(1, "", 17.44)]]
-    assert retired[0]["room_id"] == after[(1, "", 17.44)] and retired[0]["floor_id"] == floors[0]["id"]
-    # retired, not deleted: whoever refers to it can still read it
+    assert room_ids(floors) == before                # published at once: nothing is lost, the part has an heir
+    merged = await events(app, "buildings.room.merged")
+    assert [e["data"] for e in merged] == [{"from": [after[(1, "", 17.44)]], "into": before[(1, "Кабинет", 48.69)],
+                                            "floor_id": floors[0]["id"]}]
+    assert await events(app, "buildings.room.retired") == []
+    # retired into the heir, not deleted: whoever refers to it can still read it
     gone = (await client.get(f"{API}/rooms/{after[(1, '', 17.44)]}", headers=tokens.admin())).json()
     assert gone["status"] == "retired"
     all_rooms = await client.get(f"{API}/rooms", params={"building_id": building["id"], "status": "all"},

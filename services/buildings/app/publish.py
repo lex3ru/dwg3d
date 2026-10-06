@@ -29,6 +29,7 @@ from .models import comments, drawings, floor_plans, floors, revisions, rooms
 NODE_RE = re.compile(r"^floor_(.+)_room_(\d+)$")
 SHEET_MIN_IOU = 0.5
 ROOM_MIN_IOU, ROOM_MIN_IOU_SAME_NAME = 0.5, 0.2
+MERGED_MIN_COVER = 0.9          # a known room this much inside a room of the build was merged into it (a wall erased)
 
 
 # ------------------------------------------------------------------ floors ---
@@ -109,6 +110,51 @@ def match_rooms(new: list[dict], old: list) -> dict[int, object]:
     return out
 
 
+def _cover(outer, inner) -> float:
+    """How much of `inner` lies inside `outer`."""
+    if outer is None or inner is None or outer.is_empty or inner.is_empty or inner.area <= 0:
+        return 0.0
+    return outer.intersection(inner).area / inner.area
+
+
+def absorb(new: list[dict], old: list, matched: dict[int, object]) -> None:
+    """A room of the build no known room continues, but which holds known rooms whole (a partition between them
+    erased), continues the largest of them; `matched` is completed in place."""
+    taken = {row.id for row in matched.values()}
+    for i, r in enumerate(new):
+        if i in matched:
+            continue
+        outer = polygon(r["poly"])
+        inside = [row for row in old
+                  if row.id not in taken and _cover(outer, polygon(row.polygon)) >= MERGED_MIN_COVER]
+        if inside:
+            heir = max(inside, key=lambda row: row.area)
+            matched[i] = heir
+            taken.add(heir.id)
+
+
+def merges(proposal: dict, plans: dict[str, dict], by_floor: dict[UUID, list]) -> dict[str, str]:
+    """Known rooms the build does not continue but which lie whole inside a room it does: id -> the heir's id.
+    These are merged into the heir — what was in them goes there — rather than retired."""
+    used = {r["room_id"] for r in proposal["rooms"] if r["room_id"]}
+    of_floor = {f["candidate"]: f["floor_id"] for f in proposal["floors"]}
+    heirs: dict[str, list] = {}
+    for r in proposal["rooms"]:
+        poly = next((x["poly"] for i, x in _plan_rooms(plans.get(r["candidate"])) if i == r["idx"]), None)
+        if r["room_id"] and poly and of_floor.get(r["candidate"]):
+            heirs.setdefault(of_floor[r["candidate"]], []).append((r["room_id"], polygon(poly)))
+    out = {}
+    for fid, rows in by_floor.items():
+        for row in rows:
+            if row.status != "active" or str(row.id) in used:
+                continue
+            inner = polygon(row.polygon)
+            best = max(heirs.get(str(fid), []), key=lambda h: _cover(h[1], inner), default=None)
+            if best is not None and _cover(best[1], inner) >= MERGED_MIN_COVER:
+                out[str(row.id)] = best[0]
+    return out
+
+
 def locate(room_rows: list, points: list[list[float]]) -> list[UUID | None]:
     """The room each point is in (the smallest one around it), or None."""
     polys = [(p.area, row.id, p) for row in room_rows if (p := polygon(row.polygon)) is not None]
@@ -162,7 +208,9 @@ async def propose(session: AsyncSession, drawing, result: dict, plans: dict[str,
     for f in new_floors:
         row = taken.get(f["id"])
         found = _plan_rooms(plans.get(f["id"]))
-        matched = match_rooms([r for _, r in found], by_floor.get(row.id, []) if row is not None else [])
+        known_here = by_floor.get(row.id, []) if row is not None else []
+        matched = match_rooms([r for _, r in found], known_here)
+        absorb([r for _, r in found], [k for k in known_here if k.status == "active"], matched)
         for k, (idx, r) in enumerate(found):
             old = matched.get(k)
             out_rooms.append({"candidate": f["id"], "idx": idx, "name": r.get("name") or "",
@@ -207,22 +255,30 @@ async def explain(session: AsyncSession, drawing, plans: dict[str, dict], propos
         rooms_out.append({**r, "floor_id": of_floor.get(r["candidate"]), "old_name": old.name if old else None,
                           "changes": changes})
     active_floors = {f["floor_id"] for f in proposal["floors"] if f["floor_id"]}
-    retired = [{"id": str(row.id), "name": row.name, "floor_id": str(row.floor_id), "area": round(row.area, 2)}
-               for row in room_rows if row.status == "active" and str(row.id) not in used]
+    merged = merges(proposal, plans, by_floor)
+    heir_name = {r["room_id"]: r["name"] for r in rooms_out if r["room_id"]}
+    gone = [{"id": str(row.id), "name": row.name, "floor_id": str(row.floor_id), "area": round(row.area, 2)}
+            for row in room_rows if row.status == "active" and str(row.id) not in used]
+    retired = [g for g in gone if g["id"] not in merged]
+    merged_out = [{**g, "into": merged[g["id"]], "into_name": heir_name.get(merged[g["id"]], "")}
+                  for g in gone if g["id"] in merged]
     floors_retired = [str(f.id) for f in floor_rows if f.status == "active" and str(f.id) not in active_floors]
     choices = {fid: [{"id": str(r.id), "name": r.name, "area": round(r.area, 2)} for r in rows if r.status == "active"]
                for fid, rows in ((str(k), v) for k, v in by_floor.items())}
     count = {"new": sum("new" in r["changes"] for r in rooms_out),
              "same": sum(not r["changes"] for r in rooms_out),
              "changed": sum(bool(r["changes"]) and "new" not in r["changes"] for r in rooms_out),
-             "retired": len(retired), "floors_new": sum(f["floor_id"] is None for f in proposal["floors"]),
+             "retired": len(retired), "merged": len(merged_out),
+             "floors_new": sum(f["floor_id"] is None for f in proposal["floors"]),
              "floors_retired": len(floors_retired)}
-    return {"floors": proposal["floors"], "rooms": rooms_out, "retired": retired, "floors_retired": floors_retired,
+    return {"floors": proposal["floors"], "rooms": rooms_out, "retired": retired, "merged": merged_out,
+            "floors_retired": floors_retired,
             "choices": choices, "count": count}
 
 
 def loses_nothing(explained: dict) -> bool:
-    """A build that only adds and keeps — no room or floor retired — needs nobody's review."""
+    """A build that only adds, keeps and merges (partitions erased) — no room or floor retired — needs nobody's
+    review."""
     return not explained["retired"] and not explained["floors_retired"]
 
 
@@ -307,10 +363,17 @@ async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans
                                       .values(**values, version=rooms.c.version + 1))
             room_ids[(f["id"], idx)] = rid
     retired = [row for row in room_rows if row.status == "active" and row.id not in kept]
+    merged = merges(proposal, plans, _shifted(room_rows, moves))
     if retired:
         await session.execute(update(rooms).where(rooms.c.id.in_([r.id for r in retired])).values(
             status="retired", retired_at=func.now(), idx=None, version=rooms.c.version + 1))
         summary["rooms"]["retired"] = [str(r.id) for r in retired]
+    into: dict[str, list] = {}
+    for row in retired:
+        if str(row.id) in merged:
+            into.setdefault(merged[str(row.id)], []).append(row)
+            await session.execute(update(rooms).where(rooms.c.id == row.id)
+                                  .values(merged_into=UUID(merged[str(row.id)])))
 
     # ---- the result of the build, floors and rooms carrying our ids
     for f in result.get("floors") or []:
@@ -335,7 +398,13 @@ async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans
                {"revision_id": str(revision_id), "drawing_id": str(drawing_id), "build_id": build["id"],
                 "floors": {**summary["floors"], "active": [str(i) for i in floor_ids.values()]},
                 "rooms": summary["rooms"], "moves": shifted}, building_id=building_id)
+    for heir, rows in into.items():               # a partition erased: what was in these rooms goes to the heir
+        await emit(session, "buildings.room.merged", ("room", UUID(heir)),
+                   {"from": [str(r.id) for r in rows], "into": heir, "floor_id": str(rows[0].floor_id)},
+                   building_id=building_id, floor_id=rows[0].floor_id, room_id=UUID(heir))
     for row in retired:
+        if str(row.id) in merged:
+            continue
         await emit(session, "buildings.room.retired", ("room", row.id),
                    {"room_id": str(row.id), "floor_id": str(row.floor_id)},
                    building_id=building_id, floor_id=row.floor_id, room_id=row.id)
