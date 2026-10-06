@@ -1,8 +1,11 @@
 """Who is asking: the bearer token of a user or of a service, issued by Keycloak.
 
 Every service checks the signature itself and does not take the gateway's
-word (docs/CONTRACTS.md, 1.2). The application's roles are the client roles
-`resource_access.<client>.roles`; `twin.admin` is the system administrator.
+word (docs/CONTRACTS.md, 1.2). The application's roles are the client roles in
+`resource_access.<client_id>.roles` named `dwg3d.<role>` (the organisation's format; realm roles and client
+roles of other names are not the application's): `dwg3d.admin` is the system administrator, `dwg3d.user` an
+ordinary user. An account with neither is let in as an ordinary user too — what it sees is decided by its
+rights in buildings (the access service).
 
 A guest — someone who opened a link to look at a building, a floor or a room —
 carries a token of the access service (issuer `twin-access-guest`, keys at
@@ -18,7 +21,9 @@ from fastapi import Depends, Request
 
 from .errors import Problem
 
-ADMIN_ROLE = "twin.admin"
+ROLE_PREFIX = "dwg3d."
+ADMIN_ROLE = "dwg3d.admin"
+USER_ROLE = "dwg3d.user"
 GUEST_ISSUER = "twin-access-guest"
 current: ContextVar[Identity | None] = ContextVar("twin_identity", default=None)
 
@@ -103,7 +108,8 @@ class TokenVerifier:
                             guest=(area.get("kind", ""), area.get("id", ""), c.get("building_id", ""),
                                    c.get("floor_id") or ""))
         login = c.get("preferred_username", "")
-        roles = tuple(c.get("resource_access", {}).get(self.client_id, {}).get("roles", ()))
+        roles = tuple(r for r in c.get("resource_access", {}).get(self.client_id, {}).get("roles", ())
+                      if isinstance(r, str) and r.startswith(ROLE_PREFIX))
         return Identity(kind="service" if login.startswith("service-account-") else "user", sub=c["sub"], login=login,
                         name=c.get("name") or login, email=c.get("email"), roles=roles)
 

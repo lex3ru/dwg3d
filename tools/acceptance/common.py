@@ -69,7 +69,7 @@ class Keycloak:
         await self.call("PUT", f"/users/{uid}/reset-password", {"type": "password", "value": password, "temporary": False})
         if admin:
             client = (await self.call("GET", "/clients?clientId=twin")).json()[0]["id"]
-            role = (await self.call("GET", f"/clients/{client}/roles/twin.admin")).json()
+            role = (await self.call("GET", f"/clients/{client}/roles/dwg3d.admin")).json()
             await self.call("POST", f"/users/{uid}/role-mappings/clients/{client}", [role])
         return password
 

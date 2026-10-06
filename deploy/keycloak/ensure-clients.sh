@@ -3,6 +3,7 @@
 # with a service account for every entry of TWIN_SERVICE_CLIENTS. With its
 # token a service calls another one when no user is behind the call (reacting
 # to an event). Safe to run again: secrets are set to the current values.
+# The application's roles dwg3d.admin and dwg3d.user exist on the client twin.
 # The addresses the client of the interface may return to follow TWIN_PUBLIC_URL,
 # so a stack restored on a server with another address signs in there.
 set -eu
@@ -25,6 +26,23 @@ if [ -n "$ui" ] && [ -n "${TWIN_PUBLIC_URL:-}" ]; then
         -s "webOrigins=[\"$TWIN_PUBLIC_URL\"]" \
         -s "attributes.\"post.logout.redirect.uris\"=$TWIN_PUBLIC_URL/*##${TWIN_DEV_URL:-$TWIN_PUBLIC_URL}/*" >/dev/null
     echo "ensure-clients: twin → $TWIN_PUBLIC_URL"
+fi
+
+# the application's roles, read from resource_access.twin.roles: dwg3d.admin, dwg3d.user (the organisation's
+# format dwg3d.<role>); whoever had the former twin.admin gets dwg3d.admin, so an existing realm keeps its admins
+if [ -n "$ui" ]; then
+    for role in dwg3d.admin dwg3d.user; do
+        $kc get "clients/$ui/roles/$role" -r twin >/dev/null 2>&1 || {
+            $kc create "clients/$ui/roles" -r twin -s name="$role" >/dev/null
+            echo "ensure-clients: роль $role"
+        }
+    done
+    if $kc get "clients/$ui/roles/twin.admin" -r twin >/dev/null 2>&1; then
+        for user in $($kc get "clients/$ui/roles/twin.admin/users" -r twin --fields username --format csv --noquotes); do
+            $kc add-roles -r twin --uusername "$user" --cclientid twin --rolename dwg3d.admin
+            echo "ensure-clients: $user — dwg3d.admin вместо twin.admin"
+        done
+    fi
 fi
 
 for name in $TWIN_SERVICE_CLIENTS; do

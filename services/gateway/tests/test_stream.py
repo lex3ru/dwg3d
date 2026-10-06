@@ -15,7 +15,7 @@ def event_by(sub: str) -> dict:
 
 
 def test_who_sees_what():
-    user, admin = Identity("user", "user-1"), Identity("user", "admin-1", roles=("twin.admin",))
+    user, admin = Identity("user", "user-1"), Identity("user", "admin-1", roles=("dwg3d.admin",))
     assert visible(user, set(), event_by("user-1")) and not visible(user, set(), event_by("user-2"))
     assert visible(admin, set(), event_by("user-2"))
     # what happens in a building is seen by those who may see its plan, whoever did it
@@ -48,7 +48,7 @@ async def test_events_from_the_bus_reach_the_hub(app):
         if bus.connected:
             break
         await asyncio.sleep(0.1)
-    stream = app.state.hub.events(Identity("user", "admin-1", roles=("twin.admin",)), heartbeat=5)
+    stream = app.state.hub.events(Identity("user", "admin-1", roles=("dwg3d.admin",)), heartbeat=5)
     await anext(stream)
     pending = asyncio.ensure_future(anext(stream))
     await asyncio.sleep(0.05)                                  # the viewer is registered

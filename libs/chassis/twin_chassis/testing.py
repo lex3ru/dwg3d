@@ -110,7 +110,7 @@ class Tokens:
         return {"Authorization": f"Bearer {token}"}
 
     def admin(self, sub: str = "admin-1") -> dict[str, str]:
-        return self.bearer(sub, roles=("twin.admin",), login="admin", name="Администратор")
+        return self.bearer(sub, roles=("dwg3d.admin",), login="admin", name="Администратор")
 
 
 def openapi_text(app) -> str:

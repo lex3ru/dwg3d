@@ -19,7 +19,8 @@
   "roles": {
     "client": {
       "twin": [
-        {"name": "twin.admin", "description": "Администратор системы: здания, каталог, назначение администраторов зданий"}
+        {"name": "dwg3d.admin", "description": "Администратор системы: здания, каталог, назначение администраторов зданий"},
+        {"name": "dwg3d.user", "description": "Пользователь: видит здания, на которые ему выданы права"}
       ]
     }
   },
@@ -53,7 +54,7 @@
       "firstName": "Администратор",
       "credentials": [{"type": "password", "value": "${TWIN_ADMIN_PASSWORD}", "temporary": true}],
       "realmRoles": ["default-roles-twin"],
-      "clientRoles": {"twin": ["twin.admin"]}
+      "clientRoles": {"twin": ["dwg3d.admin", "dwg3d.user"]}
     }
   ]
 }

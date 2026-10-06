@@ -31,7 +31,7 @@ async function ensureUser(token: string, username: string, firstName: string, la
   await call(token, 'PUT', `/users/${user.id}/reset-password`, { type: 'password', value: password, temporary: false })
   if (admin) {
     const [client] = await (await call(token, 'GET', '/clients?clientId=twin')).json() as { id: string }[]
-    const role = await (await call(token, 'GET', `/clients/${client.id}/roles/twin.admin`)).json()
+    const role = await (await call(token, 'GET', `/clients/${client.id}/roles/dwg3d.admin`)).json()
     await call(token, 'POST', `/users/${user.id}/role-mappings/clients/${client.id}`, [role])
   }
   return password

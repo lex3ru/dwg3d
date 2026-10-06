@@ -120,7 +120,7 @@ def forged_jwt(alg: str) -> str:
     enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()  # noqa: E731
     now = int(time.time())
     claims = {"sub": "attacker", "iss": f"{BASE}/kc/realms/twin", "aud": "twin", "exp": now + 600, "iat": now,
-              "resource_access": {"twin": {"roles": ["twin.admin"]}}, "email": "attacker@example.test"}
+              "resource_access": {"twin": {"roles": ["dwg3d.admin"]}}, "email": "attacker@example.test"}
     signature = "" if alg == "none" else base64.urlsafe_b64encode(b"x" * 32).rstrip(b"=").decode()
     return f"{enc({'alg': alg, 'typ': 'JWT'})}.{enc(claims)}.{signature}"
 

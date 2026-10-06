@@ -75,3 +75,19 @@ async def test_errors_carry_no_trace(app, tokens, monkeypatch):
         r = await client.post(f"{API}/notes", json={"text": "x"}, headers=tokens.bearer())
     assert r.status_code == 500 and r.json()["code"] == "internal"
     assert "secret detail" not in r.text and "Traceback" not in r.text
+
+
+def test_roles_are_the_clients_dwg3d_ones(tokens):
+    """The application's roles: client roles in resource_access.<client_id>.roles named dwg3d.<role>."""
+    verify = tokens.verifier().identity
+    me = verify(tokens.make("u", roles=("dwg3d.admin", "dwg3d.user", "dwg3d.engineer", "offline_access", "twin.admin")))
+    assert me.roles == ("dwg3d.admin", "dwg3d.user", "dwg3d.engineer") and me.is_admin
+    # the former name and roles of other names do not make an administrator
+    assert not verify(tokens.make("u", roles=("twin.admin", "admin"))).is_admin
+    # realm roles and the roles of another client are not the application's
+    other = tokens.make("u", realm_access={"roles": ["dwg3d.admin"]},
+                        resource_access={"other": {"roles": ["dwg3d.admin"]}})
+    assert verify(other).roles == () and not verify(other).is_admin
+    # without any dwg3d role one is an ordinary user, let in
+    plain = verify(tokens.make("u"))
+    assert plain.roles == () and not plain.is_admin and plain.kind == "user"

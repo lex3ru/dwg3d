@@ -19,7 +19,7 @@ Roles: viewer < responsible < admin. Actions:
 the access service does not know what is inside what. A guest by a link may look at its
 area only: `plan` of its floor (of the floor of its room; any floor for a whole building)
 and `view` of what is inside the area; nothing else. The system administrator
-(Keycloak role twin.admin) may everything; another service calling with its own
+(Keycloak client role dwg3d.admin) may everything; another service calling with its own
 token may read everything and change nothing — changes come with a user's token.
 
 Scopes are remembered for 20 s, so a right given or taken away works within
