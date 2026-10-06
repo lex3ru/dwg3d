@@ -20,3 +20,7 @@ dist/
 /deploy/backups/
 .ruff_cache/
 tools/acceptance/.state.json
+
+# real drawings of the user's buildings: data, not code
+/Поэтажные планы *.dxf
+/Поэтажные планы *.pdf
