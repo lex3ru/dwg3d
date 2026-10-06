@@ -205,8 +205,15 @@ const EMPTY_KINDS = { kinds: [], flows: {}, flow_conflicts: [], zone_kinds: {}, 
 const ASSETS = '/api/assets/v1'
 const CATALOG = '/api/catalog/v1'
 const LAYER = 'assets'
-const KINDS = { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Объекты учёта', geoms: ['point'], categories: null },
-  ...SYSTEMS.map((x) => ({ kind: x.kind, name: x.name, geoms: ['point'], categories: [x.category] }))] }
+/** The kinds of layers: «Объекты учёта» takes every section of the catalog but those of the systems, which go to
+ * their own layers — so a camera placed while «Объекты учёта» is being edited lands in «Видеонаблюдение». */
+async function layerKinds(): Promise<Json> {
+  const systems = new Set(SYSTEMS.map((x) => x.category))
+  let rest: string[] | null = null
+  try { rest = ((await call('GET', `${CATALOG}/categories`)).items as Json[]).map((c) => c.id).filter((id) => !systems.has(id)) } catch { /* the catalog is down: anything goes */ }
+  return { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Объекты учёта', geoms: ['point'], categories: rest },
+    ...SYSTEMS.map((x) => ({ kind: x.kind, name: x.name, geoms: ['point'], categories: [x.category] }))] }
+}
 const assetsLayers = (): Json[] => [
   { id: LAYER, kind: 'furniture', name: 'Объекты учёта', visible: true, locked: !admin, sort: 0, props: { variant_group: LAYER }, version: 1 },
   ...SYSTEMS.map((x, i) => ({ id: `${LAYER}.${x.kind}`, kind: x.kind, name: x.name, visible: true, locked: !admin, sort: 100 * (i + 1),
@@ -533,7 +540,7 @@ const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/api\/projects\/([^/]+)\/checks$/, () => ({ fire: [] })],
   ['GET', /^\/api\/projects\/([^/]+)\/proposals$/, () => []],
   ['POST', /^\/api\/projects\/([^/]+)\/ui-context$/, () => null],
-  ['GET', /^\/api\/layer-kinds$/, () => KINDS],
+  ['GET', /^\/api\/layer-kinds$/, layerKinds],
   ['GET', /^\/api\/catalog$/, catalog],
   ['GET', /^\/api\/copilot\/status$/, () => ({ enabled: false, model: null, daily_limit: 0, used_today: 0 })],
   ['GET', /^\/api\/config\/default$/, () => call('GET', `${IMPORT}/config/default`)],

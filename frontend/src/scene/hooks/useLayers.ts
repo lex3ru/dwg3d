@@ -70,10 +70,16 @@ export function useLayers(shown: Job | null, projectId: string) {
     }
     const act = layers.find((l) => l.id === activeLayer)
     if (act && takes(act)) return act.id
-    // a kind made for this category (CCTV, fire alarm, Wi-Fi...): its layer, or none yet — the server creates it
+    // a kind made for this category (CCTV, fire alarm, Wi-Fi...): its layer, or none yet — the server creates it.
+    // Of its layers the one on the screen (the fact or the variant shown); a hidden one is shown, so that what
+    // is placed does not vanish the moment it is put down
     const own = kinds.find((k) => k.categories?.includes(c.cat))
-    if (own) return layers.find((l) => l.kind === own.kind && takes(l))?.id
-    return layers.find(takes)?.id
+    const mine = layers.filter((l) => (own ? l.kind === own.kind : true) && takes(l))
+    const seen = mine.find((l) => !hiddenNow.has(l.id))
+    if (seen) return seen.id
+    const pick = mine.find((l) => hiddenLayers.has(l.id))
+    if (pick) setHiddenLayers((h) => { const n = new Set(h); n.delete(pick.id); return n })
+    return pick?.id ?? mine[0]?.id
   }
   const refuseLocked = (it: PlacedItem | undefined) => {
     const l = layers.find((x) => x.id === it?.layer && x.locked)

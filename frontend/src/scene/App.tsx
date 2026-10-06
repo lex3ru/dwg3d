@@ -569,7 +569,8 @@ export default function App() {
     else setShapeSel(o.id)
   }
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
-    <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
+    // «Объекты учёта» offers the whole catalog: what belongs to a system (a camera, a light) goes to that system's layer
+    <Catalog categories={editKind?.kind === 'furniture' ? null : editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
       locked={rebuilding} />
   ) : r ? (
