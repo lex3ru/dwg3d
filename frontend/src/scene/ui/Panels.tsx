@@ -1,14 +1,17 @@
 import { CircleHelp } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { floatClass } from '@/components/ui/float'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export function HelpButton({ onClick }: { onClick: () => void }) {
   return (
-    <button aria-label="Справка по управлению" title="Справка по управлению" onClick={onClick}
-      className={cn(floatClass, 'absolute top-3.5 left-3.5 z-20 grid size-10 cursor-pointer place-items-center rounded-full p-0 hover:text-primary')}>
-      <CircleHelp className="size-[18px]" />
-    </button>
+    <Tip label="Мышь и клавиши для обзора, полёта, прогулки, 2D и рулетки" side="right">
+      <button aria-label="Справка по управлению" onClick={onClick}
+        className={cn(floatClass, 'absolute top-3.5 left-3.5 z-20 grid size-10 cursor-pointer place-items-center rounded-full p-0 hover:text-primary')}>
+        <CircleHelp className="size-[18px]" />
+      </button>
+    </Tip>
   )
 }
 

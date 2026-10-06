@@ -16,14 +16,14 @@ export default function FloorRail({ floors, active, onSelect }: {
   return (
     <nav aria-label="Этажи"
       className={cn(floatClass, 'absolute top-1/2 left-3.5 z-15 flex max-h-[70%] -translate-y-1/2 flex-col items-center gap-1 rounded-full p-1')}>
-      <Tip label="Всё здание" side="right">
+      <Tip label="Показать здание целиком, без среза по этажу" side="right">
         <button aria-label="Все этажи" aria-pressed={active == null}
           className={cn(btn, active == null ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground')}
           onClick={() => onSelect(null)}><Plus className="size-4" /></button>
       </Tip>
       <div className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto">
         {desc.map((f) => (
-          <Tip key={f.id} side="right" label={`${f.name} · ${f.elevation! >= 0 ? '+' : ''}${f.elevation!.toFixed(2)} м`}>
+          <Tip key={f.id} side="right" label={`${f.name}, отметка ${f.elevation! >= 0 ? '+' : ''}${f.elevation!.toFixed(2)} м: срез здания до этого этажа`}>
             <button aria-label={f.name} aria-pressed={active === f.id}
               className={cn(btn, active === f.id ? 'bg-primary text-primary-foreground' : 'bg-transparent text-foreground hover:bg-secondary')}
               onClick={() => onSelect(f.id)}>

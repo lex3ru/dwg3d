@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createBuilding, listBuildings, type Building, type Me } from '../api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 
 /** Why an account that is not in the directory of people sees nothing, and what to do. */
@@ -36,7 +37,8 @@ export function Buildings({ me, refresh }: { me: Me; /** changes when the set of
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold">Мои здания</h1>
         {admin && !adding && (
-          <Button variant="outline" size="sm" onClick={() => setAdding(true)}><Plus className="size-4" /> Создать здание</Button>
+          <Button variant="outline" size="sm" hint="Новое пустое здание: дальше в него загружают поэтажные планы DWG или DXF"
+            onClick={() => setAdding(true)}><Plus className="size-4" /> Создать здание</Button>
         )}
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
@@ -45,14 +47,16 @@ export function Buildings({ me, refresh }: { me: Me; /** changes when the set of
         <ul className="mt-5 grid gap-3 sm:grid-cols-2" data-testid="buildings">
           {items.map(b => (
             <li key={b.id}>
-              <a href={`#/b/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">
-                <div className="flex items-center gap-2 font-medium"><Building2 className="size-4 text-muted-foreground" /> {b.name}</div>
-                {b.address && <div className="mt-1 text-sm text-muted-foreground">{b.address}</div>}
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {b.drawings ? `${plural(b.floors ?? 0, 'этаж', 'этажа', 'этажей')} · ${plural(b.rooms ?? 0, 'помещение', 'помещения', 'помещений')}`
-                    : 'Чертежи ещё не загружены'}
-                </div>
-              </a>
+              <Tip label="Кабинет здания: что требует внимания, помещения, объекты, план">
+                <a href={`#/b/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">
+                  <div className="flex items-center gap-2 font-medium"><Building2 className="size-4 text-muted-foreground" /> {b.name}</div>
+                  {b.address && <div className="mt-1 text-sm text-muted-foreground">{b.address}</div>}
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {b.drawings ? `${plural(b.floors ?? 0, 'этаж', 'этажа', 'этажей')} · ${plural(b.rooms ?? 0, 'помещение', 'помещения', 'помещений')}`
+                      : 'Чертежи ещё не загружены'}
+                  </div>
+                </a>
+              </Tip>
             </li>
           ))}
         </ul>
@@ -93,8 +97,9 @@ function NewBuilding({ onDone }: { onDone: () => void }) {
       </label>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="mt-1 flex gap-2">
-        <Button type="submit" disabled={busy || !name.trim()}>Создать</Button>
-        <Button type="button" variant="ghost" onClick={onDone}>Отмена</Button>
+        <Button type="submit" disabled={busy || !name.trim()}
+          hint={name.trim() ? 'Откроются чертежи нового здания для загрузки планов; другим оно станет видно после выдачи доступа' : 'Сначала введите название'}>Создать</Button>
+        <Button type="button" variant="ghost" hint="Закрыть форму, ничего не создавая" onClick={onDone}>Отмена</Button>
       </div>
     </form>
   )

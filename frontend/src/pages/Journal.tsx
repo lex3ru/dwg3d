@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { listEvents, peopleByIds, STATES, type AssetState, type JournalEvent, type TreeFloor } from '../api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 
@@ -87,20 +88,30 @@ export function Journal({ building, floors, filter }: { building: string; floors
     <section>
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="mr-1 text-xl font-semibold">Журнал</h1>
-        <select className={select} value={kind} onChange={e => setKind(e.target.value)} aria-label="Вид события">
-          {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <select className={select} value={room} onChange={e => setRoom(e.target.value)} aria-label="Помещение">
-          <option value="">всё здание</option>
-          {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
-        </select>
-        <Input type="date" className="h-8 w-40" value={from} onChange={e => setFrom(e.target.value)} aria-label="С даты" />
-        <Input type="date" className="h-8 w-40" value={to_} onChange={e => setTo(e.target.value)} aria-label="По дату" />
+        <Tip label="Оставить в ленте события одного рода">
+          <select className={select} value={kind} onChange={e => setKind(e.target.value)} aria-label="Вид события">
+            {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Tip>
+        <Tip label="Только то, что случилось в одном помещении: с его объектами, людьми и им самим">
+          <select className={select} value={room} onChange={e => setRoom(e.target.value)} aria-label="Помещение">
+            <option value="">всё здание</option>
+            {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
+          </select>
+        </Tip>
+        <Tip label="Начало периода, день включительно; пусто — с самого начала">
+          <Input type="date" className="h-8 w-40" value={from} onChange={e => setFrom(e.target.value)} aria-label="С даты" />
+        </Tip>
+        <Tip label="Конец периода, день включительно; пусто — до сегодня">
+          <Input type="date" className="h-8 w-40" value={to_} onChange={e => setTo(e.target.value)} aria-label="По дату" />
+        </Tip>
       </div>
       {(filter.asset || filter.person) && (
         <p className="mt-1 text-sm text-muted-foreground">
           {filter.asset ? 'Только события объекта. ' : ''}{filter.person ? `Только события человека${names[filter.person] ? `: ${names[filter.person]}` : ''}. ` : ''}
-          <a className="text-primary" href={to.journal(building)}>Весь журнал</a>
+          <Tip label="Снять отбор по объекту или человеку: события всего здания">
+            <a className="text-primary" href={to.journal(building)}>Весь журнал</a>
+          </Tip>
         </p>
       )}
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
@@ -111,7 +122,11 @@ export function Journal({ building, floors, filter }: { building: string; floors
             return (
               <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2" data-event={e.type}>
                 <span className="w-36 shrink-0 text-muted-foreground tabular-nums">{new Date(e.time).toLocaleString('ru')}</span>
-                <span className="min-w-48 flex-1">{href ? <a className="hover:underline" href={href}>{describe(e)}</a> : describe(e)}</span>
+                <span className="min-w-48 flex-1">{href ? (
+                  <Tip label={e.asset_id ? 'Карточка объекта, с которым это случилось' : 'Помещение, где это случилось'}>
+                    <a className="hover:underline" href={href}>{describe(e)}</a>
+                  </Tip>
+                ) : describe(e)}</span>
                 <span className="text-muted-foreground max-sm:hidden">{where(e)}</span>
                 <span className="text-muted-foreground">{who(e)}</span>
               </li>
@@ -119,7 +134,7 @@ export function Journal({ building, floors, filter }: { building: string; floors
           })}
         </ul>
       )}
-      {next && <Button className="mt-3" variant="outline" size="sm" onClick={more}>Ещё</Button>}
+      {next && <Button className="mt-3" variant="outline" size="sm" onClick={more} hint="Подгрузить следующие 100 событий, более ранние">Ещё</Button>}
     </section>
   )
 }

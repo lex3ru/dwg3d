@@ -59,15 +59,15 @@ export default function ContextBar(p: {
         <Sep />
         {points && lines && (
           <>
-            <ToolBtn icon={Armchair} label="Оборудование" on={p.tool === 'furniture'} onClick={() => p.onTool('furniture')} hint="Ставить оборудование из каталога" />
-            <ToolBtn icon={Spline} label="Трассы" on={p.tool === 'shapes'} onClick={() => p.onTool('shapes')} hint="Рисовать кабельные трассы" />
+            <ToolBtn icon={Armchair} label="Оборудование" on={p.tool === 'furniture'} onClick={() => p.onTool('furniture')} hint="Расставлять оборудование слоя: перетащить позицию из каталога слева на план" />
+            <ToolBtn icon={Spline} label="Трассы" on={p.tool === 'shapes'} onClick={() => p.onTool('shapes')} hint="Прокладывать кабельные линии слоя по плану этажа" />
             <Sep />
           </>
         )}
         {p.actions}
-        {p.tool === 'furniture' && <ToolBtn icon={Undo2} label="Отменить" disabled={!p.canUndo} onClick={p.onUndo} hint="Отменить последнее действие (Ctrl+Z)" />}
+        {p.tool === 'furniture' && <ToolBtn icon={Undo2} label="Отменить" disabled={!p.canUndo} onClick={p.onUndo} hint="Вернуть расстановку на шаг назад, в пределах правок этого сеанса; Ctrl+Z" />}
         <span className="min-w-0 flex-1 truncate px-2 text-xs text-muted-foreground">{p.hint}</span>
-        <Button size="sm" onClick={() => p.onEdit(null)}><Check /> Готово</Button>
+        <Button size="sm" hint="Закончить редактирование слоя: изменения уже сохранены на сервере" hintSide="bottom" onClick={() => p.onEdit(null)}><Check /> Готово</Button>
       </div>
     )
   }
@@ -76,26 +76,29 @@ export default function ContextBar(p: {
       <span className="inline-flex shrink-0 items-center gap-1.5 px-1.5 text-xs font-medium text-muted-foreground"><Eye className="size-3.5" /> Просмотр</span>
       <Sep />
       <ToolBtn icon={Ruler} label="Расстояние" on={p.tool === 'measure' && p.measureMode === 'length'}
-        onClick={() => (p.tool === 'measure' && p.measureMode === 'length' ? p.onTool('none') : p.onMeasure('length'))} hint="Рулетка: расстояние между точками" />
+        onClick={() => (p.tool === 'measure' && p.measureMode === 'length' ? p.onTool('none') : p.onMeasure('length'))} hint="Измерить расстояние между двумя точками модели; ничего не сохраняет" />
       <ToolBtn icon={SquareDashed} label="Площадь" on={p.tool === 'measure' && p.measureMode === 'area'}
-        onClick={() => (p.tool === 'measure' && p.measureMode === 'area' ? p.onTool('none') : p.onMeasure('area'))} hint="Площадь контура" />
-      <ToolBtn icon={Route} label="Путь A→B" on={p.tool === 'route'} onClick={() => p.onTool(p.tool === 'route' ? 'none' : 'route')} hint="Кратчайший путь между двумя точками этажа" />
+        onClick={() => (p.tool === 'measure' && p.measureMode === 'area' ? p.onTool('none') : p.onMeasure('area'))} hint="Обвести контур по точкам и узнать его площадь; ничего не сохраняет" />
+      <ToolBtn icon={Route} label="Путь A→B" on={p.tool === 'route'} onClick={() => p.onTool(p.tool === 'route' ? 'none' : 'route')} hint="Кратчайший пеший путь между двумя точками этажа: длина и время; не сохраняется" />
       {p.editable && (
         <>
-          <ToolBtn icon={MapPin} label="Метка" on={p.tool === 'marker'} onClick={() => p.onTool(p.tool === 'marker' ? 'none' : 'marker')} hint="Поставить свою метку" />
-          <ToolBtn icon={MessageCirclePlus} label="Комментарий" on={p.tool === 'comment'} onClick={() => p.onTool(p.tool === 'comment' ? 'none' : 'comment')} />
+          <ToolBtn icon={MapPin} label="Метка" on={p.tool === 'marker'} onClick={() => p.onTool(p.tool === 'marker' ? 'none' : 'marker')} hint="Подписанная точка на модели; её увидят все, кто открывает здание" />
+          <ToolBtn icon={MessageCirclePlus} label="Комментарий" on={p.tool === 'comment'} onClick={() => p.onTool(p.tool === 'comment' ? 'none' : 'comment')}
+            hint="Заметка в точке модели; её увидят все, кто открывает здание" />
         </>
       )}
       <span className="min-w-0 flex-1 truncate px-2 text-xs text-muted-foreground">
         {p.tool === 'route' && (p.route.fromLabel || p.route.toLabel)
           ? <>{p.route.fromLabel || '…'} → {p.route.toLabel || '…'}{p.route.length != null && <b className="text-foreground"> · {p.route.length.toFixed(1)} м, ~{Math.max(1, Math.round(p.route.length / 1.3 / 60))} мин</b>}
             {p.route.error && <span className="text-destructive"> · {p.route.error}</span>}
-            <button className="ml-2 cursor-pointer border-0 bg-transparent p-0 text-xs text-primary hover:underline" onClick={p.onClearRoute}>очистить</button></>
+            <Tip label="Убрать путь и точки A и B с модели" side="bottom">
+              <button className="ml-2 cursor-pointer border-0 bg-transparent p-0 text-xs text-primary hover:underline" onClick={p.onClearRoute}>очистить</button>
+            </Tip></>
           : p.hint}
       </span>
       {p.editable && editableLayers.length > 0 && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><Pencil /> <span className="@max-3xl:hidden">Редактировать слой</span></Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" hint="Выбрать слой и расставлять или рисовать в нём; заблокированных слоёв в списке нет" hintSide="bottom"><Pencil /> <span className="@max-3xl:hidden">Редактировать слой</span></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>Какой слой редактировать</DropdownMenuLabel>
             {editableLayers.map((l) => (

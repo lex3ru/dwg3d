@@ -8,6 +8,7 @@ import { useConfirm } from '../components/confirm'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 import { until } from '../lib/utils'
 
@@ -62,22 +63,29 @@ export function Access({ building, floors }: { building: Building; floors: TreeF
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       <form onSubmit={give} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-3" data-testid="grant-form">
         <label className="grid gap-1 text-xs text-muted-foreground">Кому
-          <select className={select} value={person} onChange={e => setPerson(e.target.value)} required aria-label="Кому">
-            <option value="">— человек из справочника —</option>
-            {people.map(p => <option key={p.id} value={p.id}>{p.full_name}{p.position ? ` — ${p.position}` : ''}</option>)}
-          </select>
+          <Tip label="Права даются человеку из справочника, а не учётной записи; нет в списке — добавьте в разделе «Люди»">
+            <select className={select} value={person} onChange={e => setPerson(e.target.value)} required aria-label="Кому">
+              <option value="">— человек из справочника —</option>
+              {people.map(p => <option key={p.id} value={p.id}>{p.full_name}{p.position ? ` — ${p.position}` : ''}</option>)}
+            </select>
+          </Tip>
         </label>
         <label className="grid gap-1 text-xs text-muted-foreground">Что может
-          <select className={select} value={role} onChange={e => setRole(e.target.value as Role)} aria-label="Что может">
-            {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <Tip label="Просмотр — только видеть; ответственный — править свойства, состояние и файлы объектов; администратор — всё в области">
+            <select className={select} value={role} onChange={e => setRole(e.target.value as Role)} aria-label="Что может">
+              {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Tip>
         </label>
         <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">Где
-          <select className={`${select} max-w-64`} value={scope} onChange={e => setScope(e.target.value)} aria-label="Где">
-            {[...areas].map(([id, a]) => <option key={id} value={id}>{a.kind === 'room' ? `  ${a.label}` : a.label}</option>)}
-          </select>
+          <Tip label="Право действует на всё внутри области: на этаже — во всех его помещениях">
+            <select className={`${select} max-w-64`} value={scope} onChange={e => setScope(e.target.value)} aria-label="Где">
+              {[...areas].map(([id, a]) => <option key={id} value={id}>{a.kind === 'room' ? `  ${a.label}` : a.label}</option>)}
+            </select>
+          </Tip>
         </label>
-        <Button type="submit" size="sm" disabled={!person}>Выдать</Button>
+        <Button type="submit" size="sm" disabled={!person}
+          hint="Право начнёт действовать сразу, запись о нём попадёт в журнал; сначала выберите человека">Выдать</Button>
       </form>
       {grants.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">Прав в этом здании пока никому не выдано.</p>
@@ -88,7 +96,8 @@ export function Access({ building, floors }: { building: Building; floors: TreeF
               <span className="min-w-40 flex-1 font-medium">{names[g.person_id] ?? '…'}</span>
               <span>{ROLES[g.role]}</span>
               <span className="text-muted-foreground">{areaName(g)}</span>
-              <Button variant="ghost" size="sm" onClick={() => revokeGrant(g.id).then(load, (ex: Error) => setError(ex.message))}>Отозвать</Button>
+              <Button variant="ghost" size="sm" onClick={() => revokeGrant(g.id).then(load, (ex: Error) => setError(ex.message))}
+                hint="Человек сразу потеряет это право в этой области; запись останется в журнале">Отозвать</Button>
             </li>
           ))}
         </ul>
@@ -109,6 +118,9 @@ function endOfDay(date: string) {
 const times = (n: number) => `${n} ${n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'раза' : 'раз'}`
 const STATE: Record<Share['state'], [string, 'success' | 'default' | 'warning']> = {
   active: ['действует', 'success'], revoked: ['отозвана', 'default'], expired: ['истекла', 'warning'] }
+const STATE_HINT: Record<Share['state'], string> = {
+  active: 'По ссылке можно смотреть до указанного дня', revoked: 'Ссылку отозвали: она больше не открывается',
+  expired: 'Срок вышел: ссылка больше не открывается' }
 
 /** Links for viewing without an account: whoever has one sees the building, a floor or a room until a date. */
 function Shares({ building, floors }: { building: Building; floors: TreeFloor[] }) {
@@ -174,45 +186,60 @@ function Shares({ building, floors }: { building: Building; floors: TreeFloor[] 
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       <form onSubmit={give} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-3" data-testid="share-form">
         <label className="grid gap-1 text-xs text-muted-foreground">Что показать
-          <select className={select} value={kind} aria-label="Что показать"
-            onChange={e => { setKind(e.target.value as Share['scope']['kind']); setRoom('') }}>
-            <option value="building">всё здание</option>
-            <option value="floor">этаж</option>
-            <option value="room">помещение</option>
-          </select>
+          <Tip label="Какую часть здания увидит гость: план, 3D-модель и объекты только в ней">
+            <select className={select} value={kind} aria-label="Что показать"
+              onChange={e => { setKind(e.target.value as Share['scope']['kind']); setRoom('') }}>
+              <option value="building">всё здание</option>
+              <option value="floor">этаж</option>
+              <option value="room">помещение</option>
+            </select>
+          </Tip>
         </label>
         {kind !== 'building' && (
           <label className="grid gap-1 text-xs text-muted-foreground">Этаж
-            <select className={select} value={floor} required aria-label="Этаж" onChange={e => { setFloor(e.target.value); setRoom('') }}>
-              <option value="">— этаж —</option>
-              {floors.map(f => <option key={f.id} value={f.id}>{f.name || `этаж ${f.level}`}</option>)}
-            </select>
+            <Tip label={kind === 'room' ? 'Этаж, на котором помещение: его план откроется гостю' : 'Этаж, который увидит гость'}>
+              <select className={select} value={floor} required aria-label="Этаж" onChange={e => { setFloor(e.target.value); setRoom('') }}>
+                <option value="">— этаж —</option>
+                {floors.map(f => <option key={f.id} value={f.id}>{f.name || `этаж ${f.level}`}</option>)}
+              </select>
+            </Tip>
           </label>
         )}
         {kind === 'room' && (
           <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">Помещение
-            <select className={`${select} max-w-64`} value={room} required disabled={!floor} aria-label="Помещение" onChange={e => setRoom(e.target.value)}>
-              <option value="">{floor ? '— помещение —' : 'сначала этаж'}</option>
-              {rooms.map(r => <option key={r.id} value={r.id}>{r.name || 'без названия'} ({r.area} м²)</option>)}
-            </select>
+            <Tip label="Гостю покажут план этажа с этим помещением и только его объекты; список откроется, когда выбран этаж">
+              <select className={`${select} max-w-64`} value={room} required disabled={!floor} aria-label="Помещение" onChange={e => setRoom(e.target.value)}>
+                <option value="">{floor ? '— помещение —' : 'сначала этаж'}</option>
+                {rooms.map(r => <option key={r.id} value={r.id}>{r.name || 'без названия'} ({r.area} м²)</option>)}
+              </select>
+            </Tip>
           </label>
         )}
         <label className="grid gap-1 text-xs text-muted-foreground">До какого дня
-          <Input type="date" className="h-8 w-40" value={date} min={today} required aria-label="До какого дня" onChange={e => setDate(e.target.value)} />
+          <Tip label="Ссылка действует до конца этого дня по местному времени; отозвать её можно раньше">
+            <Input type="date" className="h-8 w-40" value={date} min={today} required aria-label="До какого дня" onChange={e => setDate(e.target.value)} />
+          </Tip>
         </label>
         <label className="grid min-w-48 flex-1 gap-1 text-xs text-muted-foreground">Для кого
-          <Input className="h-8" value={note} maxLength={200} placeholder="например, подрядчик" aria-label="Для кого" onChange={e => setNote(e.target.value)} />
+          <Tip label="Пометка для себя: видна в списке ссылок и в журнале, когда по ссылке заходят; гость её не видит">
+            <Input className="h-8" value={note} maxLength={200} placeholder="например, подрядчик" aria-label="Для кого" onChange={e => setNote(e.target.value)} />
+          </Tip>
         </label>
-        <Button type="submit" size="sm" disabled={!ready || !date}><Link2 className="size-4" />Выдать ссылку</Button>
+        <Button type="submit" size="sm" disabled={!ready || !date}
+          hint="Ссылка, по которой посмотрят выбранную часть здания без учётной записи; её покажут один раз"><Link2 className="size-4" />Выдать ссылку</Button>
       </form>
       {made && (
         <div className="mt-3 grid gap-2 rounded-lg border border-primary/40 bg-card p-3 text-sm" data-testid="share-made">
           <p>Ссылка{made.note ? ` (${made.note})` : ''} — <b>показывается один раз</b>: скопируйте и отправьте её сейчас, потом её не будет видно.</p>
           <div className="flex flex-wrap gap-2">
-            <Input ref={field} readOnly value={made.url} className="h-8 min-w-0 flex-1 font-mono text-xs" aria-label="Ссылка" data-testid="share-link"
-              onFocus={e => e.currentTarget.select()} />
-            <Button type="button" size="sm" onClick={copy}><Copy className="size-4" />Копировать</Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setMade(null)}>Скрыть</Button>
+            <Tip label="Отправьте её тому, кто будет смотреть: после скрытия её не будет видно нигде">
+              <Input ref={field} readOnly value={made.url} className="h-8 min-w-0 flex-1 font-mono text-xs" aria-label="Ссылка" data-testid="share-link"
+                onFocus={e => e.currentTarget.select()} />
+            </Tip>
+            <Button type="button" size="sm" onClick={copy}
+              hint="Положить ссылку в буфер обмена; где буфер недоступен, она выделится для Ctrl+C"><Copy className="size-4" />Копировать</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setMade(null)}
+              hint="Убрать ссылку с экрана; показать её снова будет нельзя — только выдать новую">Скрыть</Button>
           </div>
           {copied && <p className="text-xs text-muted-foreground">{copied === 'copied' ? 'Скопировано.' : 'Ссылка выделена — нажмите Ctrl+C (на телефоне — «Копировать» в меню).'}</p>}
         </div>
@@ -228,11 +255,14 @@ function Shares({ building, floors }: { building: Building; floors: TreeFloor[] 
                 {s.note && <span className="ml-2 text-muted-foreground">{s.note}</span>}
               </span>
               <span className="text-muted-foreground">до {until(s.expires_at)}</span>
-              <Badge variant={STATE[s.state][1]}>{STATE[s.state][0]}</Badge>
+              <Tip label={STATE_HINT[s.state]}><Badge variant={STATE[s.state][1]}>{STATE[s.state][0]}</Badge></Tip>
               <span className="text-muted-foreground">
                 {s.opened ? `открыта ${times(s.opened)}${s.last_opened_at ? `, последний — ${new Date(s.last_opened_at).toLocaleString('ru')}` : ''}` : 'ещё не открывали'}
               </span>
-              {s.state === 'active' && <Button variant="ghost" size="sm" onClick={() => void revoke(s)}>Отозвать</Button>}
+              {s.state === 'active' && (
+                <Button variant="ghost" size="sm" onClick={() => void revoke(s)}
+                  hint="Ссылка сразу перестанет открываться, даже у того, кто смотрит по ней сейчас; вернуть её нельзя">Отозвать</Button>
+              )}
             </li>
           ))}
         </ul>

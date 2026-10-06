@@ -9,7 +9,7 @@ test('a user signs in, sees the empty «Мои здания» with their name, a
   await expect(page.getByText('Зданий пока нет')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Состояние системы' })).toHaveCount(0)
 
-  await page.getByTitle('Выйти').click()
+  await page.getByLabel('Выйти', { exact: true }).click()
   await expect(page).toHaveURL(/\/kc\/realms\/twin\//)        // signed out of Keycloak too: it asks again
   await expect(page.locator('#username')).toBeVisible()
   expect((await page.request.get('/api/me')).status()).toBe(401)
@@ -53,7 +53,7 @@ test('the administrator sees the services up, and an event comes back to the bro
 test('the pages work in the dark theme and on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 })
   await signIn(page, 'admin', '/#/system')
-  await page.getByTitle('Тёмная тема').click()
+  await page.getByLabel('Тёмная тема', { exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
   await expect(page.getByRole('heading', { name: 'Состояние системы' })).toBeVisible()
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)

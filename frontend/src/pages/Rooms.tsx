@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { TreeFloor } from '../api'
+import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
 import { to } from '../shell/route'
 
@@ -20,10 +21,12 @@ export function Rooms({ building, floors, selected, initialQuery }: {
         <h1 className="text-xl font-semibold">Помещения</h1>
         <div className="relative w-64 max-w-full">
           <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Название или номер" aria-label="Поиск помещения"
-            className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <Tip label="Список сужается по мере ввода; регистр букв не важен">
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Название или номер" aria-label="Поиск помещения"
+              className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </Tip>
         </div>
-        <span className="text-sm text-muted-foreground" data-testid="rooms-total">{total}</span>
+        <Tip label="Сколько помещений показано"><span className="text-sm text-muted-foreground" data-testid="rooms-total">{total}</span></Tip>
       </div>
       {shown.length === 0 && (
         <p className="mt-6 text-sm text-muted-foreground">{needle ? 'Ничего не найдено. Проверьте название или номер.' : 'В здании пока нет помещений.'}</p>

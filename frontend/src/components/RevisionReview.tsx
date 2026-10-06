@@ -3,8 +3,15 @@ import { discardRevision, getRevision, matchRoom, publishRevision, type Revision
 import { cn } from '../lib/utils'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
+import { Tip } from './ui/tooltip'
 
 const CHANGE: Record<string, string> = { new: 'новое', name: 'переименовано', outline: 'другой контур', returned: 'возвращено' }
+const CHANGE_HINTS: Record<string, string> = {
+  new: 'Такого помещения в здании ещё нет: оно появится пустым',
+  name: 'В чертеже у помещения другое название: после публикации оно заменит прежнее',
+  outline: 'Стены помещения в чертеже сдвинулись: изменятся контур и площадь',
+  returned: 'Помещение было снято раньше и снова появилось в чертеже',
+}
 const select = 'h-7 max-w-full rounded-md border bg-card px-1 text-xs'
 
 /** A new build of a drawing that would retire rooms waits here: what is new, changed, gone; which known
@@ -29,10 +36,16 @@ export function RevisionReview({ id, onDone }: { id: string; onDone: () => void 
     <div className="mt-2 grid gap-3 rounded-lg border bg-background p-3 text-sm" data-testid="revision">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">Сборка {r.n}: различия с опубликованным</span>
-        <Badge variant="accent">новых {d.count.new}</Badge>
-        <Badge variant="accent">изменено {d.count.changed}</Badge>
-        <Badge variant={d.count.retired ? 'destructive' : 'accent'}>будет снято {d.count.retired}</Badge>
-        {!!d.count.merged && <Badge variant="accent">объединится {d.count.merged}</Badge>}
+        <Tip label="Помещения сборки, которых в здании ещё нет"><Badge variant="accent">новых {d.count.new}</Badge></Tip>
+        <Tip label="Помещения с другим названием или контуром в чертеже, а также возвращённые"><Badge variant="accent">изменено {d.count.changed}</Badge></Tip>
+        <Tip label="Помещения здания, которых нет в сборке: их объекты получат отметку «требует размещения»">
+          <Badge variant={d.count.retired ? 'destructive' : 'accent'}>будет снято {d.count.retired}</Badge>
+        </Tip>
+        {!!d.count.merged && (
+          <Tip label="Помещения, оказавшиеся целиком внутри другого (убрана перегородка): их содержимое перейдёт в него">
+            <Badge variant="accent">объединится {d.count.merged}</Badge>
+          </Tip>
+        )}
         <span className="text-muted-foreground">без изменений {d.count.same}</span>
       </div>
       <p className="text-muted-foreground">
@@ -53,13 +66,15 @@ export function RevisionReview({ id, onDone }: { id: string; onDone: () => void 
                 <li key={room.idx} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5" data-match={`${cand}/${room.idx}`}>
                   <span className="min-w-40 flex-1">{room.name || <span className="text-muted-foreground">без названия</span>}
                     <span className="ml-2 text-muted-foreground">{room.area} м²</span></span>
-                  {room.changes.map(c => <Badge key={c} variant={c === 'new' ? 'warning' : 'accent'}>{CHANGE[c] ?? c}</Badge>)}
+                  {room.changes.map(c => <Tip key={c} label={CHANGE_HINTS[c]}><Badge variant={c === 'new' ? 'warning' : 'accent'}>{CHANGE[c] ?? c}</Badge></Tip>)}
                   <label className="flex items-center gap-1 text-xs text-muted-foreground">продолжает
-                    <select className={cn(select, !room.auto && 'border-primary')} value={room.room_id ?? ''} disabled={busy}
-                      aria-label="Продолжает помещение" onChange={e => act(matchRoom(r.id, cand, room.idx, e.target.value || null))}>
-                      <option value="">— новое помещение —</option>
-                      {choices.map(c => <option key={c.id} value={c.id}>{c.name || 'без названия'} · {c.area} м²</option>)}
-                    </select>
+                    <Tip label={`Чьё место занимает это помещение: оно сохранит его объекты, людей и права; ${room.auto ? 'подобрано по контуру' : 'выбрано вручную'}`}>
+                      <select className={cn(select, !room.auto && 'border-primary')} value={room.room_id ?? ''} disabled={busy}
+                        aria-label="Продолжает помещение" onChange={e => act(matchRoom(r.id, cand, room.idx, e.target.value || null))}>
+                        <option value="">— новое помещение —</option>
+                        {choices.map(c => <option key={c.id} value={c.id}>{c.name || 'без названия'} · {c.area} м²</option>)}
+                      </select>
+                    </Tip>
                   </label>
                 </li>
               ))}
@@ -85,8 +100,9 @@ export function RevisionReview({ id, onDone }: { id: string; onDone: () => void 
       )}
       {error && <p role="alert" className="text-destructive">{error}</p>}
       <div className="flex gap-2">
-        <Button size="sm" disabled={busy} onClick={() => act(publishRevision(r.id), true)}>Опубликовать</Button>
-        <Button size="sm" variant="ghost" disabled={busy}
+        <Button size="sm" disabled={busy} onClick={() => act(publishRevision(r.id), true)}
+          hint="Сделать сборку состоянием здания: снятые помещения уйдут, их объекты получат отметку «требует размещения»">Опубликовать</Button>
+        <Button size="sm" variant="ghost" disabled={busy} hint="Отказаться от этой сборки: здание останется прежним"
           onClick={() => { if (confirm('Отбросить сборку? Здание останется прежним.')) act(discardRevision(r.id), true) }}>Отбросить</Button>
       </div>
     </div>

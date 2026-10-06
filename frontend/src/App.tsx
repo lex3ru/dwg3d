@@ -4,6 +4,7 @@ import {
   type Building as BuildingInfo, type GuestMe, type Me, type TreeFloor,
 } from './api'
 import { Button } from './components/ui/button'
+import { Tip } from './components/ui/tooltip'
 import { useTheme } from './lib/theme'
 import { Access } from './pages/Access'
 import { AssetCard } from './pages/AssetCard'
@@ -72,14 +73,14 @@ export function App() {
   if (failed) {
     return (
       <Centered title="Войти не удалось" text="Сеанс входа истёк или был прерван. Попробуйте ещё раз.">
-        <Button onClick={() => location.assign('/')}>Войти снова</Button>
+        <Button hint="Начать вход с начала: откроется страница входа" onClick={() => location.assign('/')}>Войти снова</Button>
       </Centered>
     )
   }
   if (error) {
     return (
       <Centered title="Сервер недоступен" text={error}>
-        <Button onClick={() => location.reload()}>Повторить</Button>
+        <Button hint="Перезагрузить страницу и снова обратиться к серверу" onClick={() => location.reload()}>Повторить</Button>
       </Centered>
     )
   }
@@ -252,10 +253,19 @@ function Profile({ me, building, editor }: { me: Me; building: BuildingInfo | nu
   const { isDark, setTheme } = useTheme()
   const sys = me.user.is_admin
   const admin = building ? manages(me, building.id) : false
-  const links: [string, string][] = [
-    ...(admin && building ? [[to.drawings(building.id), 'Чертежи здания'], [to.people(building.id), 'Люди'], [to.access(building.id), 'Доступ']] as [string, string][] : []),
-    ...(admin && editor ? [[to.editor(editor), 'Редактор']] as [string, string][] : []),
-    ...(sys ? [[to.buildings, 'Здания'], ['#/catalog', 'Каталог'], ['#/system', 'Состояние системы']] as [string, string][] : []),
+  // [address, label, hint]
+  const links: [string, string, string][] = [
+    ...(admin && building ? [
+      [to.drawings(building.id), 'Чертежи здания', 'Загрузка поэтажных планов DWG/DXF, их сборка в этажи и помещения'],
+      [to.people(building.id), 'Люди', 'Справочник людей организации: кто в каком помещении работает'],
+      [to.access(building.id), 'Доступ', 'Кто что может в здании; ссылки для просмотра без учётной записи'],
+    ] as [string, string, string][] : []),
+    ...(admin && editor ? [[to.editor(editor), 'Редактор', '3D-сцена здания: расстановка объектов, слои инженерных систем']] as [string, string, string][] : []),
+    ...(sys ? [
+      [to.buildings, 'Здания', 'Все здания системы; здесь же создаётся новое'],
+      ['#/catalog', 'Каталог', 'Типы мебели и оборудования и наборы их свойств — общие для всех зданий'],
+      ['#/system', 'Состояние системы', 'Работают ли сервисы и доходят ли события'],
+    ] as [string, string, string][] : []),
   ]
   return (
     <section className="max-w-md space-y-4">
@@ -265,12 +275,12 @@ function Profile({ me, building, editor }: { me: Me; building: BuildingInfo | nu
       </div>
       {links.length > 0 && (
         <ul className="divide-y rounded-lg border bg-card text-sm">
-          {links.map(([href, label]) => <li key={href}><a href={href} className="block px-3 py-2.5 hover:bg-secondary">{label}</a></li>)}
+          {links.map(([href, label, hint]) => <li key={href}><Tip label={hint}><a href={href} className="block px-3 py-2.5 hover:bg-secondary">{label}</a></Tip></li>)}
         </ul>
       )}
       <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setTheme(isDark ? 'light' : 'dark')}>{isDark ? 'Светлая тема' : 'Тёмная тема'}</Button>
-        <Button variant="outline" onClick={() => { void signOut() }}>Выйти</Button>
+        <Button variant="outline" hint="Сменить оформление; выбор запомнится в этом браузере" onClick={() => setTheme(isDark ? 'light' : 'dark')}>{isDark ? 'Светлая тема' : 'Тёмная тема'}</Button>
+        <Button variant="outline" hint="Завершить сеанс в этом браузере; чтобы продолжить, придётся войти снова" onClick={() => { void signOut() }}>Выйти</Button>
       </div>
     </section>
   )
@@ -287,7 +297,7 @@ function ByQr({ code }: { code: string }) {
     <div className="max-w-md space-y-3" data-testid="qr-denied">
       <h1 className="text-lg font-semibold">Нет доступа</h1>
       <p className="text-sm text-muted-foreground">Объекта с такой меткой нет среди доступных вам. Если это ваш объект, попросите администратора здания выдать право на него.</p>
-      <Button asChild variant="outline" size="sm"><a href={to.buildings}>К моим зданиям</a></Button>
+      <Button asChild variant="outline" size="sm" hint="Список зданий, к которым у вас есть доступ"><a href={to.buildings}>К моим зданиям</a></Button>
     </div>
   )
 }

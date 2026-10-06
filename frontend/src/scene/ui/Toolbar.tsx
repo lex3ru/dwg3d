@@ -12,9 +12,9 @@ import { cn } from '@/lib/utils'
 import type { Display, NavMode, Tool } from '../state'
 
 const NAV: { id: NavMode; label: string; icon: LucideIcon; hint: string }[] = [
-  { id: 'orbit', label: 'Обзор', icon: Orbit, hint: 'Вращение вокруг здания, зум, панорама' },
-  { id: 'fly', label: 'Полёт', icon: Plane, hint: 'Свободная камера: WASD, мышь, колесо' },
-  { id: 'walk', label: 'Прогулка', icon: Footprints, hint: 'От первого лица от главного входа' },
+  { id: 'orbit', label: 'Обзор', icon: Orbit, hint: 'Камера кружит вокруг здания: перетаскивание вращает, колесо приближает, ПКМ сдвигает' },
+  { id: 'fly', label: 'Полёт', icon: Plane, hint: 'Свободная камера в 3D: WASD и стрелки, E и Q — вверх и вниз, мышь — осмотр' },
+  { id: 'walk', label: 'Прогулка', icon: Footprints, hint: 'От первого лица от главного входа на высоте глаз; WASD — идти, Esc — выйти' },
 ]
 
 export interface RouteState {
@@ -42,12 +42,12 @@ const on = 'bg-accent text-accent-foreground'
 const off = 'bg-transparent text-foreground hover:bg-secondary'
 
 /** A tool button, optionally with a caret that opens a menu above it. */
-function Group({ icon: Icon, label, active, onClick, title, children, badge }: {
-  icon: LucideIcon; label?: string; active: boolean; onClick: () => void; title: string; children?: ReactNode; badge?: number
+function Group({ icon: Icon, label, active, onClick, title, hint, menuHint, children, badge }: {
+  icon: LucideIcon; label?: string; active: boolean; onClick: () => void; title: string; hint: string; menuHint?: string; children?: ReactNode; badge?: number
 }) {
   return (
     <div className="flex shrink-0 items-center">
-      <Tip label={title}>
+      <Tip label={hint}>
         <button aria-label={title} aria-pressed={active} className={cn(btn, active ? on : off, children && 'pr-1.5')} onClick={onClick}>
           <Icon />{label && <span className="@max-3xl:hidden">{label}</span>}
           {badge ? <span className="-ml-1 self-start rounded-full bg-destructive px-1.5 text-[10px] leading-4 font-bold text-white">{badge}</span> : null}
@@ -55,11 +55,13 @@ function Group({ icon: Icon, label, active, onClick, title, children, badge }: {
       </Tip>
       {children && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button aria-label={`${title}: меню`} className="-ml-1 grid h-8 w-5 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground">
-              <ChevronDown className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tip label={menuHint}>
+            <DropdownMenuTrigger asChild>
+              <button aria-label={`${title}: меню`} className="-ml-1 grid h-8 w-5 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tip>
           <DropdownMenuContent side="top" align="center" sideOffset={12} className="w-72">{children}</DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -82,6 +84,7 @@ export default function Toolbar(p: Props) {
     <div role="toolbar" aria-label="Инструменты"
       className={cn(floatClass, 'absolute bottom-3.5 left-1/2 z-20 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full px-2 py-1')}>
       <Group icon={nav.icon} label={nav.label} active title="Режим навигации"
+        hint="Сменить управление камерой по кругу: обзор, полёт, прогулка" menuHint="Выбрать режим камеры из списка с подсказками по клавишам"
         onClick={() => p.onNav(NAV[(NAV.findIndex((n) => n.id === p.nav) + 1) % NAV.length].id)}>
         <DropdownMenuRadioGroup value={p.nav} onValueChange={(v) => p.onNav(v as NavMode)}>
           {NAV.map((n) => (
@@ -93,7 +96,9 @@ export default function Toolbar(p: Props) {
         </DropdownMenuRadioGroup>
       </Group>
       <Sep />
-      <Group icon={MapPin} active={d.pois || p.tool === 'marker'} title="Метки: входы, лифты, лестницы, свои" onClick={() => p.set({ pois: !d.pois })}>
+      <Group icon={MapPin} active={d.pois || p.tool === 'marker'} title="Метки: входы, лифты, лестницы, свои" onClick={() => p.set({ pois: !d.pois })}
+        hint="Показать или скрыть значки входов, лифтов, лестниц и своих меток; на данные не влияет"
+        menuHint="Какие виды меток показывать; щелчок по своей метке переносит камеру к ней">
         <DropdownMenuLabel>Метки</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.poiKinds.entrance} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, entrance: v }, pois: true })}>Входы</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.poiKinds.lift} onSelect={keep} onCheckedChange={(v) => p.set({ poiKinds: { ...d.poiKinds, lift: v }, pois: true })}>Лифты</DropdownMenuCheckboxItem>
@@ -103,14 +108,18 @@ export default function Toolbar(p: Props) {
         {p.markers.map((m) => <DropdownMenuItem key={m.id} onSelect={() => p.onFlyToPin(m)}><MapPin /> {m.label || m.text || 'Метка'}</DropdownMenuItem>)}
       </Group>
       {LATER.layers && (
-      <Group icon={Armchair} active={d.furniture} title="Мебель и оборудование на плане" onClick={() => p.set({ furniture: !d.furniture })}>
+      <Group icon={Armchair} active={d.furniture} title="Мебель и оборудование на плане" onClick={() => p.set({ furniture: !d.furniture })}
+        hint="Показать или скрыть объекты учёта и оборудование систем в сцене; на данные не влияет"
+        menuHint="Обзор камер, покрытие Wi-Fi, извещателей и освещения на плане">
         <DropdownMenuLabel>Мебель и оборудование</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.furniture} onSelect={keep} onCheckedChange={(v) => p.set({ furniture: v })}>Показывать</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.camViews} onSelect={keep} onCheckedChange={(v) => p.set({ camViews: v })}>Обзор камер, покрытие Wi-Fi, извещателей и освещения</DropdownMenuCheckboxItem>
         <Note>Что именно показывать, задают слои в дереве слева.</Note>
       </Group>
       )}
-      <Group icon={MessageCircle} active={d.comments || p.tool === 'comment'} title="Комментарии" onClick={() => p.set({ comments: !d.comments })}>
+      <Group icon={MessageCircle} active={d.comments || p.tool === 'comment'} title="Комментарии" onClick={() => p.set({ comments: !d.comments })}
+        hint="Показать или скрыть значки комментариев в сцене; на данные не влияет"
+        menuHint="Список комментариев: щелчок по нему переносит камеру к месту">
         <DropdownMenuLabel>Комментарии</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.comments} onSelect={keep} onCheckedChange={(v) => p.set({ comments: v })}>Показывать</DropdownMenuCheckboxItem>
         {p.comments.length > 0 && <DropdownMenuSeparator />}

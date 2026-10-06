@@ -22,11 +22,11 @@ const KIND_LABEL: Record<string, string> = {
 const KIND_COLOR: Record<string, string> = {
   door: '#e8590c', window: '#1c7ed6', vitrage: '#15aabf', passage: '#ae3ec9', wall: '#343a40',
 }
-const TOOLS: { id: EditTool; label: string; key: string; code: string; icon: LucideIcon }[] = [
-  { id: 'select', label: 'Выбор', key: 'V', code: 'KeyV', icon: MousePointer2 },
-  { id: 'wall', label: 'Стена', key: 'W', code: 'KeyW', icon: BrickWall },
-  { id: 'erase', label: 'Стереть', key: 'E', code: 'KeyE', icon: Eraser },
-  { id: 'opening', label: 'Проём', key: 'O', code: 'KeyO', icon: DoorOpen },
+const TOOLS: { id: EditTool; label: string; key: string; code: string; icon: LucideIcon; hint: string }[] = [
+  { id: 'select', label: 'Выбор', key: 'V', code: 'KeyV', icon: MousePointer2, hint: 'Щелчок по проёму меняет его тип, по помещению — название; клавиша V' },
+  { id: 'wall', label: 'Стена', key: 'W', code: 'KeyW', icon: BrickWall, hint: 'Новые стены цепочкой от точки к точке с привязкой к углам и граням; клавиша W' },
+  { id: 'erase', label: 'Стереть', key: 'E', code: 'KeyE', icon: Eraser, hint: 'Убрать стены внутри прямоугольника по двум углам; клавиша E' },
+  { id: 'opening', label: 'Проём', key: 'O', code: 'KeyO', icon: DoorOpen, hint: 'Дверь, окно, витраж или проход на грани стены; клавиша O' },
 ]
 
 /**
@@ -543,7 +543,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
         </span>
         <span className="mx-1 h-5 w-px shrink-0 bg-border" />
         {TOOLS.map((t) => (
-          <Tip key={t.id} label={`${t.label} (${t.key})`} side="bottom">
+          <Tip key={t.id} label={t.hint} side="bottom">
             <button aria-pressed={tool === t.id}
               onClick={() => { setTool(t.id); setStart(null); setStartDir(null); setPopup(null) }}
               className={cn('inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-2 text-xs font-medium transition-colors [&_svg]:size-4',
@@ -554,34 +554,41 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
           </Tip>
         ))}
         {tool === 'wall' && (
-          <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">толщина
-            <Select className="h-7 text-xs" value={thickness} onChange={(e) => setThickness(Number(e.target.value))}>
-              {[0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5].map((t) => <option key={t} value={t}>{t} м</option>)}
-            </Select>
-          </label>
+          <Tip label="Для стен, которые будут нарисованы дальше; готовые не меняются" side="bottom">
+            <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">толщина
+              <Select className="h-7 text-xs" value={thickness} onChange={(e) => setThickness(Number(e.target.value))}>
+                {[0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5].map((t) => <option key={t} value={t}>{t} м</option>)}
+              </Select>
+            </label>
+          </Tip>
         )}
         {tool === 'opening' && (
-          <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">тип
-            <Select className="h-7 text-xs" value={newKind} onChange={(e) => setNewKind(e.target.value as OpeningKind)}>
-              {(['door', 'window', 'vitrage', 'passage'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-            </Select>
-          </label>
+          <Tip label="Что поставить следующим проёмом; тип готового меняется инструментом «Выбор»" side="bottom">
+            <label className="ml-2 inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">тип
+              <Select className="h-7 text-xs" value={newKind} onChange={(e) => setNewKind(e.target.value as OpeningKind)}>
+                {(['door', 'window', 'vitrage', 'passage'] as const).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+              </Select>
+            </label>
+          </Tip>
         )}
         <span className="min-w-2 flex-1" />
-        <Tip label="Отменить последнюю правку (Ctrl+Z)" side="bottom">
-          <Button variant="ghost" size="sm" disabled={!history.length || busy} onClick={undo}><Undo2 /> Отменить</Button>
-        </Tip>
-        <Button variant="ghost" size="sm" onClick={requestClose}><X /> Закрыть</Button>
-        <Button size="sm" disabled={!dirty || busy} onClick={apply}>
+        <Button variant="ghost" size="sm" disabled={!history.length || busy} onClick={undo} hintSide="bottom"
+          hint="Вернуть список правок на шаг назад; Ctrl+Z, во время рисования — сброс линии"><Undo2 /> Отменить</Button>
+        <Button variant="ghost" size="sm" onClick={requestClose} hintSide="bottom"
+          hint={dirty ? 'Выйти из редактора плана; о неприменённых правках спросит' : 'Выйти из редактора плана'}><X /> Закрыть</Button>
+        <Button size="sm" disabled={!dirty || busy} onClick={apply} hintSide="bottom"
+          hint={busy ? 'Модель перестраивается: дождитесь окончания' : !dirty ? 'Новых правок нет'
+            : 'Сохранить правки на сервере и пересобрать по ним 3D-модель'}>
           <Check /> {busy ? 'Перестраивается…' : `Применить${pendingCount ? ` (${pendingCount})` : ''}`}
         </Button>
       </div>
       {confirmClose && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/40 bg-warning/15 px-3 py-2 text-sm">
           Есть неприменённые правки ({pendingCount}).
-          <Button size="sm" onClick={apply}>Применить</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setConfirmClose(false); onClose() }}>Закрыть без применения</Button>
-          <Button variant="ghost" size="sm" onClick={() => setConfirmClose(false)}>Остаться</Button>
+          <Button size="sm" onClick={apply} hint="Сохранить правки на сервере и пересобрать по ним 3D-модель">Применить</Button>
+          <Button variant="secondary" size="sm" onClick={() => { setConfirmClose(false); onClose() }}
+            hint="Неприменённые правки пропадут, вернуть их будет нельзя">Закрыть без применения</Button>
+          <Button variant="ghost" size="sm" onClick={() => setConfirmClose(false)} hint="Продолжить редактирование, правки на месте">Остаться</Button>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -692,15 +699,12 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
             {notice ?? status}
           </div>
           <div className={cn(floatClass, 'absolute top-2.5 right-2.5 flex flex-col gap-0.5 rounded-lg p-0.5')}>
-            <Tip label="Приблизить" side="left">
-              <Button variant="ghost" size="icon" aria-label="Приблизить" onClick={() => zoom(1 / 1.4)}><Plus /></Button>
-            </Tip>
-            <Tip label="Отдалить" side="left">
-              <Button variant="ghost" size="icon" aria-label="Отдалить" onClick={() => zoom(1.4)}><Minus /></Button>
-            </Tip>
-            <Tip label="Показать весь этаж" side="left">
-              <Button variant="ghost" size="icon" aria-label="Показать весь этаж" onClick={() => plan && fit(plan)}><Maximize2 /></Button>
-            </Tip>
+            <Button variant="ghost" size="icon" aria-label="Приблизить" onClick={() => zoom(1 / 1.4)}
+              hint="Крупнее план в центре окна; то же — колесо мыши" hintSide="left"><Plus /></Button>
+            <Button variant="ghost" size="icon" aria-label="Отдалить" onClick={() => zoom(1.4)}
+              hint="Мельче план в центре окна; то же — колесо мыши" hintSide="left"><Minus /></Button>
+            <Button variant="ghost" size="icon" aria-label="Показать весь этаж" onClick={() => plan && fit(plan)}
+              hint="Вписать план этажа целиком в окно" hintSide="left"><Maximize2 /></Button>
           </div>
           {vb && (
             <div className={cn(floatClass, 'pointer-events-none absolute bottom-10 left-2.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground')}>
@@ -721,7 +725,7 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
               onSubmit={(e) => { e.preventDefault(); renameRoom(renaming.at, renaming.name.trim()) }}>
               <Input autoFocus className="w-[220px]" value={renaming.name} placeholder="Название помещения"
                 onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} />
-              <Button type="submit">OK</Button>
+              <Button type="submit" hint="Название попадёт в правки и сохранится после «Применить»; Enter">OK</Button>
             </form>
           )}
           {popup && (() => {
@@ -733,19 +737,23 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
                 style={{ left: popup.screen[0], top: Math.min(popup.screen[1], window.innerHeight - 260) }}>
                 <div className="mb-0.5 border-b border-border px-2.5 pt-1 pb-1.5 text-xs text-muted-foreground">{KIND_LABEL[o.kind]} · {o.width.toFixed(2)} м</div>
                 {(['door', 'window', 'vitrage', 'passage', 'wall'] as const).map((k) => (
-                  <button key={k} aria-pressed={cur === k} onClick={() => setOpeningKind(o, k)}
-                    className={cn('flex cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary',
-                      cur === k && 'font-semibold')}>
-                    <Swatch color={KIND_COLOR[k]} />
-                    <span className="flex-1">{KIND_LABEL[k]}</span>
-                    {cur === k && <Check className="size-4 text-primary" />}
-                  </button>
+                  <Tip key={k} side="right" label={k === o.kind ? 'Распознанный тип: снимает замену' : 'Замена попадёт в правки и сработает после «Применить»'}>
+                    <button aria-pressed={cur === k} onClick={() => setOpeningKind(o, k)}
+                      className={cn('flex cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary',
+                        cur === k && 'font-semibold')}>
+                      <Swatch color={KIND_COLOR[k]} />
+                      <span className="flex-1">{KIND_LABEL[k]}</span>
+                      {cur === k && <Check className="size-4 text-primary" />}
+                    </button>
+                  </Tip>
                 ))}
                 {mi >= 0 && (
-                  <button onClick={() => { removeEdit('add_openings', mi); setPopup(null) }}
-                    className="mt-0.5 flex cursor-pointer items-center gap-2 border-0 border-t border-border bg-transparent px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10">
-                    <Trash2 className="size-4" /> Удалить добавленный проём
-                  </button>
+                  <Tip side="right" label="Убрать проём, нарисованный вручную, из правок; Ctrl+Z вернёт">
+                    <button onClick={() => { removeEdit('add_openings', mi); setPopup(null) }}
+                      className="mt-0.5 flex cursor-pointer items-center gap-2 border-0 border-t border-border bg-transparent px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10">
+                      <Trash2 className="size-4" /> Удалить добавленный проём
+                    </button>
+                  </Tip>
                 )}
               </div>
             )
@@ -768,20 +776,21 @@ export default function Editor2D({ job, floor, busy, onApply, onClose }: {
             {rows.map(({ key, i, item, at, label }) => {
               const done = isApplied(key, item)
               return (
-                <li key={key + i}
+                <Tip key={key + i} label="Поставить правку в центр плана" side="left">
+                <li
                   className={cn('flex cursor-pointer items-center gap-1.5 rounded-md border py-1 pr-1 pl-1.5 text-xs',
                     hlOf(key, i) ? 'border-primary/60 bg-accent text-accent-foreground' : 'border-transparent bg-muted hover:bg-secondary')}
                   onMouseEnter={() => setHl(`${key}:${i}`)} onMouseLeave={() => setHl(null)}
-                  onClick={() => centerOn(at)} title="Показать на плане">
+                  onClick={() => centerOn(at)}>
                   <Badge variant={done ? (busy ? 'warning' : 'default') : 'success'} className="px-1.5 text-[10px]">
                     {done ? (busy ? 'применяется…' : 'применено') : 'новое'}
                   </Badge>
                   <span className="min-w-0 flex-1">{label}</span>
-                  <Tip label="Удалить правку" side="left">
-                    <Button variant="ghost" size="icon-sm" aria-label="Удалить правку" className="size-6 text-destructive hover:text-destructive"
-                      onClick={(e) => { e.stopPropagation(); removeEdit(key, i) }}><X /></Button>
-                  </Tip>
+                  <Button variant="ghost" size="icon-sm" aria-label="Удалить правку" className="size-6 text-destructive hover:text-destructive"
+                    hint={done ? 'Убрать из списка: уже применённая правка откатится при следующем «Применить»' : 'Убрать из списка; Ctrl+Z вернёт'} hintSide="left"
+                    onClick={(e) => { e.stopPropagation(); removeEdit(key, i) }}><X /></Button>
                 </li>
+                </Tip>
               )
             })}
           </ul>

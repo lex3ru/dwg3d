@@ -9,7 +9,7 @@ export default function ModeMenu({ mode, onMode }: { mode: ModeDef | null; onMod
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="secondary" aria-label="Режим вида" title="Режим вида: готовые наборы слоёв и отображения (клавиши 1–5)"
+        <Button variant="secondary" aria-label="Режим вида" hint="Готовые наборы слоёв и настроек отображения под задачу; клавиши 1–5" hintSide="bottom"
           className="h-10 gap-1.5 rounded-full border-0 bg-float px-3 shadow-md backdrop-blur @max-4xl:px-2.5">
           <Icon className="size-4" /> <span className="@max-4xl:hidden">{(mode ?? CUSTOM).label}</span> <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>

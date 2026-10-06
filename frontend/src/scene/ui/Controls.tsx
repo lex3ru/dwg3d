@@ -37,7 +37,7 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
       {displayMenu}
       <div role="group" aria-label="Проекция" className={cn(floatClass, 'flex h-10 items-center rounded-full p-1')}>
         {(['2d', '3d'] as const).map((p) => (
-          <Tip key={p} label={p === '2d' ? 'Вид сверху на активный этаж' : 'Перспектива'} side="bottom">
+          <Tip key={p} label={p === '2d' ? 'План одного этажа сверху, без перспективы; без выбранного этажа — этаж входа' : 'Объёмная модель в перспективе: обзор, полёт и прогулка'} side="bottom">
             <button aria-pressed={proj === p} onClick={() => onProj(p)}
               className={cn('h-8 cursor-pointer rounded-full border-0 px-3 text-xs font-bold transition-colors', proj === p ? 'bg-primary text-primary-foreground' : 'bg-transparent text-foreground hover:bg-secondary')}>
               {p.toUpperCase()}
@@ -45,21 +45,37 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
           </Tip>
         ))}
       </div>
-      <Tip label={mapAvailable ? 'Подложка карты' : 'Подложка карты: сначала задайте привязку здания в настройках'} side="bottom">
+      <Tip label={mapAvailable ? 'Показать или скрыть карту местности под зданием' : 'Здание ещё не привязано к карте: откроются настройки привязки'} side="bottom">
         <Button variant="secondary" aria-pressed={map} className={cn(pill, 'px-3 @max-4xl:px-2.5', map && 'bg-primary text-primary-foreground hover:bg-primary/90')} onClick={() => onMap(!map)}>
           <MapIcon className="size-4" /> <span className="@max-4xl:hidden">Карта</span>
         </Button>
       </Tip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="icon" aria-label="Настройки" className={cn(pill, 'size-10')}><Settings className="size-4" /></Button>
+          <Button variant="secondary" size="icon" aria-label="Настройки" hint="Этажи и слои чертежа, привязка к карте, тема оформления" hintSide="bottom" className={cn(pill, 'size-10')}><Settings className="size-4" /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuItem onSelect={() => onSettings('floors')}><Building2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onSettings('site')}><MapIcon /> Карта и детальная модель…</DropdownMenuItem>
-          {LATER.reports && <DropdownMenuItem onSelect={() => onSettings('report')}><FileSpreadsheet /> Спецификация оборудования…</DropdownMenuItem>}
-          {LATER.catalog && can('catalog_admin') && <DropdownMenuItem onSelect={() => onSettings('catalog')}><Package /> Каталог оборудования…</DropdownMenuItem>}
-          {LATER.copilot && can('admin') && <DropdownMenuItem onSelect={() => onSettings('copilot')}><Bot /> Копилот: модель и лимиты…</DropdownMenuItem>}
+          <Tip label="Как делить чертёж на этажи и какие слои DWG — стены, двери, помещения; после изменения модель пересоберётся" side="left">
+            <DropdownMenuItem onSelect={() => onSettings('floors')}><Building2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>
+          </Tip>
+          <Tip label="Название, точка и азимут здания на карте, готовая GLB-модель фасада и мебели поверх распознанной" side="left">
+            <DropdownMenuItem onSelect={() => onSettings('site')}><MapIcon /> Карта и детальная модель…</DropdownMenuItem>
+          </Tip>
+          {LATER.reports && (
+            <Tip label="Сколько какого оборудования по этажам и помещениям; выгрузка в Excel" side="left">
+              <DropdownMenuItem onSelect={() => onSettings('report')}><FileSpreadsheet /> Спецификация оборудования…</DropdownMenuItem>
+            </Tip>
+          )}
+          {LATER.catalog && can('catalog_admin') && (
+            <Tip label="Позиции каталога для всех проектов: размеры, модели, артикулы, цены, 3D-модели" side="left">
+              <DropdownMenuItem onSelect={() => onSettings('catalog')}><Package /> Каталог оборудования…</DropdownMenuItem>
+            </Tip>
+          )}
+          {LATER.copilot && can('admin') && (
+            <Tip label="Какая языковая модель отвечает в копилоте, её ключ и лимиты; действует для всех пользователей" side="left">
+              <DropdownMenuItem onSelect={() => onSettings('copilot')}><Bot /> Копилот: модель и лимиты…</DropdownMenuItem>
+            </Tip>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Тема</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
@@ -93,13 +109,13 @@ export function SideControls({ dayTime, onDayTime, onZoom, onFit, legend }: {
   const Day = DAY_ICON[dayTime]
   return (
     <div className="absolute top-1/2 right-3.5 z-15 flex -translate-y-1/2 flex-col items-center gap-2.5">
-      <Tip label={`Время суток: ${DAY_LABEL[dayTime]} — сменить`} side="left">
+      <Tip label={`Сейчас ${DAY_LABEL[dayTime]}, дальше — ${DAY_LABEL[NEXT_DAY[dayTime]]}: меняет свет сцены; вечером и ночью горит подсветка фасада`} side="left">
         <button aria-label={`Время суток: ${DAY_LABEL[dayTime]} (сменить)`} className={roundFloat} onClick={() => onDayTime(NEXT_DAY[dayTime])}><Day /></button>
       </Tip>
       <div className={cn(floatClass, 'flex flex-col rounded-full')}>
-        <Tip label="Приблизить" side="left"><button aria-label="Приблизить" className={roundBtn} onClick={() => onZoom(1)}><Plus /></button></Tip>
-        <Tip label="Вписать здание" side="left"><button aria-label="Вписать здание" className={roundBtn} onClick={onFit}><Maximize /></button></Tip>
-        <Tip label="Отдалить" side="left"><button aria-label="Отдалить" className={roundBtn} onClick={() => onZoom(-1)}><Minus /></button></Tip>
+        <Tip label="Камера на шаг ближе к центру обзора, как колесо мыши; шаг задаёт скорость навигации" side="left"><button aria-label="Приблизить" className={roundBtn} onClick={() => onZoom(1)}><Plus /></button></Tip>
+        <Tip label="Вернуть камеру так, чтобы в кадр вошло всё здание; в 2D — весь этаж" side="left"><button aria-label="Вписать здание" className={roundBtn} onClick={onFit}><Maximize /></button></Tip>
+        <Tip label="Камера на шаг дальше от центра обзора, как колесо мыши" side="left"><button aria-label="Отдалить" className={roundBtn} onClick={() => onZoom(-1)}><Minus /></button></Tip>
       </div>
       {legend}
     </div>
@@ -116,7 +132,7 @@ export function Legend({ result, on, onToggleColors }: { result: Result; on: boo
   const types = (result.room_types ?? []).filter((t) => counts.has(t.type))
   return (
     <Popover>
-      <Tip label="Легенда: типы помещений" side="left">
+      <Tip label="Цвета типов помещений и элементов здания; там же включается окраска полов" side="left">
         <PopoverTrigger asChild>
           <button aria-label="Легенда: типы помещений" className={roundFloat}><BookOpen /></button>
         </PopoverTrigger>
@@ -131,10 +147,12 @@ export function Legend({ result, on, onToggleColors }: { result: Result; on: boo
             </li>
           ))}
         </ul>
-        <label className="mt-1 flex cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-secondary">
-          <span className="flex-1">Окрашивать полы по типу</span>
-          <Switch checked={on} onCheckedChange={onToggleColors} />
-        </label>
+        <Tip label="Залить полы цветами из этого списка; настройка хранится в этом браузере" side="left">
+          <label className="mt-1 flex cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-secondary">
+            <span className="flex-1">Окрашивать полы по типу</span>
+            <Switch checked={on} onCheckedChange={onToggleColors} />
+          </label>
+        </Tip>
         <div className="px-1 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Элементы</div>
         <ul className="m-0 grid list-none gap-0.5 p-0">
           {ELEMENTS.map(([name, color]) => <li key={name} className="flex items-center gap-2 px-1 py-0.5 text-sm"><Swatch color={color} />{name}</li>)}

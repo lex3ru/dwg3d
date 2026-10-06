@@ -7,6 +7,7 @@ import {
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
 import { showingVariant } from '../scene/systems'
 import { to } from '../shell/route'
@@ -46,12 +47,15 @@ export function Variants({ building, selected, editor }: { building: string; sel
           <Input className="h-8 w-56" value={name} onChange={e => setName(e.target.value)} aria-label="Название варианта" />
         </label>
         <label className="grid gap-1 text-xs text-muted-foreground">От чего
-          <select className={select} value={base} onChange={e => setBase(e.target.value)} aria-label="Основа варианта">
-            <option value="">от факта</option>
-            {items.filter(v => v.status === 'draft').map(v => <option key={v.id} value={v.id}>копия «{v.name}»</option>)}
-          </select>
+          <Tip label="Начать с текущего учёта или скопировать операции другого неприменённого варианта">
+            <select className={select} value={base} onChange={e => setBase(e.target.value)} aria-label="Основа варианта">
+              <option value="">от факта</option>
+              {items.filter(v => v.status === 'draft').map(v => <option key={v.id} value={v.id}>копия «{v.name}»</option>)}
+            </select>
+          </Tip>
         </label>
-        <Button type="submit" size="sm" disabled={!name.trim()}><GitBranch className="size-4" /> Создать вариант</Button>
+        <Button type="submit" size="sm" disabled={!name.trim()}
+          hint="Черновик перестановок: учёт не изменится, пока вариант не применят; нужно название"><GitBranch className="size-4" /> Создать вариант</Button>
       </form>
       {items.length === 0 ? <p className="mt-6 text-sm text-muted-foreground">Вариантов пока нет.</p> : (
         <ul className="mt-4 divide-y rounded-lg border bg-card text-sm" data-testid="variants">
@@ -63,8 +67,10 @@ export function Variants({ building, selected, editor }: { building: string; sel
                 <span className="text-muted-foreground">
                   {Object.entries(v.counts).filter(([, n]) => n).map(([k, n]) => `${OP[k]}: ${n}`).join(' · ') || 'без изменений'}
                 </span>
-                {v.status === 'applied' && <Badge variant="success">применён</Badge>}
-                {v.stale && v.status === 'draft' && <Badge variant="warning">устарел</Badge>}
+                {v.status === 'applied' && <Tip label="Все операции перенесены в учёт; править вариант больше нельзя"><Badge variant="success">применён</Badge></Tip>}
+                {v.stale && v.status === 'draft' && (
+                  <Tip label="Учёт изменился после правок варианта: часть операций может не выполниться"><Badge variant="warning">устарел</Badge></Tip>
+                )}
               </a>
             </li>
           ))}
@@ -107,9 +113,15 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
     <div className="mt-5 grid gap-4 rounded-lg border bg-card p-4 text-sm" data-testid="variant-card">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="flex-1 text-base font-semibold">{v.name}</h2>
-        {v.status === 'draft' && editor && <Button size="sm" variant="outline" onClick={open}>Открыть в редакторе</Button>}
-        {v.status === 'draft' && <Button size="sm" disabled={busy || !(v.ops ?? []).length} onClick={apply}><Play className="size-4" /> Применить</Button>}
-        <Button size="sm" variant="ghost" title="Удалить вариант" onClick={() => {
+        {v.status === 'draft' && editor && (
+          <Button size="sm" variant="outline" onClick={open}
+            hint="Слой «Объекты учёта» в редакторе покажет этот вариант: перестановки правятся там, учёт не меняется">Открыть в редакторе</Button>
+        )}
+        {v.status === 'draft' && <Button size="sm" disabled={busy || !(v.ops ?? []).length} onClick={apply}
+          hint={(v.ops ?? []).length ? 'Перенести изменения варианта в учёт от вашего имени: объекты переставятся, в их истории появятся записи; устаревшие операции будут отклонены'
+            : 'Перенести изменения варианта в учёт; в нём пока нет операций'}><Play className="size-4" /> Применить</Button>}
+        <Button size="sm" variant="ghost" aria-label="Удалить вариант"
+          hint="Удалить вариант с его операциями; учёт не изменится, применённое ранее останется" onClick={() => {
           if (confirm(`Удалить вариант «${v.name}»?`)) deleteVariant(v.id).then(() => { onChanged(); location.hash = to.variants(building) }, (e: Error) => setError(e.message))
         }}><Trash2 className="size-4" /></Button>
       </div>
@@ -186,8 +198,10 @@ function Numbering({ variant, op, name, onDone }: { variant: string; op: string;
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span className="min-w-40">{name}</span>
-      <Input className="h-8 w-40" value={n} onChange={e => setN(e.target.value)} aria-label={`Номер: ${name}`} placeholder="инвентарный номер" />
-      <Button size="sm" variant="outline" disabled={!n.trim()} onClick={() => { void numberAdded(variant, op, n.trim()).then(onDone) }}>Задать</Button>
+      <Tip label="Под этим номером объект встанет на учёт; номер должен быть свободен">
+        <Input className="h-8 w-40" value={n} onChange={e => setN(e.target.value)} aria-label={`Номер: ${name}`} placeholder="инвентарный номер" />
+      </Tip>
+      <Button size="sm" variant="outline" disabled={!n.trim()} hint="Записать номер в вариант; в учёт он попадёт только при применении" onClick={() => { void numberAdded(variant, op, n.trim()).then(onDone) }}>Задать</Button>
     </li>
   )
 }

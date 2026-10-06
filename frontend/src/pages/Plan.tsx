@@ -7,9 +7,12 @@ import { CommentList } from '../components/Comments'
 import { FloorPlan, type Dot } from '../components/FloorPlan'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 import { cn } from '../lib/utils'
 import { to } from '../shell/route'
+
+const NOTE_HINT = 'Заметка к месту на плане: щелчок по точке, затем текст; её увидят все, кто видит план этого места'
 
 /** The 2D plan of a floor: pick a floor, pick a room. */
 export function Plan({ me, building, floors, floor, room, admin, move }: {
@@ -100,11 +103,13 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
         <h1 className="text-xl font-semibold">План</h1>
         <nav className="flex flex-wrap gap-1" aria-label="Этажи" data-testid="floor-tabs">
           {[...floors].reverse().map(f => (
-            <a key={f.id} href={move ? to.move(building, f.id, move) : to.plan(building, f.id)} title={f.name} aria-current={f.id === active.id ? 'true' : undefined}
-              className={cn('min-w-8 rounded-md border px-2 py-1 text-center text-sm hover:bg-secondary',
-                f.id === active.id && 'border-primary bg-primary text-primary-foreground hover:bg-primary')}>
-              {f.level ?? '?'}
-            </a>
+            <Tip key={f.id} label={`${f.name || `Этаж ${f.level ?? ''}`}: ${move ? 'выбрать новое место объекта на этом этаже' : 'план, помещения и объекты этажа'}`}>
+              <a href={move ? to.move(building, f.id, move) : to.plan(building, f.id)} aria-current={f.id === active.id ? 'true' : undefined}
+                className={cn('min-w-8 rounded-md border px-2 py-1 text-center text-sm hover:bg-secondary',
+                  f.id === active.id && 'border-primary bg-primary text-primary-foreground hover:bg-primary')}>
+                {f.level ?? '?'}
+              </a>
+            </Tip>
           ))}
         </nav>
       </div>
@@ -112,77 +117,104 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
       {moving && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="moving">
           <span>Перемещение: <b>{moving.type_name}</b> · {moving.inventory_no} — щёлкните новое место на плане (этаж можно сменить)</span>
-          <Button asChild variant="ghost" size="sm"><a href={to.assets(building, moving.id)}>Отмена</a></Button>
+          <Button asChild variant="ghost" size="sm" hint="Оставить объект на прежнем месте и вернуться к его карточке"><a href={to.assets(building, moving.id)}>Отмена</a></Button>
         </div>
       )}
       {admin && !move && series && (
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-2" data-testid="series">
           <label className="grid gap-0.5 text-xs text-muted-foreground">Тип
-            <select className="h-8 rounded-md border bg-card px-2 text-sm" value={series.type} aria-label="Тип объектов"
-              onChange={e => setSeries({ ...series, type: e.target.value })}>
-              <option value="">— из каталога —</option>
-              {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <Tip label="Один тип каталога для всех отмеченных мест: от него размер, свойства и 3D-модель">
+              <select className="h-8 rounded-md border bg-card px-2 text-sm" value={series.type} aria-label="Тип объектов"
+                onChange={e => setSeries({ ...series, type: e.target.value })}>
+                <option value="">— из каталога —</option>
+                {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">Начало номера
-            <Input className="h-8 w-28" value={series.prefix} placeholder="КР-" onChange={e => setSeries({ ...series, prefix: e.target.value })} />
+            <Tip label="Общая часть всех номеров перед числом, например «КР-»">
+              <Input className="h-8 w-28" value={series.prefix} placeholder="КР-" onChange={e => setSeries({ ...series, prefix: e.target.value })} />
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">С числа
-            <Input className="h-8 w-20" inputMode="numeric" value={series.start} onChange={e => setSeries({ ...series, start: e.target.value.replace(/\D/g, '') })} />
+            <Tip label="Число первого номера; следующие идут подряд в порядке отметок на плане">
+              <Input className="h-8 w-20" inputMode="numeric" value={series.start} onChange={e => setSeries({ ...series, start: e.target.value.replace(/\D/g, '') })} />
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">Цифр
-            <Input className="h-8 w-14" inputMode="numeric" value={series.width} onChange={e => setSeries({ ...series, width: e.target.value.replace(/\D/g, '') })} />
+            <Tip label="Длина числа: недостающие цифры дополнятся нулями слева, при 4 — 0001">
+              <Input className="h-8 w-14" inputMode="numeric" value={series.width} onChange={e => setSeries({ ...series, width: e.target.value.replace(/\D/g, '') })} />
+            </Tip>
           </label>
           <span className="pb-1.5 text-sm" data-testid="series-numbers">
             {series.points.length ? `отмечено ${series.points.length}: ${number(series, 0)}${series.points.length > 1 ? ` … ${number(series, series.points.length - 1)}` : ''}`
               : 'отмечайте места на плане'}
           </span>
-          <Button size="sm" disabled={!series.points.length || !series.type} onClick={placeSeries}>Поставить {series.points.length || ''}</Button>
-          {series.points.length > 0 && <Button variant="ghost" size="sm" onClick={() => setSeries({ ...series, points: series.points.slice(0, -1) })}>Убрать последнюю</Button>}
-          <Button variant="ghost" size="sm" onClick={() => { setSeries(null); setError(null) }}>Отмена</Button>
+          <Button size="sm" disabled={!series.points.length || !series.type} onClick={placeSeries}
+            hint={!series.type ? 'Сначала выберите тип объектов' : !series.points.length ? 'Сначала отметьте места на плане'
+              : 'Поставить на учёт все отмеченные объекты с номерами подряд; если хоть один номер занят, не создастся ни один'}>
+            Поставить {series.points.length || ''}
+          </Button>
+          {series.points.length > 0 && <Button variant="ghost" size="sm" hint="Снять с плана последнюю отметку; номера остальных не изменятся"
+            onClick={() => setSeries({ ...series, points: series.points.slice(0, -1) })}>Убрать последнюю</Button>}
+          <Button variant="ghost" size="sm" hint="Ничего не создавать и снять все отметки" onClick={() => { setSeries(null); setError(null) }}>Отмена</Button>
         </div>
       )}
       {admin && room && !move && (cutting ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="cutting">
           <span>{cutting.length === 0 ? 'Щёлкните начало линии раздела — за стеной помещения' : 'Щёлкните конец линии — за противоположной стеной'}</span>
-          <Button variant="ghost" size="sm" onClick={() => setCutting(null)}>Отмена</Button>
+          <Button variant="ghost" size="sm" hint="Оставить помещение целым" onClick={() => setCutting(null)}>Отмена</Button>
         </div>
-      ) : <Button className="mt-2 mr-2" variant="outline" size="sm" onClick={() => setCutting([])}>Разделить помещение линией</Button>)}
+      ) : (
+        <Button className="mt-2 mr-2" variant="outline" size="sm" onClick={() => setCutting([])}
+          hint="Два щелчка за стенами помещения задают линию раздела: большая часть останется этим помещением, объекты отойдут туда, где стоят">
+          Разделить помещение линией
+        </Button>
+      ))}
       {noting && (
         <form onSubmit={sendNote} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="noting">
           {noting === 'pick' ? <span>Щёлкните точку на плане, к которой относится комментарий</span> : (
             <>
               <Input className="h-8 min-w-56 flex-1" autoFocus value={noting.text} aria-label="Текст комментария" placeholder="Что здесь не так или на что обратить внимание"
                 onChange={e => setNoting({ ...noting, text: e.target.value })} />
-              <Button type="submit" size="sm" disabled={!noting.text.trim()}>Оставить</Button>
+              <Button type="submit" size="sm" disabled={!noting.text.trim()}
+                hint={noting.text.trim() ? 'Комментарий увидят все, кто видит план этого места; закрыть или удалить его могут автор и администратор здания' : 'Сначала напишите текст'}>
+                Оставить
+              </Button>
             </>
           )}
-          <Button type="button" variant="ghost" size="sm" onClick={() => setNoting(null)}>Отмена</Button>
+          <Button type="button" variant="ghost" size="sm" hint="Не оставлять комментарий" onClick={() => setNoting(null)}>Отмена</Button>
         </form>
       )}
       {admin && !move && !series && (placing ? (
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-2" data-testid="placing">
           <label className="grid gap-0.5 text-xs text-muted-foreground">Тип
-            <select className="h-8 rounded-md border bg-card px-2 text-sm" value={placing.type} aria-label="Тип объекта"
-              onChange={e => setPlacing({ ...placing, type: e.target.value })}>
-              <option value="">— из каталога —</option>
-              {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <Tip label="Тип каталога: от него размер, свойства и 3D-модель объекта">
+              <select className="h-8 rounded-md border bg-card px-2 text-sm" value={placing.type} aria-label="Тип объекта"
+                onChange={e => setPlacing({ ...placing, type: e.target.value })}>
+                <option value="">— из каталога —</option>
+                {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">Инвентарный номер
-            <Input className="h-8 w-40" value={placing.number} onChange={e => setPlacing({ ...placing, number: e.target.value })} />
+            <Tip label="Не повторяется никогда: номер даже списанного объекта занят">
+              <Input className="h-8 w-40" value={placing.number} onChange={e => setPlacing({ ...placing, number: e.target.value })} />
+            </Tip>
           </label>
           <span className="pb-1.5 text-sm">и щёлкните место на плане</span>
-          <Button variant="ghost" size="sm" onClick={() => { setPlacing(null); setError(null) }}>Отмена</Button>
+          <Button variant="ghost" size="sm" hint="Ничего не ставить" onClick={() => { setPlacing(null); setError(null) }}>Отмена</Button>
         </div>
       ) : (
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setPlacing({ type: '', number: '' })}>Поставить объект</Button>
-          <Button variant="outline" size="sm" onClick={() => setSeries({ type: '', prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
-          {!noting && <Button variant="outline" size="sm" onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
+          <Button variant="outline" size="sm" hint="Поставить на учёт один объект: тип, инвентарный номер и щелчок по месту на плане"
+            onClick={() => setPlacing({ type: '', number: '' })}>Поставить объект</Button>
+          <Button variant="outline" size="sm" hint="Несколько объектов одного типа: места отмечаются щелчками, номера идут подряд"
+            onClick={() => setSeries({ type: '', prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
+          {!noting && <Button variant="outline" size="sm" hint={NOTE_HINT} onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
         </div>
       ))}
-      {!admin && !noting && !move && <Button className="mt-2" variant="outline" size="sm" onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
+      {!admin && !noting && !move && <Button className="mt-2" variant="outline" size="sm" hint={NOTE_HINT} onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       {plan?.floor === active.id && (
         <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]"
@@ -206,10 +238,12 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
       )}
       {/* on a phone the card is a page of its own; here: what is chosen, one tap from its card */}
       {chosen && (
-        <a href={to.rooms(building, chosen.id)} className="mt-2 flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm md:hidden">
-          <span className="flex-1 font-medium">{chosen.name || 'Помещение без названия'}</span>
-          <span className="text-muted-foreground">{chosen.area.toLocaleString('ru')} м²</span>
-        </a>
+        <Tip label="Карточка помещения: люди, ведомость, комментарии">
+          <a href={to.rooms(building, chosen.id)} className="mt-2 flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm md:hidden">
+            <span className="flex-1 font-medium">{chosen.name || 'Помещение без названия'}</span>
+            <span className="text-muted-foreground">{chosen.area.toLocaleString('ru')} м²</span>
+          </a>
+        </Tip>
       )}
     </section>
   )

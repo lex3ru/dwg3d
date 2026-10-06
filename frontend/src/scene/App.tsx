@@ -23,6 +23,7 @@ import FloorRail from './ui/FloorRail'
 import { Armchair, BookOpen, Bot, DoorOpen, FileText, ListTree, PanelLeft, Plus, Waypoints, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Tip } from '@/components/ui/tooltip'
 import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
@@ -499,9 +500,12 @@ export default function App() {
     else flyToPlan(x.floor, x.at)
   }
   const shapeActions = tool !== 'shapes' || !editLayer || shapeEd.draft ? null
-    : editLayer.kind === 'routes' ? <Button size="sm" variant="outline" onClick={shapeEd.startRoute}><Plus /> Новый маршрут</Button>
-    : editLayer.kind === 'zones' ? <Button size="sm" variant="outline" onClick={shapeEd.startZone}><Plus /> Обвести зону</Button>
-    : <Button size="sm" variant="outline" onClick={shapeEd.startCable}><Plus /> Нарисовать трассу</Button>
+    : editLayer.kind === 'routes' ? <Button size="sm" variant="outline" hintSide="bottom" onClick={shapeEd.startRoute}
+      hint="Путь людей по остановкам: щелчки на плане или помещения справа, не меньше двух; Esc — отмена"><Plus /> Новый маршрут</Button>
+    : editLayer.kind === 'zones' ? <Button size="sm" variant="outline" hintSide="bottom" onClick={shapeEd.startZone}
+      hint="Область на выбранном этаже по углам; Enter или щелчок по первой точке замыкает, Esc — отмена"><Plus /> Обвести зону</Button>
+    : <Button size="sm" variant="outline" hintSide="bottom" onClick={shapeEd.startCable}
+      hint="Кабельная линия по точкам на выбранном этаже с подсчётом длины; Enter — закончить, Esc — отмена"><Plus /> Нарисовать трассу</Button>
 
   const toolHint = tool === 'measure' ? (measureMode === 'length' ? 'Кликните две точки · Esc — сброс'
     : 'Кликайте вершины · замкнуть — клик по первой точке, двойной клик или Enter · Backspace — убрать точку')
@@ -657,7 +661,8 @@ export default function App() {
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
           <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
-            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree }, ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen }] : [])]}>
+            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree, hint: 'Этажи, помещения и слои объектов: видимость и редактирование' },
+              ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen, hint: 'Позиции для расстановки: перетащить на план выбранного этажа' }] : [])]}>
             {leftContent}
           </Dock>
         )}
@@ -707,7 +712,7 @@ export default function App() {
             <HelpButton onClick={() => setHelp(true)} />
             {presenting && (
               <Button variant="secondary" size="sm" className="absolute top-14 left-3.5 z-20 rounded-full border-0 bg-float shadow-md" onClick={() => setPresenting(false)}
-                title="Вернуть панели (Esc)"><PanelLeft /> Панели</Button>
+                hint="Вернуть дерево здания, инструменты и инспектор, скрытые для показа; Esc" hintSide="right"><PanelLeft /> Панели</Button>
             )}
             {presenting && nav !== 'walk' && <TopBar jobId={jobId} projectId={shown?.project_id ?? job?.project_id ?? ''} name={name} result={r}
               onOpenJob={openJob} onRoom={focusRoom} />}
@@ -735,7 +740,9 @@ export default function App() {
             {tool !== 'none' && presenting && (
               <div className="absolute bottom-[76px] left-1/2 z-16 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-[#212529]/85 px-3.5 py-1.5 text-center text-[13px] text-white">
                 {toolHint}
-                <button className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#74c0fc] hover:underline" onClick={() => setTool('none')}>готово</button>
+                <Tip label="Выключить инструмент и вернуться к просмотру">
+                  <button className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#74c0fc] hover:underline" onClick={() => setTool('none')}>готово</button>
+                </Tip>
               </div>
             )}
             {pending && (
@@ -747,8 +754,11 @@ export default function App() {
                   onChange={(e) => setPendingText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitPending() } }} />
                 <div className="flex justify-end gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => setPending(null)}>Отмена</Button>
-                  <Button size="sm" disabled={pending.kind === 'comments' && !pendingText.trim()} onClick={commitPending}>Сохранить</Button>
+                  <Button variant="secondary" size="sm" hint={pending.kind === 'markers' ? 'Закрыть без сохранения: метка не появится' : 'Закрыть без сохранения: комментарий не появится'}
+                    onClick={() => setPending(null)}>Отмена</Button>
+                  <Button size="sm" disabled={pending.kind === 'comments' && !pendingText.trim()} onClick={commitPending}
+                    hint={pending.kind === 'comments' && !pendingText.trim() ? 'Сначала напишите текст комментария'
+                      : 'Сохранить на сервере: увидят все, кто открывает здание; Enter'}>Сохранить</Button>
                 </div>
               </div>
             )}
@@ -770,14 +780,17 @@ export default function App() {
                 {job.draft.merged ? `, объединит: ${job.draft.merged}` : ''}.
               </span>
             </span>
-            <Button asChild size="sm"><a href={`#/b/${job.project_id}/drawings?review=${job.draft.revision}`}>Проверить</a></Button>
-            <Button size="icon-sm" variant="ghost" aria-label="Скрыть" onClick={() => setDraftSeen(job.draft!.revision)}><X /></Button>
+            <Button asChild size="sm" hint="Открыть чертежи здания, где новую сборку проверяют перед публикацией">
+              <a href={`#/b/${job.project_id}/drawings?review=${job.draft.revision}`}>Проверить</a></Button>
+            <Button size="icon-sm" variant="ghost" aria-label="Скрыть" onClick={() => setDraftSeen(job.draft!.revision)}
+              hint="Убрать уведомление до перезагрузки страницы; сборка по-прежнему ждёт проверки"><X /></Button>
           </div>
         )}
         {job?.status === 'error' && (
           <div className="absolute top-[70px] left-1/2 z-40 grid w-[min(520px,calc(100%-2rem))] -translate-x-1/2 gap-1.5 rounded-xl border border-destructive/30 bg-card p-3 text-sm shadow-lg">
             <b className="text-destructive">Ошибка обработки</b><p className="m-0 break-words text-muted-foreground">{job.error}</p>
-            <Button asChild variant="outline" size="sm" className="justify-self-start"><a href={`#/p/${job.project_id}`}>К зданию</a></Button></div>
+            <Button asChild variant="outline" size="sm" className="justify-self-start" hint="Уйти на страницу здания со списком чертежей и этажей">
+              <a href={`#/p/${job.project_id}`}>К зданию</a></Button></div>
         )}
         {error && <div className="absolute top-[70px] left-1/2 z-40 w-[min(520px,calc(100%-2rem))] -translate-x-1/2 rounded-xl border border-destructive/30 bg-card p-3 text-sm break-words text-destructive shadow-lg">{error}</div>}
         </div>
@@ -806,10 +819,12 @@ export default function App() {
           <Copilot projectId={projectId} status={copilot} ui={uiState} editable={canEdit()} onPreview={setProposal}
             onClose={() => setCopilotOpen(false)} />
         ) : (
-          <button type="button" onClick={() => setCopilotOpen(true)}
-            className="fixed right-4 bottom-24 z-40 flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground shadow-lg hover:opacity-90">
-            <Bot className="size-4" /> Копилот
-          </button>
+          <Tip label="ИИ-помощник по этому зданию: видит, что открыто, отвечает и готовит предложения изменений на проверку" side="left">
+            <button type="button" onClick={() => setCopilotOpen(true)}
+              className="fixed right-4 bottom-24 z-40 flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground shadow-lg hover:opacity-90">
+              <Bot className="size-4" /> Копилот
+            </button>
+          </Tip>
         )
         )}
         {notice && (

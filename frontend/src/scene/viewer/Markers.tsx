@@ -6,6 +6,7 @@ import type { Display } from '../state'
 import FloorFollower from './FloorFollower'
 import type { SceneCtx } from './scene'
 import { Button } from '@/components/ui/button'
+import { Tip, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export interface RouteView {
@@ -40,13 +41,14 @@ const pinIcon = 'text-[22px] leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,.4)]
 const pinLabel = 'rounded-[5px] bg-white/95 px-1.5 py-px text-xs whitespace-nowrap text-[#212529] shadow-[0_1px_3px_rgba(0,0,0,.2)]'
 
 /** The text of an open marker or comment, over the pin. */
-function PinCard({ text, when, onDelete }: { text: string; when?: string; onDelete: () => void }) {
+function PinCard({ text, when, what, onDelete }: { text: string; when?: string; what: string; onDelete: () => void }) {
   return (
     <div className="pointer-events-auto absolute bottom-[calc(100%+6px)] left-0 grid w-56 cursor-default gap-1.5 rounded-lg border border-border bg-popover p-2.5 text-[12.5px] text-popover-foreground shadow-lg"
       onClick={(e) => e.stopPropagation()}>
       <p className="m-0 break-words whitespace-pre-wrap">{text}</p>
       {when && <small className="text-muted-foreground">{when}</small>}
-      <Button variant="outline" size="sm" className="justify-self-start text-destructive" onClick={onDelete}>Удалить</Button>
+      <Button variant="outline" size="sm" className="justify-self-start text-destructive" onClick={onDelete}
+        hint={`${what} пропадёт у всех, кто открывает здание; отменить нельзя`}>Удалить</Button>
     </div>
   )
 }
@@ -75,12 +77,17 @@ export default function Markers(p: Props) {
       {display.pois && display.poiKinds.marker && p.markers.filter((m) => inside(m.floor)).map((m) => {
         const el = (
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={[m.pos[0], m.pos[1] + 0.2, m.pos[2]]} zIndexRange={[25, 0]} style={{ transform: 'translate(-50%, -100%)' }}>
-            <div className={pin} onClick={() => p.onPin(p.openPin === m.id ? null : m.id)}>
-              <span className={pinIcon}>📍</span>{m.label || m.text ? <b className={pinLabel}>{m.label || m.text}</b> : null}
-              {p.openPin === m.id && (
-                <PinCard text={m.text || 'Метка'} onDelete={() => p.onDeletePin('markers', m.id)} />
-              )}
-            </div>
+            {/* Html renders in a root of its own: the hints need their provider here */}
+            <TooltipProvider>
+              <Tip label={p.openPin === m.id ? null : 'Полный текст метки; там же её можно удалить'}>
+                <div className={pin} onClick={() => p.onPin(p.openPin === m.id ? null : m.id)}>
+                  <span className={pinIcon}>📍</span>{m.label || m.text ? <b className={pinLabel}>{m.label || m.text}</b> : null}
+                  {p.openPin === m.id && (
+                    <PinCard text={m.text || 'Метка'} what="Метка" onDelete={() => p.onDeletePin('markers', m.id)} />
+                  )}
+                </div>
+              </Tip>
+            </TooltipProvider>
           </Html>
         )
         return m.floor ? <FloorFollower key={m.id} ctx={ctx} floor={m.floor}>{el}</FloorFollower> : <group key={m.id}>{el}</group>
@@ -88,13 +95,17 @@ export default function Markers(p: Props) {
       {display.comments && p.comments.filter((c) => inside(c.floor)).map((c) => {
         const el = (
           <Html portal={htmlLayer as React.RefObject<HTMLElement>} position={c.pos} zIndexRange={[26, 0]} style={{ transform: 'translate(-4px, -100%)' }}>
-            <div className={pin} onClick={() => p.onPin(p.openPin === c.id ? null : c.id)}>
-              <span className={pinIcon}>💬</span>
-              {p.openPin === c.id && (
-                <PinCard text={c.text} when={c.created ? new Date(c.created * 1000).toLocaleString('ru') : undefined}
-                  onDelete={() => p.onDeletePin('comments', c.id)} />
-              )}
-            </div>
+            <TooltipProvider>
+              <Tip label={p.openPin === c.id ? null : 'Текст комментария и время; там же его можно удалить'}>
+                <div className={pin} onClick={() => p.onPin(p.openPin === c.id ? null : c.id)}>
+                  <span className={pinIcon}>💬</span>
+                  {p.openPin === c.id && (
+                    <PinCard text={c.text} what="Комментарий" when={c.created ? new Date(c.created * 1000).toLocaleString('ru') : undefined}
+                      onDelete={() => p.onDeletePin('comments', c.id)} />
+                  )}
+                </div>
+              </Tip>
+            </TooltipProvider>
           </Html>
         )
         return c.floor ? <FloorFollower key={c.id} ctx={ctx} floor={c.floor}>{el}</FloorFollower> : <group key={c.id}>{el}</group>

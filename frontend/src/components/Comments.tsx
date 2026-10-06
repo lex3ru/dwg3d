@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { addComment, deleteComment, listComments, resolveComment, type Comment, type CommentTarget, type Me } from '../api'
 import { useEvents } from '../stream'
 import { Button } from './ui/button'
+import { Tip } from './ui/tooltip'
 
 /** Comments to a room or an object: whoever sees the target reads and writes; the author or the building's
  * administrator closes. Point comments live on the plan (Plan.tsx) and share this list's rendering. */
@@ -30,7 +31,9 @@ export function Comments({ me, building, target_kind, target_id, admin }: {
       <form onSubmit={send} className="mt-2 flex gap-2">
         <input value={text} onChange={e => setText(e.target.value)} aria-label="Новый комментарий" placeholder="Написать…" maxLength={4000}
           className="h-8 min-w-0 flex-1 rounded-md border bg-card px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-        <Button type="submit" size="sm" variant="outline" disabled={!text.trim()}>Оставить</Button>
+        <Button type="submit" size="sm" variant="outline" disabled={!text.trim()}
+          hint={text.trim() ? `Комментарий увидят все, кому ${target_kind === 'asset' ? 'виден этот объект' : 'видно это помещение'}; закрыть или удалить его могут автор и администратор здания`
+            : 'Сначала напишите текст'}>Оставить</Button>
       </form>
       {error && <p role="alert" className="mt-1 text-sm text-destructive">{error}</p>}
     </div>
@@ -52,8 +55,12 @@ export function CommentList({ items, me, admin, onChanged, onError, chosen }: {
             <span>{c.author.name || 'кто-то'} · {new Date(c.created_at).toLocaleString('ru')}</span>
             {(mine(c) || admin) && !c.resolved_at && (
               <>
-                <button type="button" className="text-primary" onClick={() => act(resolveComment(c.id))}>Закрыть</button>
-                <button type="button" className="text-primary" onClick={() => act(deleteComment(c.id))}>Удалить</button>
+                <Tip label="Отметить вопрос решённым: комментарий уйдёт из списка, но сохранится">
+                  <button type="button" className="text-primary" onClick={() => act(resolveComment(c.id))}>Закрыть</button>
+                </Tip>
+                <Tip label="Стереть комментарий совсем — вернуть его будет нельзя">
+                  <button type="button" className="text-primary" onClick={() => act(deleteComment(c.id))}>Удалить</button>
+                </Tip>
               </>
             )}
           </div>

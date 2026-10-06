@@ -44,7 +44,7 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   await page.screenshot({ path: 'screenshots/shell-rooms.png' })
 
   // the administrator names the room right in the card
-  await card.getByTitle('Переименовать').click()
+  await card.getByLabel('Переименовать', { exact: true }).click()
   await card.getByLabel('Название помещения').fill('Ординаторская')
   await card.getByRole('button', { name: 'Сохранить' }).click()
   await expect(page.getByTestId('panel').getByRole('heading', { name: 'Ординаторская' })).toBeVisible()
@@ -62,13 +62,13 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   await expect(page.getByTestId('plan').locator('[data-selected]')).toHaveCount(0)
   await page.getByTestId('plan').locator('[data-room]').first().click()
   await expect(page.getByTestId('panel').getByTestId('room-card')).toBeVisible()
-  await page.getByTestId('panel').getByTitle('Закрыть').click()
+  await page.getByTestId('panel').getByLabel('Закрыть', { exact: true }).click()
   await expect(page.getByTestId('panel')).toHaveCount(0)
 
   // the editor is a section too: the menu folds to icons and still leads back
   await menu.getByRole('link', { name: 'Редактор' }).click()
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
-  await menu.getByTitle('Помещения').click()
+  await menu.getByLabel('Помещения', { exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Помещения' })).toBeVisible()
   await page.goBack()
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })

@@ -6,6 +6,7 @@ import {
 } from '../api'
 import { FloorPlan, type Dot } from '../components/FloorPlan'
 import { Button } from '../components/ui/button'
+import { Tip } from '../components/ui/tooltip'
 import { useTheme } from '../lib/theme'
 import { cn, until } from '../lib/utils'
 import { StateBadge } from './Assets'
@@ -104,10 +105,13 @@ export function GuestView({ me, onEnded, onLeft }: {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" title={isDark ? 'Светлая тема' : 'Тёмная тема'} onClick={() => setTheme(isDark ? 'light' : 'dark')}>
+          <Button variant="ghost" size="icon" aria-label={isDark ? 'Светлая тема' : 'Тёмная тема'}
+            hintSide="bottom"
+            hint={isDark ? 'Включить светлое оформление; выбор запомнится в этом браузере' : 'Включить тёмное оформление; выбор запомнится в этом браузере'} onClick={() => setTheme(isDark ? 'light' : 'dark')}>
             {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
-          <Button variant="outline" size="sm" disabled={leaving} onClick={leave}><LogOut className="size-4" />Закончить просмотр</Button>
+          <Button variant="outline" size="sm" disabled={leaving} onClick={leave} hintSide="bottom"
+            hint="Закрыть просмотр в этом браузере; сама ссылка продолжит действовать до своего срока"><LogOut className="size-4" />Закончить просмотр</Button>
         </div>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto">
@@ -121,14 +125,20 @@ export function GuestView({ me, onEnded, onLeft }: {
                 {floors.length > 1 && (
                   <nav className="flex flex-wrap gap-1" aria-label="Этажи" data-testid="floor-tabs">
                     {[...floors].reverse().map(f => (
-                      <button key={f.id} type="button" title={f.name} aria-current={f.id === active.id ? 'true' : undefined}
-                        className={tab(f.id === active.id)} onClick={() => setFloor(f.id)}>{f.level ?? '?'}</button>
+                      <Tip key={f.id} label={`${f.name || 'Этаж'}: его план, 3D-модель и объекты`}>
+                        <button type="button" aria-current={f.id === active.id ? 'true' : undefined}
+                          className={tab(f.id === active.id)} onClick={() => setFloor(f.id)}>{f.level ?? '?'}</button>
+                      </Tip>
                     ))}
                   </nav>
                 )}
                 <div className="flex gap-1" role="group" aria-label="Вид">
-                  <button type="button" className={tab(view === 'plan')} aria-pressed={view === 'plan'} onClick={() => setView('plan')}>План</button>
-                  <button type="button" className={tab(view === '3d')} aria-pressed={view === '3d'} onClick={() => setView('3d')}>3D</button>
+                  <Tip label="Поэтажный план с объектами: щелчок по помещению выделяет его и поднимает его объекты в списке">
+                    <button type="button" className={tab(view === 'plan')} aria-pressed={view === 'plan'} onClick={() => setView('plan')}>План</button>
+                  </Tip>
+                  <Tip label="Объёмная модель этажа: вращение — мышью, приближение — колесом">
+                    <button type="button" className={tab(view === '3d')} aria-pressed={view === '3d'} onClick={() => setView('3d')}>3D</button>
+                  </Tip>
                 </div>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">

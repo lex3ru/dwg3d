@@ -8,6 +8,7 @@ import { to } from '../shell/route'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 
 /** The directory of people: one for the organisation, kept by administrators of buildings. */
@@ -29,8 +30,10 @@ export function People({ building, floors }: { building: string; floors: TreeFlo
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">Люди</h1>
         <Input className="h-8 w-56" placeholder="ФИО или почта" aria-label="Поиск человека" value={q} onChange={e => setQ(e.target.value)} />
-        <Button size="sm" variant="outline" onClick={() => setAdding(true)}><UserPlus className="size-4" /> Добавить</Button>
-        <Button size="sm" variant="outline" onClick={() => picker.current?.click()}><Upload className="size-4" /> Из Excel</Button>
+        <Button size="sm" variant="outline" onClick={() => setAdding(true)}
+          hint="Новая запись в общем справочнике организации; права ей выдают в разделе «Доступ»"><UserPlus className="size-4" /> Добавить</Button>
+        <Button size="sm" variant="outline" onClick={() => picker.current?.click()}
+          hint="Загрузить список из .xlsx: столбцы ФИО, Должность, Подразделение, Почта, Телефон; уже известных по почте обновит, а не повторит"><Upload className="size-4" /> Из Excel</Button>
         <input ref={picker} type="file" accept=".xlsx" className="hidden" data-testid="people-file"
           onChange={e => {
             const file = e.target.files?.[0]
@@ -63,9 +66,11 @@ export function People({ building, floors }: { building: string; floors: TreeFlo
                 <div className="font-medium">{p.full_name}</div>
                 <div className="text-xs text-muted-foreground">{[p.position, p.department, p.email].filter(Boolean).join(' · ')}</div>
               </div>
-              {p.linked ? <Badge variant="success">есть учётная запись</Badge> : <LinkAccount onLink={sub => act(linkPerson(p.id, sub))} />}
-              <Button asChild variant="ghost" size="sm" title="События этого человека"><a href={to.journal(building, { person: p.id })}><History className="size-4" /></a></Button>
-              <Button variant="ghost" size="sm" title="Человек выбыл: все его права будут отозваны"
+              {p.linked ? <Tip label="Человек входит в систему сам и видит то, на что ему выданы права"><Badge variant="success">есть учётная запись</Badge></Tip> : <LinkAccount onLink={sub => act(linkPerson(p.id, sub))} />}
+              <Button asChild variant="ghost" size="sm" aria-label="События этого человека"
+                hint="Журнал только по этому человеку: права, привязки к помещениям, изменения записи"><a href={to.journal(building, { person: p.id })}><History className="size-4" /></a></Button>
+              <Button variant="ghost" size="sm"
+                hint="Все права человека будут отозваны, объекты останутся без ответственного; из справочника он пропадёт"
                 onClick={() => { if (confirm(`Отметить, что «${p.full_name}» выбыл? Все его права будут отозваны.`)) act(leavePerson(p.id)) }}>
                 Выбыл
               </Button>
@@ -97,24 +102,35 @@ function Rooms({ person, building, floors, onError }: { person: Person; building
       {items.map(a => (
         <span key={a.room_id} className="mr-2 inline-flex items-center gap-1" data-assignment={a.room_id}>
           {room(a.room_id)}
-          <button type="button" className="text-primary" title="Отвязать" onClick={() => act(unassignPerson(person.id, a.room_id))}>отвязать</button>
+          <Tip label="Человек больше не работает здесь: пропадёт из карточки помещения, право просмотра от привязки снимется">
+            <button type="button" className="text-primary" onClick={() => act(unassignPerson(person.id, a.room_id))}>отвязать</button>
+          </Tip>
         </span>
       ))}
       {adding ? (
         <form className="mt-1 flex flex-wrap items-center gap-1" data-testid="assign-form"
           onSubmit={e => { e.preventDefault(); if (adding.room) act(assignPerson(person.id, adding.room, adding.workplace || null)) }}>
-          <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.room} aria-label="Помещение" onChange={e => pickRoom(e.target.value)}>
-            <option value="">— помещение —</option>
-            {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
-          </select>
-          <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.workplace} aria-label="Рабочее место" onChange={e => setAdding({ ...adding, workplace: e.target.value })}>
-            <option value="">без рабочего места</option>
-            {adding.assets.map(a => <option key={a.id} value={a.id}>{a.type_name} · {a.inventory_no}</option>)}
-          </select>
-          <Button type="submit" size="sm" className="h-7" disabled={!adding.room}>Привязать</Button>
-          <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setAdding(null)}>Отмена</Button>
+          <Tip label="Где работает человек: помещения всех этажей этого здания">
+            <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.room} aria-label="Помещение" onChange={e => pickRoom(e.target.value)}>
+              <option value="">— помещение —</option>
+              {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
+            </select>
+          </Tip>
+          <Tip label="Объект выбранного помещения, за которым сидит человек, например стол; можно не указывать">
+            <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.workplace} aria-label="Рабочее место" onChange={e => setAdding({ ...adding, workplace: e.target.value })}>
+              <option value="">без рабочего места</option>
+              {adding.assets.map(a => <option key={a.id} value={a.id}>{a.type_name} · {a.inventory_no}</option>)}
+            </select>
+          </Tip>
+          <Button type="submit" size="sm" className="h-7" disabled={!adding.room}
+            hint="Человек появится в карточке помещения и получит право его просматривать; сначала выберите помещение">Привязать</Button>
+          <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setAdding(null)} hint="Закрыть форму, ничего не привязывая">Отмена</Button>
         </form>
-      ) : <button type="button" className="text-primary" onClick={() => pickRoom('')}>привязать к помещению</button>}
+      ) : (
+        <Tip label="Указать, где человек работает: он появится в карточке помещения и сможет его просматривать">
+          <button type="button" className="text-primary" onClick={() => pickRoom('')}>привязать к помещению</button>
+        </Tip>
+      )}
     </div>
   )
 }
@@ -124,13 +140,16 @@ function LinkAccount({ onLink }: { onLink: (sub: string) => void }) {
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState('')
   if (!open) {
-    return <Button variant="ghost" size="sm" title="Свяжется сама при первом входе, если почта совпадает" onClick={() => setOpen(true)}>Связать вручную</Button>
+    return <Button variant="ghost" size="sm" onClick={() => setOpen(true)}
+      hint="Указать учётную запись Keycloak самому; обычно не нужно — связь появится при первом входе, если почта совпадает">Связать вручную</Button>
   }
   return (
     <form className="flex gap-1" onSubmit={e => { e.preventDefault(); if (sub.trim()) onLink(sub.trim()) }}>
-      <Input className="h-7 w-52 text-xs" placeholder="Идентификатор учётной записи (Keycloak)" aria-label="Идентификатор учётной записи"
-        value={sub} onChange={e => setSub(e.target.value)} autoFocus />
-      <Button type="submit" size="sm">Связать</Button>
+      <Tip label="ID пользователя (sub) из Keycloak — виден в его карточке в консоли Keycloak">
+        <Input className="h-7 w-52 text-xs" placeholder="Идентификатор учётной записи (Keycloak)" aria-label="Идентификатор учётной записи"
+          value={sub} onChange={e => setSub(e.target.value)} autoFocus />
+      </Tip>
+      <Button type="submit" size="sm" hint="Под этой учётной записью человек войдёт со своими правами; одна запись — только одному человеку">Связать</Button>
     </form>
   )
 }
@@ -155,8 +174,8 @@ function NewPerson({ onDone }: { onDone: () => void }) {
       {field('email', 'Почта — по ней учётная запись свяжется при первом входе')}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="mt-1 flex gap-2">
-        <Button type="submit" disabled={!v.full_name.trim()}>Добавить</Button>
-        <Button type="button" variant="ghost" onClick={onDone}>Отмена</Button>
+        <Button type="submit" disabled={!v.full_name.trim()} hint="Записать человека в общий справочник; нужно хотя бы ФИО">Добавить</Button>
+        <Button type="button" variant="ghost" onClick={onDone} hint="Закрыть форму без сохранения">Отмена</Button>
       </div>
     </form>
   )

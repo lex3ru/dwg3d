@@ -9,6 +9,7 @@ import { RevisionReview } from '../components/RevisionReview'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 
 const STATUS: Record<string, [string, 'default' | 'accent' | 'success' | 'destructive']> = {
@@ -71,7 +72,8 @@ export function Building({ id, review }: { id: string; review?: string }) {
       <div>
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold">Чертежи</h2>
-          <Button size="sm" onClick={() => pick(null)} disabled={busy}><Upload className="size-4" /> Загрузить чертёж</Button>
+          <Button size="sm" onClick={() => pick(null)} disabled={busy}
+            hint="Добавить в здание план в формате DWG или DXF: он соберётся в этажи и помещения"><Upload className="size-4" /> Загрузить чертёж</Button>
           <input ref={picker} type="file" accept=".dwg,.dxf" className="hidden" data-testid="file"
             onChange={e => picked(e.target.files)} />
         </div>
@@ -115,9 +117,11 @@ export function Building({ id, review }: { id: string; review?: string }) {
                     {b?.status === 'error' && <div role="alert" className="mt-1 text-sm text-destructive">{b.error}</div>}
                     {draft && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm" data-testid="draft">
-                        <Badge variant="warning">сборка {draft.n} ждёт проверки</Badge>
+                        <Tip label="Сборка снимет помещения, поэтому здание её не показывает, пока администратор не решит"><Badge variant="warning">сборка {draft.n} ждёт проверки</Badge></Tip>
                         <span className="text-muted-foreground">снимет помещений: {draft.summary.retired ?? 0}</span>
-                        <Button size="sm" variant="outline" onClick={() => setReviewing(reviewing === draft.id ? null : draft.id)}>
+                        <Button size="sm" variant="outline" onClick={() => setReviewing(reviewing === draft.id ? null : draft.id)}
+                          hint={reviewing === draft.id ? 'Свернуть разбор; сборка так и будет ждать решения'
+                            : 'Сверить помещения сборки с прежними и решить: опубликовать её или отбросить'}>
                           {reviewing === draft.id ? 'Скрыть' : 'Проверить'}
                         </Button>
                       </div>
@@ -130,23 +134,27 @@ export function Building({ id, review }: { id: string; review?: string }) {
                         onSave={v => act(placeDrawing(id, place, v))} />
                     )}
                   </div>
-                  <Badge variant={tone}>{label}</Badge>
+                  <Tip label="Состояние последней сборки: из готовой здание берёт этажи, помещения и 3D-модель"><Badge variant={tone}>{label}</Badge></Tip>
                   {shown && (
-                    <Button asChild size="sm"><a href={`#/f/${d.id}`}><Box className="size-4" /> Открыть</a></Button>
+                    <Button asChild size="sm" hint="3D и план чертежа в редакторе: помещения, объекты, слои инженерных систем"><a href={`#/f/${d.id}`}><Box className="size-4" /> Открыть</a></Button>
                   )}
                   {shown && (
-                    <Button variant="outline" size="sm" disabled={busy || running} title="Чертёж с объектами блоками с атрибутами (DXF)"
+                    <Button variant="outline" size="sm" disabled={busy || running}
+                      hint="Скачать DXF этого чертежа, где объекты учёта стоят блоками с атрибутами: номер, состояние, ответственный, помещение"
                       onClick={() => act(drawingWithObjects(id, d.id, 'dxf'))}>
                       <FileDown className="size-4" /> <span className="max-sm:hidden">С объектами</span>
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" disabled={busy || running} onClick={() => pick(d.id)} title="Загрузить новую версию файла">
+                  <Button variant="outline" size="sm" disabled={busy || running} onClick={() => pick(d.id)}
+                    hint="Заменить файл чертежа исправленным: начнётся новая сборка; недоступно, пока идёт текущая">
                     <Upload className="size-4" /> <span className="max-sm:hidden">Новый файл</span>
                   </Button>
-                  <Button variant="ghost" size="icon" disabled={busy || running} title="Собрать заново" onClick={() => act(rebuildDrawing(d.id))}>
+                  <Button variant="ghost" size="icon" disabled={busy || running} aria-label="Собрать заново"
+                    hint="Повторить сборку из того же файла с текущими настройками и правками редактора; недоступно, пока идёт сборка" onClick={() => act(rebuildDrawing(d.id))}>
                     <RefreshCw className="size-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" disabled={busy} title="Удалить чертёж"
+                  <Button variant="ghost" size="icon" disabled={busy} aria-label="Удалить чертёж"
+                    hint="Удалить чертёж вместе с его сборками; этажи и помещения из него будут сняты"
                     onClick={() => { if (confirm(`Удалить чертёж «${d.name}»? Его этажи и помещения будут сняты.`)) act(deleteDrawing(d.id)) }}>
                     <Trash2 className="size-4" />
                   </Button>
@@ -178,8 +186,10 @@ export function Building({ id, review }: { id: string; review?: string }) {
 }
 
 const FIELDS: [keyof Placement, string, string][] = [
-  ['dx', 'Сдвиг X, м', 'Вправо по плану'], ['dy', 'Сдвиг Y, м', 'Вверх по плану'],
-  ['dz', 'Высота, м', 'Подъём всего чертежа'], ['rotation', 'Поворот, °', 'Против часовой стрелки'],
+  ['dx', 'Сдвиг X, м', 'На сколько метров сдвинуть чертёж вправо по плану; влево — с минусом'],
+  ['dy', 'Сдвиг Y, м', 'На сколько метров сдвинуть чертёж вверх по плану; вниз — с минусом'],
+  ['dz', 'Высота, м', 'На сколько метров поднять весь чертёж; опустить — с минусом'],
+  ['rotation', 'Поворот, °', 'Градусы против часовой стрелки, от −360 до 360'],
 ]
 
 /** Where the drawing stands in the building, relative to the others (shown when there are several). */
@@ -193,12 +203,17 @@ function PlacementForm({ value, disabled, onSave }: { value: Placement; disabled
       onSubmit={e => { e.preventDefault(); if (valid && changed) onSave(parsed) }}>
       <span className="w-full text-xs text-muted-foreground">Положение в здании</span>
       {FIELDS.map(([k, label, hint]) => (
-        <label key={k} className="grid gap-0.5 text-xs text-muted-foreground" title={hint}>{label}
-          <Input className="h-7 w-24 text-xs" inputMode="decimal" value={draft[k]} aria-label={label}
-            onChange={e => setDraft({ ...draft, [k]: e.target.value })} />
+        <label key={k} className="grid gap-0.5 text-xs text-muted-foreground">{label}
+          <Tip label={hint}>
+            <Input className="h-7 w-24 text-xs" inputMode="decimal" value={draft[k]} aria-label={label}
+              onChange={e => setDraft({ ...draft, [k]: e.target.value })} />
+          </Tip>
         </label>
       ))}
-      <Button type="submit" size="sm" variant="outline" disabled={disabled || !valid || !changed}>Сохранить</Button>
+      <Button type="submit" size="sm" variant="outline" disabled={disabled || !valid || !changed}
+        hint={!valid ? 'Переставить чертёж в здании; сначала исправьте числа — поворот не больше 360°'
+          : !changed ? 'Переставить чертёж в здании; доступно, когда значения изменены'
+            : 'Переставить чертёж: его этажи встанут на новое место в 3D-модели здания относительно других чертежей'}>Сохранить</Button>
     </form>
   )
 }

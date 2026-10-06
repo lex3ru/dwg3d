@@ -26,19 +26,19 @@ const OFF: Partial<Display> = { highlight: true, furniture: false, camViews: fal
 
 export const MODES: ModeDef[] = [
   { id: 'architecture', label: 'Архитектура', key: '1', icon: Building, kinds: [],
-    hint: 'Стены, проёмы, этажи — без цветов помещений, подписей и объектов',
+    hint: 'Чистая геометрия здания: без цветов и подписей помещений, слоёв объектов, меток и комментариев',
     patch: { ...OFF, roomColors: false, labels: false, roof: true, glass: true } },
   { id: 'rooms', label: 'Помещения', key: '2', icon: Palette, kinds: [],
-    hint: 'Помещения по типам: цвета, подписи, входы и лифты',
+    hint: 'Полы окрашены по типам, подписаны помещения, отмечены входы, лифты и лестницы; слои объектов скрыты',
     patch: { ...OFF, roomColors: true, labels: true, pois: true } },
   { id: 'systems', label: 'Инженерные системы', key: '3', icon: Cable, kinds: ['cctv', 'lighting', 'network', 'fire', 'access', 'wifi'],
-    hint: 'Видеонаблюдение, освещение, СКС, пожарная сигнализация, СКУД, Wi-Fi: оборудование, обзор, освещённость и покрытие',
+    hint: 'Только оборудование систем при прозрачных стенах: обзор камер, освещённость, покрытие Wi-Fi и извещателей',
     patch: { ...OFF, furniture: true, camViews: true, roomColors: false, labels: false, xray: true } },
   { id: 'flows', label: 'Маршруты и потоки', key: '4', icon: Route, kinds: ['routes', 'zones'],
-    hint: 'Пути людей и зоны, конфликты потоков',
+    hint: 'Только слои маршрутов людей и зон поверх цветных помещений: видно, где потоки пересекаются',
     patch: { ...OFF, roomColors: true, labels: true, pois: true } },
   { id: 'client', label: 'Заказчику', key: '5', icon: Briefcase, kinds: null, presentation: true,
-    hint: 'Без панелей: модель, этажи и комментарии',
+    hint: 'Показ модели без панелей редактирования: помещения, объекты, метки и комментарии; Esc вернёт панели',
     patch: { highlight: true, roomColors: true, labels: true, furniture: true, camViews: false, pois: true, comments: true, xray: false } },
 ]
 

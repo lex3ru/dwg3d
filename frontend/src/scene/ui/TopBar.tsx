@@ -5,6 +5,7 @@ import { floatClass } from '@/components/ui/float'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { canEdit, me, signOut } from '../session'
 import { jobColor } from '../state'
@@ -64,42 +65,58 @@ export default function TopBar({ jobId, projectId, name, result, onOpenJob, onRo
     <div className={cn(floatClass, 'absolute z-20 flex items-center gap-1 rounded-full p-1',
       'top-14 right-3 left-3 @3xl:top-3 @3xl:right-80 @3xl:left-14 @3xl:mx-auto @3xl:max-w-lg @5xl:right-[26rem]')}>
       <DropdownMenu open={menu} onOpenChange={setMenu}>
-        <DropdownMenuTrigger asChild>
-          <button title="Проект и его чертежи"
-            className="flex max-w-[45%] min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-full border-0 bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-border">
-            <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(jobId) }} />
-            <span className="truncate">{name}</span>
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tip label="Перейти к другому чертежу здания, на страницу здания или к списку проектов" side="bottom">
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex max-w-[45%] min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-full border-0 bg-secondary px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-border">
+              <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(jobId) }} />
+              <span className="truncate">{name}</span>
+              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+        </Tip>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><FolderOpen /> Здание: чертежи и этажи</a></DropdownMenuItem>
+          <Tip label="Уйти из редактора на страницу здания со списком чертежей и этажей" side="right">
+            <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><FolderOpen /> Здание: чертежи и этажи</a></DropdownMenuItem>
+          </Tip>
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Чертежи здания</DropdownMenuLabel>
           {jobs.map((j) => (
-            <DropdownMenuItem key={j.id} className={j.id === jobId ? 'bg-accent text-accent-foreground' : ''} onSelect={() => onOpenJob(j.id)}>
-              <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
-              <span className="min-w-0 flex-1 truncate">{j.name}</span>
-              <small className="text-muted-foreground">{j.floors} эт.</small>
-            </DropdownMenuItem>
+            <Tip key={j.id} label={j.id === jobId ? 'Этот чертёж открыт сейчас' : 'Открыть модель этого чертежа здесь же'} side="right">
+              <DropdownMenuItem className={j.id === jobId ? 'bg-accent text-accent-foreground' : ''} onSelect={() => onOpenJob(j.id)}>
+                <i className="size-2.5 shrink-0 rounded-full" style={{ background: jobColor(j.id) }} />
+                <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                <small className="text-muted-foreground">{j.floors} эт.</small>
+              </DropdownMenuItem>
+            </Tip>
           ))}
-          {canEdit() && <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><Upload /> Загрузить чертёж в проект…</a></DropdownMenuItem>}
+          {canEdit() && (
+            <Tip label="Загрузка идёт на странице здания: новый файл соберётся в модель и появится в этом списке" side="right">
+              <DropdownMenuItem asChild><a href={`#/p/${projectId}`}><Upload /> Загрузить чертёж в проект…</a></DropdownMenuItem>
+            </Tip>
+          )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild><a href="#/"><Home /> Все проекты</a></DropdownMenuItem>
+          <Tip label="Уйти из редактора к списку всех зданий" side="right">
+            <DropdownMenuItem asChild><a href="#/"><Home /> Все проекты</a></DropdownMenuItem>
+          </Tip>
           {me?.auth && !me.guest && (
             <>
               <DropdownMenuLabel className="grid"><span className="text-foreground">{me.name}</span><span>{me.login} · {me.role_name}</span></DropdownMenuLabel>
-              <DropdownMenuItem onSelect={signOut}><LogOut /> Выйти</DropdownMenuItem>
+              <Tip label="Завершить сеанс; для работы понадобится войти снова" side="right">
+                <DropdownMenuItem onSelect={signOut}><LogOut /> Выйти</DropdownMenuItem>
+              </Tip>
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
       <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input ref={input} value={q} placeholder="Поиск помещения или здания" role="combobox" aria-expanded={open} aria-controls="topbar-hits"
-          className="h-9 w-full min-w-0 rounded-full border-0 bg-transparent py-0 pr-3 pl-9 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onKeyDown={onKey}
-          onChange={(e) => { setQ(e.target.value); setCur(0) }} />
+        <Tip label="Помещения по названию или типу и другие чертежи здания; ↑ ↓ и Enter — перейти" side="top">
+          <input ref={input} value={q} placeholder="Поиск помещения или здания" role="combobox" aria-expanded={open} aria-controls="topbar-hits"
+            className="h-9 w-full min-w-0 rounded-full border-0 bg-transparent py-0 pr-3 pl-9 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onKeyDown={onKey}
+            onChange={(e) => { setQ(e.target.value); setCur(0) }} />
+        </Tip>
         {open && (
           <ul id="topbar-hits" role="listbox"
             className="absolute top-[calc(100%+0.75rem)] right-0 left-0 m-0 max-h-80 min-w-72 list-none overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">

@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Suspense, useMemo } from 'react'
 import type { Mesh, MeshStandardMaterial } from 'three'
 import { cn } from '../lib/utils'
+import { Tip } from './ui/tooltip'
 
 function Model({ url }: { url: string }) {
   const gltf = useGLTF(url)
@@ -23,16 +24,18 @@ function Model({ url }: { url: string }) {
 /** A 3D model turning under the mouse: what a type of the catalog looks like (a guest's floor, a bigger one). */
 export default function ModelPreview({ url, className }: { url: string; className?: string }) {
   return (
-    <div className={cn('h-56 overflow-hidden rounded-lg border bg-secondary', className)} data-testid="model-preview">
-      <Canvas camera={{ position: [3, 2, 3], fov: 40 }}>
-        <ambientLight intensity={1.4} />
-        <directionalLight position={[4, 8, 5]} intensity={2.2} />
-        <directionalLight position={[-5, 3, -4]} intensity={0.8} />
-        <Suspense fallback={null}>
-          <Bounds fit clip observe margin={1.3}><Model url={url} /></Bounds>
-        </Suspense>
-        <OrbitControls makeDefault />
-      </Canvas>
-    </div>
+    <Tip label="Повернуть — перетаскиванием, приблизить — колесом мыши, сдвинуть — правой кнопкой" side="bottom">
+      <div className={cn('h-56 overflow-hidden rounded-lg border bg-secondary', className)} data-testid="model-preview">
+        <Canvas camera={{ position: [3, 2, 3], fov: 40 }}>
+          <ambientLight intensity={1.4} />
+          <directionalLight position={[4, 8, 5]} intensity={2.2} />
+          <directionalLight position={[-5, 3, -4]} intensity={0.8} />
+          <Suspense fallback={null}>
+            <Bounds fit clip observe margin={1.3}><Model url={url} /></Bounds>
+          </Suspense>
+          <OrbitControls makeDefault />
+        </Canvas>
+      </div>
+    </Tip>
   )
 }

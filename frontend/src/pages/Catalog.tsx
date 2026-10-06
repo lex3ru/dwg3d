@@ -7,11 +7,14 @@ import {
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 
 const ModelPreview = lazy(() => import('../components/ModelPreview'))
 const select = 'h-8 rounded-md border bg-card px-2 text-sm'
 const KINDS: Record<Prop['kind'], string> = { text: 'текст', number: 'число', date: 'дата', bool: 'да / нет', choice: 'выбор', person: 'человек' }
 const EDITORS: Record<Prop['editable_by'], string> = { system: 'система (каталог)', admin: 'администратор здания', responsible: 'ответственный' }
+const PORTABLE = 'Перемещать объекты этого типа может и ответственный, а не только администратор здания'
+const CONTAINER = 'В объект этого типа можно вкладывать другие объекты'
 
 /** The catalog: types of equipment and furniture, and the property sets their schemas are made of. */
 export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string }) {
@@ -41,9 +44,12 @@ export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string
       <div>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">Каталог</h1>
-          <Button asChild size="sm" variant="outline"><a href="#/catalog/types/new"><Plus className="size-4" /> Тип</a></Button>
+          <Button asChild size="sm" variant="outline"
+            hint="Описать новый вид мебели или оборудования: габариты, свойства, 3D-модель; из типов ставят объекты"><a href="#/catalog/types/new"><Plus className="size-4" /> Тип</a></Button>
           <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <input type="checkbox" className="accent-primary" checked={archived} onChange={e => setArchived(e.target.checked)} /> архив
+            <Tip label="Показать вместо действующих типы, убранные из выбора">
+              <input type="checkbox" className="accent-primary" checked={archived} onChange={e => setArchived(e.target.checked)} />
+            </Tip> архив
           </label>
         </div>
         {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
@@ -57,9 +63,9 @@ export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string
                   <li key={t.id}>
                     <a href={`#/catalog/types/${t.id}`} className="flex flex-wrap items-center gap-2 px-3 py-2 hover:bg-secondary">
                       <span className="min-w-40 flex-1 font-medium">{t.name}</span>
-                      {t.portable && <Badge variant="accent">переносной</Badge>}
-                      {t.container && <Badge>контейнер</Badge>}
-                      {t.model && <Badge variant="success">3D-модель</Badge>}
+                      {t.portable && <Tip label={PORTABLE}><Badge variant="accent">переносной</Badge></Tip>}
+                      {t.container && <Tip label={CONTAINER}><Badge>контейнер</Badge></Tip>}
+                      {t.model && <Tip label="Объекты типа показываются в 3D своей моделью, а не фигурой по габаритам"><Badge variant="success">3D-модель</Badge></Tip>}
                       <span className="text-muted-foreground tabular-nums">{t.size.map(v => v.toLocaleString('ru')).join(' × ')} м</span>
                     </a>
                   </li>
@@ -73,16 +79,19 @@ export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string
       <div>
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold">Наборы свойств</h2>
-          <Button asChild size="sm" variant="outline"><a href="#/catalog/sets/new"><Plus className="size-4" /> Набор</a></Button>
+          <Button asChild size="sm" variant="outline"
+            hint="Группа свойств, общая для нескольких типов: правка набора меняет схему их всех"><a href="#/catalog/sets/new"><Plus className="size-4" /> Набор</a></Button>
         </div>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Свойства, общие для нескольких типов. Изменение набора меняет схему всех типов, которые его используют.</p>
         <ul className="mt-3 divide-y rounded-lg border bg-card text-sm" data-testid="sets">
           {sets.map(s => (
             <li key={s.id}>
-              <a href={`#/catalog/sets/${s.id}`} className="flex items-center gap-3 px-3 py-2 hover:bg-secondary">
-                <span className="flex-1 font-medium">{s.name}</span>
-                <span className="text-muted-foreground">свойств: {s.properties.length} · типов: {s.types ?? 0}</span>
-              </a>
+              <Tip label="Свойства набора; их правка изменит схему всех типов, где он подключён">
+                <a href={`#/catalog/sets/${s.id}`} className="flex items-center gap-3 px-3 py-2 hover:bg-secondary">
+                  <span className="flex-1 font-medium">{s.name}</span>
+                  <span className="text-muted-foreground">свойств: {s.properties.length} · типов: {s.types ?? 0}</span>
+                </a>
+              </Tip>
             </li>
           ))}
         </ul>
@@ -103,40 +112,54 @@ function Properties({ value, onChange }: { value: Prop[]; onChange: (v: Prop[]) 
           <label className="grid gap-0.5 text-xs text-muted-foreground">Название
             <Input className="h-8 w-48" value={p.title} onChange={e => set(i, { title: e.target.value })} aria-label="Название свойства" />
           </label>
-          <label className="grid gap-0.5 text-xs text-muted-foreground" title="Латиницей; по ключу значение хранится у объектов">Ключ
-            <Input className="h-8 w-36 font-mono text-xs" value={p.key} onChange={e => set(i, { key: e.target.value })} aria-label="Ключ свойства" />
+          <label className="grid gap-0.5 text-xs text-muted-foreground">Ключ
+            <Tip label="Строчные латинские буквы, цифры и «_», с буквы: под этим именем значение хранится у объектов">
+              <Input className="h-8 w-36 font-mono text-xs" value={p.key} onChange={e => set(i, { key: e.target.value })} aria-label="Ключ свойства" />
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">Вид
-            <select className={select} value={p.kind} aria-label="Вид значения"
-              onChange={e => set(i, { kind: e.target.value as Prop['kind'], options: e.target.value === 'choice' ? p.options ?? [] : null })}>
-              {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            <Tip label="Каким полем свойство заполняется в карточке объекта; для выбора нужен список вариантов">
+              <select className={select} value={p.kind} aria-label="Вид значения"
+                onChange={e => set(i, { kind: e.target.value as Prop['kind'], options: e.target.value === 'choice' ? p.options ?? [] : null })}>
+                {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </Tip>
           </label>
           {p.kind === 'number' && (
             <label className="grid gap-0.5 text-xs text-muted-foreground">Единица
-              <Input className="h-8 w-20" value={p.unit ?? ''} onChange={e => set(i, { unit: e.target.value || null })} />
+              <Tip label="Подпись к числу в карточке объекта, например «кВт» или «мм»">
+                <Input className="h-8 w-20" value={p.unit ?? ''} onChange={e => set(i, { unit: e.target.value || null })} />
+              </Tip>
             </label>
           )}
           {p.kind === 'choice' && (
-            <label className="grid gap-0.5 text-xs text-muted-foreground" title="Через запятую">Варианты
-              <Input className="h-8 w-56" aria-label="Варианты" value={(p.options ?? []).map(o => o.title).join(', ')}
-                onChange={e => set(i, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean).map(t => ({ value: t, title: t })) })} />
+            <label className="grid gap-0.5 text-xs text-muted-foreground">Варианты
+              <Tip label="Значения списка через запятую, например: дерево, металл, пластик">
+                <Input className="h-8 w-56" aria-label="Варианты" value={(p.options ?? []).map(o => o.title).join(', ')}
+                  onChange={e => set(i, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean).map(t => ({ value: t, title: t })) })} />
+              </Tip>
             </label>
           )}
           <label className="grid gap-0.5 text-xs text-muted-foreground">Значение
-            <select className={select} value={p.stored} aria-label="Где хранится" onChange={e => set(i, { stored: e.target.value as Prop['stored'] })}>
-              <option value="asset">у каждого объекта</option><option value="type">одно на тип</option>
-            </select>
+            <Tip label="Своё у каждого объекта — заполняется в его карточке; одно на тип — задаётся в каталоге и видно у всех объектов типа">
+              <select className={select} value={p.stored} aria-label="Где хранится" onChange={e => set(i, { stored: e.target.value as Prop['stored'] })}>
+                <option value="asset">у каждого объекта</option><option value="type">одно на тип</option>
+              </select>
+            </Tip>
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">Правит
-            <select className={select} value={p.editable_by} aria-label="Кто правит" onChange={e => set(i, { editable_by: e.target.value as Prop['editable_by'] })}>
-              {Object.entries(EDITORS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            <Tip label="Кто вправе менять значение в карточке объекта: «ответственный» — ещё и ответственный за объект, иначе только администратор здания">
+              <select className={select} value={p.editable_by} aria-label="Кто правит" onChange={e => set(i, { editable_by: e.target.value as Prop['editable_by'] })}>
+                {Object.entries(EDITORS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </Tip>
           </label>
-          <Button type="button" variant="ghost" size="icon" title="Убрать свойство" onClick={() => onChange(value.filter((_, j) => j !== i))}><Trash2 className="size-4" /></Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Убрать свойство"
+            hint="Свойство пропадёт из схемы, когда вы сохраните; до этого можно уйти по «Отмена»" onClick={() => onChange(value.filter((_, j) => j !== i))}><Trash2 className="size-4" /></Button>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => onChange([...value, blank()])}><Plus className="size-4" /> Свойство</Button>
+      <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => onChange([...value, blank()])}
+        hint="Новая строка для свойства; в схеме оно появится после сохранения"><Plus className="size-4" /> Свойство</Button>
     </div>
   )
 }
@@ -155,7 +178,10 @@ function SetEditor({ existing, onDone }: { existing?: PropertySet; onDone: () =>
       <label className="grid max-w-sm gap-1 text-sm">Название<Input value={name} onChange={e => setName(e.target.value)} required aria-label="Название набора" /></label>
       <Properties value={properties} onChange={setProperties} />
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2"><Button type="submit">Сохранить</Button><Button asChild type="button" variant="ghost"><a href="#/catalog">Отмена</a></Button></div>
+      <div className="flex gap-2">
+        <Button type="submit" hint={existing ? 'Схема всех типов, где подключён набор, изменится сразу' : 'Создать набор; подключают его в карточке типа'}>Сохранить</Button>
+        <Button asChild type="button" variant="ghost" hint="Вернуться в каталог, ничего не сохраняя"><a href="#/catalog">Отмена</a></Button>
+      </div>
     </form>
   )
 }
@@ -180,7 +206,9 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
   const ofType = [...body.sets.flatMap(s => sets.find(x => x.id === s)?.properties ?? []), ...body.properties].filter(p => p.stored === 'type' && p.key)
   const number = (key: 'w' | 'd' | 'h', label: string) => (
     <label className="grid gap-1 text-sm">{label}
-      <Input className="w-24" type="number" step="0.01" min="0.01" value={body[key]} onChange={e => patch({ [key]: Number(e.target.value) })} required />
+      <Tip label="В метрах, от 0,01: по габаритам объект занимает место на плане, а без модели — и в 3D">
+        <Input className="w-24" type="number" step="0.01" min="0.01" value={body[key]} onChange={e => patch({ [key]: Number(e.target.value) })} required />
+      </Tip>
     </label>
   )
   return (
@@ -192,24 +220,30 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
     }}>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">{existing ? existing.name : 'Новый тип'}</h1>
-        {existing && !existing.active && <Badge variant="warning">в архиве</Badge>}
+        {existing && !existing.active && <Tip label="Тип не предлагается при расстановке; поставленные объекты остаются на учёте"><Badge variant="warning">в архиве</Badge></Tip>}
         {existing && <span className="text-sm text-muted-foreground">версия схемы: {existing.schema_version}</span>}
       </div>
       <div className="flex flex-wrap gap-3">
         <label className="grid gap-1 text-sm">Название<Input className="w-72" value={body.name} onChange={e => patch({ name: e.target.value })} required aria-label="Название типа" /></label>
         <label className="grid gap-1 text-sm">Раздел
-          <select className={`${select} h-9`} value={body.category_id || categories[0]?.id} onChange={e => patch({ category_id: e.target.value })} aria-label="Раздел">
-            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <Tip label="Где тип стоит в каталоге и в выборе при расстановке объектов">
+            <select className={`${select} h-9`} value={body.category_id || categories[0]?.id} onChange={e => patch({ category_id: e.target.value })} aria-label="Раздел">
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Tip>
         </label>
         {number('w', 'Ширина, м')}{number('d', 'Глубина, м')}{number('h', 'Высота, м')}
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-        <label className="flex items-center gap-2" title="Перемещать объекты этого типа может и ответственный, а не только администратор здания">
-          <input type="checkbox" className="accent-primary" checked={body.portable} onChange={e => patch({ portable: e.target.checked })} /> Переносной
+        <label className="flex items-center gap-2">
+          <Tip label={PORTABLE}>
+            <input type="checkbox" className="accent-primary" checked={body.portable} onChange={e => patch({ portable: e.target.checked })} />
+          </Tip> Переносной
         </label>
-        <label className="flex items-center gap-2" title="В объект этого типа можно вкладывать другие объекты">
-          <input type="checkbox" className="accent-primary" checked={body.container} onChange={e => patch({ container: e.target.checked })} /> Контейнер
+        <label className="flex items-center gap-2">
+          <Tip label={CONTAINER}>
+            <input type="checkbox" className="accent-primary" checked={body.container} onChange={e => patch({ container: e.target.checked })} />
+          </Tip> Контейнер
         </label>
       </div>
       <div>
@@ -217,8 +251,10 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
         <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-sm" data-testid="type-sets">
           {sets.map(s => (
             <label key={s.id} className="flex items-center gap-2">
-              <input type="checkbox" className="accent-primary" checked={body.sets.includes(s.id)}
-                onChange={e => patch({ sets: e.target.checked ? [...body.sets, s.id] : body.sets.filter(x => x !== s.id) })} />
+              <Tip label="Подключить свойства набора к типу; правка набора потом изменит и этот тип">
+                <input type="checkbox" className="accent-primary" checked={body.sets.includes(s.id)}
+                  onChange={e => patch({ sets: e.target.checked ? [...body.sets, s.id] : body.sets.filter(x => x !== s.id) })} />
+              </Tip>
               {s.name} <span className="text-muted-foreground">({s.properties.length})</span>
             </label>
           ))}
@@ -256,7 +292,8 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
           <h2 className="text-base font-semibold">3D-модель</h2>
           <p className="text-sm text-muted-foreground">Файл GLB. Без модели объект показывается фигурой по габаритам.</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => picker.current?.click()}>{existing.model ? 'Заменить модель' : 'Загрузить модель'}</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => picker.current?.click()}
+              hint={`Файл GLB: объекты этого типа будут показаны им в 3D вместо фигуры по габаритам${existing.model ? '; прежний файл заменится' : ''}`}>{existing.model ? 'Заменить модель' : 'Загрузить модель'}</Button>
             <input ref={picker} type="file" accept=".glb" className="hidden" data-testid="model-file" onChange={e => {
               const file = e.target.files?.[0]
               if (file) putTypeModel(existing.id, file).then(t => { adopt({ ...t, schema: existing.schema }); onChanged() }, (ex: Error) => setError(ex.message))
@@ -265,7 +302,7 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
             {existing.model && (
               <>
                 <span className="text-sm text-muted-foreground">{existing.model.name} · {(existing.model.size / 1024).toFixed(0)} КБ</span>
-                <Button type="button" variant="ghost" size="sm"
+                <Button type="button" variant="ghost" size="sm" hint="Удалить файл модели: объекты типа снова будут показаны фигурой по габаритам"
                   onClick={() => deleteTypeModel(existing.id).then(() => getType(existing.id)).then(adopt).then(onChanged, (ex: Error) => setError(ex.message))}>Убрать</Button>
               </>
             )}
@@ -276,10 +313,11 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
       )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit">Сохранить</Button>
-        <Button asChild type="button" variant="ghost"><a href="#/catalog">Отмена</a></Button>
+        <Button type="submit" hint="Сохранить тип; если изменились свойства, у схемы будет новая версия">Сохранить</Button>
+        <Button asChild type="button" variant="ghost" hint="Вернуться в каталог, ничего не сохраняя"><a href="#/catalog">Отмена</a></Button>
         {existing && (
-          <Button type="button" variant="outline" className="ml-auto" title={existing.active ? 'Убрать из выбора; объекты этого типа останутся' : 'Вернуть в выбор'}
+          <Button type="button" variant="outline" className="ml-auto"
+            hint={existing.active ? 'Тип пропадёт из выбора при расстановке; объекты этого типа останутся на учёте' : 'Тип снова появится в выборе при расстановке объектов'}
             onClick={() => archiveType(existing.id, existing.active).then(onDone, (ex: Error) => setError(ex.message))}>
             {existing.active ? 'В архив' : 'Вернуть из архива'}
           </Button>

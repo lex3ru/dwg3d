@@ -228,7 +228,7 @@ test('a file that is not a drawing fails with a message, not a hanging build', a
   await expect(row.getByRole('link', { name: 'Открыть' })).toHaveCount(0)
 
   page.once('dialog', d => d.accept())
-  await row.getByTitle('Удалить чертёж').click()
+  await row.getByLabel('Удалить чертёж', { exact: true }).click()
   await expect(row).toHaveCount(0)
 })
 

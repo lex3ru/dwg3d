@@ -9,6 +9,7 @@ import {
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 import { StateBadge } from './Assets'
@@ -17,6 +18,7 @@ const select = 'h-8 rounded-md border bg-card px-2 text-sm'
 const ACTIONS: Record<string, string> = {
   created: 'поставлен на учёт', changed: 'изменён', moved: 'перемещён', state: 'состояние', responsible: 'ответственный',
   file_added: 'файл добавлен', file_removed: 'файл убран', retired: 'списан', reverted: 'откат', system: 'система' }
+const SAVED_AT_ONCE = 'Сохраняется сразу; прежнее значение останется в истории'
 const show = (v: unknown) => (v == null || v === '' ? '—' : typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v))
 
 /** The card of an object: the same from the list, the plan and the QR code. What one may change is a field; what not — text. */
@@ -75,43 +77,54 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
       )}
       <div className="flex flex-wrap items-center gap-2">
         {a.can.edit && a.state !== 'retired' ? (
-          <select className={select} value={a.state} aria-label="Состояние объекта" onChange={e => act(setAssetState(a, e.target.value as AssetState))}>
-            {Object.entries(STATES).filter(([k]) => k !== 'retired' || a.can.manage).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <Tip label={a.can.manage ? 'Смена запишется в историю объекта; «списан» снимает его с учёта, вложенное останется в помещении без места'
+            : 'Смена запишется в историю объекта; списать может только администратор здания'}>
+            <select className={select} value={a.state} aria-label="Состояние объекта" onChange={e => act(setAssetState(a, e.target.value as AssetState))}>
+              {Object.entries(STATES).filter(([k]) => k !== 'retired' || a.can.manage).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Tip>
         ) : <StateBadge a={a} />}
         {a.x != null && floor && (
-          <Button asChild variant="outline" size="sm"><a href={to.plan(building, floor.id, a.room_id)}><MapIcon className="size-4" /> На плане</a></Button>
+          <Button asChild variant="outline" size="sm" hint="Открыть план этажа, выделив помещение, где стоит объект"><a href={to.plan(building, floor.id, a.room_id)}><MapIcon className="size-4" /> На плане</a></Button>
         )}
         {a.can.move && a.state !== 'retired' && floor && (
-          <Button asChild variant="outline" size="sm" title={a.portable ? 'Переносной: перемещает и ответственный' : 'Перемещает администратор здания'}>
+          <Button asChild variant="outline" size="sm" hint={a.portable
+            ? 'Новое место — щелчком на плане, можно на другом этаже; переносной объект перемещает и ответственный'
+            : 'Новое место — щелчком на плане, можно на другом этаже; вложенные объекты переедут вместе'}>
             <a href={to.move(building, floor.id, a.id)}><Move className="size-4" /> Переместить</a>
           </Button>
         )}
-        <Button asChild variant="outline" size="sm" title="QR-метка для печати (PDF, 40 мм)">
+        <Button asChild variant="outline" size="sm" hint="Открыть QR-метку объекта для печати: PDF, наклейка 40 мм; по ней откроется эта карточка">
           <a href={assetLabelUrl(a.id)} target="_blank" rel="noreferrer"><QrCode className="size-4" /> Метка</a>
         </Button>
         {admin && (
-          <Button asChild variant="outline" size="sm" title="События объекта в журнале"><a href={to.journal(building, { asset: a.id })}><History className="size-4" /></a></Button>
+          <Button asChild variant="outline" size="sm" hint="Журнал: все события этого объекта — кто, что и когда менял">
+            <a href={to.journal(building, { asset: a.id })} aria-label="События объекта в журнале"><History className="size-4" /></a>
+          </Button>
         )}
       </div>
       {a.container_id && <p className="text-muted-foreground">Стоит внутри: {boxes.find(b => b.id === a.container_id)?.type_name ?? 'другого объекта'}. «Переместить» вынет его на план.</p>}
       {a.can.move && a.state !== 'retired' && boxes.length > 0 && (
         <label className="grid gap-1 text-muted-foreground">Поставить внутрь
-          <select className={select} value={a.container_id ?? ''} aria-label="Поставить внутрь" onChange={e => { if (e.target.value) act(moveAssetInto(a, e.target.value)) }}>
-            <option value="">— выберите контейнер —</option>
-            {boxes.map(b => <option key={b.id} value={b.id}>{b.type_name} · {b.inventory_no}</option>)}
-          </select>
+          <Tip label="Поместить объект в контейнер этого здания: дальше он будет переезжать вместе с ним">
+            <select className={select} value={a.container_id ?? ''} aria-label="Поставить внутрь" onChange={e => { if (e.target.value) act(moveAssetInto(a, e.target.value)) }}>
+              <option value="">— выберите контейнер —</option>
+              {boxes.map(b => <option key={b.id} value={b.id}>{b.type_name} · {b.inventory_no}</option>)}
+            </select>
+          </Tip>
         </label>
       )}
       <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center gap-x-3 gap-y-1.5 [&_input]:min-w-0 [&_select]:w-full [&_select]:min-w-0">
         <dt className="text-muted-foreground">Отвечает</dt>
         <dd>{a.can.manage ? (
-          <select className={`${select} max-w-full`} value={a.responsible_id ?? ''} aria-label="Ответственный"
-            onChange={e => act(setAssetResponsible(a, e.target.value || null))}>
-            <option value="">не назначен</option>
-            {people.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-            {a.responsible_id && !people.some(p => p.id === a.responsible_id) && <option value={a.responsible_id}>{names[a.responsible_id] ?? '…'}</option>}
-          </select>
+          <Tip label="Ответственный получает право на этот объект, прежний его теряет; смена запишется в историю">
+            <select className={`${select} max-w-full`} value={a.responsible_id ?? ''} aria-label="Ответственный"
+              onChange={e => act(setAssetResponsible(a, e.target.value || null))}>
+              <option value="">не назначен</option>
+              {people.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              {a.responsible_id && !people.some(p => p.id === a.responsible_id) && <option value={a.responsible_id}>{names[a.responsible_id] ?? '…'}</option>}
+            </select>
+          </Tip>
         ) : (a.responsible_id ? names[a.responsible_id] ?? '…' : 'не назначен')}</dd>
         {a.schema.map(p => (
           <Field key={p.key + a.version} p={p} value={a.props[p.key]} editable={editable(p) && a.state !== 'retired'}
@@ -127,15 +140,17 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
         <div>
           <h3 className="font-medium">Внутри</h3>
           <ul className="mt-1 grid gap-0.5">
-            {a.children.map(c => <li key={c.id}><a className="text-primary" href={to.assets(building, c.id)}>{c.type_name} · {c.inventory_no}</a></li>)}
+            {a.children.map(c => <li key={c.id}><Tip label="Карточка вложенного объекта; он переезжает вместе с этим"><a className="text-primary" href={to.assets(building, c.id)}>{c.type_name} · {c.inventory_no}</a></Tip></li>)}
           </ul>
         </div>
       )}
       <div>
         <div className="flex items-center gap-2">
           <h3 className="font-medium">Файлы</h3>
-          {a.can.edit && <Button variant="ghost" size="sm" onClick={() => picker.current?.click()}><Paperclip className="size-4" /> Приложить</Button>}
-          {a.can.edit && <Button variant="ghost" size="sm" className="md:hidden" title="Снять фото камерой" onClick={() => camera.current?.click()}><Camera className="size-4" /> Снять</Button>}
+          {a.can.edit && <Button variant="ghost" size="sm" hint="Фото или документ (PDF, Word, Excel) до 25 МБ; в истории объекта появится запись"
+            onClick={() => picker.current?.click()}><Paperclip className="size-4" /> Приложить</Button>}
+          {a.can.edit && <Button variant="ghost" size="sm" className="md:hidden" hint="Сфотографировать объект камерой телефона и приложить снимок к карточке"
+            onClick={() => camera.current?.click()}><Camera className="size-4" /> Снять</Button>}
           <input ref={picker} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" data-testid="asset-file"
             onChange={e => { const f = e.target.files?.[0]; if (f) act(addAssetFile(a.id, f)); e.target.value = '' }} />
           <input ref={camera} type="file" className="hidden" accept="image/*" capture="environment" data-testid="asset-camera"
@@ -146,10 +161,13 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
             {files.map(f => (
               <li key={f.id} className="flex items-center gap-2">
                 {f.kind === 'photo'
-                  ? <a href={assetFileUrl(f.id)} target="_blank" rel="noreferrer"><img src={assetFileUrl(f.id)} alt={f.name} className="size-12 rounded border object-cover" /></a>
+                  ? <Tip label="Открыть фото целиком в новой вкладке"><a href={assetFileUrl(f.id)} target="_blank" rel="noreferrer"><img src={assetFileUrl(f.id)} alt={f.name} className="size-12 rounded border object-cover" /></a></Tip>
                   : <FileText className="size-4 text-muted-foreground" />}
-                <a className="min-w-0 flex-1 truncate text-primary" href={assetFileUrl(f.id)} target="_blank" rel="noreferrer">{f.name}</a>
-                {a.can.edit && <Button variant="ghost" size="sm" onClick={() => act(deleteAssetFile(f.id))}>Убрать</Button>}
+                <Tip label="Открыть файл в новой вкладке">
+                  <a className="min-w-0 flex-1 truncate text-primary" href={assetFileUrl(f.id)} target="_blank" rel="noreferrer">{f.name}</a>
+                </Tip>
+                {a.can.edit && <Button variant="ghost" size="sm" hint="Удалить файл из карточки без возврата; в истории останется запись об этом"
+                  onClick={() => act(deleteAssetFile(f.id))}>Убрать</Button>}
               </li>
             ))}
           </ul>
@@ -164,7 +182,8 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
               <div className="flex items-center gap-2">
                 <span className="flex-1">{ACTIONS[h.action] ?? h.action}</span>
                 {a.can.manage && (h.action === 'changed' || h.action === 'state') && (
-                  <Button variant="ghost" size="sm" title="Вернуть как было" onClick={() => act(revertAsset(a.id, h.id))}><Undo2 className="size-4" /> Откатить</Button>
+                  <Button variant="ghost" size="sm" hint="Вернуть значения до этого изменения, если поля с тех пор не менялись; откат тоже запишется в историю"
+                    onClick={() => act(revertAsset(a.id, h.id))}><Undo2 className="size-4" /> Откатить</Button>
                 )}
               </div>
               {Object.entries(h.changes).map(([field, [was, now]]) => {
@@ -188,8 +207,12 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
 
 function Text({ value, label, onSave }: { value: string; label: string; onSave: (v: string) => void }) {
   const [v, setV] = useState(value)
-  return <Input className="h-8" value={v} aria-label={label} onChange={e => setV(e.target.value)}
-    onBlur={() => { if (v !== value) onSave(v) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+  return (
+    <Tip label="Сохраняется по Enter или при уходе из поля; прежний текст останется в истории">
+      <Input className="h-8" value={v} aria-label={label} onChange={e => setV(e.target.value)}
+        onBlur={() => { if (v !== value) onSave(v) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+    </Tip>
+  )
 }
 
 /** A property by the schema of the type: a field for whoever may edit it, text for the rest. */
@@ -204,16 +227,23 @@ function Field({ p, value, editable, onSave }: { p: Prop; value: unknown; editab
   if (!editable) {
     control = p.kind === 'choice' ? p.options?.find(o => o.value === value)?.title ?? show(value) : show(value)
   } else if (p.kind === 'bool') {
-    control = <input type="checkbox" className="size-4 accent-primary" aria-label={label} checked={value === true} onChange={e => onSave(e.target.checked)} />
+    control = <Tip label={SAVED_AT_ONCE}><input type="checkbox" className="size-4 accent-primary" aria-label={label} checked={value === true} onChange={e => onSave(e.target.checked)} /></Tip>
   } else if (p.kind === 'choice') {
     control = (
-      <select className={`${select} max-w-full`} aria-label={label} value={v} onChange={e => onSave(e.target.value || null)}>
-        <option value="">—</option>{p.options?.map(o => <option key={o.value} value={o.value}>{o.title}</option>)}
-      </select>
+      <Tip label={SAVED_AT_ONCE}>
+        <select className={`${select} max-w-full`} aria-label={label} value={v} onChange={e => onSave(e.target.value || null)}>
+          <option value="">—</option>{p.options?.map(o => <option key={o.value} value={o.value}>{o.title}</option>)}
+        </select>
+      </Tip>
     )
   } else {
-    control = <Input className="h-8" aria-label={label} type={p.kind === 'date' ? 'date' : 'text'} inputMode={p.kind === 'number' ? 'decimal' : undefined}
-      value={v} onChange={e => setV(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+    control = (
+      <Tip label={p.kind === 'number' ? 'Число, дробная часть — через запятую или точку; сохраняется по Enter или при уходе из поля'
+        : 'Сохраняется по Enter или при уходе из поля; прежнее значение останется в истории'}>
+        <Input className="h-8" aria-label={label} type={p.kind === 'date' ? 'date' : 'text'} inputMode={p.kind === 'number' ? 'decimal' : undefined}
+          value={v} onChange={e => setV(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+      </Tip>
+    )
   }
   return <><dt className="text-muted-foreground">{label}{p.required ? ' *' : ''}</dt><dd>{control}</dd></>
 }

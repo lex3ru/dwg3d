@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 
 // the browser's own QR reader (Chrome, Android, recent Safari); where there is none, the code is typed in
@@ -48,8 +49,11 @@ export function Scan() {
         {' '}Можно ввести код с метки вручную.
       </p>
       <form onSubmit={go} className="flex gap-2">
-        <Input value={code} onChange={e => setCode(e.target.value)} aria-label="Код с метки" placeholder="Код под QR-кодом" className="uppercase" />
-        <Button type="submit" disabled={!code.trim()}>Открыть</Button>
+        <Tip label="Латинские буквы и цифры, напечатанные под QR-кодом; регистр не важен">
+          <Input value={code} onChange={e => setCode(e.target.value)} aria-label="Код с метки" placeholder="Код под QR-кодом" className="uppercase" />
+        </Tip>
+        <Button type="submit" disabled={!code.trim()}
+          hint={code.trim() ? 'Открыть карточку объекта с этой меткой, если он вам доступен' : 'Сначала введите код с метки'}>Открыть</Button>
       </form>
     </section>
   )

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createNote, getStatus, type SystemStatus } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Tip } from '../components/ui/tooltip'
 import { useEvents, useStreamConnected } from '../stream'
 
 const mark = (value: boolean | null) =>
@@ -26,7 +27,8 @@ export function System() {
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">Состояние системы</h1>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}
+            hint="Заново опросить сервисы: отвечают ли они, есть ли у них связь с базой и шиной событий">
             <RefreshCw className="size-4" /> Обновить
           </Button>
         </div>
@@ -106,9 +108,12 @@ function Delivery() {
         возвращается в браузер.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button onClick={run} disabled={probe.state === 'waiting'}><Send className="size-4" /> Проверить</Button>
+        <Button onClick={run} disabled={probe.state === 'waiting'}
+          hint="Создать запись в сервисе-образце и замерить, за сколько её событие вернётся в браузер; ждём до 10 секунд"><Send className="size-4" /> Проверить</Button>
         <span className="text-sm" data-testid="stream-state">
-          Поток событий: {connected ? <Badge variant="success">подключён</Badge> : <Badge variant="warning">нет связи</Badge>}
+          Поток событий: {connected
+            ? <Tip label="Браузер получает события сервера: списки на страницах обновляются сами"><Badge variant="success">подключён</Badge></Tip>
+            : <Tip label="События сервера не доходят: чужие изменения появятся только после обновления страницы"><Badge variant="warning">нет связи</Badge></Tip>}
         </span>
         <span className="text-sm" role="status" data-testid="delivery">
           {probe.state === 'waiting' && 'Ждём событие…'}

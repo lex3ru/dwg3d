@@ -2,9 +2,10 @@ import { AlertTriangle, DoorOpen, FileStack, Layers, Map as MapIcon, QrCode, Sea
 import { useCallback, useEffect, useState } from 'react'
 import { getCabinet, type Asset, type Building, type Cabinet, type Me, type TreeFloor } from '../api'
 import { Button } from '../components/ui/button'
+import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
-import { StateBadge } from './Assets'
+import { NeedsMark, StateBadge } from './Assets'
 
 /** «Кабинет» of a building: what needs attention, my rooms, the objects I answer for, a search and the QR scanner. */
 export function Home({ me, building, floors, admin }: { me: Me; building: Building; floors: TreeFloor[]; admin: boolean }) {
@@ -15,11 +16,13 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
   const load = useCallback(() => { getCabinet(building.id).then(setCabinet, () => setCabinet(null)) }, [building.id])
   useEffect(load, [load])
   useEvents(event => { if (event.type.startsWith('assets.') || event.type.startsWith('access.')) load() })
-  const stat = (label: string, value: string, href: string, Icon: typeof Layers) => (
-    <a href={href} className="rounded-lg border bg-card p-4 hover:border-primary">
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Icon className="size-4" /> {label}</div>
-      <div className="mt-1 text-2xl font-medium">{value}</div>
-    </a>
+  const stat = (label: string, value: string, href: string, Icon: typeof Layers, hint: string) => (
+    <Tip label={hint}>
+      <a href={href} className="rounded-lg border bg-card p-4 hover:border-primary">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Icon className="size-4" /> {label}</div>
+        <div className="mt-1 text-2xl font-medium">{value}</div>
+      </a>
+    </Tip>
   )
   const place = (a: Asset) => {
     for (const f of floors) { const r = f.rooms.find(x => x.id === a.room_id); if (r) return `${f.level ?? ''} эт. · ${r.name || 'без названия'}` }
@@ -32,8 +35,8 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
           <a href={to.assets(building.id, a.id)} data-asset={a.inventory_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-secondary">
             <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span><span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
             <span className="text-muted-foreground max-sm:hidden">{place(a)}</span>
-            {a.needs_placement && <span className="text-xs text-warning">разместить</span>}
-            {a.needs_fill && <span className="text-xs text-warning">заполнить</span>}
+            {a.needs_placement && <NeedsMark need="placement"><span className="text-xs text-warning">разместить</span></NeedsMark>}
+            {a.needs_fill && <NeedsMark need="fill"><span className="text-xs text-warning">заполнить</span></NeedsMark>}
             <StateBadge a={a} />
           </a>
         </li>
@@ -50,7 +53,7 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
         <div className="rounded-lg border border-dashed bg-card px-6 py-12 text-center">
           <p className="font-medium">В здании пока нет этажей</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            {admin ? <>Загрузите поэтажные планы в разделе <a className="text-primary" href={to.drawings(building.id)}>«Чертежи»</a>.</>
+            {admin ? <>Загрузите поэтажные планы в разделе <Tip label="Загрузить DWG или DXF: из них соберутся этажи и помещения"><a className="text-primary" href={to.drawings(building.id)}>«Чертежи»</a></Tip>.</>
               : 'Администратор здания ещё не загрузил чертежи.'}
           </p>
         </div>
@@ -59,16 +62,19 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
           <form className="flex flex-wrap gap-2" role="search" onSubmit={e => { e.preventDefault(); location.hash = to.assets(building.id, undefined, q.trim()) }}>
             <div className="relative min-w-48 flex-1">
               <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Инвентарный номер или название" aria-label="Найти объект"
-                className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <Tip label="Ищется и по заводскому номеру; Enter откроет найденное в разделе «Объекты»">
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Инвентарный номер или название" aria-label="Найти объект"
+                  className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              </Tip>
             </div>
-            <Button type="submit" size="sm" variant="outline">Найти</Button>
-            <Button asChild size="sm" variant="outline"><a href={to.scan}><QrCode className="size-4" /> Сканировать QR</a></Button>
+            <Button type="submit" size="sm" variant="outline" hint="Открыть раздел «Объекты» с подходящими по номеру или названию">Найти</Button>
+            <Button asChild size="sm" variant="outline" hint="Прочитать метку на объекте камерой и открыть его карточку; код можно ввести и вручную"><a href={to.scan}><QrCode className="size-4" /> Сканировать QR</a></Button>
           </form>
           <div className="grid gap-3 sm:grid-cols-3" data-testid="summary">
-            {stat('Этажи', String(floors.length), to.plan(building.id), Layers)}
-            {stat('Помещения', String(rooms), to.rooms(building.id), DoorOpen)}
-            {stat('Площадь помещений', `${Math.round(area).toLocaleString('ru')} м²`, to.plan(building.id), MapIcon)}
+            {stat('Этажи', String(floors.length), to.plan(building.id), Layers, 'Открыть поэтажный план здания')}
+            {stat('Помещения', String(rooms), to.rooms(building.id), DoorOpen, 'Открыть список помещений по этажам')}
+            {stat('Площадь помещений', `${Math.round(area).toLocaleString('ru')} м²`, to.plan(building.id), MapIcon,
+              'Сумма площадей всех помещений по чертежам; открыть план')}
           </div>
           {cabinet && cabinet.attention.length > 0 && (
             <div>
@@ -106,9 +112,11 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
         </>
       )}
       {admin && floors.length > 0 && (
-        <a href={to.drawings(building.id)} className="inline-flex items-center gap-1.5 text-sm text-primary">
-          <FileStack className="size-4" /> Чертежи здания
-        </a>
+        <Tip label="Загрузка поэтажных планов DWG/DXF, их сборка в этажи и помещения, проверка новых сборок">
+          <a href={to.drawings(building.id)} className="inline-flex items-center gap-1.5 text-sm text-primary">
+            <FileStack className="size-4" /> Чертежи здания
+          </a>
+        </Tip>
       )}
     </section>
   )

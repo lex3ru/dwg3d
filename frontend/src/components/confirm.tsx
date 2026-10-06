@@ -30,8 +30,9 @@ export function useConfirm() {
         </DialogHeader>
         {st?.typed && <Input autoFocus value={typed} placeholder={st.typed} onChange={(e) => setTyped(e.target.value)} />}
         <DialogFooter>
-          <Button variant="secondary" onClick={() => close(false)}>Отмена</Button>
-          <Button variant={st?.danger ? 'destructive' : 'default'} disabled={!!st?.typed && typed !== st.typed} onClick={() => close(true)}>
+          <Button variant="secondary" hint="Закрыть окно, ничего не меняя; то же делает Esc" onClick={() => close(false)}>Отмена</Button>
+          <Button variant={st?.danger ? 'destructive' : 'default'} disabled={!!st?.typed && typed !== st.typed} onClick={() => close(true)}
+            hint={st?.typed && typed !== st.typed ? `Станет доступно, когда в поле будет введено «${st.typed}»` : undefined}>
             {st?.confirm ?? 'Подтвердить'}
           </Button>
         </DialogFooter>

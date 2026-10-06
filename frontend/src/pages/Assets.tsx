@@ -1,16 +1,35 @@
 import { FileSpreadsheet, QrCode, Search, Upload } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { ApiError, assetsReportUrl, importAssets, labelsSheet, listAssets, STATES, type Asset, type AssetState, type TreeFloor } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 
 const select = 'h-8 rounded-md border bg-card px-2 text-sm'
 
+/** What a state means for the object (the hint of its badge). */
+const STATE_HINTS: Record<AssetState, string> = {
+  in_use: 'Объект исправен и используется',
+  faulty: 'Объект сломан и ждёт ремонта или списания',
+  in_repair: 'Объект отдан в ремонт',
+  in_storage: 'Объект убран на хранение и не используется',
+  retired: 'Объект снят с учёта: свойства не меняются, вернуть его может только администратор здания',
+}
+const NEEDS_HINTS = {
+  placement: 'Помещения или контейнера, где стоял объект, больше нет: ему нужно новое место',
+  fill: 'Заданы не все обязательные свойства объекта',
+}
+
+/** A mark of attention (lists, the cabinet) with what it means. */
+export function NeedsMark({ need, children }: { need: keyof typeof NEEDS_HINTS; children: ReactElement }) {
+  return <Tip label={NEEDS_HINTS[need]}>{children}</Tip>
+}
+
 export function StateBadge({ a }: { a: Asset }) {
-  return <Badge variant={a.state === 'in_use' ? 'default' : a.state === 'faulty' ? 'destructive' : 'warning'}>{STATES[a.state]}</Badge>
+  return <Tip label={STATE_HINTS[a.state]}><Badge variant={a.state === 'in_use' ? 'default' : a.state === 'faulty' ? 'destructive' : 'warning'}>{STATES[a.state]}</Badge></Tip>
 }
 
 /** The objects of a building the user may see: by number, type, state; what needs attention. */
@@ -44,26 +63,35 @@ export function Assets({ building, floors, selected, admin, initialQuery }: {
         <h1 className="mr-1 text-xl font-semibold">Объекты</h1>
         <div className="relative w-56 max-w-full">
           <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Номер или название" aria-label="Поиск объекта"
-            className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <Tip label="Часть названия типа, инвентарного или заводского номера; список сужается по мере ввода">
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Номер или название" aria-label="Поиск объекта"
+              className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </Tip>
         </div>
-        <select className={select} value={state} onChange={e => setState(e.target.value as AssetState | '')} aria-label="Состояние">
-          <option value="">любое состояние</option>
-          {Object.entries(STATES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <select className={select} value={attention} onChange={e => setAttention(e.target.value as typeof attention)} aria-label="Требует внимания">
-          <option value="">все</option>
-          <option value="needs_fill">требует заполнения</option>
-          <option value="needs_placement">требует размещения</option>
-        </select>
-        <span className="text-sm text-muted-foreground" data-testid="assets-total">{total}</span>
-        <Button asChild size="sm" variant="outline" title="Список по текущему фильтру, свойства отдельными столбцами">
+        <Tip label="Оставить в списке объекты в выбранном состоянии; списанные видны, только если выбрать «списан»">
+          <select className={select} value={state} onChange={e => setState(e.target.value as AssetState | '')} aria-label="Состояние">
+            <option value="">любое состояние</option>
+            {Object.entries(STATES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </Tip>
+        <Tip label="Объекты без обязательных свойств или потерявшие место: их помещение или контейнер исчезли">
+          <select className={select} value={attention} onChange={e => setAttention(e.target.value as typeof attention)} aria-label="Требует внимания">
+            <option value="">все</option>
+            <option value="needs_fill">требует заполнения</option>
+            <option value="needs_placement">требует размещения</option>
+          </select>
+        </Tip>
+        <Tip label="Сколько объектов подходит под отбор; список показывает первые 300">
+          <span className="text-sm text-muted-foreground" data-testid="assets-total">{total}</span>
+        </Tip>
+        <Button asChild size="sm" variant="outline" hint="Скачать список объектов по текущему фильтру, свойства — отдельными столбцами">
           <a href={assetsReportUrl({ building_id: building, q, state, [attention || 'x']: attention ? 'true' : undefined })} download><FileSpreadsheet className="size-4" /> В Excel</a>
         </Button>
         {admin && (
           <>
-            <Button size="sm" variant="outline" onClick={() => picker.current?.click()}><Upload className="size-4" /> Из Excel</Button>
-            <Button size="sm" variant="outline" title="Лист QR-меток всех объектов здания (PDF, A4)"
+            <Button size="sm" variant="outline" hint="Добавить объекты из файла .xlsx (столбцы — ниже): при ошибке в любой строке не добавится ни один"
+              onClick={() => picker.current?.click()}><Upload className="size-4" /> Из Excel</Button>
+            <Button size="sm" variant="outline" hint="Скачать PDF (A4) с QR-метками всех объектов здания — для печати и наклейки"
               onClick={() => labelsSheet({ building_id: building }).catch((ex: Error) => setError(ex.message))}><QrCode className="size-4" /> Метки</Button>
             <input ref={picker} type="file" accept=".xlsx" className="hidden" data-testid="assets-file"
               onChange={e => {
@@ -106,8 +134,8 @@ export function Assets({ building, floors, selected, admin, initialQuery }: {
                 <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span>
                   <span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
                 <span className="text-muted-foreground max-sm:hidden">{room(a)}</span>
-                {a.needs_placement && <Badge variant="warning">разместить</Badge>}
-                {a.needs_fill && <Badge variant="warning">заполнить</Badge>}
+                {a.needs_placement && <NeedsMark need="placement"><Badge variant="warning">разместить</Badge></NeedsMark>}
+                {a.needs_fill && <NeedsMark need="fill"><Badge variant="warning">заполнить</Badge></NeedsMark>}
                 <StateBadge a={a} />
               </a>
             </li>
