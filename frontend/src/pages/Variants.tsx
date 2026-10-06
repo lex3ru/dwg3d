@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
+import { showingVariant } from '../scene/systems'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 
@@ -91,7 +92,7 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
     try {
       const key = `dwg3d.layers.${building}`
       const saved = JSON.parse(localStorage.getItem(key) ?? '{}')
-      localStorage.setItem(key, JSON.stringify({ ...saved, active: `variant:${v.id}`, variants: { ...saved.variants, assets: `variant:${v.id}` } }))
+      localStorage.setItem(key, JSON.stringify({ ...saved, active: `variant:${v.id}`, variants: { ...saved.variants, ...showingVariant(v.id) } }))
     } catch { /* private mode: the editor opens on the fact */ }
     if (editor) location.hash = to.editor(editor)
   }
