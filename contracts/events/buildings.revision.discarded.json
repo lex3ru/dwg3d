@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.revision.discarded",
+  "description": "Черновик ревизии отброшен: здание осталось прежним. subject — ревизия.",
+  "type": "object",
+  "required": [
+    "revision_id",
+    "drawing_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

@@ -148,7 +148,7 @@ test('a person assigned to a room sees it without any grant by hand; rights foll
       expect(r.status()).toBe(200)
     }
   } finally {
-    compose('start journal')
+    compose('up -d --wait journal')
   }
   await expect.poll(async () => (await feed()).length, { timeout: 60_000, intervals: [2000] }).toBe(before + 2)
   await new Promise(r => setTimeout(r, 3000))

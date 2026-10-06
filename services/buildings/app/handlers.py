@@ -5,15 +5,15 @@ import logging
 import os
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from twin_chassis import emit
+from twin_chassis import emit, uuid7
 from twin_chassis.bus import Bus
 from twin_chassis.client import ServiceClient
 
 from . import publish
-from .models import buildings, drawings, floors, rooms
+from .models import buildings, drawings, floors, revisions, rooms
 
 log = logging.getLogger("twin.buildings.handlers")
 
@@ -43,6 +43,9 @@ def register(bus: Bus, client: ServiceClient) -> None:
     async def drawing_deleted(session: AsyncSession, event: dict) -> None:
         """The floors and rooms of a deleted drawing are retired, not deleted: others may refer to them."""
         drawing_id = UUID(event["data"]["drawing_id"])
+        await session.execute(update(revisions).where(
+            revisions.c.drawing_id == drawing_id, revisions.c.status == "draft").values(
+            status="discarded", proposal=None, result=None, plans=None, decided_by="deleted"))
         floor_ids = [i for (i,) in await session.execute(select(floors.c.id).where(floors.c.drawing_id == drawing_id))]
         if not floor_ids:
             await session.execute(drawings.delete().where(drawings.c.id == drawing_id))
@@ -70,8 +73,10 @@ def register(bus: Bus, client: ServiceClient) -> None:
         await session.execute(pg_insert(drawings).values(id=drawing_id, building_id=UUID(event["building_id"]))
                               .on_conflict_do_nothing())
         drawing = (await session.execute(select(drawings).where(drawings.c.id == drawing_id).with_for_update())).one()
-        if drawing.build_n >= data["n"]:
-            return                                  # an older build arriving late
+        latest = (await session.execute(select(func.max(revisions.c.n))
+                                        .where(revisions.c.drawing_id == drawing_id))).scalar()
+        if max(drawing.build_n, latest or 0) >= data["n"]:
+            return                                  # an older build arriving late, or this one again
         r = await client.get("import", f"/builds/{data['build_id']}/result")
         if r.status_code == 404:
             log.warning("build %s is gone from import", data["build_id"])
@@ -84,9 +89,33 @@ def register(bus: Bus, client: ServiceClient) -> None:
                 p = await client.get("import", f"/builds/{data['build_id']}/files/{f['plan']}")
                 p.raise_for_status()
                 plans[f["id"]] = p.json()
-        summary = await publish.publish(session, drawing, body["build"], result, plans)
-        log.info("build %s published: %s", data["build_id"], {k: {a: len(b) for a, b in v.items()}
-                                                              for k, v in summary.items()})
+        if drawing.build_id is None:                # the first build of the drawing is the building at once
+            summary = await publish.publish(session, drawing, body["build"], result, plans)
+            log.info("build %s published", data["build_id"])
+            return
+        proposal = await publish.propose(session, drawing, result, plans)
+        explained = await publish.explain(session, drawing, plans, proposal)
+        if publish.loses_nothing(explained):        # only adds and keeps: nobody needs to look first
+            revision_id = uuid7()
+            summary = await publish.apply(session, drawing, body["build"], result, plans, proposal, revision_id)
+            await session.execute(insert(revisions).values(
+                id=revision_id, building_id=drawing.building_id, drawing_id=drawing_id,
+                build_id=UUID(data["build_id"]), n=data["n"], status="published", summary=summary,
+                published_at=func.now(), decided_by="auto"))
+            log.info("build %s published: it retires nothing", data["build_id"])
+            return
+        # it would retire rooms or floors: a draft for the administrator; an older draft gives way
+        await session.execute(update(revisions).where(
+            revisions.c.drawing_id == drawing_id, revisions.c.status == "draft").values(
+            status="discarded", proposal=None, result=None, plans=None, decided_by="superseded"))
+        revision_id = uuid7()
+        await session.execute(insert(revisions).values(
+            id=revision_id, building_id=drawing.building_id, drawing_id=drawing_id, build_id=UUID(data["build_id"]),
+            n=data["n"], status="draft", summary=explained["count"], proposal=proposal, result=result, plans=plans))
+        await emit(session, "buildings.revision.drafted", ("revision", revision_id),
+                   {"revision_id": str(revision_id), "drawing_id": str(drawing_id), "build_id": data["build_id"],
+                    "count": explained["count"]}, building_id=drawing.building_id)
+        log.info("build %s waits as a draft: %s", data["build_id"], explained["count"])
 
 
 def services() -> dict[str, str]:

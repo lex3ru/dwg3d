@@ -222,3 +222,19 @@ async def test_reconciliation_restores_and_removes_automatic_grants(client, app,
     assert (await client.post(f"{API}/reconcile", headers=me)).status_code == 403
     sources.up = False
     assert (await client.post(f"{API}/reconcile", headers=tokens.admin())).status_code == 503
+
+
+async def test_rights_on_merged_rooms_go_to_the_heir(client, app, tokens, people):
+    from twin_chassis.events import envelope
+    person, me = await people.person("worker")
+    other_room = str(uuid4())
+    admin = tokens.admin()
+    await client.post(f"{API}/grants", json=grant(person, "viewer", "room", other_room), headers=admin)
+    await client.post(f"{API}/grants", json=grant(person, "responsible", "room", other_room), headers=admin)
+    await client.post(f"{API}/grants", json=grant(person, "viewer", "room", ROOM), headers=admin)
+    merged = envelope("buildings.room.merged", ("room", ROOM), {"from": [other_room], "into": ROOM, "floor_id": FLOOR},
+                      actor={"kind": "user", "id": "boss"}, building_id=B1, room_id=ROOM)
+    assert await app.state.bus.handle("room-merged", merged) is True
+    mine = sorted((g["role"], g["scope"]["id"]) for g in (await scopes(client, me))["grants"])
+    assert mine == [("responsible", ROOM), ("viewer", ROOM)]
+

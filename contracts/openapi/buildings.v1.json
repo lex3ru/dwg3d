@@ -293,6 +293,78 @@
         "title": "Ids",
         "type": "object"
       },
+      "Match": {
+        "properties": {
+          "candidate": {
+            "description": "Этаж сборки",
+            "title": "Candidate",
+            "type": "string"
+          },
+          "idx": {
+            "description": "Номер помещения в плане этажа сборки",
+            "title": "Idx",
+            "type": "integer"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Известное помещение, которое оно продолжает; null — новое",
+            "title": "Room Id"
+          }
+        },
+        "required": [
+          "candidate",
+          "idx",
+          "room_id"
+        ],
+        "title": "Match",
+        "type": "object"
+      },
+      "Matches": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Matches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "title": "Matches",
+        "type": "object"
+      },
+      "Merge": {
+        "properties": {
+          "with": {
+            "description": "Помещения, которые войдут в это",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "With",
+            "type": "array"
+          }
+        },
+        "required": [
+          "with"
+        ],
+        "title": "Merge",
+        "type": "object"
+      },
       "PinIn": {
         "properties": {
           "floor_id": {
@@ -585,6 +657,84 @@
           "lon"
         ],
         "title": "Site",
+        "type": "object"
+      },
+      "Split": {
+        "properties": {
+          "heir": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Какая часть сохраняет помещение; по умолчанию — большая",
+            "title": "Heir"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "maxItems": 50,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Линия раздела в координатах плана этажа, м",
+            "title": "Line"
+          },
+          "parts": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "items": {
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "maxItems": 20,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Или сами части: контуры [кольца]",
+            "title": "Parts"
+          }
+        },
+        "title": "Split",
         "type": "object"
       },
       "ValidationError": {
@@ -1264,6 +1414,68 @@
         ]
       }
     },
+    "/api/buildings/v1/buildings/{building_id}/revisions": {
+      "get": {
+        "operationId": "list_revisions_api_buildings_v1_buildings__building_id__revisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "drawing_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Drawing Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Revisions Api Buildings V1 Buildings  Building Id  Revisions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ревизии чертежей здания",
+        "tags": [
+          "revisions"
+        ]
+      }
+    },
     "/api/buildings/v1/buildings/{building_id}/site": {
       "put": {
         "operationId": "put_site_api_buildings_v1_buildings__building_id__site_put",
@@ -1901,6 +2113,196 @@
         ]
       }
     },
+    "/api/buildings/v1/revisions/{revision_id}": {
+      "get": {
+        "operationId": "get_revision_api_buildings_v1_revisions__revision_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Revision Api Buildings V1 Revisions  Revision Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ревизия; у черновика — различия: какие помещения узнаны, новые, сняты, с другим контуром",
+        "tags": [
+          "revisions"
+        ]
+      }
+    },
+    "/api/buildings/v1/revisions/{revision_id}/discard": {
+      "post": {
+        "operationId": "discard_revision_api_buildings_v1_revisions__revision_id__discard_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Discard Revision Api Buildings V1 Revisions  Revision Id  Discard Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Отбросить черновик: здание остаётся прежним",
+        "tags": [
+          "revisions"
+        ]
+      }
+    },
+    "/api/buildings/v1/revisions/{revision_id}/matches": {
+      "patch": {
+        "operationId": "patch_matches_api_buildings_v1_revisions__revision_id__matches_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Matches"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Matches Api Buildings V1 Revisions  Revision Id  Matches Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Поправить сопоставление: какое известное помещение продолжает помещение сборки",
+        "tags": [
+          "revisions"
+        ]
+      }
+    },
+    "/api/buildings/v1/revisions/{revision_id}/publish": {
+      "post": {
+        "operationId": "publish_revision_api_buildings_v1_revisions__revision_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Publish Revision Api Buildings V1 Revisions  Revision Id  Publish Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Опубликовать черновик: сборка становится состоянием здания",
+        "tags": [
+          "revisions"
+        ]
+      }
+    },
     "/api/buildings/v1/rooms": {
       "get": {
         "operationId": "list_rooms_api_buildings_v1_rooms_get",
@@ -2152,6 +2554,116 @@
           }
         },
         "summary": "Название, номер и тип помещения; заданное вручную переживает новую сборку чертежа",
+        "tags": [
+          "rooms"
+        ]
+      }
+    },
+    "/api/buildings/v1/rooms/{room_id}/merge": {
+      "post": {
+        "operationId": "merge_rooms_api_buildings_v1_rooms__room_id__merge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Merge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Merge Rooms Api Buildings V1 Rooms  Room Id  Merge Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Объединить помещения: это — наследник; объекты, люди и права остальных переходят к нему",
+        "tags": [
+          "rooms"
+        ]
+      }
+    },
+    "/api/buildings/v1/rooms/{room_id}/split": {
+      "post": {
+        "operationId": "split_room_api_buildings_v1_rooms__room_id__split_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "room_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Room Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Split"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Split Room Api Buildings V1 Rooms  Room Id  Split Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Разделить помещение линией или на заданные части; объекты — по своим точкам",
         "tags": [
           "rooms"
         ]

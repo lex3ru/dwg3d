@@ -44,6 +44,8 @@ class World:
         self.persons: dict[str, str] = {}                # account -> person id
         self.up = {"access": True, "buildings": True, "catalog": True}
         self.forget = lambda: None                      # drops what the service remembers of anyone's scopes
+        # the rooms of the floor as the buildings service would locate them; a test may redraw them
+        self.room_at = lambda x: ROOM_A if 0 <= x < 5 else ROOM_B if 5 <= x < 10 else None
         self.scope = prop("service_next", "Дата следующего ТО", "date", by="responsible")
         self.types = {
             "scope": kind("Гастроскоп", self.scope, prop("made", "Год выпуска", "number"),
@@ -79,8 +81,7 @@ class World:
                 return httpx.Response(200, json={"floors": [{"id": FLOOR, "name": "План 1-го этажа", "level": 1}]})
             if not path.endswith(f"/floors/{FLOOR}/locate"):
                 return httpx.Response(404, json={"code": "not_found"})
-            rooms = [ROOM_A if 0 <= x < 5 else ROOM_B if 5 <= x < 10 else None
-                     for x, _ in json.loads(request.content)["points"]]
+            rooms = [self.room_at(x) for x, _ in json.loads(request.content)["points"]]
             return httpx.Response(200, json={"building_id": BUILDING, "rooms": rooms})
         if path.endswith("/types"):
             return httpx.Response(200, json={"items": list(self.types.values())})

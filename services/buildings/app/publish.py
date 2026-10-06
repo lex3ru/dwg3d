@@ -6,8 +6,10 @@ extra) — so a floor and a room keep their ids from build to build, and
 whatever refers to them stays attached. What is not found any more is not
 deleted but retired.
 
-Until revisions can be reviewed before publishing (stage 7) every build is
-published as soon as it is finished.
+Two steps: `propose` says what a build would do (which floor and room of the
+build continues which known one, what would be retired) without changing
+anything; `apply` does it. The proposal is what a draft revision keeps and an
+administrator corrects before publishing.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from twin_chassis import emit, uuid7
 
-from .models import drawings, floor_plans, floors, revisions, rooms
+from .models import comments, drawings, floor_plans, floors, revisions, rooms
 
 NODE_RE = re.compile(r"^floor_(.+)_room_(\d+)$")
 SHEET_MIN_IOU = 0.5
@@ -118,31 +120,131 @@ def locate(room_rows: list, points: list[list[float]]) -> list[UUID | None]:
     return out
 
 
-# ----------------------------------------------------------------- publish ---
-async def publish(session: AsyncSession, drawing, build: dict, result: dict, plans: dict[str, dict]) -> dict:
-    """Apply the build to the drawing's floors and rooms; returns the summary of what changed.
-    `plans`: the plan JSON of each floor by its id in the build."""
-    building_id, drawing_id = drawing.building_id, drawing.id
-    revision_id = uuid7()
+# ---------------------------------------------------------------- propose ---
+async def _known(session: AsyncSession, drawing_id: UUID) -> tuple[list, list]:
+    """The drawing's floors (matched first by their place in the last build) and their rooms; rooms merged
+    into others are not candidates any more."""
+    floor_rows = (await session.execute(select(floors).where(floors.c.drawing_id == drawing_id)
+                                        .order_by(floors.c.candidate.is_(None), floors.c.id))).all()
+    room_rows = (await session.execute(select(rooms).where(
+        rooms.c.floor_id.in_([r.id for r in floor_rows] or [uuid7()]), rooms.c.merged_into.is_(None)))).all()
+    return floor_rows, room_rows
+
+
+def _plan_rooms(plan: dict | None) -> list[tuple[int, dict]]:
+    return [(i, r) for i, r in enumerate((plan or {}).get("rooms") or []) if r.get("poly")]
+
+
+async def propose(session: AsyncSession, drawing, result: dict, plans: dict[str, dict]) -> dict:
+    """What the build would do, nothing changed: {floors, moves, rooms} — each floor of the build with the known
+    floor it continues (or none), each room of the build with the known room it continues (or none)."""
     new_floors = [f for f in result.get("floors") or [] if f.get("bbox")]
     sheets = [SimpleNamespace(id=f["id"], space=f.get("space", "Model"), owner=f.get("owner"), bbox=f["bbox"])
               for f in new_floors]
-
-    # ---- floors
-    floor_rows = (await session.execute(select(floors).where(floors.c.drawing_id == drawing_id)
-                                        .order_by(floors.c.candidate.is_(None), floors.c.id))).all()
+    floor_rows, room_rows = await _known(session, drawing.id)
     taken: dict[str, object] = {}
     for row in floor_rows:
         hit = match_sheet(row.anchor, [s for s in sheets if s.id not in taken], prefer_id=row.candidate)
         if hit is not None:
             taken[hit.id] = row
+    moves: dict[str, list[float]] = {}
+    out_floors = []
+    for f in new_floors:
+        row = taken.get(f["id"])
+        if row is not None:
+            ox, oy = row.anchor.get("offset") or (0.0, 0.0)
+            nx, ny = f.get("offset") or (0.0, 0.0)
+            moves[str(row.id)] = [nx - ox, ny - oy]
+        out_floors.append({"candidate": f["id"], "floor_id": str(row.id) if row is not None else None,
+                           "name": f.get("name") or "", "level": f.get("level")})
+    by_floor = _shifted(room_rows, moves)
+    out_rooms = []
+    for f in new_floors:
+        row = taken.get(f["id"])
+        found = _plan_rooms(plans.get(f["id"]))
+        matched = match_rooms([r for _, r in found], by_floor.get(row.id, []) if row is not None else [])
+        for k, (idx, r) in enumerate(found):
+            old = matched.get(k)
+            out_rooms.append({"candidate": f["id"], "idx": idx, "name": r.get("name") or "",
+                              "area": round(float(r.get("area") or 0.0), 2),
+                              "room_id": str(old.id) if old is not None else None, "auto": True})
+    return {"floors": out_floors, "moves": moves, "rooms": out_rooms}
+
+
+def _shifted(room_rows: list, moves: dict[str, list[float]]) -> dict[UUID, list]:
+    """Known rooms by floor, moved as their floor is aligned in the build."""
+    by_floor: dict[UUID, list] = {}
+    for row in room_rows:
+        dx, dy = moves.get(str(row.floor_id), (0.0, 0.0))
+        if dx or dy:
+            row = SimpleNamespace(**{**row._mapping, "polygon": _shift(row.polygon, dx, dy)})
+        by_floor.setdefault(row.floor_id, []).append(row)
+    return by_floor
+
+
+async def explain(session: AsyncSession, drawing, plans: dict[str, dict], proposal: dict) -> dict:
+    """The proposal as differences to look at: each room of the build — new, the same, renamed, with a changed
+    outline; the known rooms that would be retired; for each floor, the known rooms one may pick instead."""
+    floor_rows, room_rows = await _known(session, drawing.id)
+    by_floor = _shifted(room_rows, proposal.get("moves") or {})
+    known = {str(r.id): r for rows in by_floor.values() for r in rows}
+    of_floor = {f["candidate"]: f["floor_id"] for f in proposal["floors"]}
+    polys = {(cand, i): r["poly"] for cand, plan in plans.items() for i, r in _plan_rooms(plan)}
+    rooms_out, used = [], set()
+    for r in proposal["rooms"]:
+        old = known.get(r["room_id"]) if r["room_id"] else None
+        changes = []
+        if old is None:
+            changes = ["new"]
+        else:
+            used.add(r["room_id"])
+            if old.status != "active":
+                changes.append("returned")
+            if "name" not in old.manual and (r["name"] or "") != (old.name or ""):
+                changes.append("name")
+            if _iou(polygon(polys.get((r["candidate"], r["idx"])) or [[]]), polygon(old.polygon)) < 0.995:
+                changes.append("outline")
+        rooms_out.append({**r, "floor_id": of_floor.get(r["candidate"]), "old_name": old.name if old else None,
+                          "changes": changes})
+    active_floors = {f["floor_id"] for f in proposal["floors"] if f["floor_id"]}
+    retired = [{"id": str(row.id), "name": row.name, "floor_id": str(row.floor_id), "area": round(row.area, 2)}
+               for row in room_rows if row.status == "active" and str(row.id) not in used]
+    floors_retired = [str(f.id) for f in floor_rows if f.status == "active" and str(f.id) not in active_floors]
+    choices = {fid: [{"id": str(r.id), "name": r.name, "area": round(r.area, 2)} for r in rows if r.status == "active"]
+               for fid, rows in ((str(k), v) for k, v in by_floor.items())}
+    count = {"new": sum("new" in r["changes"] for r in rooms_out),
+             "same": sum(not r["changes"] for r in rooms_out),
+             "changed": sum(bool(r["changes"]) and "new" not in r["changes"] for r in rooms_out),
+             "retired": len(retired), "floors_new": sum(f["floor_id"] is None for f in proposal["floors"]),
+             "floors_retired": len(floors_retired)}
+    return {"floors": proposal["floors"], "rooms": rooms_out, "retired": retired, "floors_retired": floors_retired,
+            "choices": choices, "count": count}
+
+
+def loses_nothing(explained: dict) -> bool:
+    """A build that only adds and keeps — no room or floor retired — needs nobody's review."""
+    return not explained["retired"] and not explained["floors_retired"]
+
+
+# ------------------------------------------------------------------ apply ---
+async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans: dict[str, dict], proposal: dict,
+                revision_id: UUID) -> dict:
+    """Make the build the state of the building as the proposal says; returns the summary of what changed."""
+    building_id, drawing_id = drawing.building_id, drawing.id
+    new_floors = [f for f in result.get("floors") or [] if f.get("bbox")]
+    floor_rows, room_rows = await _known(session, drawing_id)
+    by_id = {r.id: r for r in floor_rows}
+    floor_of = {f["candidate"]: UUID(f["floor_id"]) if f["floor_id"] else None for f in proposal["floors"]}
+    room_of = {(r["candidate"], r["idx"]): UUID(r["room_id"]) if r["room_id"] else None for r in proposal["rooms"]}
+    moves = proposal.get("moves") or {}
+
+    # ---- floors
     floor_ids: dict[str, UUID] = {}
-    moves: dict[UUID, tuple[float, float]] = {}
     summary = {"floors": {"created": [], "retired": []}, "rooms": {"created": [], "changed": [], "retired": []}}
     for row in floor_rows:                                  # ids in the build may swap between floors: clear first
         await session.execute(update(floors).where(floors.c.id == row.id).values(candidate=None))
     for f in new_floors:
-        row = taken.get(f["id"])
+        row = by_id.get(floor_of.get(f["id"])) if floor_of.get(f["id"]) else None
         values = {"anchor": anchor_of(f), "candidate": f["id"], "level": f.get("level"),
                   "elevation": float(f.get("elevation") or 0.0), "height": float(f.get("height") or 0.0),
                   "status": "active", "revision_id": revision_id}
@@ -153,9 +255,6 @@ async def publish(session: AsyncSession, drawing, build: dict, result: dict, pla
             summary["floors"]["created"].append(str(fid))
         else:
             fid = row.id
-            ox, oy = row.anchor.get("offset") or (0.0, 0.0)
-            nx, ny = f.get("offset") or (0.0, 0.0)
-            moves[fid] = (nx - ox, ny - oy)
             if "name" not in row.manual:
                 values["name"] = f.get("name") or ""
             await session.execute(update(floors).where(floors.c.id == fid)
@@ -168,16 +267,9 @@ async def publish(session: AsyncSession, drawing, build: dict, result: dict, pla
         summary["floors"]["retired"] = [str(i) for i in lost_floors]
 
     # ---- rooms
-    room_rows = (await session.execute(select(rooms).where(
-        rooms.c.floor_id.in_([r.id for r in floor_rows] or [uuid7()])))).all()
-    by_floor: dict[UUID, list] = {}
-    for row in room_rows:
-        dx, dy = moves.get(row.floor_id, (0.0, 0.0))
-        if dx or dy:                                        # the floor was aligned differently: its rooms moved with it
-            row = SimpleNamespace(**{**row._mapping, "polygon": _shift(row.polygon, dx, dy)})
-        by_floor.setdefault(row.floor_id, []).append(row)
-    retired: list = [row for fid in lost_floors for row in by_floor.get(fid, []) if row.status == "active"]
+    known = {row.id: row for rows in _shifted(room_rows, moves).values() for row in rows}
     room_ids: dict[tuple[str, int], UUID] = {}
+    kept: set[UUID] = set()
     for f in new_floors:
         fid, plan = floor_ids[f["id"]], plans.get(f["id"])
         if plan is None:
@@ -189,37 +281,32 @@ async def publish(session: AsyncSession, drawing, build: dict, result: dict, pla
         for m in f.get("rooms") or []:
             if (hit := NODE_RE.match(m.get("node", ""))) and hit.group(1) == f["id"]:
                 meta[int(hit.group(2))] = m
-        new_rooms = [r for r in plan.get("rooms") or [] if r.get("poly")]
-        indexes = [i for i, r in enumerate(plan.get("rooms") or []) if r.get("poly")]
-        old = by_floor.get(fid, [])
-        matched = match_rooms(new_rooms, old)
-        for k, r in enumerate(new_rooms):
-            idx = indexes[k]
+        for idx, r in _plan_rooms(plan):
             m = meta.get(idx, {})
             label = {key: m[key] for key in ("label_pos", "label_angle", "label_w", "label_d") if key in m}
             values = {"idx": idx, "area": float(r.get("area") or 0.0), "polygon": r["poly"], "label": label,
-                      "status": "active", "retired_at": None, "revision_id": revision_id}
-            row = matched.get(k)
+                      "status": "active", "retired_at": None, "revision_id": revision_id, "floor_id": fid}
+            row = known.get(room_of.get((f["id"], idx)))
             if row is None:
                 rid = uuid7()
-                await session.execute(insert(rooms).values(id=rid, building_id=building_id, floor_id=fid,
+                await session.execute(insert(rooms).values(id=rid, building_id=building_id,
                                                            name=r.get("name") or "", type=m.get("type"), **values))
                 summary["rooms"]["created"].append(str(rid))
             else:
                 rid = row.id
+                kept.add(rid)
                 if "name" not in row.manual:
                     values["name"] = r.get("name") or ""
                 if "type" not in row.manual:
                     values["type"] = m.get("type")
                 outline = _iou(polygon(r["poly"]), polygon(row.polygon)) < 0.995
-                if outline or row.status != "active" or any(
+                if outline or row.status != "active" or row.floor_id != fid or any(
                         getattr(row, key) != values[key] for key in ("name", "type") if key in values):
                     summary["rooms"]["changed"].append({"id": str(rid), "outline": outline})
                 await session.execute(update(rooms).where(rooms.c.id == rid)
                                       .values(**values, version=rooms.c.version + 1))
             room_ids[(f["id"], idx)] = rid
-        kept = {row.id for row in matched.values()}
-        retired += [row for row in old if row.id not in kept and row.status == "active"]
+    retired = [row for row in room_rows if row.status == "active" and row.id not in kept]
     if retired:
         await session.execute(update(rooms).where(rooms.c.id.in_([r.id for r in retired])).values(
             status="retired", retired_at=func.now(), idx=None, version=rooms.c.version + 1))
@@ -236,16 +323,31 @@ async def publish(session: AsyncSession, drawing, build: dict, result: dict, pla
     await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(
         build_id=UUID(build["id"]), build_n=build["n"], result=result, updated_at=func.now(),
         version=drawings.c.version + 1))
-    await session.execute(insert(revisions).values(
-        id=revision_id, building_id=building_id, drawing_id=drawing_id, build_id=UUID(build["id"]), n=build["n"],
-        status="published", summary=summary, published_at=func.now()))
 
+    # a floor aligned differently in this build: what stands on it by a point moves with it
+    shifted = {fid: [round(dx, 4), round(dy, 4)] for fid, (dx, dy) in moves.items()
+               if (dx or dy) and UUID(fid) in set(floor_ids.values())}
+    for fid, (dx, dy) in shifted.items():
+        await session.execute(update(comments).where(comments.c.floor_id == UUID(fid), comments.c.x.is_not(None))
+                              .values(x=comments.c.x + dx, y=comments.c.y + dy))
+    summary["moves"] = shifted
     await emit(session, "buildings.revision.published", ("revision", revision_id),
                {"revision_id": str(revision_id), "drawing_id": str(drawing_id), "build_id": build["id"],
                 "floors": {**summary["floors"], "active": [str(i) for i in floor_ids.values()]},
-                "rooms": summary["rooms"]}, building_id=building_id)
+                "rooms": summary["rooms"], "moves": shifted}, building_id=building_id)
     for row in retired:
         await emit(session, "buildings.room.retired", ("room", row.id),
                    {"room_id": str(row.id), "floor_id": str(row.floor_id)},
                    building_id=building_id, floor_id=row.floor_id, room_id=row.id)
+    return summary
+
+
+async def publish(session: AsyncSession, drawing, build: dict, result: dict, plans: dict[str, dict]) -> dict:
+    """Propose and apply at once (the first build of a drawing, or one that loses nothing)."""
+    revision_id = uuid7()
+    proposal = await propose(session, drawing, result, plans)
+    summary = await apply(session, drawing, build, result, plans, proposal, revision_id)
+    await session.execute(insert(revisions).values(
+        id=revision_id, building_id=drawing.building_id, drawing_id=drawing.id, build_id=UUID(build["id"]),
+        n=build["n"], status="published", summary=summary, published_at=func.now()))
     return summary

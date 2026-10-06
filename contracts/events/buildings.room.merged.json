@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.room.merged",
+  "description": "Помещения объединены вручную: всё, что было в `from`, переходит наследнику `into`. subject — наследник.",
+  "type": "object",
+  "required": [
+    "from",
+    "into",
+    "floor_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "into": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "floor_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

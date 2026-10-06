@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.room.split",
+  "description": "Помещение разделено вручную: наследник `heir` (тот же id) и новые части; объекты — по своим точкам. subject — исходное помещение.",
+  "type": "object",
+  "required": [
+    "from",
+    "into",
+    "heir",
+    "floor_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "into": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "heir": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "floor_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

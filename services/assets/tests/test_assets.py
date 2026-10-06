@@ -376,3 +376,65 @@ async def test_responsibles_for_the_reconciliation_of_rights(client, world, boss
     rows = (await client.get(f"{API}/responsibles", headers=svc)).json()["items"]
     assert rows == [{"asset_id": a["id"], "person_id": person, "building_id": BUILDING}]
     assert (await client.get(f"{API}/responsibles", headers=keeper)).status_code == 403
+
+
+async def test_a_new_revision_of_the_drawing_rehouses_objects_by_their_points(client, app, world, boss):
+    from twin_chassis.events import envelope
+    a = await put(client, boss, world, "scope", "РВ-0001", x=2.0)
+    b = await put(client, boss, world, "couch", "РВ-0002", x=7.0)
+    c = await put(client, boss, world, "couch", "РВ-0003", x=8.0)
+    box = await put(client, boss, world, "rack", "РВ-0004", x=7.5)
+    inner = await client.post(f"{API}/assets/{a['id']}/move", headers=boss,
+                              json={"container_id": box["id"], "version": a["version"]})
+    assert inner.status_code == 200
+    # the new revision: room B split at x = 7.5 into B (left) and C (right); the part beyond x = 9 is gone
+    room_c = str(uuid4())
+    world.room_at = lambda x: ROOM_A if 0 <= x < 5 else ROOM_B if 5 <= x < 7.6 else room_c if 7.6 <= x < 8.5 else None
+    data = {"revision_id": str(uuid4()), "drawing_id": str(uuid4()), "build_id": str(uuid4()),
+            "floors": {"created": [], "retired": [], "active": [FLOOR]},
+            "rooms": {"created": [room_c], "changed": [{"id": ROOM_B, "outline": True}], "retired": []}}
+    event = envelope("buildings.revision.published", ("revision", data["revision_id"]), data,
+                     actor={"kind": "service", "id": "buildings"}, building_id=BUILDING)
+    assert await app.state.bus.handle("revision-published", event) is True
+    now = {x["inventory_no"]: x for x in (await client.get(f"{API}/assets", params={"building_id": BUILDING},
+                                                           headers=boss)).json()["items"]}
+    assert now["РВ-0002"]["room_id"] == ROOM_B and not now["РВ-0002"]["needs_placement"]
+    assert now["РВ-0003"]["room_id"] == room_c
+    assert now["РВ-0004"]["room_id"] == ROOM_B and now["РВ-0001"]["room_id"] == ROOM_B     # inside the rack, with it
+    history = (await client.get(f"{API}/assets/{c['id']}/history", headers=boss)).json()["items"]
+    assert history[0]["action"] == "moved" and history[0]["reason"] == "Помещение уточнено по новой версии чертежа"
+    # the next revision takes the right part away: what stood there waits to be placed, and is found by the filter
+    world.room_at = lambda x: ROOM_A if 0 <= x < 5 else ROOM_B if 5 <= x < 7.6 else None
+    data = {**data, "revision_id": str(uuid4()),
+            "rooms": {"created": [], "changed": [], "retired": [room_c]}}
+    event = envelope("buildings.revision.published", ("revision", data["revision_id"]), data,
+                     actor={"kind": "service", "id": "buildings"}, building_id=BUILDING)
+    assert await app.state.bus.handle("revision-published", event) is True
+    waiting = (await client.get(f"{API}/assets", params={"needs_placement": "true"}, headers=boss)).json()["items"]
+    assert [x["inventory_no"] for x in waiting] == ["РВ-0003"] and waiting[0]["room_id"] == room_c
+    # a revision aligning the floor 1 m further: the points move with it, and so into the next room
+    data = {**data, "revision_id": str(uuid4()), "rooms": {"created": [], "changed": [], "retired": []},
+            "moves": {FLOOR: [-1.0, 0.0]}}
+    event = envelope("buildings.revision.published", ("revision", data["revision_id"]), data,
+                     actor={"kind": "service", "id": "buildings"}, building_id=BUILDING)
+    assert await app.state.bus.handle("revision-published", event) is True
+    now = await get(client, boss, b)
+    assert (now["x"], now["room_id"]) == (6.0, ROOM_B)
+
+
+async def test_merged_and_split_rooms_carry_their_objects(client, app, world, boss):
+    from twin_chassis.events import envelope
+    a = await put(client, boss, world, "couch", "ОБ-0001", x=2.0)
+    b = await put(client, boss, world, "couch", "ОБ-0002", x=7.0)
+    merged = envelope("buildings.room.merged", ("room", ROOM_A), {"from": [ROOM_B], "into": ROOM_A, "floor_id": FLOOR},
+                      actor={"kind": "user", "id": "boss"}, building_id=BUILDING, floor_id=FLOOR, room_id=ROOM_A)
+    assert await app.state.bus.handle("room-merged", merged) is True
+    assert (await get(client, boss, b))["room_id"] == ROOM_A
+    # split again: the object at x = 7 goes to the new part
+    part = str(uuid4())
+    world.room_at = lambda x: ROOM_A if 0 <= x < 5 else part if 5 <= x < 10 else None
+    split = envelope("buildings.room.split", ("room", ROOM_A),
+                     {"from": ROOM_A, "into": [part], "heir": ROOM_A, "floor_id": FLOOR},
+                     actor={"kind": "user", "id": "boss"}, building_id=BUILDING, floor_id=FLOOR, room_id=ROOM_A)
+    assert await app.state.bus.handle("room-split", split) is True
+    assert (await get(client, boss, a))["room_id"] == ROOM_A and (await get(client, boss, b))["room_id"] == part

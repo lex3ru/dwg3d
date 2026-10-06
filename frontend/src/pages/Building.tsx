@@ -5,6 +5,7 @@ import {
   deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
   type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
+import { RevisionReview } from '../components/RevisionReview'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -24,6 +25,7 @@ export function Building({ id }: { id: string }) {
   const [live, setLive] = useState<Record<string, { progress: number; message: string }>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [reviewing, setReviewing] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const target = useRef<string | null>(null)        // the drawing a picked file is a new version of
 
@@ -80,8 +82,12 @@ export function Building({ id }: { id: string }) {
               const b = d.build
               const place = placed.find(p => p.id === d.id)
               const shown = place?.build_id
+              const revision = place?.revision
+              // a build that would retire rooms waits for the administrator; one discarded is not waited for
+              const draft = revision?.status === 'draft' && revision.n === b?.n ? revision : null
+              const decided = !!b && !!revision && revision.n >= b.n
               // built, but the building follows the event and may be a moment behind
-              const publishing = b?.status === 'done' && shown !== b.id
+              const publishing = b?.status === 'done' && shown !== b.id && !decided
               const [label, tone] = publishing ? STATUS.running : STATUS[b?.status ?? 'queued']
               const running = b?.status === 'queued' || b?.status === 'running' || publishing
               const now = live[d.id]
@@ -106,6 +112,18 @@ export function Building({ id }: { id: string }) {
                       </div>
                     )}
                     {b?.status === 'error' && <div role="alert" className="mt-1 text-sm text-destructive">{b.error}</div>}
+                    {draft && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm" data-testid="draft">
+                        <Badge variant="warning">сборка {draft.n} ждёт проверки</Badge>
+                        <span className="text-muted-foreground">снимет помещений: {draft.summary.retired ?? 0}</span>
+                        <Button size="sm" variant="outline" onClick={() => setReviewing(reviewing === draft.id ? null : draft.id)}>
+                          {reviewing === draft.id ? 'Скрыть' : 'Проверить'}
+                        </Button>
+                      </div>
+                    )}
+                    {revision?.status === 'discarded' && b && revision.n === b.n && (
+                      <div className="mt-1 text-xs text-muted-foreground">Сборка {b.n} отброшена — показана опубликованная</div>
+                    )}
                     {place && shown && placed.length > 1 && (
                       <PlacementForm key={place.version} value={place.placement} disabled={busy}
                         onSave={v => act(placeDrawing(id, place, v))} />
@@ -131,6 +149,9 @@ export function Building({ id }: { id: string }) {
                     onClick={() => { if (confirm(`Удалить чертёж «${d.name}»? Его этажи и помещения будут сняты.`)) act(deleteDrawing(d.id)) }}>
                     <Trash2 className="size-4" />
                   </Button>
+                  {draft && reviewing === draft.id && (
+                    <div className="basis-full"><RevisionReview id={draft.id} onDone={() => { setReviewing(null); load() }} /></div>
+                  )}
                 </li>
               )
             })}

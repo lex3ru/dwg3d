@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from twin_chassis import emit, uuid7
@@ -97,6 +97,21 @@ def register(bus: Bus) -> None:
     @bus.consumer("buildings.room.retired", name="room-retired")
     async def room_retired(session: AsyncSession, event: dict) -> None:
         await revoke(session, grants.c.scope_kind == "room", grants.c.scope_id == UUID(event["data"]["room_id"]))
+
+    @bus.consumer("buildings.room.merged", name="room-merged")
+    async def room_merged(session: AsyncSession, event: dict) -> None:
+        """Rights on the merged rooms are rights on the heir; one already there is not given twice."""
+        into = UUID(event["data"]["into"])
+        rows = (await session.execute(select(grants).where(
+            grants.c.scope_kind == "room", grants.c.scope_id.in_([UUID(x) for x in event["data"]["from"]])))).all()
+        for g in rows:
+            same = (await session.execute(select(grants.c.id).where(
+                grants.c.person_id == g.person_id, grants.c.role == g.role, grants.c.scope_kind == "room",
+                grants.c.scope_id == into, grants.c.origin == g.origin))).first()
+            if same is None:
+                await session.execute(update(grants).where(grants.c.id == g.id).values(scope_id=into))
+            else:
+                await revoke(session, grants.c.id == g.id)
 
     @bus.consumer("buildings.building.deleted", name="building-deleted")
     async def building_deleted(session: AsyncSession, event: dict) -> None:

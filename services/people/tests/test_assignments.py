@@ -78,3 +78,18 @@ async def test_rooms_and_workplaces_that_are_no_more(client, app, tokens):
     rooms = (await client.get(f"{API}/people/{anna['id']}/assignments", headers=boss)).json()["items"]
     assert [x["room_id"] for x in rooms] == [ROOM_B]
     assert [e["type"] for e in await events(app)][-1] == "people.person.unassigned"
+
+
+async def test_people_of_merged_rooms_work_in_the_heir(client, app, tokens):
+    boss = tokens.bearer("boss")
+    anna = await add(client, boss, full_name="Петрова Анна")
+    ivan = await add(client, boss, full_name="Иванов Иван")
+    await client.put(f"{API}/people/{anna['id']}/assignments/{ROOM_B}", json={}, headers=boss)
+    await client.put(f"{API}/people/{ivan['id']}/assignments/{ROOM_A}", json={}, headers=boss)
+    await client.put(f"{API}/people/{ivan['id']}/assignments/{ROOM_B}", json={}, headers=boss)
+    merged = envelope("buildings.room.merged", ("room", ROOM_A), {"from": [ROOM_B], "into": ROOM_A, "floor_id": FLOOR},
+                      actor={"kind": "user", "id": "boss"}, building_id=BUILDING, floor_id=FLOOR, room_id=ROOM_A)
+    assert await app.state.bus.handle("room-merged", merged) is True
+    for person in (anna, ivan):
+        rooms = (await client.get(f"{API}/people/{person['id']}/assignments", headers=boss)).json()["items"]
+        assert [x["room_id"] for x in rooms] == [ROOM_A]

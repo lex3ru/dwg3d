@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buildings.revision.drafted",
+  "description": "Новая сборка чертежа что-то снимает: она ждёт проверки администратором. subject — ревизия.",
+  "type": "object",
+  "required": [
+    "revision_id",
+    "drawing_id",
+    "count"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "revision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "build_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "count": {
+      "type": "object"
+    }
+  }
+}

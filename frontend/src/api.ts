@@ -82,7 +82,11 @@ export type Drawing = {
 }
 /** A drawing as the building has taken it in: the build that is shown. */
 export type Placement = { dx: number; dy: number; dz: number; rotation: number }
-export type PlacedDrawing = { id: string; name: string; build_id: string | null; build_n: number; placement: Placement; version: number }
+export type PlacedDrawing = {
+  id: string; name: string; build_id: string | null; build_n: number; placement: Placement; version: number
+  /** the newest revision of the drawing: a draft waits for the administrator */
+  revision: { id: string; n: number; status: 'draft' | 'published' | 'discarded'; summary: Record<string, number> } | null
+}
 export type Room = {
   id: string; floor_id: string; name: string; number: string | null; type: string | null; area: number
   status: 'active' | 'retired'; version: number
@@ -345,3 +349,33 @@ export const listEvents = (params: Record<string, string | undefined>) => {
   const q = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]))
   return api<{ items: JournalEvent[]; next: string | null }>(`${JOURNAL}/events?${q}`)
 }
+
+// ---- stage 7: revisions of drawings, rooms merged and split
+
+export type RevisionRoom = {
+  candidate: string; idx: number; name: string; area: number; room_id: string | null; auto: boolean
+  floor_id: string | null; old_name: string | null
+  /** new | name | outline | returned; empty — the same room */
+  changes: string[]
+}
+export type Differences = {
+  floors: { candidate: string; floor_id: string | null; name: string; level: number | null }[]
+  rooms: RevisionRoom[]
+  retired: { id: string; name: string; floor_id: string; area: number }[]
+  floors_retired: string[]
+  choices: Record<string, { id: string; name: string; area: number }[]>
+  count: { new: number; same: number; changed: number; retired: number; floors_new: number; floors_retired: number }
+}
+export type Revision = {
+  id: string; drawing_id: string; n: number; status: 'draft' | 'published' | 'discarded'; summary: Record<string, unknown>
+  differences?: Differences; warnings?: string[]
+}
+export const getRevision = (id: string) => api<Revision>(`${BUILDINGS}/revisions/${id}`)
+export const matchRoom = (id: string, candidate: string, idx: number, room_id: string | null) =>
+  api<Revision>(`${BUILDINGS}/revisions/${id}/matches`, { method: 'PATCH', json: { matches: [{ candidate, idx, room_id }] } })
+export const publishRevision = (id: string) => api<Revision>(`${BUILDINGS}/revisions/${id}/publish`, { method: 'POST' })
+export const discardRevision = (id: string) => api<Revision>(`${BUILDINGS}/revisions/${id}/discard`, { method: 'POST' })
+export const mergeRooms = (room: string, others: string[]) =>
+  api<Room>(`${BUILDINGS}/rooms/${room}/merge`, { method: 'POST', json: { with: others } })
+export const splitRoom = (room: string, line: [number, number][]) =>
+  api<{ heir: string; rooms: Room[] }>(`${BUILDINGS}/rooms/${room}/split`, { method: 'POST', json: { line } })

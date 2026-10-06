@@ -14,6 +14,7 @@ from twin_chassis.client import ServiceClient
 
 from . import handlers
 from .comments import router as comments
+from .revisions import router as revisions
 from .routes import router
 
 SERVICE = "buildings"
@@ -28,5 +29,5 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
         handlers.register(app.state.bus, app.state.client)
         app.state.rights = Rights(app.state.client)
 
-    return create_app(SERVICE, title=TITLE, routers=[router, comments], settings=settings, verifier=verifier,
+    return create_app(SERVICE, title=TITLE, routers=[router, comments, revisions], settings=settings, verifier=verifier,
                       setup=setup)

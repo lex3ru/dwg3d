@@ -102,6 +102,18 @@
           }
         }
       }
+    },
+    "moves": {
+      "type": "object",
+      "description": "Этажи, выровненные в этой сборке иначе: id этажа → [dx, dy], м; точки на них сдвигаются на столько же",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+      }
     }
   }
 }

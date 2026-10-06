@@ -186,7 +186,7 @@
 | `GET /rooms/{id}`, `POST /rooms/batch-get` | помещение | plan, служебный |
 | `PATCH /rooms/{id}` | название, номер, тип | manage |
 | `POST /rooms/{id}/merge` | `{with: [ids]}` — объединить, наследник — `{id}` | manage |
-| `POST /rooms/{id}/split` | `{parts: [polygon…], heir: 0}` — разделить | manage |
+| `POST /rooms/{id}/split` | `{line: [[x, y], …]}` или `{parts: [polygon…]}`, `heir` (по умолчанию — большая часть) — разделить | manage |
 | `GET /buildings/{id}/revisions` | ревизии | manage |
 | `GET /revisions/{id}` | черновик: какие помещения узнаны, новые, пропавшие, с изменённым контуром | manage |
 | `PATCH /revisions/{id}/matches` | поправить сопоставление вручную | manage |
@@ -202,17 +202,17 @@
 | Публикует | Данные |
 |---|---|
 | `buildings.building.created` / `.changed` / `.deleted` | здание |
-| `buildings.revision.drafted` | `revision_id`, `drawing_id`, сводка |
-| `buildings.revision.published` | `revision_id`, `drawing_id`, этажи; помещения: `created[]`, `changed[]` (с признаком смены контура), `retired[]` |
+| `buildings.revision.drafted` / `.discarded` | `revision_id`, `drawing_id`, сводка |
+| `buildings.revision.published` | `revision_id`, `drawing_id`, этажи; помещения: `created[]`, `changed[]` (с признаком смены контура), `retired[]`; `moves` — сдвиг этажей, выровненных иначе |
 | `buildings.room.changed` | помещение, список изменённых полей |
 | `buildings.room.retired` | `room_id`, `floor_id` |
 | `buildings.room.merged` | `from[]`, `into` |
-| `buildings.room.split` | `from`, `into[]`, `heir` |
+| `buildings.room.split` | `from`, `into[]`, `heir` (наследник — тот же `from`), `floor_id` |
 | `buildings.comment.created` / `.resolved` | цель, автор |
 
 | Получает | Реакция |
 |---|---|
-| `import.build.finished` | забрать результат сборки, создать черновик ревизии; первая ревизия чертежа публикуется сразу |
+| `import.build.finished` | забрать результат сборки; первая ревизия чертежа и ревизия, которая ничего не снимает, публикуются сразу, остальные ждут черновиком |
 | `import.drawing.deleted` | снять этажи и помещения чертежа |
 
 ## 4. Импорт чертежей (`import`)

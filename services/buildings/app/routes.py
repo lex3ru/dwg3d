@@ -16,7 +16,7 @@ from sqlalchemy import delete, func, insert, select, update
 from twin_chassis import Identity, Problem, current_identity, emit, require_admin, uuid7
 
 from . import publish, storage
-from .models import buildings, drawings, floor_plans, floors, pins, rooms
+from .models import buildings, drawings, floor_plans, floors, pins, revisions, rooms
 from .rights import (
     manages_building,
     manages_floor,
@@ -246,7 +246,16 @@ async def list_drawings(building_id: UUID, request: Request,
         await _building(session, building_id)
         rows = (await session.execute(select(drawings).where(drawings.c.building_id == building_id)
                                       .order_by(drawings.c.sort, drawings.c.created_at))).all()
-    return {"items": [drawing_json(d) for d in rows]}
+        latest = {}
+        for r in (await session.execute(select(revisions).where(revisions.c.building_id == building_id)
+                                        .order_by(revisions.c.n))).all():
+            latest[r.drawing_id] = r                         # the newest revision of each drawing
+    out = []
+    for d in rows:
+        r = latest.get(d.id)
+        out.append({**drawing_json(d), "revision": {"id": str(r.id), "n": r.n, "status": r.status,
+                                                     "summary": r.summary} if r is not None else None})
+    return {"items": out}
 
 
 @router.patch("/buildings/{building_id}/drawings/{drawing_id}", tags=["drawings"],

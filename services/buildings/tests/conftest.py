@@ -44,9 +44,11 @@ class Import:
         self.grants: dict[str, list[dict]] = {}     # account -> its grants, as the access service would say
         self.assets: dict[str, dict] = {}           # objects the assets service would show (to anyone asking)
 
-    def add(self, building_id: str, n: int, fixture: str) -> str:
+    def add(self, building_id: str, n: int, fixture: str | dict) -> str:
+        """A build of the drawing: a recorded one by name, or one made by the test."""
         build_id = str(uuid4())
-        self.builds[build_id] = {"n": n, "building_id": building_id, **copy.deepcopy(DATA[fixture])}
+        data = DATA[fixture] if isinstance(fixture, str) else fixture
+        self.builds[build_id] = {"n": n, "building_id": building_id, **copy.deepcopy(data)}
         return build_id
 
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -147,14 +149,14 @@ class Site:
         await self.app.state.bus.handle("drawing-uploaded", self.event(
             "import.drawing.uploaded", {"drawing_id": self.drawing_id, "name": name, "filename": name, "file_n": 1}))
 
-    def finished(self, fixture: str, n: int | None = None) -> dict:
+    def finished(self, fixture: str | dict, n: int | None = None) -> dict:
         self.n = n if n is not None else self.n + 1
         build_id = self.importer.add(self.building_id, self.n, fixture)
         return self.event("import.build.finished", {
             "build_id": build_id, "drawing_id": self.drawing_id, "n": self.n, "floors": 2, "rooms": 4,
             "warnings": 0, "quality": "ok"})
 
-    async def build(self, fixture: str = "base", n: int | None = None) -> dict:
+    async def build(self, fixture: str | dict = "base", n: int | None = None) -> dict:
         event = self.finished(fixture, n)
         assert await self.app.state.bus.handle("build-finished", event) is True
         return event

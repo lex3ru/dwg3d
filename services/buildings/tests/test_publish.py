@@ -113,7 +113,11 @@ async def test_changed_floor_keeps_untouched_rooms(client, app, tokens, building
     assert change["created"] == [after[(1, "", 17.44)]] and change["retired"] == []
     assert change["changed"] == [{"id": after[(1, "Кабинет", 30.6)], "outline": True}]
 
-    await site.build("base")                         # the wall is removed again: the new room is gone
+    await site.build("base")                         # the wall is removed again: the new room would go
+    assert room_ids(await tree(client, tokens, building)) == after                  # a draft waits: nothing changed yet
+    draft = (await client.get(f"{API}/buildings/{building['id']}/revisions", headers=tokens.admin())).json()["items"][0]
+    assert draft["status"] == "draft" and draft["summary"]["retired"] == 1
+    assert (await client.post(f"{API}/revisions/{draft['id']}/publish", headers=tokens.admin())).status_code == 200
     floors = await tree(client, tokens, building)
     assert room_ids(floors) == before
     retired = await events(app, "buildings.room.retired")

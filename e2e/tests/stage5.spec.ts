@@ -187,6 +187,6 @@ test('the cabinet: my rooms and objects, search, the card by a QR label; labels,
     await expect(card).toContainText(`ГС-${stamp}`)
     await expect(card.getByTestId('partial')).toBeVisible()
   } finally {
-    execSync('docker compose -f ../deploy/docker-compose.yml start people', { stdio: 'ignore' })
+    execSync('docker compose -f ../deploy/docker-compose.yml up -d --wait people', { stdio: 'ignore' })    // ready, not just started
   }
 })

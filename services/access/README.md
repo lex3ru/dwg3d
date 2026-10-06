@@ -54,6 +54,7 @@
 | `people.person.assigned` / `.unassigned` | `viewer` на помещение (`origin: assignment`) выдать / отозвать |
 | `assets.asset.responsible_changed` | `responsible` на объект (`origin: responsible`) новому, отозвать у прежнего |
 | `assets.asset.retired`, `buildings.room.retired`, `buildings.building.deleted` | отозвать назначения на объект, помещение, здание |
+| `buildings.room.merged` | назначения на объединённые помещения — на наследника (повтор не выдаётся) |
 | `assets.asset.moved` в другое здание | перенести назначения на объект в то здание |
 
 Автоматическое назначение и выданное вручную на ту же область — разные записи: уход одного

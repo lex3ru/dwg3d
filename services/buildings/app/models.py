@@ -47,8 +47,12 @@ revisions = Table(
     Column("drawing_id", Uuid, ForeignKey("drawings.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("build_id", Uuid, nullable=False),
     Column("n", Integer, nullable=False),
-    Column("status", Text, nullable=False, server_default="published"),      # draft (stage 7) | published | discarded
+    Column("status", Text, nullable=False, server_default="published"),      # draft | published | discarded
     Column("summary", JSONB, nullable=False, server_default="{}"),
+    Column("proposal", JSONB),                               # a draft: which floor and room continues which
+    Column("result", JSONB),                                 # a draft: the build's result and plans, until published
+    Column("plans", JSONB),
+    Column("decided_by", Text),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=NOW),
     Column("published_at", DateTime(timezone=True)),
 )
