@@ -1,6 +1,7 @@
 import { Plus, Search, Trash2, Upload } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/confirm'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -95,6 +96,7 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [catEdit, setCatEdit] = useState<(Category & { isNew: boolean }) | null>(null)
+  const [ask, confirmDialog] = useConfirm()
   const file = useRef<HTMLInputElement>(null)
 
   const apply = (data: { categories: Category[]; items: CatalogItem[] }) => {
@@ -159,6 +161,9 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
   }
   const dropModel = async () => {
     if (!sel) return
+    const name = items.find((c) => c.id === sel)?.name ?? sel
+    if (!(await ask({ title: `Убрать модель GLB у «${name}»?`, danger: true, confirm: 'Убрать',
+      text: 'Файл модели будет удалён с сервера: у всех объектов этого типа вернётся процедурная модель. Вернуть — только загрузив файл снова.' }))) return
     setBusy(true)
     try {
       await updateCatalogItem(sel, { model: null, modelRot: null })
@@ -406,7 +411,7 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
                       </Button>
                       {current?.model && (
                         <Button size="sm" variant="destructive" disabled={busy} onClick={dropModel}
-                          hint="Удалить файл модели сразу, без подтверждения: вернётся процедурная модель"><Trash2 /> Убрать</Button>
+                          hint="Удалить файл модели, спросив подтверждения: вернётся процедурная модель"><Trash2 /> Убрать</Button>
                       )}
                       {current?.model && (
                         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -428,6 +433,7 @@ export default function CatalogEditor({ onClose, onChanged }: { onClose: () => v
             </section>
           )}
         </div>
+        {confirmDialog}
       </DialogContent>
     </Dialog>
   )

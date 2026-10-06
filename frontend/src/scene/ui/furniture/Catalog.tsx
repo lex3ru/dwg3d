@@ -1,7 +1,6 @@
 import { Search } from 'lucide-react'
 import { useState } from 'react'
-import type { FloorMeta, ViewSettings } from '@/scene/api'
-import { Button } from '@/components/ui/button'
+import type { FloorMeta } from '@/scene/api'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Tip } from '@/components/ui/tooltip'
@@ -20,8 +19,6 @@ export default function Catalog(p: {
   placing: CatalogItem | null
   onPick: (c: CatalogItem, drag: boolean) => void
   locked: boolean
-  unplaced: NonNullable<ViewSettings['furniture_unplaced']>
-  onUnplaced: (ids: string[], toFloor: string | null) => void
 }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
@@ -51,19 +48,6 @@ export default function Catalog(p: {
       {catalogError && <p className="m-2 rounded-md bg-warning/15 p-2 text-xs text-warning">{catalogError}. Обновите страницу, когда сервер будет доступен.</p>}
       {p.locked && <p className="m-2 rounded-md bg-accent p-2 text-xs text-accent-foreground">Идёт перестроение модели — расстановку можно будет менять после него.</p>}
       {!p.floor && <p className="m-2 text-xs text-muted-foreground">Выберите этаж в дереве или на ленте этажей.</p>}
-      {p.unplaced.length > 0 && p.floor && (
-        <section className="m-2 grid gap-1.5 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
-          <b>Без этажа после перестроения: {p.unplaced.length} шт.</b>
-          <span className="text-muted-foreground">Этаж {[...new Set(p.unplaced.map((u) => `«${u._anchor?.name || u.floor}»`))].join(', ')} не найден в новой сборке.
-            Координаты сохранены — предметы можно перенести на текущий этаж ({p.floor.name}).</span>
-          <div className="flex gap-1.5">
-            <Button size="sm" disabled={p.locked} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), p.floor!.id)}
-              hint={p.locked ? 'Недоступно, пока модель собирается' : `Поставить их на этаж «${p.floor.name}» с прежними координатами`}>Перенести сюда</Button>
-            <Button size="sm" variant="ghost" className="text-destructive" disabled={p.locked} onClick={() => p.onUnplaced(p.unplaced.map((u) => u.id), null)}
-              hint={p.locked ? 'Недоступно, пока модель собирается' : 'Убрать их из расстановки; объект учёта так не удалить — он списывается в своей карточке'}>Удалить</Button>
-          </div>
-        </section>
-      )}
       <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-1">
         {found.map((c) => (
           <li key={c.id} className={cn('flex cursor-grab items-center gap-2 rounded-md px-2 py-1 select-none hover:bg-secondary', p.placing?.id === c.id && 'bg-accent text-accent-foreground')}

@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { batchRows, type FloorMeta, type Job, type PlacedItem, type PlanData, type RowOp, type ViewSettings } from '../api'
+import { batchRows, type FloorMeta, type Job, type PlacedItem, type PlanData, type ViewSettings } from '../api'
 import { catalogItem, type CatalogItem } from '../furniture/catalog'
 import {
   axes, cameraCoverage, checkFloor, indexPlan, itemSize, roomCoverage, systemsCoverage, type PlanIndex, type Pose,
@@ -129,35 +129,10 @@ export function useFurniture(p: {
       furnQueue.current = furnQueue.current.then(() => saveFurniture(id, build, list))
     }, 400)
   }
-  /** Items whose floor was not found after a rebuild: put back on the current floor, or drop. */
-  const unplaced = view.furniture_unplaced ?? []
-  const resolveUnplaced = (ids: string[], toFloor: string | null) => {
-    if (!shown) return
-    const pick = unplaced.filter((u) => ids.includes(u.id))
-    const ops: RowOp[] = pick.map((u) => (toFloor
-      ? { op: 'update', id: u.id, version: u.version, floor: toFloor }
-      : { op: 'delete', id: u.id, version: u.version }))
-    const id = shown.id, build = shown.build
-    furnQueue.current = furnQueue.current.then(async () => {
-      try {
-        const res = await batchRows(id, 'objects', build, ops)
-        for (const it of res.items) furnSaved.current.set(it.id, it)
-        setView((v) => ({
-          ...v,
-          furniture: [...(v.furniture ?? []), ...res.items],
-          furniture_unplaced: (v.furniture_unplaced ?? []).filter((u) => !ids.includes(u.id)),
-        }))
-        p.syncLayers(res.items)
-      } catch (e) {
-        alert(conflictText(e, (i) => catalogItem(pick.find((x) => x.id === i)?.item ?? '').name))
-        p.reload()
-      }
-    })
-  }
   /** Rows changed by someone else (another window, the copilot): take the server's rows except
    * where this window has a change not saved yet (its save then meets the conflict as usual).
    * Undo steps are dropped: they could put back what the other one changed. */
-  const mergeRemote = (rows: PlacedItem[], unplacedRows: PlacedItem[]) => {
+  const mergeRemote = (rows: PlacedItem[]) => {
     const saved = furnSaved.current
     const local = furnNow.current
     const server = new Map(rows.map((it) => [it.id, it]))
@@ -173,7 +148,7 @@ export function useFurniture(p: {
     for (const id of [...saved.keys()]) if (!server.has(id) && !dirty.has(id)) saved.delete(id)
     furnHistory.current = []
     setUndoTick((n) => n + 1)
-    setView((v) => ({ ...v, furniture: next, furniture_unplaced: unplacedRows }))
+    setView((v) => ({ ...v, furniture: next }))
     if (furnSel && !next.some((x) => x.id === furnSel)) setFurnSel(null)
   }
   const undoFurniture = () => {
@@ -281,7 +256,7 @@ export function useFurniture(p: {
   return {
     furniture, shownFurniture, furnFloor, floorItems, furnPlan, issues, allCoverage, roomCover,
     furnSel, setFurnSel, placing, setPlacing, showZones, setShowZones, canUndo: furnHistory.current.length > 0,
-    unplaced, resolveUnplaced, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems, deleteItem, moveItem,
+    undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems, deleteItem, moveItem,
     resetSaved, reset, mergeRemote,
   }
 }

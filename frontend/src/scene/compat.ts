@@ -487,8 +487,16 @@ const routes: [string, RegExp, Handler][] = [
     if (!known.get(m[1])?.build) await job(m[1])
     return call('GET', buildFileUrl(m[1], m[2]))
   }],
-  ['GET', /^\/api\/drawings\/([^/]+)\/drawing\.(dxf|dwg)$/, async (m) => {
-    const r = await real(`${IMPORT}/drawings/${m[1]}/export?format=${m[2]}`)
+  // the drawing with the 2D editor's corrections; with `objects` — and the objects of accounting on its floors as
+  // blocks with attributes (the gateway's report gathers their numbers, states, people and rooms)
+  ['GET', /^\/api\/drawings\/([^/]+)\/drawing\.(dxf|dwg)$/, async (m, _, url) => {
+    if (!url.searchParams.has('objects')) {
+      const r = await real(`${IMPORT}/drawings/${m[1]}/export?format=${m[2]}`)
+      return r.ok ? r : failure(r)
+    }
+    const k = known.get(m[1]) ?? (await job(m[1]), known.get(m[1])!)
+    const r = await real(`/api/reports/buildings/${k.building}/drawing`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ drawing_id: m[1], format: m[2] }) })
     return r.ok ? r : failure(r)
   }],
   ['PUT', /^\/api\/drawings\/([^/]+)\/view$/, (m, init) => putView(m[1], JSON.parse(String(init?.body ?? '{}')))],
@@ -508,7 +516,7 @@ const routes: [string, RegExp, Handler][] = [
     if (!known.has(m[1])) await job(m[1])
     const k = known.get(m[1])!
     const variants = admin ? await variantsOf(k.building) : []
-    return { build: k.n, items: [...await objects(m[1]), ...await variantObjects(m[1], variants)], unplaced: [] }
+    return { build: k.n, items: [...await objects(m[1]), ...await variantObjects(m[1], variants)] }
   }],
   ['POST', /^\/api\/drawings\/([^/]+)\/objects:batch$/, async (m, init) => {
     if (!known.has(m[1])) await job(m[1])

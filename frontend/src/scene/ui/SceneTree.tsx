@@ -76,7 +76,8 @@ export default function SceneTree(p: {
   onToggle: (id: string) => void
   onVariant: (id: string) => void
   onAll: (show: boolean) => void
-  onLock: (l: Layer, patch: Partial<Layer>) => void
+  /** lock a layer against editing on this viewer's screen (kept in the browser) */
+  onLock: (l: Layer, locked: boolean) => void
   onEdit: (id: string | null) => void
   onAddLayer: (kind: string) => void
   onCompare: () => void
@@ -181,10 +182,10 @@ export default function SceneTree(p: {
                     <Tip label="Открыть справа этажи чертежа, файлы 3D-модели и замечания распознавания" side="left">
                       <DropdownMenuItem onSelect={p.onDrawing}><FileText /> Сводка и предупреждения</DropdownMenuItem>
                     </Tip>
-                    <Tip label="Скачать исходный чертёж с исправлениями из редактора плана; объекты слоёв в файл не входят" side="left">
+                    <Tip label="Скачать исходный чертёж с исправлениями из редактора плана и объектами учёта блоками с атрибутами" side="left">
                       <DropdownMenuItem onSelect={() => p.onExport('dxf')}><Download /> Сохранить DXF с правками</DropdownMenuItem>
                     </Tip>
-                    <Tip label="То же в формате AutoCAD: исходный чертёж с исправлениями плана, без объектов слоёв" side="left">
+                    <Tip label="То же в формате AutoCAD: исходный чертёж с исправлениями плана и объектами учёта" side="left">
                       <DropdownMenuItem onSelect={() => p.onExport('dwg')}><Download /> Сохранить DWG с правками</DropdownMenuItem>
                     </Tip>
                     {p.editable && (
@@ -329,10 +330,14 @@ export default function SceneTree(p: {
                       ))}
                     </>
                   )}
-                  <DropdownMenuSeparator />
-                  <Tip label="Страница здания; варианты размещения заводятся и применяются в его разделе «Варианты»" side="left">
-                    <DropdownMenuItem asChild><a href={`#/p/${p.projectId}/layers`}><Settings2 /> Слои проекта: имена, варианты</a></DropdownMenuItem>
-                  </Tip>
+                  {p.editable && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <Tip label="Раздел здания «Варианты»: завести вариант размещения, сравнить с учётом и применить" side="left">
+                        <DropdownMenuItem asChild><a href={`#/b/${p.projectId}/variants`}><ExternalLink /> Варианты размещения</a></DropdownMenuItem>
+                      </Tip>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}>
@@ -373,9 +378,10 @@ export default function SceneTree(p: {
                     </div>
                     {p.editable ? (
                       <>
-                        <Tip label={l.locked ? 'Снять запрет на правку слоя' : 'Запретить правку слоя; пока не действует — сервис объектов замок не хранит'} side="right">
+                        <Tip label={l.locked ? 'Снять замок: слой снова можно править'
+                          : 'Запретить себе править слой, чтобы не сдвинуть случайно; только в этом браузере — другим ничего не меняется'} side="right">
                           <button className={cn(iconBtn, l.locked && 'text-foreground')} aria-pressed={l.locked} aria-label="Блокировка"
-                            onClick={() => p.onLock(l, { locked: !l.locked })}>{l.locked ? <Lock /> : <LockOpen />}</button>
+                            onClick={() => p.onLock(l, !l.locked)}>{l.locked ? <Lock /> : <LockOpen />}</button>
                         </Tip>
                         <Tip label={editing ? 'Закончить правку слоя (Esc, когда ничего не выбрано)'
                           : l.locked ? 'Слой закрыт для правки: сначала снимите замок слева'

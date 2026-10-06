@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * The drawing chosen in the tree: its floors, the plan editor of the active
- * floor, saving the drawing with the project's layers, model downloads and
+ * floor, saving the drawing with the objects of accounting, model downloads and
  * what the recognition warns about.
  */
 export default function DrawingInspector({ job, shown, active, running, editCount, objectCount, saving, saveErr, editable, onFloor, onEditor, onSave, onClose }: {
@@ -16,20 +16,20 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
   active: string | null
   running: boolean
   editCount: number
-  /** objects of the shown layers on this drawing */
+  /** objects of accounting on the floors of this drawing */
   objectCount: number
   saving: 'dxf' | 'dwg' | null
   saveErr: string | null
   editable: boolean
   onFloor: (id: string | null) => void
   onEditor: () => void
-  onSave: (f: 'dxf' | 'dwg', withLayers: boolean) => void
+  onSave: (f: 'dxf' | 'dwg', withObjects: boolean) => void
   onClose: () => void
 }) {
   const r = shown.result!
   const floors = [...r.floors].sort((a, b) => b.elevation! - a.elevation!)
   const act = floors.find((f) => f.id === active)
-  const [withLayers, setWithLayers] = useState(true)
+  const [withObjects, setWithObjects] = useState(true)
   const warnings = [
     ...((r.edits_unmatched ?? 0) > 0 ? [`Правки ${r.edits_unmatched} этаж(ей) не применены: их лист не найден в текущем разборе.`] : []),
     ...r.warnings,
@@ -88,25 +88,25 @@ export default function DrawingInspector({ job, shown, active, running, editCoun
       <section className="grid gap-2 rounded-md border border-border p-2.5">
         <b className="text-xs">Сохранить чертёж{editCount > 0 && <span className="ml-1.5 rounded-full bg-success/15 px-1.5 font-normal text-success">правок: {editCount}</span>}</b>
         {objectCount > 0 && (
-          <Tip label="Положить в файл объекты показанных слоёв; пока выгрузка их не включает — в файле только план с исправлениями">
+          <Tip label="Положить в файл все объекты учёта этажей чертежа блоками с атрибутами: номер, состояние, ответственный, помещение. Скрытые слои тоже; предметы вариантов — нет">
             <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" className="accent-primary" checked={withLayers} onChange={(e) => setWithLayers(e.target.checked)} />
-              со слоями проекта ({objectCount} объектов)
+              <input type="checkbox" className="accent-primary" checked={withObjects} onChange={(e) => setWithObjects(e.target.checked)} />
+              с объектами учёта ({objectCount})
             </label>
           </Tip>
         )}
         <div className="flex gap-1.5">
           {(['dxf', 'dwg'] as const).map((f) => (
-            <Button key={f} variant="secondary" size="sm" className="flex-1" disabled={!!saving || running || (!editCount && !(withLayers && objectCount > 0))}
+            <Button key={f} variant="secondary" size="sm" className="flex-1" disabled={!!saving || running || (!editCount && !(withObjects && objectCount > 0))}
               hint={saving ? 'Файл уже готовится' : running ? 'Недоступно, пока модель собирается'
-                : !editCount && !(withLayers && objectCount > 0) ? 'Нечего сохранять: нет исправлений плана и объектов слоёв'
-                  : f === 'dxf' ? 'Скачать исходный чертёж с исправлениями из редактора плана' : 'То же в формате AutoCAD: исходный чертёж с исправлениями плана'}
-              onClick={() => onSave(f, withLayers && objectCount > 0)}>
+                : !editCount && !(withObjects && objectCount > 0) ? 'Нечего сохранять: нет исправлений плана и объектов учёта'
+                  : `${f === 'dxf' ? 'Скачать исходный чертёж' : 'То же в формате AutoCAD: исходный чертёж'} с исправлениями плана${withObjects && objectCount > 0 ? ' и объектами учёта' : ''}`}
+              onClick={() => onSave(f, withObjects && objectCount > 0)}>
               <Download /> {saving === f ? 'Готовлю…' : f.toUpperCase()}
             </Button>
           ))}
         </div>
-        {!editCount && !objectCount && <small className="text-[11px] text-muted-foreground">Сохранять нечего: нет правок плана и объектов слоёв.</small>}
+        {!editCount && !objectCount && <small className="text-[11px] text-muted-foreground">Сохранять нечего: нет правок плана и объектов учёта.</small>}
         {saveErr && <small className="text-xs text-destructive">{saveErr}</small>}
       </section>
 

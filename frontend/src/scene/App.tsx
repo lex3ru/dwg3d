@@ -46,7 +46,7 @@ import ItemInspector from './ui/furniture/ItemInspector'
 import { DraftCard, LayerShapes, OutlineInspector, RouteInspector } from './ui/shapes/ShapeInspector'
 import { useShapeEditor } from './hooks/useShapeEditor'
 import Compare from './ui/Compare'
-import { variantGroups } from './furniture/layers'
+import { variantGroup, variantGroups } from './furniture/layers'
 import Toolbar from './ui/Toolbar'
 import { TILE_ATTRIBUTION } from './viewer/tiles'
 import { SceneCtx, entrancePose, htmlLayer } from './viewer/scene'
@@ -150,7 +150,7 @@ export default function App() {
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
     layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers, patchLayer, showOnlyKinds, reloadLayers,
+    layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
@@ -167,7 +167,7 @@ export default function App() {
   })
   const {
     shownFurniture, furnFloor, floorItems, furnPlan, issues, allCoverage, roomCover, furnSel, setFurnSel, placing, setPlacing,
-    showZones, setShowZones, unplaced, resolveUnplaced, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems,
+    showZones, setShowZones, undoFurniture, updateItem, rotateItem, placeItem, duplicateItem, rowItems,
     deleteItem, moveItem, resetSaved, reset: resetFurn, mergeRemote,
   } = furn
 
@@ -189,7 +189,7 @@ export default function App() {
   const refreshObjects = async (id: string) => {
     const [objs, pins] = await Promise.all([listObjects(id), listPins(id)])
     if (shownRef.current?.id !== id || objs.build !== shownRef.current?.build) return
-    mergeRemote(objs.items.filter((x): x is PlacedItem => x.geom == null || x.geom === 'point'), objs.unplaced)
+    mergeRemote(objs.items.filter((x): x is PlacedItem => x.geom == null || x.geom === 'point'))
     setView((v) => ({ ...v, shapes: objs.items.filter((x) => x.geom != null && x.geom !== 'point') as ShapeObject[],
       markers: pins.markers, comments: pins.comments }))
   }
@@ -430,12 +430,19 @@ export default function App() {
   const applyEdits = (floorId: string, edits: FloorEdits) => rebuild({ edits: { [floorId]: edits } })
   const editCount = Object.values((job?.config?.edits ?? {}) as Record<string, Record<string, unknown[]>>)
     .reduce((n, fe) => n + Object.values(fe ?? {}).reduce((k, l) => k + (Array.isArray(l) ? l.length : 0), 0), 0)
-  const saveDrawing = async (fmt: 'dxf' | 'dwg', withLayers: boolean) => {
+  /** objects of accounting on the drawing's floors (the base layers, not the items of variants): they go into the file */
+  const factObjects = useMemo(() => {
+    const base = new Set(layers.filter((l) => variantGroup(l) === l.id).map((l) => l.id))
+    return (view.furniture ?? []).filter((it) => it.layer && base.has(it.layer)).length
+  }, [layers, view.furniture])
+  const saveDrawing = async (fmt: 'dxf' | 'dwg', withObjects: boolean) => {
     if (!job) return
     setSaving(fmt)
     setSaveErr(null)
-    const shownLayers = layers.filter((l) => !hiddenNow.has(l.id)).map((l) => l.id)
-    try { await downloadDrawing(job.id, fmt, withLayers ? shownLayers : 'none') } catch (e) { setSaveErr((e as Error).message) } finally { setSaving(null) }
+    try { await downloadDrawing(job.id, fmt, withObjects) } catch (e) {
+      setSaveErr((e as Error).message)
+      if (!drawingSel) alert(`Чертёж не сохранён: ${(e as Error).message}`)        // from the tree: the inspector is not open
+    } finally { setSaving(null) }
   }
   const setToolSafe = (t: Tool) => {
     if ((t === 'marker' || t === 'comment') && !canEdit()) {
@@ -564,15 +571,16 @@ export default function App() {
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
     <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
-      locked={rebuilding} unplaced={unplaced} onUnplaced={resolveUnplaced} />
+      locked={rebuilding} />
   ) : r ? (
     <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
       drawingSelected={drawingSel} onFloor={selectFloor} onRoom={(f, rm) => { setDrawingSel(false); focusRoom(f, rm) }} onOpenJob={openJob}
       onDrawing={() => { setSelRoom(null); setDrawingSel(true) }}
       onPlan={(fid) => { setFloor(fid); if (canEdit()) setEditor(true); else alert(READ_ONLY) }}
-      onExport={(fmt) => saveDrawing(fmt, true)} onFloorSettings={() => setSettings('floors')}
+      onExport={(fmt) => saveDrawing(fmt, factObjects > 0)} onFloorSettings={() => setSettings('floors')}
       layers={layers} kinds={kinds} hidden={hiddenNow} editLayer={editLayerId} editable={canEdit()}
-      onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers} onLock={patchLayer} onEdit={editLayerTo}
+      onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers}
+      onLock={(l, locked) => { if (locked && editLayerId === l.id) editLayerTo(null); lockLayer(l, locked) }} onEdit={editLayerTo}
       onAddLayer={addLayer} onCompare={() => setComparing(true)}
       objects={treeObjects} selectedObject={tool === 'furniture' ? furnSel : tool === 'shapes' ? shapeSel : null} onObject={onTreeObject} />
   ) : null
@@ -582,7 +590,7 @@ export default function App() {
       const it = floorItems.find((x) => x.id === furnSel)
       return it ? {
         key: `item:${it.id}`, title: 'Предмет', icon: Armchair, body: (
-          <ItemInspector item={it} items={floorItems} plan={furnPlan} issues={issues.get(it.id) ?? []} layers={layers} kinds={kinds}
+          <ItemInspector item={it} items={floorItems} plan={furnPlan} issues={issues.get(it.id) ?? []} layers={layers}
             readOnly={!canEdit() || rebuilding} onSelect={setFurnSel} onUpdate={updateItem} onRotate={rotateItem}
             onDuplicate={duplicateItem} onRow={rowItems} onDelete={deleteItem} />
         ) } : {
@@ -618,7 +626,7 @@ export default function App() {
     : drawingSel && job && shown ? {
       key: 'drawing', title: 'Чертёж', icon: FileText, body: (
         <DrawingInspector job={job} shown={shown} active={floor} running={running} editCount={editCount}
-          objectCount={shownFurniture.length + shapes.length} saving={saving} saveErr={saveErr} editable={canEdit()}
+          objectCount={factObjects} saving={saving} saveErr={saveErr} editable={canEdit()}
           onFloor={selectFloor} onEditor={() => (canEdit() ? setEditor(true) : alert(READ_ONLY))} onSave={saveDrawing}
           onClose={() => setDrawingSel(false)} />
       ) }

@@ -200,7 +200,7 @@ test('the tools of the viewer work on the new services: display, measuring, walk
   // the name of the drawing, the map, the detailed facade model
   await page.locator('button:has(svg.lucide-settings)').first().click()
   await page.getByRole('menuitem', { name: /Карта и детальная модель/ }).click()
-  await page.getByPlaceholder('как в списке зданий').fill('Корпус Б')
+  await page.getByLabel('Название чертежа').fill('Корпус Б')
   await page.getByPlaceholder('55.7539').fill('55.7539')
   await page.getByPlaceholder('37.6208').fill('37.6208')
   await page.locator('input[type="file"]').last().setInputFiles('fixtures/facade.glb')

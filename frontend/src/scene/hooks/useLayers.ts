@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { layerKinds, listLayers, updateLayer, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
+import { layerKinds, listLayers, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
 import type { CatalogItem } from '../furniture/catalog'
 import { variantGroup, variantGroups } from '../furniture/layers'
 import type { Rules } from '../viewer/routing'
 
 /**
- * Layers of the project as this viewer sees them: which are shown (kept per
- * project in localStorage), the active one for new items, the variant chosen
- * in each group, and the layer kinds with the flow rules from the server.
+ * Layers of the project as this viewer sees them: which are shown and which this viewer has locked against
+ * a slip of the hand (both kept per project in localStorage — the services keep no lock), the active one
+ * for new items, the variant chosen in each group, and the layer kinds with the flow rules from the server.
  */
 export function useLayers(shown: Job | null, projectId: string) {
-  const [layers, setLayers] = useState<Layer[]>([])
+  const [served, setLayers] = useState<Layer[]>([])
   useEffect(() => { setLayers(shown?.layers ?? []) }, [shown?.layers])
+  const [myLocks, setMyLocks] = useState<Set<string>>(new Set())
+  /** the server's layers with this viewer's locks laid over (a layer the server locks stays locked) */
+  const layers = useMemo(() => served.map((l) => (!l.locked && myLocks.has(l.id) ? { ...l, locked: true } : l)), [served, myLocks])
   const [kinds, setKinds] = useState<LayerKindInfo[]>([])
   const [rules, setRules] = useState<Rules | null>(null)
   useEffect(() => { layerKinds().then((k) => { setKinds(k.kinds); setRules(k) }).catch(() => {}) }, [])
@@ -22,17 +25,19 @@ export function useLayers(shown: Job | null, projectId: string) {
   useEffect(() => {
     if (!projectId) return
     // this viewer's choice (localStorage); a layer hidden on the server starts hidden
-    let saved: { hidden?: string[]; active?: string | null; variants?: Record<string, string> } = {}
+    let saved: { hidden?: string[]; active?: string | null; variants?: Record<string, string>; locked?: string[] } = {}
     try { saved = JSON.parse(localStorage.getItem(`dwg3d.layers.${projectId}`) ?? '{}') } catch { /* private mode */ }
     setHiddenLayers(new Set(saved.hidden ?? (shown?.layers ?? []).filter((l) => !l.visible).map((l) => l.id)))
     setActiveLayer(saved.active ?? null)
     setVariantPick(saved.variants ?? {})
+    setMyLocks(new Set(saved.locked ?? []))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
   useEffect(() => {
     if (!projectId) return
-    try { localStorage.setItem(`dwg3d.layers.${projectId}`, JSON.stringify({ hidden: [...hiddenLayers], active: activeLayer, variants: variantPick })) } catch { /* private mode */ }
-  }, [projectId, hiddenLayers, activeLayer, variantPick])
+    try { localStorage.setItem(`dwg3d.layers.${projectId}`, JSON.stringify({ hidden: [...hiddenLayers], active: activeLayer,
+      variants: variantPick, locked: [...myLocks] })) } catch { /* private mode */ }
+  }, [projectId, hiddenLayers, activeLayer, variantPick, myLocks])
   /** Hidden here: switched off, or another variant of the layer is chosen. */
   const hiddenNow = useMemo(() => {
     const h = new Set(hiddenLayers)
@@ -72,7 +77,7 @@ export function useLayers(shown: Job | null, projectId: string) {
   }
   const refuseLocked = (it: PlacedItem | undefined) => {
     const l = layers.find((x) => x.id === it?.layer && x.locked)
-    if (l) alert(`Слой «${l.name}» заблокирован: разблокировать его можно на странице проекта`)
+    if (l) alert(myLocks.has(l.id) ? `Слой «${l.name}» заблокирован: снимите замок в дереве слева` : `Слой «${l.name}» только для просмотра`)
     return !!l
   }
   const reloadLayers = useCallback(() => {
@@ -86,15 +91,15 @@ export function useLayers(shown: Job | null, projectId: string) {
     syncTimer.current = window.setTimeout(reloadLayers, 500)
   }, [reloadLayers])
   useEffect(() => () => window.clearTimeout(syncTimer.current), [])
-  /** Lock or unlock a layer (editors); the server's answer replaces the list. */
-  const patchLayer = async (l: Layer, patch: Partial<Layer>) => {
-    try {
-      await updateLayer(projectId, l.id, { ...patch, version: l.version })
-    } catch (e) { alert((e as Error).message) }
-    reloadLayers()
-  }
+  /** Lock or unlock a layer for this viewer only: the services keep no lock of a layer. */
+  const lockLayer = (l: Layer, locked: boolean) => setMyLocks((m) => {
+    const n = new Set(m)
+    if (locked) n.add(l.id)
+    else n.delete(l.id)
+    return n
+  })
   return {
-    patchLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
+    lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
     showVariant, toggleLayer, setAllLayers, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }

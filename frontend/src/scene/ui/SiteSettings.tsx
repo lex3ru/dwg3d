@@ -1,6 +1,7 @@
 import { Armchair, FileBox, Trash2, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/confirm'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,7 +19,7 @@ const num = (s: string, d = 0) => {
   return Number.isFinite(v) ? v : d
 }
 
-/** Job viewer settings: building name, map binding, detailed model alignment.
+/** Job viewer settings: the drawing's name, the building's map binding and detailed model alignment.
  * Changes preview live (onPreview) and are stored with "Сохранить". */
 export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSaved, onClose }: {
   jobId: string
@@ -42,6 +43,7 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [ask, confirmDialog] = useConfirm()
 
   const siteValue = (s = site): ViewSettings['site'] | null => (s.lat.trim() && s.lon.trim()
     ? {
@@ -94,6 +96,8 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
     }
   }
   const remove = async () => {
+    if (!(await ask({ title: 'Удалить детальную модель здания?', danger: true, confirm: 'Удалить',
+      text: `Файл «${view.detail?.file ?? ''}» будет удалён с сервера — у всего здания останется только распознанная модель. Вернуть — только загрузив файл снова.` }))) return
     setBusy(true)
     try { onSaved(await deleteDetail(jobId)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
@@ -111,15 +115,15 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
         className="max-h-[85vh] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader><DialogTitle>Карта и детальная модель</DialogTitle></DialogHeader>
         <div className="-mx-5 grid min-h-0 content-start gap-3 overflow-y-auto px-5 text-sm">
-          <h3 className={h3}>Здание</h3>
+          <h3 className={h3}>Чертёж</h3>
           <div className={grid}>
-            <Label className={row}><span className="shrink-0">Название</span>
-              <Tip label="Имя этого чертежа в списке чертежей здания и в шапке редактора; пусто — не менять">
-                <Input value={name} placeholder="как в списке зданий" onChange={(e) => setName(e.target.value)} />
+            <Label className={row}><span className="shrink-0">Название чертежа</span>
+              <Tip label="Имя этого чертежа в списке чертежей здания и в шапке редактора; название здания не меняется. Пусто — не менять">
+                <Input value={name} placeholder={view.name || 'например, «Корпус А»'} maxLength={200} onChange={(e) => setName(e.target.value)} />
               </Tip></Label>
           </div>
 
-          <h3 className={cn(h3, 'mt-2')}>Привязка к карте</h3>
+          <h3 className={cn(h3, 'mt-2')}>Привязка здания к карте</h3>
           <p className={hint}>Точка — центр модели (начало координат). Азимут — поворот здания по часовой стрелке
             от севера: на сколько градусов ось Y плана отклонена от направления на север. Масштаб подложки — если план
             начерчен не в масштабе 1:1. Координаты можно вставить одной строкой «55.7539, 37.6208».</p>
@@ -156,7 +160,7 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
             источник: <code className={code}>https://…/{'{z}'}/{'{x}'}/{'{y}'}.png</code> и его атрибуцию. Без привязки под зданием —
             нейтральная сетка.</p>
 
-          <h3 className={cn(h3, 'mt-2')}>Детальная модель (GLB)</h3>
+          <h3 className={cn(h3, 'mt-2')}>Детальная модель здания (GLB)</h3>
           <p className={hint}>Фасад, мебель, оборудование — готовая модель поверх распознанной. Узлы с именем
             {' '}<code className={code}>floor_&lt;номер этажа&gt;</code> попадают на этот этаж, остальные — по высоте; узлы выше полутора этажей —
             фасад всего здания. Узлы с «furniture» / «мебель» в имени — мебель (кнопка <Armchair className="inline size-3.5 align-[-2px]" aria-label="мебель" /> внизу).</p>
@@ -168,7 +172,7 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
                 <span className="text-muted-foreground">{((view.detail.size ?? 0) / 1048576).toFixed(1)} МБ</span>
                 {detailInfo && <span className="text-muted-foreground">этажных узлов {detailInfo.floors}, фасад {detailInfo.building}, мебель {detailInfo.furniture}</span>}
                 <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive" disabled={busy} onClick={remove}
-                  hint="Убрать детальную модель у всего здания сразу, без подтверждения; вернуть — только загрузив файл снова">
+                  hint="Убрать детальную модель у всего здания, спросив подтверждения; вернуть — только загрузив файл снова">
                   <Trash2 /> Удалить
                 </Button>
               </div>
@@ -200,6 +204,7 @@ export default function SiteSettings({ jobId, view, detailInfo, onPreview, onSav
           <Button variant="secondary" hint="Закрыть, ничего не записывая; предпросмотр сбросится" onClick={onClose}>Отмена</Button>
           <Button disabled={busy} hint="Записать название чертежа, привязку здания к карте и подгонку модели" onClick={save}>Сохранить</Button>
         </DialogFooter>
+        {confirmDialog}
       </DialogContent>
     </Dialog>
   )

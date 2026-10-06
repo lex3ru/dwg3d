@@ -5,6 +5,7 @@ import {
   type CopilotItem, type CopilotProposal, type CopilotStatus, type ProposalFull, type UIContext,
 } from '@/scene/api'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/confirm'
 import { Textarea } from '@/components/ui/textarea'
 import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -26,6 +27,7 @@ const EXAMPLES = ['Проверь этот этаж', 'Где камеры не 
 
 function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable: boolean; onPreview: (p: ProposalFull | null) => void }) {
   const [state, setState] = useState<string | null>(null)
+  const [ask, confirmDialog] = useConfirm()
   const n = p.counts
   return (
     <div className="grid gap-1.5 rounded-lg border border-border bg-card p-2 text-sm">
@@ -49,19 +51,23 @@ function ProposalCard({ p, editable, onPreview }: { p: CopilotProposal; editable
             } catch (e) { setState((e as Error).message) }
           }}><Eye /> Показать</Button>
           {editable && (
-            <Button size="sm" hint="Внести изменения сразу, без подтверждения, от вашего имени с пометкой копилота" onClick={async () => {
+            <Button size="sm" hint="Внести изменения от вашего имени с пометкой копилота; сначала спросит подтверждения" onClick={async () => {
+              const total = n ? n.create + n.update + n.delete : 0
+              if (!(await ask({ title: 'Применить предложение?', confirm: 'Применить',
+                text: `${p.summary}${total ? `\n\nИзменений: ${total}.` : ''} В журнале они будут записаны от вашего имени с пометкой копилота.` }))) return
               try { await applyProposal(p.id); setState('Применено'); onPreview(null) } catch (e) { setState((e as Error).message) }
             }}><Check /> Применить</Button>
           )}
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }
 
 /**
  * The copilot's chat: questions about the project, answers streamed as they come,
- * the tools it uses, its proposals (shown on the plan, applied in one click).
+ * the tools it uses, its proposals (shown on the plan, applied after a confirmation).
  * Each message carries what this window shows, so "here" and "this" make sense.
  */
 export default function Copilot({ projectId, status, ui, editable, onPreview, onClose }: {
@@ -78,6 +84,7 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
   const [busy, setBusy] = useState(false)
   const [thinking, setThinking] = useState(0)
   const [history, setHistory] = useState<{ id: string; title: string }[] | null>(null)
+  const [ask, confirmDialog] = useConfirm()
   const abort = useRef<AbortController | null>(null)
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [items])
@@ -145,7 +152,9 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
               <Tip label="Открыть разговор и продолжить с того места" side="left">
                 <button type="button" className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-sm" onClick={() => open(h.id)}>{h.title || 'Без названия'}</button>
               </Tip>
-              <Button size="icon" variant="ghost" aria-label="Удалить" hint="Удалить разговор сразу, без подтверждения" onClick={async () => {
+              <Button size="icon" variant="ghost" aria-label="Удалить" hint="Удалить разговор, спросив подтверждения" onClick={async () => {
+                if (!(await ask({ title: `Удалить разговор «${h.title || 'Без названия'}»?`, danger: true, confirm: 'Удалить',
+                  text: 'Переписка с копилотом будет удалена, вернуть её нельзя.' }))) return
                 await deleteCopilotChat(projectId, h.id).catch(() => {})
                 setHistory((x) => (x ?? []).filter((y) => y.id !== h.id))
                 if (chat === h.id) fresh()
@@ -196,6 +205,7 @@ export default function Copilot({ projectId, status, ui, editable, onPreview, on
           ? <Button type="button" size="icon" variant="secondary" aria-label="Остановить" hint="Прервать ответ модели; уже написанное останется" onClick={() => abort.current?.abort()}><Square /></Button>
           : <Button size="icon" aria-label="Отправить" hint={text.trim() ? 'Спросить копилота (Enter); он видит, что открыто и выделено на экране' : 'Сначала напишите сообщение'} disabled={!text.trim()}><Send /></Button>}
       </form>
+      {confirmDialog}
     </div>
   )
 }

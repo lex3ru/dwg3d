@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { signIn } from './helpers'
 
@@ -106,6 +107,33 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   await page.getByRole('button', { name: 'Создать ряд' }).click()
   await expect.poll(async () => (await objects()).map(o => o.inventory_no).sort(), { timeout: 10_000 })
     .toEqual([`КР-${stamp}`, `РЯ-${stamp}-01`, `РЯ-${stamp}-02`])
+  // the size is the type's in the catalog: shown, not edited
+  await expect(page.getByText('Габариты').first()).toBeVisible()
+  await expect(page.getByLabel('Ширина, см')).toHaveCount(0)
+
+  // the drawing saved from the tree carries the objects as blocks with their numbers
+  await page.getByRole('tab', { name: 'Здание' }).click()
+  const saved = page.waitForEvent('download')
+  await page.getByLabel('Действия с чертежом').click()
+  await page.getByRole('menuitem', { name: 'Сохранить DXF с правками' }).click()
+  const dxf = readFileSync(await (await saved).path(), 'latin1')
+  expect(dxf).toContain(`${stamp}-02`)
+
+  // a layer locked against a slip of the hand stays locked for this viewer after a reload
+  const assetsLayer = page.locator('li', { hasText: 'Объекты учёта' }).first()
+  await assetsLayer.getByRole('button', { name: 'Блокировка' }).click()
+  await expect(assetsLayer.getByRole('button', { name: 'Редактировать слой' })).toBeDisabled()
+  await page.reload()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await page.locator('button').first().click()
+  await page.getByText('План 1-го этажа').first().click()
+  await expect(assetsLayer.getByRole('button', { name: 'Блокировка' })).toHaveAttribute('aria-pressed', 'true')
+  await assetsLayer.getByRole('button', { name: 'Блокировка' }).click()
+  await expect(assetsLayer.getByRole('button', { name: 'Редактировать слой' })).toBeEnabled()
+  await assetsLayer.getByRole('button', { name: 'Редактировать слой' }).click()
+  await page.getByRole('button', { name: '2D', exact: true }).click()
+  await page.waitForTimeout(2500)
+  await page.mouse.click(tx, ty)
   await page.getByTestId('asset-link').click()
   await expect(page).toHaveURL(new RegExp(`#/b/${building}/assets/${chair.id}`))
 

@@ -58,7 +58,7 @@ export function TopRight({ displayMenu, proj, onProj, map, onMap, mapAvailable, 
           <Tip label="Как делить чертёж на этажи и какие слои DWG — стены, двери, помещения; после изменения модель пересоберётся" side="left">
             <DropdownMenuItem onSelect={() => onSettings('floors')}><Building2 /> Этажи и роли слоёв чертежа…</DropdownMenuItem>
           </Tip>
-          <Tip label="Название, точка и азимут здания на карте, готовая GLB-модель фасада и мебели поверх распознанной" side="left">
+          <Tip label="Название чертежа, точка и азимут здания на карте, готовая GLB-модель фасада и мебели поверх распознанной" side="left">
             <DropdownMenuItem onSelect={() => onSettings('site')}><MapIcon /> Карта и детальная модель…</DropdownMenuItem>
           </Tip>
           {LATER.reports && (

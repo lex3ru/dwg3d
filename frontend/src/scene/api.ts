@@ -218,8 +218,6 @@ export interface ViewSettings {
   comments?: Pin[]
   markers?: Pin[]
   furniture?: PlacedItem[]
-  /** furniture whose floor was not found after a rebuild (kept by the server) */
-  furniture_unplaced?: (PlacedItem & { _anchor?: { name?: string } | null })[]
   /** lines, zones, routes of functional layers */
   shapes?: ShapeObject[]
 }
@@ -356,11 +354,10 @@ export async function getPlan(id: string, path: string, v: number): Promise<Plan
 // the loaders of the viewer fetch files by address: the real one, in the import service
 export const fileUrl = (id: string, path: string, _v = 0) => buildFileUrl(id, path)
 
-/** Source drawing with the editor corrections applied and the objects of the
- * shown project layers drawn in (or none), downloaded as a file. */
-export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg', layers: string[] | 'none' = 'none'): Promise<void> {
-  const q = layers === 'none' ? 'none' : layers.join(',') || 'none'
-  const r = await fetch(`/api/drawings/${id}/drawing.${fmt}?layers=${encodeURIComponent(q)}`)
+/** Source drawing with the editor corrections applied and, with `objects`, the objects of accounting
+ * on its floors drawn in as blocks with attributes, downloaded as a file. */
+export async function downloadDrawing(id: string, fmt: 'dxf' | 'dwg', objects = false): Promise<void> {
+  const r = await fetch(`/api/drawings/${id}/drawing.${fmt}${objects ? '?objects=1' : ''}`)
   if (!r.ok) await check(r)
   const cd = r.headers.get('content-disposition') ?? ''
   const m = /filename\*=utf-8''([^;]+)/i.exec(cd) ?? /filename="?([^";]+)"?/i.exec(cd)
@@ -539,9 +536,8 @@ export type RowOp = { op: 'create' | 'update' | 'delete'; id: string; version?: 
 export interface RowConflict { id: string; current: (PlacedItem & Pin) | null }
 export interface BatchResult<T> { items: T[]; deleted: string[] }
 
-/** The layer objects of a drawing as the server has them now: placed items and shapes (`items`), and
- * catalog items whose floor is gone (`unplaced`). */
-export async function listObjects(id: string): Promise<{ build: number; items: (PlacedItem | ShapeObject)[]; unplaced: PlacedItem[] }> {
+/** The layer objects of a drawing as the server has them now: placed items and shapes. */
+export async function listObjects(id: string): Promise<{ build: number; items: (PlacedItem | ShapeObject)[] }> {
   return get(`/api/drawings/${id}/objects`)
 }
 
