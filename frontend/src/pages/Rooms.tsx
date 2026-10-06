@@ -39,7 +39,7 @@ export function Rooms({ building, floors, selected, initialQuery }: {
           <ul className="divide-y rounded-lg border bg-card text-sm" data-testid="rooms">
             {f.rooms.map(r => (
               <li key={r.id}>
-                <a href={to.rooms(building, r.id)} aria-current={r.id === selected ? 'true' : undefined}
+                <a href={to.rooms(building, r.id, needle ? q.trim() : undefined)} aria-current={r.id === selected ? 'true' : undefined}
                   className={cn('flex items-center gap-3 px-3 py-2 hover:bg-secondary', r.id === selected && 'bg-accent')}>
                   <span className="min-w-0 flex-1 truncate">{r.name || <span className="text-muted-foreground">Без названия</span>}</span>
                   <span className="shrink-0 text-muted-foreground tabular-nums">{r.area.toLocaleString('ru')} м²</span>

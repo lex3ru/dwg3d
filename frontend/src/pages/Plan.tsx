@@ -202,6 +202,11 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
       ))}
       {!admin && !noting && !move && <Button className="mt-2" variant="outline" size="sm" hint={NOTE_HINT} onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+      {plan?.floor !== active.id && !error && (
+        <div role="status" className="mt-3 grid h-64 animate-pulse place-items-center rounded-lg border bg-card text-sm text-muted-foreground" data-testid="plan-loading">
+          Загружаю план этажа…
+        </div>
+      )}
       {plan?.floor === active.id && (
         <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]"
           dots={[

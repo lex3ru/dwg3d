@@ -126,7 +126,8 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
             </aside>
           )}
         </div>
-        {!rail && <Tabs route={route} building={building} />}
+        {/* in the editor too: on a phone the menu is hidden, and the tabs are the only way out */}
+        <Tabs route={route} building={building} />
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 import { FileText, History, Map as MapIcon, Pencil, QrCode } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { labelsSheet, patchRoom, roomPeople, roomSheetUrl, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
+import { labelsSheet, listAssets, patchRoom, roomPeople, roomSheetUrl, type Asset, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
 import { useEvents } from '../stream'
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
@@ -21,6 +21,10 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
   const loadPeople = useCallback(() => { roomPeople(room.id).then(setPeople, () => setPeople([])) }, [room.id])
   useEffect(loadPeople, [loadPeople])
   useEvents(event => { if (event.type.startsWith('people.') || event.type.startsWith('access.')) loadPeople() })
+  const [assets, setAssets] = useState<{ items: Asset[]; total: number } | null>(null)
+  const loadAssets = useCallback(() => { listAssets({ room_id: room.id, limit: '20' }).then(setAssets, () => setAssets(null)) }, [room.id])
+  useEffect(loadAssets, [loadAssets])
+  useEvents(event => { if (event.type.startsWith('assets.')) loadAssets() })
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     patchRoom(room, { name: name.trim() }).then(() => { setEditing(false); setError(null); onChanged() }, (ex: Error) => setError(ex.message))
@@ -79,7 +83,24 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
           </ul>
         )}
       </div>
-      <p className="text-sm text-muted-foreground">Объекты помещения — в разделе «Объекты».</p>
+      <div data-testid="room-assets">
+        <h3 className="text-sm font-medium">Объекты помещения{assets && assets.total > 0 && ` · ${assets.total}`}</h3>
+        {assets && assets.items.length === 0 && <p className="text-sm text-muted-foreground">В помещении нет объектов.</p>}
+        {assets && assets.items.length > 0 && (
+          <ul className="mt-1 grid gap-1 text-sm">
+            {assets.items.map(a => (
+              <li key={a.id}>
+                <Tip label="Карточка объекта: свойства, ответственный, файлы, история">
+                  <a className="text-primary hover:underline" href={to.assets(building, a.id)}>{a.type_name} · {a.inventory_no}</a>
+                </Tip>
+              </li>
+            ))}
+          </ul>
+        )}
+        {assets && assets.total > assets.items.length && (
+          <p className="mt-1 text-xs text-muted-foreground">Показаны первые {assets.items.length}; остальные — в разделе «Объекты».</p>
+        )}
+      </div>
       <Comments me={me} building={building} target_kind="room" target_id={room.id} admin={admin} />
     </div>
   )

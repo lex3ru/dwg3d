@@ -1,4 +1,4 @@
-import { Building2, Plus } from 'lucide-react'
+import { Building2, Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { createBuilding, listBuildings, type Building, type Me } from '../api'
 import { Button } from '../components/ui/button'
@@ -24,6 +24,9 @@ export function Buildings({ me, refresh }: { me: Me; /** changes when the set of
   const [items, setItems] = useState<Building[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [q, setQ] = useState('')
+  const needle = q.trim().toLowerCase()
+  const shown = items && needle ? items.filter(b => `${b.name} ${b.address ?? ''}`.toLowerCase().includes(needle)) : items
 
   const load = useCallback(() => {
     void refresh
@@ -43,9 +46,19 @@ export function Buildings({ me, refresh }: { me: Me; /** changes when the set of
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       {adding && <NewBuilding onDone={() => { setAdding(false); load() }} />}
-      {items && items.length > 0 && (
+      {items && items.length > 8 && (
+        <div className="relative mt-4 w-64 max-w-full">
+          <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
+          <Tip label="Название или адрес здания; список сужается по мере ввода">
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Найти здание" aria-label="Поиск здания"
+              className="h-8 w-full rounded-md border bg-card pr-2 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </Tip>
+        </div>
+      )}
+      {shown && needle && shown.length === 0 && <p className="mt-4 text-sm text-muted-foreground">Ничего не найдено. Проверьте название или адрес.</p>}
+      {shown && shown.length > 0 && (
         <ul className="mt-5 grid gap-3 sm:grid-cols-2" data-testid="buildings">
-          {items.map(b => (
+          {shown.map(b => (
             <li key={b.id}>
               <Tip label="Кабинет здания: что требует внимания, помещения, объекты, план">
                 <a href={`#/b/${b.id}`} className="block rounded-lg border bg-card p-4 hover:border-primary">

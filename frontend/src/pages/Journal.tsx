@@ -46,7 +46,26 @@ function describe(e: JournalEvent): string {
     case 'access.share.created': return `выдана ссылка для просмотра — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}${d.expires_at ? `, до ${new Date(d.expires_at as string).toLocaleDateString('ru')}` : ''}`
     case 'access.share.revoked': return `ссылка отозвана — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}`
     case 'access.share.opened': return `открыта ссылка для просмотра${d.note ? ` — ${d.note}` : ''}${d.address ? ` · адрес ${d.address}` : ''}`
-    default: return e.type
+    case 'buildings.revision.drafted': return 'собран черновик чертежа, ждёт проверки'
+    case 'buildings.revision.discarded': return 'черновик чертежа отброшен'
+    case 'buildings.room.merged': return 'помещения объединены'
+    case 'buildings.room.split': return 'помещение разделено'
+    case 'catalog.type.created': return 'в каталоге новый тип'
+    case 'catalog.type.changed': return 'тип каталога изменён'
+    case 'catalog.type.archived': return 'тип каталога убран в архив'
+    case 'catalog.type.restored': return 'тип каталога возвращён из архива'
+    case 'catalog.property_set.changed': return 'набор свойств каталога изменён'
+    case 'import.drawing.uploaded': return 'чертёж загружен'
+    case 'import.drawing.renamed': return 'чертёж переименован'
+    case 'import.drawing.deleted': return 'чертёж удалён'
+    case 'import.build.started': return 'началась сборка чертежа'
+    case 'import.build.progress': return 'сборка чертежа идёт'
+    case 'import.build.finished': return 'сборка чертежа завершена'
+    case 'import.build.failed': return 'сборка чертежа не удалась'
+    case 'planning.variant.created': return 'создан вариант расстановки'
+    case 'planning.variant.applied': return 'вариант расстановки применён'
+    case 'planning.variant.deleted': return 'вариант расстановки удалён'
+    default: return 'событие системы'                  // a kind the interface does not know yet; the raw name stays in the tooltip
   }
 }
 
@@ -96,7 +115,7 @@ export function Journal({ building, floors, filter }: { building: string; floors
         <Tip label="Только то, что случилось в одном помещении: с его объектами, людьми и им самим">
           <select className={select} value={room} onChange={e => setRoom(e.target.value)} aria-label="Помещение">
             <option value="">всё здание</option>
-            {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || 'без названия'}</option>))}
+            {floors.flatMap(f => f.rooms.map(r => <option key={r.id} value={r.id}>{f.name || f.level} · {r.name || `без названия, ${r.area.toLocaleString('ru')} м²`}</option>))}
           </select>
         </Tip>
         <Tip label="Начало периода, день включительно; пусто — с самого начала">
@@ -120,7 +139,7 @@ export function Journal({ building, floors, filter }: { building: string; floors
           {items.map(e => {
             const href = link(e)
             return (
-              <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2" data-event={e.type}>
+              <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2" data-event={e.type} title={e.type}>
                 <span className="w-36 shrink-0 text-muted-foreground tabular-nums">{new Date(e.time).toLocaleString('ru')}</span>
                 <span className="min-w-48 flex-1">{href ? (
                   <Tip label={e.asset_id ? 'Карточка объекта, с которым это случилось' : 'Помещение, где это случилось'}>

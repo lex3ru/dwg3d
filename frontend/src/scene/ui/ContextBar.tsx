@@ -98,7 +98,7 @@ export default function ContextBar(p: {
       </span>
       {p.editable && editableLayers.length > 0 && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" hint="Выбрать слой и расставлять или рисовать в нём; заблокированных слоёв в списке нет" hintSide="bottom"><Pencil /> <span className="@max-3xl:hidden">Редактировать слой</span></Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="max-md:order-first" hint="Выбрать слой и расставлять или рисовать в нём; заблокированных слоёв в списке нет" hintSide="bottom"><Pencil /> <span className="@max-3xl:hidden">Редактировать слой</span></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>Какой слой редактировать</DropdownMenuLabel>
             {editableLayers.map((l) => (
