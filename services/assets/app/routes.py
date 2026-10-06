@@ -3,6 +3,9 @@
 An object is seen by those with a right on it or on the room, floor or building it is
 in; who answers for it (or for its room) edits what the schema lets them and its state;
 the building's administrator does the rest. What one may not see does not exist (404).
+A guest by a link sees the objects of its area and nothing of who is behind them: no
+responsible, no note, no property naming a person; history, files, labels and changes
+are not for guests (403 `guest`).
 """
 from __future__ import annotations
 
@@ -15,11 +18,11 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
-from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, uuid7
 from twin_chassis.access import decide
 
 from . import core, labels, storage
-from .models import STATES, asset_files, asset_history, assets
+from .models import STATES, asset_files, asset_history, assets, type_schemas
 
 router = APIRouter()
 MAX_FILE = 25 * 1024 * 1024
@@ -41,6 +44,32 @@ async def _asset(session, asset_id: UUID, scopes: dict, *, lock: bool = False):
 def _need(scopes: dict, action: str, chain, message: str = FORBIDDEN) -> None:
     if not decide(scopes, action, chain):
         raise Problem(403, "forbidden", message)
+
+
+HIDDEN_FROM_GUESTS = ("responsible_id", "note")
+
+
+async def _person_keys(session, type_ids=None) -> dict[str, set[str]]:
+    """The properties naming a person, by type (of the given types; of all of them when None)."""
+    q = select(type_schemas.c.type_id, type_schemas.c.schema, type_schemas.c.type_props)
+    if type_ids is not None:
+        q = q.where(type_schemas.c.type_id.in_(list(type_ids) or [uuid7()]))
+    return {str(t): {p["key"] for p in [*schema, *kept] if p.get("kind") == "person"}
+            for t, schema, kept in (await session.execute(q)).all()}
+
+
+async def _shown(session, me: Identity, rows) -> list[dict]:
+    """The objects as the caller gets them: a guest by a link does not learn who is behind them."""
+    items = [core.asset_json(a) for a in rows]
+    if me.kind != "guest" or not items:
+        return items
+    people = await _person_keys(session, {a.type_id for a in rows})
+    for item in items:
+        for field in HIDDEN_FROM_GUESTS:
+            item.pop(field)
+        hidden = people.get(item["type_id"], set())
+        item["props"] = {k: v for k, v in item["props"].items() if k not in hidden}
+    return items
 
 
 def _stale(a, version: int) -> None:
@@ -99,11 +128,16 @@ async def list_assets(request: Request, building_id: UUID | None = None, floor_i
             where.append(field >= value if op == "gte" else field <= value if op == "lte" else field == value)
     limit, cursor = max(1, min(limit, 500)), max(0, cursor)
     async with request.app.state.db.begin() as session:
+        if me.kind == "guest":                      # who answers for what is not a guest's to ask, even by a filter
+            people = set().union(*(await _person_keys(session)).values())
+            if responsible_id is not None or any(n.startswith("prop.") and n[5:].partition(".")[0] in people
+                                                 for n in request.query_params):
+                raise Problem(403, "guest", "Гостю по ссылке это недоступно")
         rows = (await session.execute(select(assets).where(*where).order_by(assets.c.type_name, assets.c.inventory_no)
                                       .limit(limit + 1).offset(cursor))).all()
         total = (await session.execute(select(func.count()).select_from(assets).where(*where))).scalar_one()
-    return {"items": [core.asset_json(a) for a in rows[:limit]], "total": total,
-            "next": cursor + limit if len(rows) > limit else None}
+        items = await _shown(session, me, rows[:limit])
+    return {"items": items, "total": total, "next": cursor + limit if len(rows) > limit else None}
 
 
 class Ids(BaseModel):
@@ -115,7 +149,7 @@ async def batch_assets(body: Ids, request: Request, me: Identity = Depends(curre
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(assets).where(assets.c.id.in_(body.ids or [uuid7()])))).all()
-    return {"items": [core.asset_json(a) for a in rows if decide(scopes, "view", core.chain(a))]}
+        return {"items": await _shown(session, me, [a for a in rows if decide(scopes, "view", core.chain(a))])}
 
 
 @router.get("/assets/{asset_id}", tags=["assets"], summary="Объект; `can` — что с ним может спрашивающий")
@@ -126,15 +160,16 @@ async def get_asset(asset_id: UUID, request: Request, me: Identity = Depends(cur
         schema = await core.schema_of(request, session, a.type_id)
         children = (await session.execute(select(assets).where(assets.c.container_id == asset_id)
                                           .order_by(assets.c.type_name, assets.c.inventory_no))).all()
-    return {**core.asset_json(a), "schema": schema.schema, "type_props": schema.type_props,
-            "portable": schema.portable, "container": schema.container,
-            "children": [core.asset_json(c) for c in children],
+        (card,), children = await _shown(session, me, [a]), await _shown(session, me, children)
+    type_props = [p for p in schema.type_props if me.kind != "guest" or p.get("kind") != "person"]
+    return {**card, "schema": schema.schema, "type_props": type_props,
+            "portable": schema.portable, "container": schema.container, "children": children,
             "can": {"edit": decide(scopes, "edit", core.chain(a)), "manage": decide(scopes, "manage", core.chain(a)),
                     "move": decide(scopes, "manage" if not schema.portable else "move_portable", core.chain(a))}}
 
 
 @router.get("/qr/{code}", tags=["assets"], summary="Чей это QR-код: идентификатор объекта")
-async def by_qr(code: str, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def by_qr(code: str, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
         a = (await session.execute(select(assets).where(assets.c.qr_code == code.upper()))).one_or_none()
@@ -153,7 +188,7 @@ def _pdf(data: bytes, filename: str) -> Response:
 @router.get("/assets/{asset_id}/label", tags=["labels"], response_class=Response, responses={200: {"content": {"application/pdf": {}}}},
             summary="QR-метка объекта в PDF; size — сторона наклейки в мм")
 async def label(asset_id: UUID, request: Request, size: float = Query(40, ge=labels.MIN_MM, le=labels.MAX_MM),
-                me: Identity = Depends(current_identity)) -> Response:
+                me: Identity = Depends(forbid_guests)) -> Response:
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes)
@@ -171,7 +206,7 @@ class Labels(BaseModel):
 
 @router.post("/labels", tags=["labels"], response_class=Response, responses={200: {"content": {"application/pdf": {}}}},
              summary="Лист QR-меток в PDF (A4): выбранные объекты или все объекты помещения, этажа, здания")
-async def label_sheet(body: Labels, request: Request, me: Identity = Depends(current_identity)) -> Response:
+async def label_sheet(body: Labels, request: Request, me: Identity = Depends(forbid_guests)) -> Response:
     scopes = await _scopes(request, me, reading=True)
     q = select(assets).where(assets.c.retired_at.is_(None)).order_by(assets.c.inventory_no)
     if body.asset_ids is not None:
@@ -196,7 +231,7 @@ async def label_sheet(body: Labels, request: Request, me: Identity = Depends(cur
 
 
 @router.get("/responsibles", tags=["assets"], summary="Кто за какой объект отвечает (служебный: для сверки прав)")
-async def responsibles(request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def responsibles(request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     if not me.is_admin and me.kind != "service":
         raise Problem(403, "forbidden", "Служебный запрос")
     async with request.app.state.db.begin() as session:
@@ -207,7 +242,7 @@ async def responsibles(request: Request, me: Identity = Depends(current_identity
 
 
 @router.get("/usage", tags=["assets"], summary="Есть ли объекты типа и значения свойства (для каталога)")
-async def usage(request: Request, type_id: UUID, prop: str | None = None, me: Identity = Depends(current_identity)) -> dict:
+async def usage(request: Request, type_id: UUID, prop: str | None = None, me: Identity = Depends(forbid_guests)) -> dict:
     if not me.is_admin and me.kind != "service":
         raise Problem(403, "forbidden", FORBIDDEN)
     async with request.app.state.db.begin() as session:
@@ -275,7 +310,7 @@ async def _insert(request: Request, session, me: Identity, who: dict, body: Asse
 
 
 @router.post("/assets", status_code=201, tags=["assets"], summary="Поставить объект: тип, точка этажа или контейнер, номер")
-async def create_asset(body: AssetIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def create_asset(body: AssetIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     try:
         async with request.app.state.db.begin() as session:
@@ -300,7 +335,7 @@ class Batch(BaseModel):
 
 @router.post("/assets/batch", status_code=201, tags=["assets"],
              summary="Несколько одинаковых объектов с номерами подряд; всё или ничего")
-async def create_batch(body: Batch, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def create_batch(body: Batch, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     building, rooms = await _locate(request, body.floor_id, body.points)
     outside = [i + 1 for i, r in enumerate(rooms) if r is None]
@@ -328,7 +363,7 @@ COLUMNS = {"тип": "type", "инвентарный номер": "inventory_no"
 @router.post("/assets/import", status_code=201, tags=["assets"],
              summary="Загрузить объекты из Excel: Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание")
 async def import_assets(request: Request, building_id: UUID, file: UploadFile = File(...),
-                        me: Identity = Depends(current_identity)) -> dict:
+                        me: Identity = Depends(forbid_guests)) -> dict:
     """All rows or none: with a mistake in any row nothing is created, and the answer names the rows.
     The type is given by its name in the catalog, the floor by its number (level) or name; X and Y are
     plan coordinates of the floor, metres."""
@@ -443,7 +478,7 @@ async def _apply(session, a, who: dict, values: dict, action: str = "changed", *
 
 
 @router.patch("/assets/{asset_id}", tags=["assets"], summary="Изменить номера, примечание, свойства — каждое по своим правам")
-async def patch_asset(asset_id: UUID, body: AssetPatch, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def patch_asset(asset_id: UUID, body: AssetPatch, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     sent = body.model_dump(exclude={"version"}, exclude_unset=True)
     try:
@@ -480,7 +515,7 @@ class StateIn(BaseModel):
 
 
 @router.post("/assets/{asset_id}/state", tags=["assets"], summary="Сменить состояние; «списан» — администратор здания")
-async def set_state(asset_id: UUID, body: StateIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def set_state(asset_id: UUID, body: StateIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes, lock=True)
@@ -517,7 +552,7 @@ class ResponsibleIn(BaseModel):
 
 @router.post("/assets/{asset_id}/responsible", tags=["assets"], summary="Назначить или снять ответственного")
 async def set_responsible(asset_id: UUID, body: ResponsibleIn, request: Request,
-                          me: Identity = Depends(current_identity)) -> dict:
+                          me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes, lock=True)
@@ -540,7 +575,7 @@ class MoveIn(Place):
 
 @router.post("/assets/{asset_id}/move", tags=["assets"],
              summary="Переместить: в точку этажа или внутрь контейнера; вложенные объекты переезжают вместе")
-async def move(asset_id: UUID, body: MoveIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def move(asset_id: UUID, body: MoveIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes, lock=True)
@@ -573,7 +608,7 @@ async def move(asset_id: UUID, body: MoveIn, request: Request, me: Identity = De
 
 # ------------------------------------------------------------------ history ---
 @router.get("/assets/{asset_id}/history", tags=["history"], summary="История объекта: кто, когда, что было и стало")
-async def history(asset_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def history(asset_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
         await _asset(session, asset_id, scopes)
@@ -587,7 +622,7 @@ async def history(asset_id: UUID, request: Request, me: Identity = Depends(curre
 
 @router.post("/assets/{asset_id}/history/{entry_id}/revert", tags=["history"],
              summary="Откатить изменение — если с тех пор эти поля не менялись")
-async def revert(asset_id: UUID, entry_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def revert(asset_id: UUID, entry_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes, lock=True)
@@ -618,7 +653,7 @@ def file_json(f) -> dict:
 
 
 @router.get("/assets/{asset_id}/files", tags=["files"], summary="Фотографии и документы объекта")
-async def list_files(asset_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
+async def list_files(asset_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
         await _asset(session, asset_id, scopes)
@@ -629,7 +664,7 @@ async def list_files(asset_id: UUID, request: Request, me: Identity = Depends(cu
 
 @router.post("/assets/{asset_id}/files", status_code=201, tags=["files"], summary="Приложить фото или документ")
 async def add_file(asset_id: UUID, request: Request, file: UploadFile = File(...),
-                   me: Identity = Depends(current_identity)) -> dict:
+                   me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     data = await file.read(MAX_FILE + 1)
     if len(data) > MAX_FILE:
@@ -659,7 +694,7 @@ async def _file(session, file_id: UUID, scopes: dict):
 
 
 @router.get("/files/{file_id}", tags=["files"], response_class=StreamingResponse, summary="Файл объекта")
-async def get_file(file_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> StreamingResponse:
+async def get_file(file_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> StreamingResponse:
     from urllib.parse import quote
     scopes = await _scopes(request, me, reading=True)
     async with request.app.state.db.begin() as session:
@@ -670,7 +705,7 @@ async def get_file(file_id: UUID, request: Request, me: Identity = Depends(curre
 
 
 @router.delete("/files/{file_id}", status_code=204, tags=["files"], summary="Убрать файл")
-async def delete_file(file_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> None:
+async def delete_file(file_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> None:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     async with request.app.state.db.begin() as session:
         f, a = await _file(session, file_id, scopes)

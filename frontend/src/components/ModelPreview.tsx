@@ -2,6 +2,7 @@ import { Bounds, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { Suspense, useMemo } from 'react'
 import type { Mesh, MeshStandardMaterial } from 'three'
+import { cn } from '../lib/utils'
 
 function Model({ url }: { url: string }) {
   const gltf = useGLTF(url)
@@ -19,10 +20,10 @@ function Model({ url }: { url: string }) {
   return <primitive object={scene} />
 }
 
-/** A 3D model turning under the mouse: what a type of the catalog looks like. */
-export default function ModelPreview({ url }: { url: string }) {
+/** A 3D model turning under the mouse: what a type of the catalog looks like (a guest's floor, a bigger one). */
+export default function ModelPreview({ url, className }: { url: string; className?: string }) {
   return (
-    <div className="h-56 overflow-hidden rounded-lg border bg-secondary" data-testid="model-preview">
+    <div className={cn('h-56 overflow-hidden rounded-lg border bg-secondary', className)} data-testid="model-preview">
       <Canvas camera={{ position: [3, 2, 3], fov: 40 }}>
         <ambientLight intensity={1.4} />
         <directionalLight position={[4, 8, 5]} intensity={2.2} />

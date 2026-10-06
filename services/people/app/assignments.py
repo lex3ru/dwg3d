@@ -3,7 +3,7 @@
 A person is seen — with contacts — by whoever sees a room they are assigned to;
 assigning is for whoever manages the room. The room itself is the buildings
 service's: it is asked where the room is (floor, building) and whether the
-asker may see it at all.
+asker may see it at all. Who sits where is not for a guest by a link (403 `guest`).
 """
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from twin_chassis import Identity, Problem, current_identity, emit, require_service
+from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, require_service
 from twin_chassis.access import decide
 
 from .models import assignments, persons
 from .routes import _person, person_json
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(forbid_guests)])
 
 
 def assignment_json(a) -> dict:

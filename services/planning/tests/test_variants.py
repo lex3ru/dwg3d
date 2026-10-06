@@ -101,3 +101,20 @@ async def test_copy_rename_delete(client, tokens, world):
     assert (await client.delete(f"{API}/variants/{v['id']}", headers=boss)).status_code == 204
     assert [x["name"] for x in (await client.get(f"{API}/variants", params={"building_id": BUILDING},
                                                   headers=boss)).json()["items"]] == ["Б-2"]
+
+
+async def test_a_guest_by_a_link_has_no_variants(client, app, tokens, world):
+    boss = tokens.bearer("boss")
+    world.put(DESK, "СТ-0001", x=1.0)
+    v = (await client.post(f"{API}/variants", json={"building_id": BUILDING, "name": "Перестановка"}, headers=boss)).json()
+    guest = tokens.guest("building", BUILDING, BUILDING)
+    # every request, about this very variant and building, is refused before anything is looked at
+    asks = [(method.upper(), path.replace("{variant_id}", v["id"]))
+            for path, methods in app.openapi()["paths"].items() for method in methods]
+    assert len(asks) >= 10
+    for method, path in asks:
+        r = await client.request(method, path, params={"building_id": BUILDING, "a": v["id"], "b": "fact"},
+                                 headers=guest)
+        assert (r.status_code, r.json()["code"]) == (403, "guest"), (method, path, r.text)
+    # the variant is as it was
+    assert (await client.get(f"{API}/variants/{v['id']}", headers=boss)).json()["name"] == "Перестановка"

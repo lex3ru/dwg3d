@@ -1,4 +1,4 @@
-"""The gateway's only table: sign-in sessions."""
+"""The gateway's tables: sign-in sessions, and guests looking by a link."""
 from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, Table, Text, func
@@ -20,4 +20,20 @@ sessions = Table(
     Column("user_agent", Text, nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_seen_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+guest_sessions = Table(
+    "guest_sessions", metadata,
+    Column("token_hash", Text, primary_key=True),             # sha256 of the guest cookie
+    Column("link", Text, nullable=False),                     # the link's token and the guest token are encrypted
+    Column("access_token", Text, nullable=False),
+    Column("access_expires_at", DateTime(timezone=True), nullable=False),
+    Column("guest_sub", Text, nullable=False),
+    Column("building_id", Text, nullable=False),
+    Column("scope_kind", Text, nullable=False),
+    Column("scope_id", Text, nullable=False),
+    Column("floor_id", Text),
+    Column("link_expires_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("user_agent", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )

@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react'
 //   /scan                              the camera reads a QR label
 //   /me                                the user (on a phone: also what the menu holds)
 //   /system                            the state of the services (the system administrator)
+//   /g[?invalid=1|?unavailable=1]      a guest's view by a link (any address shows it to a guest); the link not opened
 
 export type Section = 'home' | 'rooms' | 'assets' | 'plan' | 'drawings' | 'people' | 'access' | 'journal' | 'variants'
 export type Route =
@@ -48,6 +49,14 @@ export function parseRoute(hash: string): Route {
   if (first === 'scan') return { page: 'scan' }
   if (first === 'system' || first === 'me') return { page: first }
   return { page: 'buildings' }
+}
+
+/** A guest's address (#/g): null — some other; `notice` — the link was not opened, and why. */
+export function guestAddress(hash: string): { notice: 'invalid' | 'unavailable' | null } | null {
+  const [path, query = ''] = hash.replace(/^#\/?/, '').split('?')
+  if (path.split('/')[0] !== 'g') return null
+  const q = new URLSearchParams(query)
+  return { notice: q.has('invalid') ? 'invalid' : q.has('unavailable') ? 'unavailable' : null }
 }
 
 export const to = {

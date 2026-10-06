@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "Area": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "building, floor или room",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "Area",
+        "type": "object"
+      },
       "Cabinet": {
         "properties": {
           "attention": {
@@ -138,6 +157,86 @@
         "title": "DrawingReport",
         "type": "object"
       },
+      "GuestLook": {
+        "properties": {
+          "building_id": {
+            "title": "Building Id",
+            "type": "string"
+          },
+          "building_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null — сервис зданий не ответил",
+            "title": "Building Name"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "До какого времени действует ссылка",
+            "title": "Expires At"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Этаж, план которого виден (для этажа и помещения)",
+            "title": "Floor Id"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Area",
+            "description": "Что открывает ссылка"
+          }
+        },
+        "required": [
+          "building_id",
+          "building_name",
+          "scope",
+          "floor_id",
+          "expires_at"
+        ],
+        "title": "GuestLook",
+        "type": "object"
+      },
+      "GuestMe": {
+        "properties": {
+          "guest": {
+            "$ref": "#/components/schemas/GuestLook"
+          },
+          "kind": {
+            "const": "guest",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "guest"
+        ],
+        "title": "GuestMe",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -167,6 +266,12 @@
       },
       "Me": {
         "properties": {
+          "kind": {
+            "const": "user",
+            "default": "user",
+            "title": "Kind",
+            "type": "string"
+          },
           "partial": {
             "description": "Сервисы, не ответившие: соответствующих частей в ответе нет",
             "items": {
@@ -413,14 +518,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Me"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Me"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GuestMe"
+                    }
+                  ],
+                  "title": "Response Me Api Me Get"
                 }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Кто вошёл",
+        "summary": "Кто вошёл (или гость по ссылке)",
         "tags": [
           "me"
         ]
@@ -746,7 +859,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Выйти",
+        "summary": "Выйти; гость по ссылке выходит только из просмотра по ней",
         "tags": [
           "auth"
         ]
@@ -784,6 +897,41 @@
         "summary": "QR-метка: без входа — на вход, затем к карточке объекта (если есть право на него)",
         "tags": [
           "qr"
+        ]
+      }
+    },
+    "/s/{token}": {
+      "get": {
+        "operationId": "share_s__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ссылка для просмотра без учётной записи: гостевой сеанс и переход к просмотру (#/g; недействительна — #/g?invalid=1; сервис доступа недоступен — #/g?unavailable=1)",
+        "tags": [
+          "auth"
         ]
       }
     }

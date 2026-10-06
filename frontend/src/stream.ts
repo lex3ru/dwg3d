@@ -17,6 +17,15 @@ const listeners = new Set<Listener>()
 const watchers = new Set<(connected: boolean) => void>()
 let source: EventSource | null = null
 let connected = false
+// a guest may not listen (the gateway refuses it): nothing is opened at all
+let barred = false
+
+/** No stream in this page: a guest's view. */
+export function barStream() {
+  barred = true
+  source?.close()
+  source = null
+}
 
 function setConnected(value: boolean) {
   connected = value
@@ -24,7 +33,7 @@ function setConnected(value: boolean) {
 }
 
 function open() {
-  if (source) return
+  if (source || barred) return
   source = new EventSource('/api/stream')
   source.onopen = () => setConnected(true)
   source.onerror = () => setConnected(false)        // the browser reconnects by itself

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from twin_chassis import Problem
 
 from .services import ask, every, required
-from .sessions import Signed, signed
+from .sessions import Signed, not_guest
 
 router = APIRouter()
 STATES = {"in_use": "в работе", "faulty": "неисправен", "in_repair": "в ремонте", "in_storage": "на складе",
@@ -113,7 +113,7 @@ def _workbook(items: list[dict], types: dict, floors: dict, rooms: dict, names: 
 @router.get("/api/reports/assets.xlsx", tags=["reports"], response_class=Response,
             responses={200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}}},
             summary="Список объектов в Excel по тем же фильтрам, что у списка; свойства — отдельными столбцами")
-async def assets_xlsx(request: Request, building_id: UUID, who: Signed = Depends(signed)) -> Response:
+async def assets_xlsx(request: Request, building_id: UUID, who: Signed = Depends(not_guest)) -> Response:
     params = {k: v for k, v in request.query_params.items() if k in FILTERS or k.startswith("prop.")}
     items = await every(request, who, "assets", "/assets", params)
     tree = await ask(request, who, "buildings", f"/buildings/{building_id}/tree")
@@ -173,7 +173,7 @@ def _sheet(building: dict, floor: dict, room: dict, items: list[dict], names: di
 @router.get("/api/reports/rooms/{room_id}/sheet.pdf", tags=["reports"], response_class=Response,
             responses={200: {"content": {"application/pdf": {}}}},
             summary="Ведомость помещения в PDF: объекты, номера, состояние, ответственные, место для подписи")
-async def room_sheet(room_id: UUID, request: Request, who: Signed = Depends(signed)) -> Response:
+async def room_sheet(room_id: UUID, request: Request, who: Signed = Depends(not_guest)) -> Response:
     room = required(await ask(request, who, "buildings", f"/rooms/{room_id}"), "buildings")
     building, tree, items = await asyncio.gather(
         ask(request, who, "buildings", f"/buildings/{room['building_id']}"),
@@ -195,7 +195,7 @@ class DrawingReport(BaseModel):
 @router.post("/api/reports/buildings/{building_id}/drawing", tags=["reports"], response_class=Response,
              summary="Чертёж с объектами (DXF или DWG): объекты — блоками с атрибутами на своих местах")
 async def drawing_with_objects(building_id: UUID, body: DrawingReport, request: Request,
-                               who: Signed = Depends(signed)) -> Response:
+                               who: Signed = Depends(not_guest)) -> Response:
     tree = required(await ask(request, who, "buildings", f"/buildings/{building_id}/tree"), "buildings")
     floors, rooms = _places(tree)
     mine = {fid: f for fid, f in floors.items() if f.get("drawing_id") == str(body.drawing_id)}

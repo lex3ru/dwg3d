@@ -25,10 +25,10 @@ SAFE = {"GET", "HEAD", "OPTIONS"}
 RETRY_READS_FOR = 10.0
 
 
-def check_origin(request: Request, me: Signed) -> None:
+def check_origin(request: Request, by_cookie: bool = True) -> None:
     """A changing request made with the cookie must come from our own pages
     (the cookie is sent by the browser on its own; a token is not)."""
-    if not me.by_cookie or request.method in SAFE:
+    if not by_cookie or request.method in SAFE:
         return
     origin = request.headers.get("origin")
     if origin is None:
@@ -43,7 +43,7 @@ async def forward(request: Request, service: str, path: str, me: Signed) -> Stre
     upstream = request.app.state.config.services.get(service)
     if upstream is None:
         raise Problem(404, "not_found", f"Нет сервиса «{service}»")
-    check_origin(request, me)
+    check_origin(request, me.by_cookie)
     headers = [(k, v) for k, v in request.headers.items() if k.lower() not in DROP_REQUEST]
     headers += [("authorization", f"Bearer {me.token}"), ("x-request-id", request_id.get() or "")]
     if request.client:

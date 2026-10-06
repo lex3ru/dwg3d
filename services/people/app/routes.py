@@ -4,7 +4,8 @@ The directory is one for the organisation. It is kept by administrators of
 buildings (anyone who is the administrator of at least one) and by the system
 administrator; who sees whom by rooms arrives with assignments to rooms (stage 6).
 Name and position of a person are open to anyone signed in, by id — to show who
-answers for an object and who made a change.
+answers for an object and who made a change. A guest by a link is no one in the
+directory: every request here refuses it (403 `guest`).
 """
 from __future__ import annotations
 
@@ -14,12 +15,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, insert, select, update
-from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, uuid7
 from twin_chassis.access import decide
 
 from .models import persons
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(forbid_guests)])       # people are not for guests by a link
 MAX_IMPORT_ROWS = 10000
 # something@domain.zone — internal domains (.local, .corp) are as good as public ones
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"

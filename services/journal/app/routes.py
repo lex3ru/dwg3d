@@ -2,7 +2,8 @@
 
 The feed of a building, a room, an object or a person: whoever has a right to
 see the area of an event sees it; events about a person — the person themself
-and the system administrator; the whole feed — the system administrator.
+and the system administrator; the whole feed — the system administrator. A guest by a
+link sees none of it (403 `guest`): the feed tells who did what.
 """
 from __future__ import annotations
 
@@ -11,12 +12,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
-from twin_chassis import Identity, Problem, current_identity
+from twin_chassis import Identity, Problem, current_identity, forbid_guests
 from twin_chassis.access import decide
 
 from .models import events
 
-router = APIRouter(tags=["events"])
+router = APIRouter(tags=["events"], dependencies=[Depends(forbid_guests)])
 
 
 def event_json(e) -> dict:

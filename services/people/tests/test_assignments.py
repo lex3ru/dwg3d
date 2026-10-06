@@ -1,6 +1,7 @@
 """People in rooms: who assigns, who sees whom."""
 from __future__ import annotations
 
+import re
 from uuid import uuid4
 
 from twin_chassis.events import envelope
@@ -99,3 +100,22 @@ async def test_people_of_merged_rooms_work_in_the_heir(client, app, tokens):
     for person in (anna, ivan):
         rooms = (await client.get(f"{API}/people/{person['id']}/assignments", headers=boss)).json()["items"]
         assert [x["room_id"] for x in rooms] == [ROOM_A]
+
+
+async def test_a_guest_by_a_link_learns_nobody(client, app, tokens):
+    boss = tokens.bearer("boss")
+    anna = await add(client, boss, full_name="Петрова Анна", email="anna@example.test", phone="100")
+    assigned = await client.put(f"{API}/people/{anna['id']}/assignments/{ROOM_A}", json={}, headers=boss)
+    assert assigned.status_code == 200
+    guest = tokens.guest("floor", FLOOR, BUILDING, FLOOR)
+    # every request of the service, about the very room and person the guest might look at, is refused
+    known = {"person_id": anna["id"], "room_id": ROOM_A}
+    asks = [(method.upper(), re.sub(r"\{(\w+)\}", lambda m: known[m[1]], path))
+            for path, methods in app.openapi()["paths"].items() for method in methods]
+    assert len(asks) >= 15 and ("GET", f"{API}/rooms/{ROOM_A}/people") in asks and ("GET", f"{API}/me") in asks
+    for method, path in asks:
+        r = await client.request(method, path, headers=guest)
+        assert (r.status_code, r.json()["code"]) == (403, "guest"), (method, path, r.text)
+    # Anna is still where she was, seen by those with an account
+    people = (await client.get(f"{API}/rooms/{ROOM_A}/people", headers=boss)).json()["items"]
+    assert [x["full_name"] for x in people] == ["Петрова Анна"]

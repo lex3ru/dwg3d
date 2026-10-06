@@ -21,6 +21,7 @@ from app.main import SERVICE, build  # noqa: E402
 
 API = "/api/assets/v1"
 BUILDING, FLOOR, ROOM_A, ROOM_B = (str(uuid4()) for _ in range(4))
+FLOOR_2, ROOM_C = str(uuid4()), str(uuid4())                    # the floor above: one room, all of it
 CATEGORY = str(uuid4())
 
 
@@ -79,9 +80,12 @@ class World:
             import json
             if path.endswith("/tree"):
                 return httpx.Response(200, json={"floors": [{"id": FLOOR, "name": "План 1-го этажа", "level": 1}]})
+            points = json.loads(request.content)["points"] if path.endswith("/locate") else []
+            if path.endswith(f"/floors/{FLOOR_2}/locate"):
+                return httpx.Response(200, json={"building_id": BUILDING, "rooms": [ROOM_C for _ in points]})
             if not path.endswith(f"/floors/{FLOOR}/locate"):
                 return httpx.Response(404, json={"code": "not_found"})
-            rooms = [self.room_at(x) for x, _ in json.loads(request.content)["points"]]
+            rooms = [self.room_at(x) for x, _ in points]
             return httpx.Response(200, json={"building_id": BUILDING, "rooms": rooms})
         if path.endswith("/types"):
             return httpx.Response(200, json={"items": list(self.types.values())})

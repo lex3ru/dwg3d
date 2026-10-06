@@ -18,6 +18,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {
-    proxy: { '/api': api, '/auth': stack, '/kc': stack },
+    // `^/s/`: a link for viewing (a plain '/s' would catch /src as well)
+    proxy: { '/api': api, '/auth': stack, '/kc': stack, '^/s/': stack },
   },
 })

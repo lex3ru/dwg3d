@@ -80,3 +80,19 @@ async def test_old_events_are_forgotten(app):
     async with app.state.db.begin() as session:
         kept = (await session.execute(select(events.c.id))).scalars().all()
     assert [str(k) for k in kept] == [fresh["id"]]
+
+
+async def test_a_guest_by_a_link_sees_no_feed(client, app, tokens):
+    seen = await happened(app, "assets.asset.changed", ("asset", A1), {"asset_id": A1, "changes": {}},
+                          actor={"kind": "user", "id": "u-1", "person_id": P1},
+                          building_id=B, floor_id=F, room_id=R1, asset_id=A1)
+    # the feed tells who did what: not even of the guest's own floor, nor one event by its id
+    guest = tokens.guest("floor", F, B, F)
+    asks = [("GET", f"{API}/events", {"building_id": B}), ("GET", f"{API}/events", {"floor_id": F}),
+            ("GET", f"{API}/events", {"asset_id": A1}), ("GET", f"{API}/events/{seen['id']}", {})]
+    assert {path.replace(seen["id"], "{event_id}") for _, path, _ in asks} == set(app.openapi()["paths"])
+    for method, path, params in asks:
+        r = await client.request(method, path, params=params, headers=guest)
+        assert (r.status_code, r.json()["code"]) == (403, "guest"), (path, params, r.text)
+    whole = tokens.guest("building", B, B)
+    assert (await client.get(f"{API}/events", params={"building_id": B}, headers=whole)).status_code == 403

@@ -42,6 +42,9 @@ function describe(e: JournalEvent): string {
     case 'people.person.unassigned': return 'человек отвязан от помещения'
     case 'access.grant.created': return `право выдано: ${ROLES[d.role as string] ?? d.role} — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}`
     case 'access.grant.revoked': return `право отозвано: ${ROLES[d.role as string] ?? d.role} — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}`
+    case 'access.share.created': return `выдана ссылка для просмотра — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}${d.expires_at ? `, до ${new Date(d.expires_at as string).toLocaleDateString('ru')}` : ''}`
+    case 'access.share.revoked': return `ссылка отозвана — ${AREAS[(d.scope as { kind: string })?.kind] ?? ''}`
+    case 'access.share.opened': return `открыта ссылка для просмотра${d.note ? ` — ${d.note}` : ''}${d.address ? ` · адрес ${d.address}` : ''}`
     default: return e.type
   }
 }
@@ -78,7 +81,7 @@ export function Journal({ building, floors, filter }: { building: string; floors
     for (const f of floors) { const r = f.rooms.find(x => x.id === e.room_id); if (r) return r.name || 'помещение без названия' }
     return ''
   }
-  const who = (e: JournalEvent) => e.actor.kind === 'service' ? 'система' : e.actor.person_id ? names[e.actor.person_id] ?? '…' : 'администратор системы'
+  const who = (e: JournalEvent) => e.type === 'access.share.opened' ? 'гость по ссылке' : e.actor.kind === 'service' ? 'система' : e.actor.person_id ? names[e.actor.person_id] ?? '…' : 'администратор системы'
   const link = (e: JournalEvent) => e.asset_id ? to.assets(building, e.asset_id) : e.room_id ? to.rooms(building, e.room_id) : null
   return (
     <section>

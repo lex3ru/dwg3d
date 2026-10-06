@@ -3,7 +3,8 @@
 Variants of placing objects belong to a building and are its administrators' tool: every request needs the
 right to manage the building. The fact — the objects, the catalog — is asked of the assets and catalog
 services with the user's own token, so a variant sees what its author sees; applying a variant is done by
-the assets service on the user's behalf, with the objects' history.
+the assets service on the user's behalf, with the objects' history. A guest by a link has no business
+here at all (403 `guest`).
 """
 from __future__ import annotations
 
@@ -15,12 +16,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
-from twin_chassis import Identity, Problem, current_identity, emit, uuid7
+from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, uuid7
 
 from . import overlay
 from .models import variant_ops, variants
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(forbid_guests)])
 FACT = "fact"
 
 

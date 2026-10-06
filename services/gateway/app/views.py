@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from .services import ask
-from .sessions import Signed, signed
+from .sessions import Signed, not_guest
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ class Cabinet(BaseModel):
 
 
 @router.get("/api/views/cabinet", tags=["views"], response_model=Cabinet, summary="Личный кабинет в здании")
-async def cabinet(request: Request, building_id: UUID, who: Signed = Depends(signed)):
+async def cabinet(request: Request, building_id: UUID, who: Signed = Depends(not_guest)):
     b = str(building_id)
     partial: list[str] = []
     scopes = await ask(request, who, "access", "/me/scopes")

@@ -2,7 +2,7 @@
 
     uv run uvicorn app.main:build --factory --port 8000
 
-Sign-in sessions (/auth/*), who is signed in (/api/me), requests passed on to
+Sign-in sessions (/auth/*), guests by a link (/s/<token>), who is signed in (/api/me), requests passed on to
 the services (/api/<service>/v1/...), events to the browser (/api/stream), assembled
 answers (/api/views/*), reports (/api/reports/*), QR labels (/q/<code>).
 It keeps no data of its own except the sessions.
@@ -36,7 +36,7 @@ def build(settings: Settings | None = None, verifier: TokenVerifier | None = Non
         # one client for the services and Keycloak; a slow service must not hold a browser forever
         state.http = http or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=3), follow_redirects=False)
         state.oidc = Oidc(state.settings, config, state.http)
-        state.sessions = Sessions(state.db, config, state.oidc, state.verifier)
+        state.sessions = Sessions(state.db, config, state.oidc, state.verifier, state.http)
         state.hub = Hub()
         state.bus.listen(">", state.hub.dispatch)
 

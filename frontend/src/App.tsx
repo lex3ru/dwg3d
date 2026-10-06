@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ApiError, byQr, getBuilding, getDrawing, getMe, getTree, listBuildings, listPlaced, manages, signIn, signOut,
-  type Building as BuildingInfo, type Me, type TreeFloor,
+  ApiError, byQr, getBuilding, getDrawing, getMe, getTree, isGuest, listBuildings, listPlaced, manages, onGuestEnded, signIn, signOut,
+  type Building as BuildingInfo, type GuestMe, type Me, type TreeFloor,
 } from './api'
 import { Button } from './components/ui/button'
 import { useTheme } from './lib/theme'
@@ -11,6 +11,7 @@ import { Assets } from './pages/Assets'
 import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { Catalog } from './pages/Catalog'
+import { GuestView } from './pages/Guest'
 import { Home } from './pages/Home'
 import { Journal } from './pages/Journal'
 import { Variants } from './pages/Variants'
@@ -20,9 +21,9 @@ import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
 import { Scan } from './pages/Scan'
 import { System } from './pages/System'
-import { to, useRoute, type Route } from './shell/route'
+import { guestAddress, to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
-import { useEvents } from './stream'
+import { barStream, useEvents } from './stream'
 
 const noop = () => {}
 
@@ -30,19 +31,44 @@ const noop = () => {}
 const Scene = lazy(() => import('./scene/entry'))
 
 export function App() {
-  const [me, setMe] = useState<Me | null>(null)
+  const [me, setMe] = useState<Me | GuestMe | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // a guest's viewing is over: the link was revoked or expired (ended), or the guest finished it (left)
+  const [over, setOver] = useState<'ended' | 'left' | null>(null)
+  // not signed in at a guest's address: the link did not open — no sign-in page for such a visitor
+  const [stranger, setStranger] = useState(false)
   const route = useRoute()
+  const guest = guestAddress(location.hash)
   const failed = new URLSearchParams(location.search).get('signin') === 'failed'
 
   useEffect(() => {
+    onGuestEnded(() => setOver(o => o ?? 'ended'))
+    return () => onGuestEnded(null)
+  }, [])
+  useEffect(() => {
     if (failed) return
-    getMe().then(setMe, (e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) signIn()
-      else setError(e instanceof Error ? e.message : 'Не удалось связаться с сервером')
+    getMe().then(m => { if (isGuest(m)) barStream(); setMe(m) }, (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) {
+        if (e.code === 'guest_ended') setOver('ended')
+        else if (guestAddress(location.hash)) setStranger(true)
+        else signIn()
+      } else setError(e instanceof Error ? e.message : 'Не удалось связаться с сервером')
     })
   }, [failed])
+  const ended = useCallback(() => setOver(o => o ?? 'ended'), [])
+  const left = useCallback(() => setOver('left'), [])
 
+  if (guest?.notice === 'invalid' || (stranger && !over)) {
+    return <Centered title="Ссылка недействительна: отозвана, истекла или неверна" testid="guest-invalid" />
+  }
+  if (guest?.notice === 'unavailable') {
+    return <Centered title="Сервис ссылок сейчас недоступен — попробуйте позже" testid="guest-unavailable" />
+  }
+  if (over) {
+    return over === 'left'
+      ? <Centered title="Просмотр закончен" text="Чтобы посмотреть снова, откройте ссылку ещё раз, пока она действует." testid="guest-left" />
+      : <Centered title="Просмотр по ссылке закончился" text="Ссылка отозвана или истекла. За новой обратитесь к тому, кто её выдал." testid="guest-ended" />
+  }
   if (failed) {
     return (
       <Centered title="Войти не удалось" text="Сеанс входа истёк или был прерван. Попробуйте ещё раз.">
@@ -58,6 +84,8 @@ export function App() {
     )
   }
   if (!me) return <Centered title="Загрузка…" />
+  // a guest sees only the place of the link: no menu, no search, no other pages, whatever the address
+  if (isGuest(me)) return <GuestView me={me} onEnded={ended} onLeft={left} />
   return <Signed me={me} route={route} onRights={() => { getMe().then(setMe, () => {}) }} />
 }
 
@@ -264,9 +292,9 @@ function ByQr({ code }: { code: string }) {
   )
 }
 
-function Centered({ title, text, children }: { title: string; text?: string; children?: ReactNode }) {
+function Centered({ title, text, children, testid }: { title: string; text?: string; children?: ReactNode; testid?: string }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center" data-testid={testid}>
       <h1 className="text-lg font-semibold">{title}</h1>
       {text && <p className="max-w-sm text-sm text-muted-foreground">{text}</p>}
       {children}

@@ -11,6 +11,7 @@ export type Person = {
   linked: boolean; status: 'active' | 'left'; version: number
 }
 export type Me = {
+  kind?: 'user'
   user: User
   /** the user's record in the directory of people; null — the account is not there */
   person: Person | null
@@ -18,6 +19,16 @@ export type Me = {
   scopes: { admin: boolean; grants: Grant[]; buildings: string[] } | null
   partial: string[]
 }
+/** Someone who opened a link for viewing (no account): one building, or a floor or a room of it, until a time. */
+export type GuestMe = {
+  kind: 'guest'; name: string
+  guest: {
+    building_id: string; building_name: string | null; scope: { kind: 'building' | 'floor' | 'room'; id: string }
+    /** the floor of a floor or room link; null — the whole building */
+    floor_id: string | null; expires_at: string
+  }
+}
+export const isGuest = (me: Me | GuestMe): me is GuestMe => me.kind === 'guest'
 /** Whether the user administers the building (or the whole system). */
 export const manages = (me: Me, building: string) => me.user.is_admin ||
   !!me.scopes?.grants.some(g => g.role === 'admin' && g.scope.kind === 'building' && g.scope.id === building)
@@ -44,6 +55,10 @@ export function signIn() {
   location.assign(`/auth/login?next=${encodeURIComponent(here)}`)
 }
 
+// a guest's viewing has ended (the link revoked or expired): whatever was asked, the screen says so
+let guestEnded: (() => void) | null = null
+export const onGuestEnded = (f: (() => void) | null) => { guestEnded = f }
+
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, ...rest } = init ?? {}
   const response = await fetch(path, {
@@ -54,10 +69,11 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   if (response.ok) return (response.status === 204 ? undefined : await response.json()) as T
   let problem: { code?: string; detail?: string; title?: string } = {}
   try { problem = await response.json() } catch { /* not JSON: a proxy's own error page */ }
+  if (response.status === 401 && problem.code === 'guest_ended') guestEnded?.()
   throw new ApiError(response.status, problem.code ?? 'error', problem.detail ?? problem.title ?? `Ошибка ${response.status}`)
 }
 
-export const getMe = () => api<Me>('/api/me')
+export const getMe = () => api<Me | GuestMe>('/api/me')
 export const getStatus = () => api<SystemStatus>('/api/system/status')
 export const createNote = (text: string) => api<Note>('/api/ping/v1/notes', { method: 'POST', json: { text } })
 
@@ -65,6 +81,8 @@ export async function signOut() {
   const { url } = await api<{ url: string }>('/auth/logout', { method: 'POST' })
   location.assign(url)
 }
+/** A guest leaves: the session made by the link is dropped, there is nowhere to go after. */
+export const endGuest = () => api<unknown>('/auth/logout', { method: 'POST' })
 
 // ---- buildings and their drawings (stage 1: for the system administrator)
 
@@ -110,6 +128,11 @@ export const createBuilding = (name: string, address: string) =>
   api<Building>(`${BUILDINGS}/buildings`, { method: 'POST', json: { name, address } })
 export const deleteBuilding = (id: string) => api<void>(`${BUILDINGS}/buildings/${id}`, { method: 'DELETE' })
 export const getTree = (id: string) => api<{ floors: TreeFloor[] }>(`${BUILDINGS}/buildings/${id}/tree`).then(r => r.floors)
+/** The tree with the building itself: a guest may not ask for the building alone. */
+export const getTreeWithBuilding = (id: string) => api<{ building: Building; floors: TreeFloor[] }>(`${BUILDINGS}/buildings/${id}/tree`)
+/** The 3D model of the building, by drawing; for a guest of a floor `model_url` is already cut to it. */
+export type DrawingModel = { id: string; name: string; build_id: string | null; model_url: string }
+export const getModel = (id: string) => api<{ drawings: DrawingModel[] }>(`${BUILDINGS}/buildings/${id}/model`).then(r => r.drawings)
 export const listPlaced = (id: string) =>
   api<{ items: PlacedDrawing[] }>(`${BUILDINGS}/buildings/${id}/drawings`).then(r => r.items)
 
@@ -161,6 +184,21 @@ export const listGrants = (building: string) =>
 export const createGrant = (g: { person_id: string; role: Role; scope: { kind: ScopeKind; id: string }; building_id: string }) =>
   api<Grant>(`${ACCESS}/grants`, { method: 'POST', json: g })
 export const revokeGrant = (id: string) => api<void>(`${ACCESS}/grants/${id}`, { method: 'DELETE' })
+
+/** A link for viewing without an account: to the building, a floor or a room, until a time. */
+export type Share = {
+  id: string; building_id: string; scope: { kind: 'building' | 'floor' | 'room'; id: string }
+  /** the floor of a floor or room link */
+  floor_id: string | null
+  note: string; expires_at: string; revoked_at: string | null; state: 'active' | 'revoked' | 'expired'
+  opened: number; last_opened_at: string | null; created_by: string; created_at: string
+}
+export const listShares = (building: string) =>
+  api<{ items: Share[] }>(`${ACCESS}/shares?building_id=${building}`).then(r => r.items)
+/** The answer holds the link once: it is kept nowhere and cannot be shown again. */
+export const createShare = (s: { building_id: string; scope: Share['scope']; floor_id: string | null; expires_at: string; note: string }) =>
+  api<Share & { token: string; url: string }>(`${ACCESS}/shares`, { method: 'POST', json: s })
+export const revokeShare = (id: string) => api<void>(`${ACCESS}/shares/${id}`, { method: 'DELETE' })
 
 // ---- the catalog: types of equipment and furniture (read by all, changed by the system administrator)
 

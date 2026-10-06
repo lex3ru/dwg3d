@@ -1,6 +1,6 @@
 """The gateway under test: a scratch database, and stand-ins for everything it
-talks to — Keycloak's token endpoint and one upstream service — behind its
-HTTP client. No real neighbour is needed."""
+talks to — Keycloak's token endpoint, one upstream service and the access
+service's links — behind its HTTP client. No real neighbour is needed."""
 from __future__ import annotations
 
 import json
@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 import pytest_asyncio
+from twin_chassis.auth import GUEST_ISSUER
 from twin_chassis.testing import ISSUER, Tokens, running, scratch_database, test_settings
 
 from app.config import GatewayConfig
@@ -46,12 +47,32 @@ class World:
         self.token_calls: list[dict] = []
         # answers of other services by (method, path) — for the assembled views and reports
         self.answers: dict[tuple[str, str], object] = {}
+        # links the access service knows (token → {share, building_id, scope, floor_id, expires_at}),
+        # what it was asked to open, how long its guest tokens live
+        self.links: dict[str, dict] = {}
+        self.opened: list[dict] = []
+        self.guest_ttl = 600
+        self.access_up = True
 
     def _tokens(self) -> dict:
         access = self.tokens.make(self.user["sub"], roles=self.user["roles"], login=self.user["login"],
                                   name=self.user["name"], expires_in=self.access_ttl)
         return {"access_token": access, "refresh_token": "refresh-1", "id_token": "id-token-1",
                 "expires_in": self.access_ttl}
+
+    def _open_share(self, body: dict) -> httpx.Response:
+        """POST /api/access/v1/shares/open as the access service answers it."""
+        if not self.access_up:
+            raise httpx.ConnectError("access is down")
+        self.opened.append(body)
+        link = self.links.get(body["token"])
+        if link is None:
+            return reply(404, {"code": "not_found", "status": 404}, {"content-type": "application/problem+json"})
+        token = self.tokens.make(f"guest:{link['share']}", iss=GUEST_ISSUER, area=link["scope"], email=None,
+                                 building_id=link["building_id"], floor_id=link.get("floor_id"),
+                                 expires_in=self.guest_ttl)
+        return reply(200, {"token": token, "expires_in": self.guest_ttl, "building_id": link["building_id"],
+                           "scope": link["scope"], "floor_id": link.get("floor_id"), "expires_at": link["expires_at"]})
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         if str(request.url).startswith(ISSUER):
@@ -68,6 +89,8 @@ class World:
         if str(request.url).startswith(UPSTREAM):
             if not self.upstream_up:
                 raise httpx.ConnectError("service is down")
+            if request.url.path == "/api/access/v1/shares/open":
+                return self._open_share(json.loads(request.content))
             self.seen.append(request)
             known = self.answers.get((request.method, request.url.path))
             if known is not None:

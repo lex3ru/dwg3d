@@ -7,7 +7,7 @@ from sqlalchemy import select
 from twin_chassis.db import outbox
 from twin_chassis.events import envelope
 
-from .conftest import API, BUILDING, FLOOR, ROOM_A, ROOM_B, prop, put
+from .conftest import API, BUILDING, FLOOR, FLOOR_2, ROOM_A, ROOM_B, ROOM_C, kind, prop, put
 
 
 async def events(app, type_: str | None = None) -> list[dict]:
@@ -438,3 +438,81 @@ async def test_merged_and_split_rooms_carry_their_objects(client, app, world, bo
                      actor={"kind": "user", "id": "boss"}, building_id=BUILDING, floor_id=FLOOR, room_id=ROOM_A)
     assert await app.state.bus.handle("room-split", split) is True
     assert (await get(client, boss, a))["room_id"] == ROOM_A and (await get(client, boss, b))["room_id"] == part
+
+
+async def test_a_guest_of_a_floor_sees_its_objects_but_not_who_is_behind_them(client, world, boss, tokens):
+    world.types["desk"] = kind("Стол", prop("user", "Кто сидит", "person"), prop("size", "Ширина", "number"))
+    here = await put(client, boss, world, "desk", "СТ-0001", x=2.0, note="стол Иванова", props={"user": "Иванов", "size": 120})
+    await client.post(f"{API}/assets/{here['id']}/responsible", json={"person_id": str(uuid4()), "version": 1}, headers=boss)
+    beside = await put(client, boss, world, "couch", "КШ-0001", x=7.0)
+    above = await put(client, boss, world, "couch", "КШ-0002", floor_id=FLOOR_2)
+    assert above["room_id"] == ROOM_C
+    guest = tokens.guest("floor", FLOOR, BUILDING, FLOOR)
+
+    async def numbers(**params) -> list[str]:
+        r = await client.get(f"{API}/assets", params=params, headers=guest)
+        assert r.status_code == 200, r.text
+        return [a["inventory_no"] for a in r.json()["items"]]
+
+    # the objects of its floor, however asked; of the floor above — nothing
+    assert await numbers() == ["КШ-0001", "СТ-0001"]
+    assert await numbers(building_id=BUILDING) == ["КШ-0001", "СТ-0001"]
+    assert await numbers(floor_id=FLOOR_2) == [] and await numbers(room_id=ROOM_C) == []
+    assert (await client.get(f"{API}/assets/{above['id']}", headers=guest)).status_code == 404
+    batch = await client.post(f"{API}/assets/batch-get", json={"ids": [here["id"], above["id"]]}, headers=guest)
+    assert [a["id"] for a in batch.json()["items"]] == [here["id"]]
+
+    # what the object is, where and in what state — yes; who answers for it, notes, a person in a property — no
+    card = await get(client, guest, here)
+    for seen in (card, batch.json()["items"][0], (await client.get(f"{API}/assets", headers=guest)).json()["items"][1]):
+        assert "responsible_id" not in seen and "note" not in seen and "created_by" not in seen
+        assert (seen["type_name"], seen["inventory_no"], seen["room_id"], seen["state"]) == ("Стол", "СТ-0001", ROOM_A, "in_use")
+        assert seen["props"] == {"size": 120}
+    assert card["can"] == {"edit": False, "manage": False, "move": False}
+    # nor may it find out by a filter
+    for params in ({"responsible_id": str(uuid4())}, {"prop.user": "Иванов"}):
+        r = await client.get(f"{API}/assets", params=params, headers=guest)
+        assert r.status_code == 403 and r.json()["code"] == "guest"
+    # whoever has an account still sees it all
+    full = await get(client, boss, here)
+    assert full["note"] == "стол Иванова" and full["responsible_id"] and full["props"]["user"] == "Иванов"
+
+    # a guest of a room sees that room only; of the whole building — every floor
+    assert [a["id"] for a in (await client.get(f"{API}/assets", headers=tokens.guest("room", ROOM_B, BUILDING, FLOOR))
+                              ).json()["items"]] == [beside["id"]]
+    whole = (await client.get(f"{API}/assets", headers=tokens.guest("building", BUILDING, BUILDING))).json()
+    assert whole["total"] == 3
+    stranger = tokens.guest("building", str(uuid4()), str(uuid4()))
+    assert (await client.get(f"{API}/assets", headers=stranger)).json()["items"] == []
+    assert (await client.get(f"{API}/assets/{here['id']}", headers=stranger)).status_code == 404
+
+
+async def test_a_guest_gets_no_history_files_labels_or_changes(client, world, boss, tokens):
+    a = await put(client, boss, world, "scope", "М-0001", x=2.0)
+    photo = (await client.post(f"{API}/assets/{a['id']}/files", files={"file": ("Фото.jpg", b"\xff\xd8", "image/jpeg")},
+                               headers=boss)).json()
+    entry = (await client.get(f"{API}/assets/{a['id']}/history", headers=boss)).json()["items"][0]
+    guest = tokens.guest("building", BUILDING, BUILDING)
+    url, file = f"{API}/assets/{a['id']}", {"file": ("x.jpg", b"1", "image/jpeg")}
+    place = {"type_id": a["type_id"], "floor_id": FLOOR, "x": 2, "y": 2, "inventory_no": "М-0002", "props": {"owner": "x"}}
+    asks = [
+        ("GET", f"{url}/history", {}), ("POST", f"{url}/history/{entry['id']}/revert", {}),
+        ("GET", f"{url}/files", {}), ("GET", f"{API}/files/{photo['id']}", {}), ("POST", f"{url}/files", {"files": file}),
+        ("DELETE", f"{API}/files/{photo['id']}", {}), ("GET", f"{url}/label", {}),
+        ("POST", f"{API}/labels", {"json": {"building_id": BUILDING}}), ("GET", f"{API}/qr/{a['qr_code']}", {}),
+        ("GET", f"{API}/responsibles", {}), ("GET", f"{API}/usage", {"params": {"type_id": a["type_id"]}}),
+        ("POST", f"{API}/assets/import", {"params": {"building_id": BUILDING}, "files": file}),
+        ("POST", f"{API}/assets", {"json": place}),
+        ("POST", f"{API}/assets/batch", {"json": {"type_id": a["type_id"], "floor_id": FLOOR, "points": [[1, 1]],
+                                                  "prefix": "Г-", "start": 1}}),
+        # a stale version would have answered 409 with the whole object — a guest is refused before that
+        ("PATCH", url, {"json": {"note": "x", "version": 99}}),
+        ("POST", f"{url}/state", {"json": {"state": "faulty", "version": 1}}),
+        ("POST", f"{url}/responsible", {"json": {"person_id": None, "version": 1}}),
+        ("POST", f"{url}/move", {"json": {"floor_id": FLOOR, "x": 7, "y": 2, "version": 1}}),
+    ]
+    for method, path, kw in asks:
+        r = await client.request(method, path, headers=guest, **kw)
+        assert (r.status_code, r.json()["code"]) == (403, "guest"), (method, path, r.text)
+    # nothing changed meanwhile
+    assert (await get(client, boss, a))["version"] == 1

@@ -1,6 +1,6 @@
 """The import service under test: a scratch database, a bucket of its own in
 the dev stack's S3, tokens signed here, and the worker run by hand — one build
-per call. No other service is needed."""
+per call. No other service is needed: access and buildings are stand-ins."""
 from __future__ import annotations
 
 import os
@@ -64,17 +64,27 @@ def grants() -> dict[str, list[dict]]:
     return {}
 
 
+@pytest.fixture
+def buildings() -> dict[str, dict]:
+    """What the buildings service answers, by path (relative to /api/buildings/v1); the rest is 404.
+    Asked for the model of a guest of a floor: the floor's plan and the drawings placed in the building."""
+    return {}
+
+
 @pytest_asyncio.fixture
-async def app(database_url, tokens, grants):
-    def access(request: httpx.Request) -> httpx.Response:
+async def app(database_url, tokens, grants, buildings):
+    def neighbours(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "buildings.test":
+            found = buildings.get(request.url.path.removeprefix("/api/buildings/v1"))
+            return httpx.Response(200, json=found) if found else httpx.Response(404, json={"code": "not_found"})
         me = tokens.verifier().identity(request.headers["authorization"].removeprefix("Bearer "))
         mine = grants.get(me.sub, [])
         return httpx.Response(200, json={"admin": False, "service": False, "person_id": None, "grants": mine,
                                          "buildings": sorted({g["building_id"] for g in mine})})
 
     settings = test_settings(SERVICE, database_url)
-    client = ServiceClient(settings, {"access": "http://access.test"},
-                           httpx.AsyncClient(transport=httpx.MockTransport(access)))
+    client = ServiceClient(settings, {"access": "http://access.test", "buildings": "http://buildings.test"},
+                           httpx.AsyncClient(transport=httpx.MockTransport(neighbours)))
     async with running(build(settings, tokens.verifier(), client)) as app:
         yield app
 
