@@ -116,17 +116,15 @@ test('a changed drawing waits as a draft, is corrected and published; objects wi
   expect((await asset(lost)).room_id).toBe(before.office2.id)
 
   // ---- rooms by hand: the two parts of the office of floor 1 merged back (the interface merges them when a
-  // partition is erased in the editor; here — by the request), then divided by a line on the plan
+  // partition is erased in the editor; here — by the request), then divided by a line
   const named = after[0].rooms.find(r => r.area === 24.07)!
   const inNamed = await put(after[0].id, `ИМ-${stamp}`, 6.5, 2)
   const merged = await root.request.post(`/api/buildings/v1/rooms/${before.office1.id}/merge`, { data: { with: [named.id] } })
   expect(merged.status(), await merged.text()).toBe(200)
   await expect.poll(async () => (await asset(inNamed)).room_id, { timeout: 10_000 }).toBe(before.office1.id)
-  await root.goto(`/#/b/${building}/plan/${after[0].id}/${before.office1.id}`)
-  await root.getByRole('button', { name: 'Разделить помещение линией' }).click()
-  await clickAt(root, 7.0, 0.1)                                    // in the outer wall, beyond the room
-  await clickAt(root, 7.0, 7.9)
-  await expect(root.getByTestId('cutting')).toHaveCount(0)
+  // divided by a line across it, from wall to wall (the interface divides rooms by a wall drawn in the editor)
+  const split = await root.request.post(`/api/buildings/v1/rooms/${before.office1.id}/split`, { data: { line: [[7.0, 0.1], [7.0, 7.9]] } })
+  expect(split.status(), await split.text()).toBe(200)
   // the object west of the line is in the new part, the one east of it stays in the office
   await expect.poll(async () => (await asset(inNamed)).room_id, { timeout: 10_000 }).not.toBe(before.office1.id)
   expect((await asset(right)).room_id).toBe(before.office1.id)

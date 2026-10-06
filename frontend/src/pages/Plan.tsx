@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listTypes, moveAsset, splitRoom,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listTypes, moveAsset,
   type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type TreeFloor,
 } from '../api'
 import { CommentList } from '../components/Comments'
@@ -38,13 +38,6 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
   }, [active, drawn])
   useEvents(event => { if (event.type.startsWith('buildings.room.') || event.type === 'buildings.revision.published') setDrawn(n => n + 1) })
   // splitting a room: two points of a line across it
-  const [cutting, setCutting] = useState<[number, number][] | null>(null)
-  const cut = (x: number, y: number) => {
-    if (!cutting || !room) return
-    const line: [number, number][] = [...cutting, [x, y]]
-    if (line.length < 2) { setCutting(line); return }
-    splitRoom(room, line).then(() => { setCutting(null); setError(null) }, (e: Error) => { setCutting(null); setError(e.message) })
-  }
   // the objects standing on the floor (those the user may see)
   const [assets, setAssets] = useState<Asset[]>([])
   const activeId = active?.id
@@ -162,17 +155,6 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
           <Button variant="ghost" size="sm" hint="Ничего не создавать и снять все отметки" onClick={() => { setSeries(null); setError(null) }}>Отмена</Button>
         </div>
       )}
-      {admin && room && !move && (cutting ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="cutting">
-          <span>{cutting.length === 0 ? 'Щёлкните начало линии раздела — за стеной помещения' : 'Щёлкните конец линии — за противоположной стеной'}</span>
-          <Button variant="ghost" size="sm" hint="Оставить помещение целым" onClick={() => setCutting(null)}>Отмена</Button>
-        </div>
-      ) : (
-        <Button className="mt-2 mr-2" variant="outline" size="sm" onClick={() => setCutting([])}
-          hint="Два щелчка за стенами помещения задают линию раздела: большая часть останется этим помещением, объекты отойдут туда, где стоят">
-          Разделить помещение линией
-        </Button>
-      ))}
       {noting && (
         <form onSubmit={sendNote} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="noting">
           {noting === 'pick' ? <span>Щёлкните точку на плане, к которой относится комментарий</span> : (
@@ -224,11 +206,10 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
             ...assets.filter(a => a.x != null).map(a => ({ id: a.id, x: a.x!, y: a.y!, tone: assetTone(a) as Dot['tone'], title: `${a.type_name} · ${a.inventory_no}`, chosen: a.id === move })),
             ...(series?.points ?? []).map(([x, y], i) => ({ id: `new-${i}`, x, y, tone: 'warn' as const, title: number(series!, i), chosen: true })),
             ...notes.filter(n => n.x != null).map(n => ({ id: `note-${n.id}`, x: n.x!, y: n.y!, tone: 'note' as const, title: n.body, chosen: n.id === chosenNote })),
-            ...(cutting ?? []).map(([x, y], i) => ({ id: `cut-${i}`, x, y, tone: 'bad' as const, title: 'линия раздела', chosen: true })),
             ...(noting && noting !== 'pick' ? [{ id: 'note-new', x: noting.x, y: noting.y, tone: 'note' as const, title: 'новый комментарий', chosen: true }] : []),
           ]}
-          onDot={id => { if (id.startsWith('note-')) setChosenNote(id.slice(5)); else if (!id.startsWith('new-') && !id.startsWith('cut-')) location.hash = to.assets(building, id) }}
-          onPoint={cutting ? cut : moving ? moveTo : series ? (x, y) => setSeries({ ...series, points: [...series.points, [x, y]] }) : placing ? place
+          onDot={id => { if (id.startsWith('note-')) setChosenNote(id.slice(5)); else if (!id.startsWith('new-')) location.hash = to.assets(building, id) }}
+          onPoint={moving ? moveTo : series ? (x, y) => setSeries({ ...series, points: [...series.points, [x, y]] }) : placing ? place
             : noting === 'pick' ? (x, y) => setNoting({ x, y, text: '' }) : undefined}
           onSelect={id => { location.hash = to.plan(building, active.id, id) }} />
       )}
