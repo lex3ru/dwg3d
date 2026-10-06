@@ -204,14 +204,15 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         content = <Building key={building.id} id={building.id} review={route.query.review} />
       } else if (route.section === 'assets') {
         crumbs.push({ label: 'Объекты', href: to.assets(building.id) })
-        content = <Assets key={route.q ?? ''} building={building.id} floors={floors} selected={route.item} admin={admin} initialQuery={route.q} />
+        content = <Assets key={`${route.q ?? ''}|${route.query.state ?? ''}|${route.query.attention ?? ''}`} building={building.id} floors={floors}
+          selected={route.item} admin={admin} initialQuery={route.q} initialState={route.query.state} initialAttention={route.query.attention} />
         if (route.item) {
           panel = <AssetCard key={route.item} id={route.item} me={me} building={building.id} floors={floors} admin={admin} onGone={noop} />
           closePanel = () => { location.hash = to.assets(building.id) }
         }
       } else if (route.section === 'rooms') {
         const chosen = room(route.item)
-        crumbs.push({ label: 'Помещения', href: to.rooms(building.id) })
+        crumbs.push({ label: 'План', href: to.plan(building.id) }, { label: 'Список', href: to.rooms(building.id) })
         if (chosen) crumbs.push({ label: chosen.floor.name, href: to.plan(building.id, chosen.floor.id) }, { label: chosen.room.name || 'Без названия' })
         content = <Rooms key={route.q ?? ''} building={building.id} floors={floors} selected={route.item} initialQuery={route.q} />
         if (chosen) {
@@ -231,7 +232,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
           closePanel = () => { location.hash = to.plan(building.id, route.item) }
         }
       } else {
-        crumbs.push({ label: 'Кабинет' })
+        crumbs.push({ label: 'Обзор' })
         content = <Home me={me} building={building} floors={floors} admin={admin} />
       }
     }

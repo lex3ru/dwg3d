@@ -415,8 +415,6 @@ export const matchRoom = (id: string, candidate: string, idx: number, room_id: s
   api<Revision>(`${BUILDINGS}/revisions/${id}/matches`, { method: 'PATCH', json: { matches: [{ candidate, idx, room_id }] } })
 export const publishRevision = (id: string) => api<Revision>(`${BUILDINGS}/revisions/${id}/publish`, { method: 'POST' })
 export const discardRevision = (id: string) => api<Revision>(`${BUILDINGS}/revisions/${id}/discard`, { method: 'POST' })
-export const mergeRooms = (room: string, others: string[]) =>
-  api<Room>(`${BUILDINGS}/rooms/${room}/merge`, { method: 'POST', json: { with: others } })
 export const splitRoom = (room: string, line: [number, number][]) =>
   api<{ heir: string; rooms: Room[] }>(`${BUILDINGS}/rooms/${room}/split`, { method: 'POST', json: { line } })
 

@@ -1,6 +1,6 @@
 import { FileText, History, Map as MapIcon, Pencil, QrCode } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { labelsSheet, mergeRooms, patchRoom, roomPeople, roomSheetUrl, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
+import { labelsSheet, patchRoom, roomPeople, roomSheetUrl, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
 import { useEvents } from '../stream'
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
@@ -64,22 +64,6 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
           <Button asChild variant="outline" size="sm" hint="Лента событий только этого помещения: кто, что и когда менял"><a href={to.journal(building, { room: room.id })}><History className="size-4" /> Журнал</a></Button>
         )}
       </div>
-      {admin && floor.rooms.length > 1 && (
-        <label className="grid gap-1 text-sm text-muted-foreground">Объединить с соседним
-          <Tip label="Сделать из двух соседних помещений одно: объекты, люди и права перейдут к этому помещению, второе будет снято">
-            <select className="h-8 rounded-md border bg-card px-2 text-sm" value="" aria-label="Объединить с"
-              onChange={e => {
-                const other = floor.rooms.find(r => r.id === e.target.value)
-                if (other && confirm(`Объединить «${room.name || 'без названия'}» и «${other.name || 'без названия'}»? Объекты, люди и права второго перейдут к первому.`)) {
-                  mergeRooms(room.id, [other.id]).then(() => { setError(null); onChanged() }, (ex: Error) => setError(ex.message))
-                }
-              }}>
-              <option value="">— помещение этого этажа —</option>
-              {floor.rooms.filter(r => r.id !== room.id).map(r => <option key={r.id} value={r.id}>{r.name || 'без названия'} · {r.area} м²</option>)}
-            </select>
-          </Tip>
-        </label>
-      )}
       {error && !editing && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div data-testid="room-people">
         <h3 className="text-sm font-medium">Люди помещения{people.length > 0 && ` · ${people.length}`}</h3>

@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import type { TreeFloor } from '../api'
 import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
+import { PlanViews } from '../shell/PlanViews'
 import { to } from '../shell/route'
 
 /** The rooms of a building by floor, with a search; a chosen room opens its card. */
@@ -18,7 +19,8 @@ export function Rooms({ building, floors, selected, initialQuery }: {
   return (
     <section>
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Помещения</h1>
+        <h1 className="text-xl font-semibold">План</h1>
+        <PlanViews building={building} list />
         <div className="relative w-64 max-w-full">
           <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
           <Tip label="Список сужается по мере ввода; регистр букв не важен">

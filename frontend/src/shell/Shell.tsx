@@ -1,5 +1,5 @@
 import {
-  Activity, BookOpen, Box, Building2, ChevronRight, DoorOpen, FileStack, GitBranch, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
+  Activity, BookOpen, Box, Building2, ChevronRight, FileStack, GitBranch, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
   User, Users, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -21,14 +21,12 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
   const b = building?.id
   const section = route.page === 'building' ? route.section : null
   const main: Item[] = b ? [
-    { key: 'home', href: to.home(b), label: 'Кабинет', icon: Home, active: section === 'home',
-      hint: 'Что требует внимания, мои помещения и объекты, поиск по инвентарному номеру и сканер QR' },
-    { key: 'rooms', href: to.rooms(b), label: 'Помещения', icon: DoorOpen, active: section === 'rooms',
-      hint: 'Все помещения здания по этажам с поиском; в карточке — люди, ведомость, комментарии' },
+    { key: 'home', href: to.home(b), label: 'Обзор', icon: Home, active: section === 'home',
+      hint: 'С чего начать: что в здании требует ваших действий, ваши помещения и объекты, поиск и сканер QR' },
+    { key: 'plan', href: to.plan(b), label: 'План', icon: MapIcon, active: section === 'plan' || section === 'rooms',
+      hint: 'Помещения здания: поэтажный план с объектами на своих местах или список с поиском; карточка помещения — по щелчку' },
     { key: 'assets', href: to.assets(b), label: 'Объекты', icon: Box, active: section === 'assets',
-      hint: 'Мебель и оборудование здания: поиск, отбор по состоянию, выгрузка в Excel' },
-    { key: 'plan', href: to.plan(b), label: 'План', icon: MapIcon, active: section === 'plan',
-      hint: 'Поэтажный план: помещения, объекты на своих местах, комментарии к точкам' },
+      hint: 'Реестр мебели и оборудования: поиск, отбор по состоянию, загрузка и выгрузка Excel, QR-метки' },
   ] : []
   const manage: Item[] = b && manages(me, b) ? [
     { key: 'drawings', href: to.drawings(b), label: 'Чертежи', icon: FileStack, active: section === 'drawings',
@@ -105,7 +103,10 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
             </a>
           </Tip>
         ) : !rail && <div className="mb-2 px-2.5 py-1.5 text-sm font-semibold">Цифровой двойник</div>}
-        <nav className="grid gap-0.5" aria-label="Разделы">{main.map(link)}</nav>
+        <nav className="grid gap-0.5" aria-label="Разделы">
+          {building && !rail && main.length > 0 && <div className="px-2.5 pb-1 text-xs text-muted-foreground">Здание</div>}
+          {main.map(link)}
+        </nav>
         {group('Управление', manage)}
         {group('Система', system)}
       </aside>
@@ -180,11 +181,11 @@ function Tabs({ route, building }: { route: Route; building: Building | null }) 
   const section = route.page === 'building' ? route.section : null
   // [address, label, icon, active, hint]
   const tabs: [string, string, LucideIcon, boolean, string][] = [
-    [b ? to.home(b) : to.buildings, 'Главная', Home, section === 'home' || route.page === 'buildings',
-      b ? 'Кабинет здания: что требует внимания, мои помещения и объекты, сканер QR' : 'Здания, доступные вам'],
+    [b ? to.home(b) : to.buildings, b ? 'Обзор' : 'Здания', Home, section === 'home' || route.page === 'buildings',
+      b ? 'Что в здании требует ваших действий, ваши помещения и объекты, сканер QR' : 'Здания, доступные вам'],
     ...(b ? [
-      [to.rooms(b), 'Помещения', DoorOpen, section === 'rooms', 'Все помещения здания по этажам с поиском'],
-      [to.plan(b), 'План', MapIcon, section === 'plan', 'Поэтажный план с объектами и комментариями'],
+      [to.plan(b), 'План', MapIcon, section === 'plan' || section === 'rooms', 'Помещения здания: план этажа или список с поиском'],
+      [to.assets(b), 'Объекты', Box, section === 'assets', 'Реестр мебели и оборудования с поиском и отбором'],
     ] as [string, string, LucideIcon, boolean, string][] : []),
     ['#/me', 'Я', User, route.page === 'me', 'Ваша учётная запись, тема, выход; разделы, не уместившиеся во вкладки'],
   ]

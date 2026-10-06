@@ -10,6 +10,7 @@ import { Input } from '../components/ui/input'
 import { Tip } from '../components/ui/tooltip'
 import { useEvents } from '../stream'
 import { cn } from '../lib/utils'
+import { PlanViews } from '../shell/PlanViews'
 import { to } from '../shell/route'
 
 const NOTE_HINT = 'Заметка к месту на плане: щелчок по точке, затем текст; её увидят все, кто видит план этого места'
@@ -101,6 +102,7 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
     <section>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">План</h1>
+        <PlanViews building={building} list={false} />
         <nav className="flex flex-wrap gap-1" aria-label="Этажи" data-testid="floor-tabs">
           {[...floors].reverse().map(f => (
             <Tip key={f.id} label={`${f.name || `Этаж ${f.level ?? ''}`}: ${move ? 'выбрать новое место объекта на этом этаже' : 'план, помещения и объекты этажа'}`}>

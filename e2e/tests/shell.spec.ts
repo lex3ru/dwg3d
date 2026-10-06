@@ -24,14 +24,16 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   const menu = page.getByRole('complementary', { name: 'Меню' })
   await expect(menu.getByTestId('building-name')).toHaveText(name)
 
-  // «Кабинет»: the building at a glance
-  await menu.getByRole('link', { name: 'Кабинет' }).click()
+  // «Обзор»: the building at a glance and, for its administrator, what waits for them
+  await menu.getByRole('link', { name: 'Обзор' }).click()
+  await expect(page.getByTestId('tasks')).toContainText('Всё в порядке')
   await expect(page.getByTestId('summary')).toContainText('Этажи')
   await expect(page.getByTestId('summary').getByRole('link').first()).toContainText('2')
   await expect(page.getByTestId('summary').getByRole('link').nth(1)).toContainText('4')
 
-  // rooms: a search, a card on the right, the place in the top line
-  await menu.getByRole('link', { name: 'Помещения' }).click()
+  // the rooms: «План» shows them on the drawing or as a list with a search, a card on the right
+  await menu.getByRole('link', { name: 'План' }).click()
+  await page.getByTestId('plan-views').getByRole('link', { name: 'Список' }).click()
   await expect(page.getByTestId('rooms-total')).toHaveText('4')
   await page.getByLabel('Поиск помещения').fill('каб')
   await expect(page.getByTestId('rooms-total')).toHaveText('2')
@@ -39,7 +41,7 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   const card = page.getByTestId('panel').getByTestId('room-card')
   await expect(card.getByRole('heading', { name: 'Кабинет' })).toBeVisible()
   await expect(card).toContainText('48,69 м²')
-  await expect(page.getByTestId('crumbs')).toContainText('Помещения')
+  await expect(page.getByTestId('crumbs')).toContainText('План')
   await expect(page).toHaveURL(new RegExp(`#/b/${id}/rooms/[\\w-]+`))
   await page.screenshot({ path: 'screenshots/shell-rooms.png' })
 
@@ -68,8 +70,8 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   // the editor is a section too: the menu folds to icons and still leads back
   await menu.getByRole('link', { name: 'Редактор' }).click()
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
-  await menu.getByLabel('Помещения', { exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Помещения' })).toBeVisible()
+  await menu.getByLabel('План', { exact: true }).click()
+  await expect(page.getByTestId('floor-tabs')).toBeVisible()
   await page.goBack()
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
 })
@@ -87,7 +89,8 @@ test('on a phone: tabs at the bottom, the card as a page, nothing wider than the
   await expect(page.getByRole('complementary', { name: 'Меню' })).toBeHidden()
   await fits()
 
-  await tabs.getByRole('link', { name: 'Помещения' }).click()
+  await tabs.getByRole('link', { name: 'План' }).click()
+  await page.getByTestId('plan-views').getByRole('link', { name: 'Список' }).click()
   await page.getByTestId('rooms').getByRole('link', { name: /Кабинет/ }).first().click()
   await expect(page.getByTestId('room-card')).toBeVisible()            // the card took the place of the list
   await expect(page.getByLabel('Поиск помещения')).toBeHidden()

@@ -64,6 +64,9 @@ export const to = {
   home: (b: string) => `#/b/${b}`,
   rooms: (b: string, room?: string, q?: string) => `#/b/${b}/rooms${room ? `/${room}` : ''}${q ? `?q=${encodeURIComponent(q)}` : ''}`,
   assets: (b: string, asset?: string, q?: string) => `#/b/${b}/assets${asset ? `/${asset}` : ''}${q ? `?q=${encodeURIComponent(q)}` : ''}`,
+  /** the registry of objects narrowed: by state, or to those needing a place or filling in */
+  assetsWhere: (b: string, filter: { state?: string; attention?: 'needs_fill' | 'needs_placement' }) =>
+    `#/b/${b}/assets?${new URLSearchParams(Object.entries(filter).filter((e): e is [string, string] => !!e[1]))}`,
   qr: (code: string) => `#/q/${code}`,
   scan: '#/scan',
   plan: (b: string, floor?: string, room?: string) => `#/b/${b}/plan${floor ? `/${floor}` : ''}${floor && room ? `/${room}` : ''}`,

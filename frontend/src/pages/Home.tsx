@@ -1,17 +1,50 @@
-import { AlertTriangle, DoorOpen, FileStack, Layers, Map as MapIcon, QrCode, Search } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, DoorOpen, FileStack, Layers, Map as MapIcon, QrCode, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { getCabinet, type Asset, type Building, type Cabinet, type Me, type TreeFloor } from '../api'
+import { getCabinet, listAssets, listPlaced, listVariants, type Asset, type Building, type Cabinet, type Me, type TreeFloor } from '../api'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 import { NeedsMark, StateBadge } from './Assets'
 
-/** «Кабинет» of a building: what needs attention, my rooms, the objects I answer for, a search and the QR scanner. */
+/** What in the building needs the administrator's hand, counted, each with the way to it. */
+type Task = { key: string; count: number; label: string; href: string; hint: string }
+
+function useTasks(building: string, on: boolean): Task[] | null {
+  const [tasks, setTasks] = useState<Task[] | null>(null)
+  const load = useCallback(() => {
+    if (!on) return
+    const total = (params: Record<string, string>) =>
+      listAssets({ building_id: building, limit: '1', ...params }).then(r => r.total, () => 0)
+    Promise.all([
+      total({ needs_placement: 'true' }), total({ needs_fill: 'true' }), total({ state: 'faulty' }),
+      listPlaced(building).then(d => d.filter(x => x.revision?.status === 'draft').length, () => 0),
+      listVariants(building).then(v => v.filter(x => x.status === 'draft' && x.stale).length, () => 0),
+    ]).then(([place, fill, faulty, drafts, stale]) => setTasks([
+      { key: 'place', count: place, label: 'Объекты без места', href: to.assetsWhere(building, { attention: 'needs_placement' }),
+        hint: 'Их помещение снято новой сборкой чертежа или списан контейнер, где они лежали: поставьте их на план заново' },
+      { key: 'fill', count: fill, label: 'Объекты с незаполненными свойствами', href: to.assetsWhere(building, { attention: 'needs_fill' }),
+        hint: 'Не заполнены обязательные свойства их типа или значение не того вида: откройте карточку и поправьте' },
+      { key: 'faulty', count: faulty, label: 'Неисправные объекты', href: to.assetsWhere(building, { state: 'faulty' }),
+        hint: 'Отмечены неисправными: отправьте в ремонт, почините или спишите' },
+      { key: 'drafts', count: drafts, label: 'Сборки чертежей ждут проверки', href: to.drawings(building),
+        hint: 'Новая сборка снимет помещения: проверьте сопоставление и опубликуйте или отбросьте её' },
+      { key: 'stale', count: stale, label: 'Устаревшие варианты', href: to.variants(building),
+        hint: 'После их составления объекты изменились в учёте: при применении часть операций будет отклонена' },
+    ].filter(t => t.count > 0)))
+  }, [building, on])
+  useEffect(load, [load])
+  useEvents(event => { if (/^(assets|buildings|import|planning)\./.test(event.type)) load() })
+  return tasks
+}
+
+/** «Обзор» of a building, where one starts: for its administrator what needs their hand, for anyone their
+ * rooms and the objects they answer for and what of it needs attention; a search and the QR scanner. */
 export function Home({ me, building, floors, admin }: { me: Me; building: Building; floors: TreeFloor[]; admin: boolean }) {
   const rooms = floors.reduce((n, f) => n + f.rooms.length, 0)
   const area = floors.reduce((n, f) => n + f.rooms.reduce((a, r) => a + r.area, 0), 0)
   const [cabinet, setCabinet] = useState<Cabinet | null>(null)
+  const tasks = useTasks(building.id, admin && floors.length > 0)
   const [q, setQ] = useState('')
   const load = useCallback(() => { getCabinet(building.id).then(setCabinet, () => setCabinet(null)) }, [building.id])
   useEffect(load, [load])
@@ -76,7 +109,30 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
             {stat('Площадь помещений', `${Math.round(area).toLocaleString('ru')} м²`, to.plan(building.id), MapIcon,
               'Сумма площадей всех помещений по чертежам; открыть план')}
           </div>
-          {cabinet && cabinet.attention.length > 0 && (
+          {admin && tasks && (
+            <div>
+              <h2 className="mb-1.5 text-sm font-medium">Задачи по зданию</h2>
+              {tasks.length === 0 ? (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="tasks"><CheckCircle2 className="size-4 text-success" /> Всё в порядке: ничего не ждёт ваших действий</p>
+              ) : (
+                <ul className="divide-y rounded-lg border bg-card text-sm" data-testid="tasks">
+                  {tasks.map(t => (
+                    <li key={t.key}>
+                      <Tip label={t.hint}>
+                        <a href={t.href} data-task={t.key} className="flex items-center gap-3 px-3 py-2 hover:bg-secondary">
+                          <AlertTriangle className="size-4 shrink-0 text-warning" />
+                          <span className="flex-1">{t.label}</span>
+                          <span className="font-medium">{t.count}</span>
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        </a>
+                      </Tip>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {!admin && cabinet && cabinet.attention.length > 0 && (
             <div>
               <h2 className="mb-1.5 flex items-center gap-1.5 text-sm font-medium"><AlertTriangle className="size-4 text-warning" /> Требует внимания · {cabinet.attention.length}</h2>
               {list(cabinet.attention, 'attention')}

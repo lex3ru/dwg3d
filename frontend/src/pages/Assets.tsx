@@ -33,19 +33,23 @@ export function StateBadge({ a }: { a: Asset }) {
 }
 
 /** The objects of a building the user may see: by number, type, state; what needs attention. */
-export function Assets({ building, floors, selected, admin, initialQuery }: {
+export function Assets({ building, floors, selected, admin, initialQuery, initialState, initialAttention }: {
   building: string; floors: TreeFloor[]; selected?: string
   /** the building's administrator loads objects from a file and prints labels */
   admin?: boolean
   initialQuery?: string
+  /** filters given by the address (from «Обзор»): a state, objects needing a place or filling in */
+  initialState?: string
+  initialAttention?: string
 }) {
   const picker = useRef<HTMLInputElement>(null)
   const [report, setReport] = useState<{ created: number } | { refused: string; rows: string[] } | null>(null)
   const [items, setItems] = useState<Asset[]>([])
   const [total, setTotal] = useState(0)
   const [q, setQ] = useState(initialQuery ?? '')
-  const [state, setState] = useState<AssetState | ''>('')
-  const [attention, setAttention] = useState<'' | 'needs_fill' | 'needs_placement'>('')
+  const [state, setState] = useState<AssetState | ''>(initialState && initialState in STATES ? initialState as AssetState : '')
+  const [attention, setAttention] = useState<'' | 'needs_fill' | 'needs_placement'>(
+    initialAttention === 'needs_fill' || initialAttention === 'needs_placement' ? initialAttention : '')
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     listAssets({ building_id: building, q, state, [attention || 'x']: attention ? 'true' : undefined, limit: '300' })
