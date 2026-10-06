@@ -6,6 +6,7 @@ import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
 import { useEvents } from '../stream'
 import { NeedsMark, StateBadge } from './Assets'
+import { HowTo } from './HowTo'
 
 /** What in the building needs the administrator's hand, counted, each with the way to it. */
 type Task = { key: string; count: number; label: string; href: string; hint: string }
@@ -82,6 +83,7 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
         <h1 className="text-xl font-semibold">{building.name}</h1>
         {building.address && <p className="text-sm text-muted-foreground">{building.address}</p>}
       </div>
+      <HowTo building={building.id} admin={admin} system={me.user.is_admin} />
       {floors.length === 0 ? (
         <div className="rounded-lg border border-dashed bg-card px-6 py-12 text-center">
           <p className="font-medium">В здании пока нет этажей</p>

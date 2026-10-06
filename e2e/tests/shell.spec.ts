@@ -27,6 +27,11 @@ test('the menu leads through a building: home, rooms with a card, the plan, the 
   // «Обзор»: the building at a glance and, for its administrator, what waits for them
   await menu.getByRole('link', { name: 'Обзор' }).click()
   await expect(page.getByTestId('tasks')).toContainText('Всё в порядке')
+  // a short guide: what the program is for and where its functions are, with the administrator's order of work
+  const howto = page.getByTestId('howto')
+  await expect(howto).toContainText('Цифровой двойник здания')
+  await expect(howto).toContainText('Администратору здания: порядок работы')
+  await expect(howto.getByRole('link', { name: '«Чертежи»' })).toHaveAttribute('href', `#/b/${id}/drawings`)
   await expect(page.getByTestId('summary')).toContainText('Этажи')
   await expect(page.getByTestId('summary').getByRole('link').first()).toContainText('2')
   await expect(page.getByTestId('summary').getByRole('link').nth(1)).toContainText('4')
