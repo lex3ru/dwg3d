@@ -22,6 +22,7 @@ import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
 import { Scan } from './pages/Scan'
 import { System } from './pages/System'
+import { Sketch } from './sketch/Sketch'
 import { guestAddress, to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
 import { barStream, useEvents } from './stream'
@@ -160,6 +161,8 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   const crumbs: Crumb[] = []
   if (route.page === 'editor' && admin) {
     content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene editable={admin} /></Suspense>
+  } else if (route.page === 'sketch' && sys) {
+    content = <Sketch />
   } else if (route.page === 'catalog' && sys) {
     crumbs.push({ label: 'Каталог', href: '#/catalog' })
     content = <Catalog kind={route.kind} item={route.item} />

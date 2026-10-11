@@ -210,6 +210,11 @@ describe('rooms', () => {
     assert.equal(strayLabels(f, findRooms(f)).length, 1)
   })
 
+  test('the label of a plain box is in its middle', () => {
+    const [room] = findRooms(box(4, 3))
+    assert.ok(Math.abs(room.labelAt[0] - 2) < 1e-9 && Math.abs(room.labelAt[1] - 1.5) < 0.2, String(room.labelAt))
+  })
+
   test('the label point is inside an L-shaped room', () => {
     const f = addChain(emptyFloor(), [[0, 0], [4, 0], [4, 1], [1, 1], [1, 4], [0, 4]], P, true).floor
     const [room] = findRooms(f)

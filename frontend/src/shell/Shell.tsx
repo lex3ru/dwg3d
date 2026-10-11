@@ -1,5 +1,5 @@
 import {
-  Activity, BookOpen, Box, Building2, ChevronRight, FileStack, GitBranch, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
+  Activity, BookOpen, Box, Building2, ChevronRight, DraftingCompass, FileStack, GitBranch, History, Home, KeyRound, LogOut, Map as MapIcon, Moon, PencilRuler, Search, Sun,
   User, Users, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -45,6 +45,8 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
   const system: Item[] = me.user.is_admin ? [
     { key: 'buildings', href: to.buildings, label: 'Здания', icon: Building2, active: route.page === 'buildings',
       hint: 'Все здания системы; здесь же создаётся новое' },
+    { key: 'sketch', href: to.sketch, label: 'Нарисовать план', icon: DraftingCompass, active: route.page === 'sketch',
+      hint: 'План здания с нуля, без чертежа DWG: стены, углы, помещения с площадью' },
     { key: 'catalog', href: '#/catalog', label: 'Каталог', icon: BookOpen, active: route.page === 'catalog',
       hint: 'Типы мебели и оборудования и наборы их свойств — общие для всех зданий' },
     { key: 'system', href: '#/system', label: 'Состояние системы', icon: Activity, active: route.page === 'system',
@@ -70,7 +72,7 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
   children: ReactNode
 }) {
   const { main, manage, system } = menu(route, me, building, editor)
-  const rail = route.page === 'editor'
+  const rail = route.page === 'editor' || route.page === 'sketch'
   // the name is cut short in the menu: the hint carries it whole
   const toBuilding = several ? 'К списку всех доступных вам зданий' : 'На главную страницу здания: что требует внимания, мои помещения и объекты'
   // folded to icons, the hint names the section too

@@ -81,10 +81,13 @@ function faces(f: Floor, lines: Record<string, WallOutline>): Face[] {
   return result
 }
 
-/** A point well inside the ring and outside the holes: the middle of the widest horizontal run. */
+/**
+ * A point well inside the ring and outside the holes: the middle of the widest
+ * horizontal run; of runs about as wide, the one nearest the middle height.
+ */
 function insidePoint(contour: XY[], holes: XY[][]): XY {
   const ys = contour.map(p => p[1])
-  const y0 = Math.min(...ys), y1 = Math.max(...ys)
+  const y0 = Math.min(...ys), y1 = Math.max(...ys), ym = (y0 + y1) / 2
   let best: XY = contour[0], bestW = -1
   for (let k = 1; k < 16; k++) {
     const y = y0 + ((y1 - y0) * k) / 16
@@ -95,8 +98,13 @@ function insidePoint(contour: XY[], holes: XY[][]): XY {
         if (yi > y !== yj > y) xs.push(xi + ((y - yi) * (xj - xi)) / (yj - yi))
       }
     xs.sort((a, b) => a - b)
-    for (let i = 0; i + 1 < xs.length; i += 2)
-      if (xs[i + 1] - xs[i] > bestW) { bestW = xs[i + 1] - xs[i]; best = [(xs[i] + xs[i + 1]) / 2, y] }
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const w = xs[i + 1] - xs[i]
+      if (w > bestW * 1.05 || (w >= bestW * 0.95 && Math.abs(y - ym) < Math.abs(best[1] - ym))) {
+        bestW = Math.max(w, bestW)
+        best = [(xs[i] + xs[i + 1]) / 2, y]
+      }
+    }
   }
   return best
 }
