@@ -191,7 +191,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
               : (
                 <>
                   <h2 className="text-sm font-semibold">Этаж</h2>
-                  <Row label="Название"><TextField value={floor.name} onApply={name => name && commit({ ...floor, name })} /></Row>
+                  <Row label="Название"><TextField value={floor.name} testid="floor-name" onApply={name => name && commit({ ...floor, name })} /></Row>
                   <Row label="Высота"><CmField value={floor.height} min={50} onApply={h => h && commit({ ...floor, height: h })} /></Row>
                   <p className="text-sm text-muted-foreground" data-testid="sketch-summary">
                     Стен: {Object.keys(floor.walls).length} · помещений: {rooms.length}
