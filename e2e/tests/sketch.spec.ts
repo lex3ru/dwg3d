@@ -172,6 +172,17 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   await expect(page.locator('[data-testid=sketch-canvas] path.stair')).toHaveCount(1)
   await expect(page.getByTestId('stair-steps-size')).toContainText('Подступенок 16,9 см')
   await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
+
+  // the sheets for print: a floor a sheet, each with its room schedule and title block
+  await page.goto(`${sketch}/print`)
+  await expect(page.getByTestId('print-sheet')).toHaveCount(3)
+  await expect(page.getByTestId('print-total').first()).toHaveText('21,19')
+  await expect(page.getByTestId('print-title').first()).toContainText('Лист1 из 3')
+  await expect(page.getByTestId('print-schedule').first()).toContainText('Кухня')
+  // printed to PDF as the browser does it: a page a sheet, none blank
+  const pdf = (await page.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1')
+  expect(pdf.startsWith('%PDF')).toBe(true)
+  expect(pdf.match(/\/Type\s*\/Page[^s]/g)?.length).toBe(3)
 })
 
 /** A PDF of two landscape pages, a rectangle drawn on each. */

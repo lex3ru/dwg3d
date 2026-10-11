@@ -1,4 +1,4 @@
-import { Box, FileDown, Hammer } from 'lucide-react'
+import { Box, FileDown, Hammer, Printer } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { downloadSketch, getDrawing, rebuildDrawing, type Drawing } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -90,6 +90,11 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
             st.flush().then(() => downloadSketch(drawing)).catch((e: Error) => setRefused(e.message)).finally(() => setBusy(false))
           }}>
           <FileDown className="size-4" />DXF
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy || empty} data-testid="sketch-print-button"
+          hint={empty ? 'Листы плана для печати: сначала нарисуйте стены' : 'Листы плана в масштабе с размерами, экспликацией помещений и штампом — напечатать или сохранить в PDF; откроются в новой вкладке'}
+          onClick={() => { st.flush().catch(() => {}).finally(() => window.open(`#/sketch/${drawing}/print`, '_blank')) }}>
+          <Printer className="size-4" />Печать
         </Button>
         {built && (
           <Button asChild size="sm" variant="outline" hint="3D-сцена здания из этого плана: помещения, расстановка объектов">

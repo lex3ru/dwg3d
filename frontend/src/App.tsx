@@ -22,6 +22,7 @@ import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
 import { Scan } from './pages/Scan'
 import { System } from './pages/System'
+import { SketchPrint } from './sketch/Print'
 import { Sketch } from './sketch/Sketch'
 import { guestAddress, to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
@@ -242,6 +243,10 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   } else {
     crumbs.push({ label: 'Мои здания' })
     content = <Buildings me={me} refresh={seen} />
+  }
+  // the sheets for print: the page itself, no menu round it
+  if (route.page === 'sketch' && route.print) {
+    return admin ? <SketchPrint drawing={route.drawing} /> : <Centered title="Загрузка…" />
   }
   const planPanel = route.page === 'building' && route.section === 'plan'
   return (
