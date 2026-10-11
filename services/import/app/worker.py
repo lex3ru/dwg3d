@@ -25,6 +25,7 @@ from twin_chassis.bus import Bus
 from . import storage, store
 from .dwg.pipeline import run as run_pipeline
 from .models import builds, drawing_files, drawings
+from .sketch import run as run_sketch
 
 logger = logging.getLogger("twin.import.worker")
 POLL_S = 1.0
@@ -99,7 +100,8 @@ class Worker:
         async with self.db.begin() as session:
             b = (await session.execute(select(builds).where(builds.c.id == build_id))).one()
             d = (await session.execute(select(drawings).where(drawings.c.id == b.drawing_id))).one()
-            f = (await session.execute(select(drawing_files).where(drawing_files.c.id == b.file_id))).one()
+            f = (await session.execute(select(drawing_files).where(drawing_files.c.id == b.file_id))).one() \
+                if b.file_id else None                       # a sketch's build has no file
             if d.deleted_at is None:
                 await store.emit_build(session, "started", b, d.building_id)
         loop = asyncio.get_running_loop()
@@ -137,6 +139,11 @@ class Worker:
     def _build(self, b, d, f, progress) -> tuple[dict, list[str]]:
         """The pipeline on a working copy; returns its result and the files stored. Runs in a thread."""
         work = storage.workdir(d.id)
+        if f is None:                                   # a sketch: built from the copy the build carries
+            out = work / "sketch" / "out"
+            _rmtree(out)
+            meta = run_sketch(b.sketch, out, progress=progress)
+            return meta, storage.push_build(out, b.id, None)
         tag = f.sha256[:16]
         for stale in work.iterdir():                 # working copies of earlier files of this drawing
             if stale.is_dir() and stale.name != tag and stale.name != "export":
@@ -188,15 +195,16 @@ class Worker:
         used = meta.pop("config", None) or {}
         result = {k: meta[k] for k in store.RESULT_KEYS if k in meta}
         result["files"] = files
-        # the corrections re-anchored to the floors of this build are what the drawing keeps
         config = dict(d.config or {})
-        config["edits"] = used.get("edits") or {}
-        if used.get("edits_unmatched"):
-            config["edits_unmatched"] = used["edits_unmatched"]
-        else:
-            config.pop("edits_unmatched", None)
-        if (config.get("floors") or {}).get("items"):
-            config["floors"] = {**config["floors"], "items": used["floors"]["items"]}
+        if b.file_id:
+            # the corrections re-anchored to the floors of this build are what the drawing keeps
+            config["edits"] = used.get("edits") or {}
+            if used.get("edits_unmatched"):
+                config["edits_unmatched"] = used["edits_unmatched"]
+            else:
+                config.pop("edits_unmatched", None)
+            if (config.get("floors") or {}).get("items"):
+                config["floors"] = {**config["floors"], "items": used["floors"]["items"]}
         async with self.db.begin() as session:
             current = await store.get_drawing(session, d.id, lock=True)
             if current is None:

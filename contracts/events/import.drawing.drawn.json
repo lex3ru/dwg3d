@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "import.drawing.drawn",
+  "description": "Создан нарисованный план (чертёж вида sketch): пустой лист 2D-редактора; собирается, когда его попросят. subject — чертёж, building_id — в конверте.",
+  "type": "object",
+  "required": [
+    "drawing_id",
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "drawing_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    }
+  }
+}

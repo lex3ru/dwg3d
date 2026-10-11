@@ -1,7 +1,7 @@
-import { Box, FileDown, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Box, DraftingCompass, FileDown, PencilRuler, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  drawingWithObjects,
+  createSketch, drawingWithObjects,
   deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, patchFloor, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
   type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Tip } from '../components/ui/tooltip'
+import { to } from '../shell/route'
 import { useEvents } from '../stream'
 
 const STATUS: Record<string, [string, 'default' | 'accent' | 'success' | 'destructive']> = {
@@ -74,15 +75,21 @@ export function Building({ id, review }: { id: string; review?: string }) {
           <h2 className="text-base font-semibold">Чертежи</h2>
           <Button size="sm" onClick={() => pick(null)} disabled={busy}
             hint="Добавить в здание план в формате DWG или DXF: он соберётся в этажи и помещения"><Upload className="size-4" /> Загрузить чертёж</Button>
+          <Button size="sm" variant="outline" disabled={busy} data-testid="new-sketch"
+            onClick={() => { setBusy(true); createSketch(id).then(d => { location.hash = to.sketch(d.id) }, (e: Error) => { setError(e.message); setBusy(false) }) }}
+            hint="Чертежа нет — нарисовать план здания с нуля в 2D-редакторе: стены, двери, окна; помещения получатся сами">
+            <DraftingCompass className="size-4" /> Нарисовать план
+          </Button>
           <input ref={picker} type="file" accept=".dwg,.dxf" className="hidden" data-testid="file"
             onChange={e => picked(e.target.files)} />
         </div>
         {drawings.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">Загрузите поэтажные планы здания в формате DWG или DXF — одним файлом или по файлу на этаж или корпус.</p>
+          <p className="mt-3 text-sm text-muted-foreground">Загрузите поэтажные планы здания в формате DWG или DXF — одним файлом или по файлу на этаж или корпус. Если чертежа нет, нарисуйте план в 2D-редакторе.</p>
         ) : (
           <ul className="mt-3 divide-y rounded-lg border bg-card" data-testid="drawings">
             {drawings.map(d => {
               const b = d.build
+              const drawn = d.kind === 'sketch'
               const place = placed.find(p => p.id === d.id)
               const shown = place?.build_id
               const revision = place?.revision
@@ -101,7 +108,7 @@ export function Building({ id, review }: { id: string; review?: string }) {
                   <div className="min-w-40 flex-1">
                     <div className="font-medium">{d.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {size(d.size)}{d.file_n && d.file_n > 1 ? ` · файл ${d.file_n}` : ''}{b ? ` · сборка ${b.n}` : ''}
+                      {drawn ? 'нарисованный план' : size(d.size)}{d.file_n && d.file_n > 1 ? ` · файл ${d.file_n}` : ''}{b ? ` · сборка ${b.n}` : drawn ? ' · ещё не собран' : ''}
                     </div>
                     {running && (
                       <div className="mt-1.5">
@@ -134,25 +141,36 @@ export function Building({ id, review }: { id: string; review?: string }) {
                         onSave={v => act(placeDrawing(id, place, v))} />
                     )}
                   </div>
-                  <Tip label="Состояние последней сборки: из готовой здание берёт этажи, помещения и 3D-модель"><Badge variant={tone}>{label}</Badge></Tip>
+                  {(b || !drawn) && <Tip label="Состояние последней сборки: из готовой здание берёт этажи, помещения и 3D-модель"><Badge variant={tone}>{label}</Badge></Tip>}
+                  {drawn && (
+                    <Button asChild size="sm" variant={shown ? 'outline' : 'default'} hint="Открыть план в 2D-редакторе: стены, проёмы, помещения; оттуда же он собирается в здание">
+                      <a href={to.sketch(d.id)}><PencilRuler className="size-4" /> План</a>
+                    </Button>
+                  )}
                   {shown && (
                     <Button asChild size="sm" hint="3D и план чертежа в редакторе: помещения, объекты, слои инженерных систем"><a href={`#/f/${d.id}`}><Box className="size-4" /> Открыть</a></Button>
                   )}
-                  {shown && (
+                  {shown && !drawn && (
                     <Button variant="outline" size="sm" disabled={busy || running}
                       hint="Скачать DXF этого чертежа, где объекты учёта стоят блоками с атрибутами: номер, состояние, ответственный, помещение"
                       onClick={() => act(drawingWithObjects(id, d.id, 'dxf'))}>
                       <FileDown className="size-4" /> <span className="max-sm:hidden">С объектами</span>
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" disabled={busy || running} onClick={() => pick(d.id)}
-                    hint="Заменить файл чертежа исправленным: начнётся новая сборка; недоступно, пока идёт текущая">
-                    <Upload className="size-4" /> <span className="max-sm:hidden">Новый файл</span>
-                  </Button>
-                  <Button variant="ghost" size="icon" disabled={busy || running} aria-label="Собрать заново"
-                    hint="Повторить сборку из того же файла с текущими настройками и правками редактора; недоступно, пока идёт сборка" onClick={() => act(rebuildDrawing(d.id))}>
-                    <RefreshCw className="size-4" />
-                  </Button>
+                  {!drawn && (
+                    <Button variant="outline" size="sm" disabled={busy || running} onClick={() => pick(d.id)}
+                      hint="Заменить файл чертежа исправленным: начнётся новая сборка; недоступно, пока идёт текущая">
+                      <Upload className="size-4" /> <span className="max-sm:hidden">Новый файл</span>
+                    </Button>
+                  )}
+                  {(!drawn || b) && (
+                    <Button variant="ghost" size="icon" disabled={busy || running} aria-label="Собрать заново"
+                      hint={drawn ? 'Собрать здание заново из сохранённого плана; недоступно, пока идёт сборка'
+                        : 'Повторить сборку из того же файла с текущими настройками и правками редактора; недоступно, пока идёт сборка'}
+                      onClick={() => act(rebuildDrawing(d.id))}>
+                      <RefreshCw className="size-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" disabled={busy} aria-label="Удалить чертёж"
                     hint="Удалить чертёж вместе с его сборками; этажи и помещения из него будут сняты"
                     onClick={() => { if (confirm(`Удалить чертёж «${d.name}»? Его этажи и помещения будут сняты.`)) act(deleteDrawing(d.id)) }}>

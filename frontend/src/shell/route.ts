@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react'
 //   /b/<building>/journal?…           the feed of events (the building's administrator)
 //   /b/<building>/variants[/<variant>] variants of placing objects (the building's administrator)
 //   /f/<drawing>/…                     the editor: the 3D / 2D scene of a drawing
-//   /sketch                            a plan drawn from scratch in the 2D editor (the system administrator)
+//   /sketch/<drawing>                  a plan drawn from scratch in the 2D editor (the building's administrator)
 //   /catalog[/types/<id>|/sets/<id>]   the catalog (the system administrator; «new» instead of an id — a new one)
 //   /q/<code>                          a QR label: leads to the card of its object (or «нет доступа»)
 //   /scan                              the camera reads a QR label
@@ -27,7 +27,7 @@ export type Route =
       /** on the plan: the object being moved */ move?: string
       /** the rest of the query, e.g. the journal's filters */ query: Record<string, string> }
   | { page: 'editor'; drawing: string }
-  | { page: 'sketch' }
+  | { page: 'sketch'; drawing: string }
   | { page: 'me' }
   | { page: 'qr'; code: string }
   | { page: 'scan' }
@@ -47,7 +47,7 @@ export function parseRoute(hash: string): Route {
       query: Object.fromEntries(new URLSearchParams(query)) }
   }
   if (first === 'catalog') return { page: 'catalog', kind: second === 'sets' ? 'sets' : second === 'types' ? 'types' : undefined, item: third || undefined }
-  if (first === 'sketch') return { page: 'sketch' }
+  if (first === 'sketch' && second) return { page: 'sketch', drawing: second }
   if (first === 'q' && second) return { page: 'qr', code: second }
   if (first === 'scan') return { page: 'scan' }
   if (first === 'system' || first === 'me') return { page: first }
@@ -82,7 +82,7 @@ export const to = {
   journal: (b: string, filter: Record<string, string | undefined> = {}) =>
     `#/b/${b}/journal${Object.values(filter).some(Boolean) ? `?${new URLSearchParams(Object.entries(filter).filter((e): e is [string, string] => !!e[1]))}` : ''}`,
   editor: (drawing: string) => `#/f/${drawing}`,
-  sketch: '#/sketch',
+  sketch: (drawing: string) => `#/sketch/${drawing}`,
 }
 
 export function useRoute(): Route {

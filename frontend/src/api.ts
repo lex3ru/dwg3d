@@ -95,7 +95,12 @@ export type Build = {
   message: string; error: string | null
 }
 export type Drawing = {
-  id: string; building_id: string; name: string; filename: string | null; size: number | null; file_n: number | null
+  id: string; building_id: string; name: string
+  /** file: an uploaded DWG/DXF; sketch: a plan drawn in the 2D editor */
+  kind: 'file' | 'sketch'
+  /** the number of the sketch's last save */
+  sketch_version: number | null
+  filename: string | null; size: number | null; file_n: number | null
   build: Build | null; current_build_id: string | null; updated_at: string; unchanged?: boolean
 }
 /** A drawing as the building has taken it in: the build that is shown. */
@@ -162,6 +167,13 @@ export const patchFloor = (floor: TreeFloor, patch: { name?: string; level?: num
 export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
   api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
 export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)
+/** A new plan drawn from scratch in the building: an empty sheet of the 2D editor. */
+export const createSketch = (building: string, name?: string) =>
+  api<Drawing>(`${IMPORT}/sketches`, { method: 'POST', json: { building_id: building, name: name ?? '' } })
+export const getSketch = (drawing: string) => api<{ sketch: unknown; version: number }>(`${IMPORT}/drawings/${drawing}/sketch`)
+/** Saves over the save `version` the edits started from; another save made meanwhile — ApiError 409 «conflict». */
+export const saveSketch = (drawing: string, sketch: unknown, version: number) =>
+  api<{ version: number }>(`${IMPORT}/drawings/${drawing}/sketch`, { method: 'PUT', json: { sketch, version } })
 
 // ---- people and rights (the building's administrators)
 

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from twin_chassis import Problem
 from twin_chassis.db import inbox, outbox
 
-from .conftest import API
+from .conftest import API, Site
 
 
 async def events(app, type_: str | None = None) -> list[dict]:
@@ -228,6 +228,14 @@ async def test_renamed_drawing(client, app, tokens, building, site):
         "import.drawing.renamed", {"drawing_id": site.drawing_id, "name": "Корпус Б"}))
     listed = await client.get(f"{API}/buildings/{building['id']}/drawings", headers=tokens.admin())
     assert [d["name"] for d in listed.json()["items"]] == ["Корпус Б"]
+
+
+async def test_a_drawn_plan_is_a_drawing_too(client, app, tokens, building, importer):
+    drawn = Site(app, importer, building["id"])
+    await app.state.bus.handle("drawing-drawn", drawn.event(
+        "import.drawing.drawn", {"drawing_id": drawn.drawing_id, "name": "Нарисованный план"}))
+    listed = await client.get(f"{API}/buildings/{building['id']}/drawings", headers=tokens.admin())
+    assert [d["name"] for d in listed.json()["items"]] == ["Нарисованный план"]
 
 
 async def test_placement_of_a_drawing(client, tokens, building, site):

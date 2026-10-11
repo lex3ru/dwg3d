@@ -56,6 +56,7 @@ function describe(e: JournalEvent): string {
     case 'catalog.type.restored': return 'тип каталога возвращён из архива'
     case 'catalog.property_set.changed': return 'набор свойств каталога изменён'
     case 'import.drawing.uploaded': return 'чертёж загружен'
+    case 'import.drawing.drawn': return 'начат нарисованный план'
     case 'import.drawing.renamed': return 'чертёж переименован'
     case 'import.drawing.deleted': return 'чертёж удалён'
     case 'import.build.started': return 'началась сборка чертежа'

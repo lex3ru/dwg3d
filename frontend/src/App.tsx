@@ -140,7 +140,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
 
   // the editor is opened by a drawing: find its building for the menu
   const [drawingOf, setDrawingOf] = useState<Record<string, string>>({})
-  const drawing = route.page === 'editor' ? route.drawing : null
+  const drawing = route.page === 'editor' || route.page === 'sketch' ? route.drawing : null
   useEffect(() => {
     if (drawing && !drawingOf[drawing]) getDrawing(drawing).then(d => setDrawingOf(m => ({ ...m, [drawing]: d.building_id })), () => {})
   }, [drawing, drawingOf])
@@ -161,8 +161,8 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   const crumbs: Crumb[] = []
   if (route.page === 'editor' && admin) {
     content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene editable={admin} /></Suspense>
-  } else if (route.page === 'sketch' && sys) {
-    content = <Sketch />
+  } else if (route.page === 'sketch' && admin) {
+    content = <Sketch key={route.drawing} drawing={route.drawing} />
   } else if (route.page === 'catalog' && sys) {
     crumbs.push({ label: 'Каталог', href: '#/catalog' })
     content = <Catalog kind={route.kind} item={route.item} />

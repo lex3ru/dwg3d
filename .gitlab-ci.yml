@@ -176,6 +176,7 @@ web:
     - cd frontend
     - npm ci --cache "$CI_PROJECT_DIR/.npm" --prefer-offline
     - npm run lint
+    - npm test
     - npm run build
 
 image:web:

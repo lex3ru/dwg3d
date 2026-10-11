@@ -1,35 +1,28 @@
 /**
- * The sketch being edited: its undo history and the draft kept in this browser
- * until plans are stored on the server.
+ * The sketch being edited: loaded from the import service, its undo history,
+ * and saving — a moment after each change, over the save the edits started
+ * from. A save someone made meanwhile (another window) stops saving: the
+ * editor offers to load theirs.
  */
-import { useCallback, useEffect, useState } from 'react'
-import { emptyFloor, emptySketch, parseSketch, type Floor, type Sketch } from '@/plan'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ApiError, getSketch, saveSketch } from '@/api'
+import { emptyFloor, parseSketch, SketchError, type Floor, type Sketch } from '@/plan'
+import { Conflict, Saver } from './saver'
 
-const DRAFT_KEY = 'twin.sketch.draft.v1'
 const DEPTH = 200
+const SAVE_DELAY = 800
 
-function loadDraft(): Sketch {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    if (raw) return parseSketch(JSON.parse(raw))
-  } catch { /* no storage, or a draft of another version: start afresh */ }
-  return emptySketch()
-}
-
-function saveDraft(s: Sketch): boolean {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(s))
-    return true
-  } catch {
-    return false
-  }
-}
+/** loading — not here yet; saved; unsaved — a save is coming; saving; conflict — saved elsewhere meanwhile;
+ * failed — the server refused or is away (the next change tries again); broken — what is stored is not a plan */
+export type SaveStatus = 'loading' | 'saved' | 'unsaved' | 'saving' | 'conflict' | 'failed' | 'broken'
 
 interface History { past: Sketch[]; present: Sketch; future: Sketch[] }
 
 export interface SketchState {
-  sketch: Sketch
-  floor: Floor
+  status: SaveStatus
+  error: string | null
+  sketch: Sketch | null
+  floor: Floor | null
   setFloorId: (id: string) => void
   /** replaces the current floor; one step of undo */
   commit: (f: Floor) => void
@@ -39,59 +32,105 @@ export interface SketchState {
   canRedo: boolean
   addFloor: () => void
   removeFloor: (id: string) => void
-  /** an empty plan (the old one stays in undo) */
-  reset: () => void
-  /** the draft could not be kept in this browser (storage off or full) */
-  unsaved: boolean
+  /** saves what is not saved yet; resolves when the server has it */
+  flush: () => Promise<void>
+  /** drops what is not saved and loads the plan as stored (after a conflict) */
+  reload: () => void
 }
 
-export function useSketch(): SketchState {
-  const [h, setH] = useState<History>(() => ({ past: [], present: loadDraft(), future: [] }))
-  const [floorId, setFloorId] = useState(() => h.present.floors[0].id)
-  const [unsaved, setUnsaved] = useState(false)
-  const sketch = h.present
-  const floor = sketch.floors.find(f => f.id === floorId) ?? sketch.floors[0]
+export function useSketch(drawing: string): SketchState {
+  const [h, setH] = useState<History | null>(null)
+  const [floorId, setFloorId] = useState<string | null>(null)
+  const [status, setStatus] = useState<SaveStatus>('loading')
+  const [error, setError] = useState<string | null>(null)
+  const [loads, setLoads] = useState(0)
+  const timer = useRef<number | undefined>(undefined)
+  const saver = useMemo(() => new Saver<Sketch>(
+    (sketch, version) => saveSketch(drawing, sketch, version).then(r => r.version, (e: Error) => {
+      throw e instanceof ApiError && e.code === 'conflict' ? new Conflict(e.message) : e
+    }),
+    (state, e) => { setStatus(state); setError(e?.message ?? null) },
+  ), [drawing])
 
   useEffect(() => {
-    const t = setTimeout(() => setUnsaved(!saveDraft(sketch)), 400)
-    return () => clearTimeout(t)
-  }, [sketch])
-
-  const push = useCallback((next: (s: Sketch) => Sketch) => {
-    setH(x => {
-      const n = next(x.present)
-      return n === x.present ? x : { past: [...x.past.slice(-DEPTH + 1), x.present], present: n, future: [] }
+    let alive = true
+    getSketch(drawing).then(r => {
+      if (!alive) return
+      const s = parseSketch(r.sketch)
+      saver.reset(s, r.version)
+      setH({ past: [], present: s, future: [] })
+      setFloorId(id => (s.floors.some(f => f.id === id) ? id : s.floors[0].id))
+      setStatus('saved')
+      setError(null)
+    }, (e: Error) => {
+      if (!alive) return
+      setStatus(e instanceof SketchError ? 'broken' : 'failed')
+      setError(e.message)
     })
-  }, [])
+    return () => { alive = false }
+  }, [drawing, loads, saver])
 
+  const present = h?.present ?? null
+  useEffect(() => {
+    if (!present) return
+    saver.change(present)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => { saver.save().catch(() => {}) }, SAVE_DELAY)
+  }, [present, saver])
+
+  // leaving with changes not saved: the browser asks first
+  useEffect(() => {
+    const leave = (e: BeforeUnloadEvent) => { if (saver.dirty) e.preventDefault() }
+    addEventListener('beforeunload', leave)
+    return () => removeEventListener('beforeunload', leave)
+  }, [saver])
+
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current)
+    return saver.save()
+  }, [saver])
+  const reload = useCallback(() => { setStatus('loading'); setLoads(n => n + 1) }, [])
+
+  // a change: «не сохранено» until the save a moment later (a save running or a conflict says more)
+  const changed = useCallback(() => setStatus(s => (s === 'saving' || s === 'conflict' ? s : 'unsaved')), [])
+  const push = useCallback((next: (s: Sketch) => Sketch) => {
+    if (!h) return
+    const n = next(h.present)
+    if (n === h.present) return
+    changed()
+    setH({ past: [...h.past.slice(-DEPTH + 1), h.present], present: n, future: [] })
+  }, [h, changed])
   const commit = useCallback((f: Floor) => {
     push(s => s.floors.includes(f) ? s : { ...s, floors: s.floors.map(x => (x.id === f.id ? f : x)) })
   }, [push])
-  const undo = useCallback(() => setH(x => x.past.length
-    ? { past: x.past.slice(0, -1), present: x.past[x.past.length - 1], future: [x.present, ...x.future] } : x), [])
-  const redo = useCallback(() => setH(x => x.future.length
-    ? { past: [...x.past, x.present], present: x.future[0], future: x.future.slice(1) } : x), [])
+  const undo = useCallback(() => {
+    if (!h?.past.length) return
+    changed()
+    setH({ past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future] })
+  }, [h, changed])
+  const redo = useCallback(() => {
+    if (!h?.future.length) return
+    changed()
+    setH({ past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) })
+  }, [h, changed])
 
+  const floors = useMemo(() => present?.floors ?? [], [present])
+  const floor = floors.find(f => f.id === floorId) ?? floors[0] ?? null
   const addFloor = useCallback(() => {
-    const top = Math.max(...sketch.floors.map(f => f.level))
-    const below = sketch.floors.find(f => f.level === top)!
-    const f = emptyFloor(top + 1, { elevation: below.elevation + below.height })
+    if (!floors.length) return
+    const top = floors.reduce((a, b) => (b.level > a.level ? b : a))
+    const f = emptyFloor(top.level + 1, { elevation: top.elevation + top.height })
     push(s => ({ ...s, floors: [...s.floors, f] }))
     setFloorId(f.id)
-  }, [push, sketch.floors])
+  }, [push, floors])
   const removeFloor = useCallback((id: string) => {
-    if (sketch.floors.length < 2) return
+    if (floors.length < 2) return
     push(s => ({ ...s, floors: s.floors.filter(f => f.id !== id) }))
-    if (id === floor.id) setFloorId(sketch.floors.find(f => f.id !== id)!.id)
-  }, [push, sketch.floors, floor.id])
-  const reset = useCallback(() => {
-    const s = emptySketch()
-    push(() => s)
-    setFloorId(s.floors[0].id)
-  }, [push])
+    if (id === floor?.id) setFloorId(floors.find(f => f.id !== id)!.id)
+  }, [push, floors, floor])
 
   return {
-    sketch, floor, setFloorId, commit, undo, redo, canUndo: h.past.length > 0, canRedo: h.future.length > 0,
-    addFloor, removeFloor, reset, unsaved,
+    status, error, sketch: present, floor, setFloorId, commit, undo, redo,
+    canUndo: !!h?.past.length, canRedo: !!h?.future.length, addFloor, removeFloor, flush, reload,
   }
 }

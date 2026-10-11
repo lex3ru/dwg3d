@@ -217,6 +217,7 @@
 |---|---|
 | `import.build.finished` | забрать результат сборки; первая ревизия чертежа и ревизия, которая ничего не снимает, публикуются сразу, остальные ждут черновиком. Помещение, целиком (не меньше 90 % площади) вошедшее в помещение сборки, не снимается, а объединяется с ним (`room.merged`): убранная перегородка не требует проверки |
 | `import.drawing.deleted` | снять этажи и помещения чертежа |
+| `import.drawing.uploaded`, `import.drawing.drawn` | запомнить чертёж и его название (`drawn` — нарисованный план) |
 
 ## 4. Импорт чертежей (`import`)
 
@@ -231,6 +232,8 @@
 | `GET /drawings?building_id=`, `GET /drawings/{id}` | чертежи | manage |
 | `POST /drawings/{id}/files` | новый файл чертежа (будущая ревизия) | manage |
 | `DELETE /drawings/{id}` | удалить чертёж | manage |
+| `POST /sketches` | `building_id` → нарисованный план: пустой лист 2D-редактора | manage здания |
+| `GET` / `PUT /drawings/{id}/sketch` | нарисованный план и номер сохранения; сохранение поверх чужого — `409 conflict` с текущим номером | чтение — кто видит план; запись — manage |
 | `GET` / `PUT /drawings/{id}/config` | настройки разбора | manage |
 | `GET` / `PUT /drawings/{id}/edits` | правки 2D-редактора | manage |
 | `GET /drawings/{id}/source` | исходная геометрия для 2D-редактора | manage |
@@ -250,6 +253,7 @@
 | Публикует | Данные |
 |---|---|
 | `import.drawing.uploaded` / `.deleted` | `drawing_id`, `building_id` |
+| `import.drawing.drawn` | `drawing_id`, `name`: создан нарисованный план |
 | `import.build.started` | `build_id`, `drawing_id` |
 | `import.build.progress` | этап, доля — без хранения, только для интерфейса |
 | `import.build.finished` | `build_id`, `drawing_id`, `building_id`, число этажей и помещений, предупреждения |

@@ -1,6 +1,5 @@
 import { BrickWall, DoorOpen, FlipHorizontal2, FlipVertical2, Maximize2, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useConfirm } from '@/components/confirm'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
 import { Input } from '@/components/ui/input'
@@ -9,12 +8,13 @@ import { cn } from '@/lib/utils'
 import {
   allSides, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
   WALL_DEFAULTS, wallLength, wallsAt,
-  type Floor, type Opening, type OpeningKind, type WallKind,
+  type Floor, type Opening, type OpeningKind, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
 import { dist } from '@/plan/vec'
 import { Canvas, type Selection, type Tool } from './Canvas'
 import { areaText } from './format'
-import { useSketch } from './state'
+import { BuildCard } from './BuildCard'
+import { useSketch, type SketchState } from './state'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon; hint: string }[] = [
   { id: 'select', label: 'Выбор', key: 'V', icon: MousePointer2, hint: 'Выбрать и двигать стены, углы и помещения; клавиша V' },
@@ -66,9 +66,24 @@ const Row = ({ label, children }: { label: string; children: ReactNode }) => (
   <label className="grid grid-cols-[6.5rem_1fr] items-center gap-2 text-sm"><span className="text-muted-foreground">{label}</span>{children}</label>
 )
 
-/** The 2D editor of a plan drawn from scratch. */
-export function Sketch() {
-  const st = useSketch()
+/** The 2D editor of a plan drawn from scratch: the plan of a drawing of kind «sketch», saved as one draws. */
+export function Sketch({ drawing }: { drawing: string }) {
+  const st = useSketch(drawing)
+  if (!st.sketch || !st.floor) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+        <h1 className="text-lg font-semibold">{st.status === 'loading' ? 'Загрузка плана…' : 'План не открылся'}</h1>
+        {st.error && <p className="max-w-sm text-sm text-muted-foreground">{st.error}</p>}
+        {st.status === 'failed' && <Button onClick={st.reload} hint="Ещё раз запросить план у сервера">Повторить</Button>}
+      </div>
+    )
+  }
+  return <Editor st={st as Loaded} drawing={drawing} />
+}
+
+type Loaded = SketchState & { sketch: Sketch_; floor: Floor }
+
+function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const { floor, commit, undo, redo } = st
   const [tool, setTool] = useState<Tool>('wall')
   const [kind, setKind] = useState<WallKind>('bearing')
@@ -78,7 +93,6 @@ export function Sketch() {
     () => Object.fromEntries(Object.entries(OPENING_DEFAULTS).map(([k, v]) => [k, v.width])) as Record<OpeningKind, number>)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [fitSignal, setFitSignal] = useState(0)
-  const [ask, dialog] = useConfirm()
 
   const issues = useMemo(() => checkFloor(floor), [floor])
   const bad = useMemo(() => new Set(issues.filter(i => i.level === 'error').flatMap(i => i.ids)), [issues])
@@ -147,19 +161,21 @@ export function Sketch() {
           </>
         )}
         <span className="mx-1 h-5 w-px bg-border" />
-        <Button size="icon-sm" variant="ghost" disabled={!st.canUndo} onClick={st.undo} hint="Отменить последнее изменение; Ctrl+Z"><Undo2 className="size-4" /></Button>
-        <Button size="icon-sm" variant="ghost" disabled={!st.canRedo} onClick={st.redo} hint="Вернуть отменённое; Ctrl+Shift+Z"><Redo2 className="size-4" /></Button>
-        <Button size="icon-sm" variant="ghost" onClick={() => setFitSignal(n => n + 1)} hint="Показать весь этаж; клавиша F"><Maximize2 className="size-4" /></Button>
+        <Button size="icon-sm" variant="ghost" aria-label="Отменить" disabled={!st.canUndo} onClick={st.undo} hint="Отменить последнее изменение; Ctrl+Z"><Undo2 className="size-4" /></Button>
+        <Button size="icon-sm" variant="ghost" aria-label="Вернуть" disabled={!st.canRedo} onClick={st.redo} hint="Вернуть отменённое; Ctrl+Shift+Z"><Redo2 className="size-4" /></Button>
+        <Button size="icon-sm" variant="ghost" aria-label="Весь этаж" onClick={() => setFitSignal(n => n + 1)} hint="Показать весь этаж; клавиша F"><Maximize2 className="size-4" /></Button>
         <span className="mx-1 h-5 w-px bg-border" />
         <Select value={floor.id} onChange={e => pickFloor(e.target.value)} aria-label="Этаж" className="w-28" data-testid="sketch-floor">
           {floors.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
-        <Button size="icon-sm" variant="ghost" onClick={st.addFloor} hint="Добавить этаж над верхним; стены нижнего этажа видны под ним бледно">
+        <Button size="icon-sm" variant="ghost" onClick={st.addFloor} aria-label="Добавить этаж" data-testid="sketch-add-floor" hint="Добавить этаж над верхним; стены нижнего этажа видны под ним бледно">
           <Plus className="size-4" />
         </Button>
       </div>
 
-      <aside className={cn(floatClass, 'absolute top-2 right-2 w-72 space-y-3 rounded-lg p-3 max-md:hidden')} aria-label="Свойства" data-testid="sketch-inspector">
+      <div className="absolute top-2 right-2 flex w-72 flex-col gap-2 max-md:hidden">
+      <BuildCard drawing={drawing} st={st} />
+      <aside className={cn(floatClass, 'space-y-3 rounded-lg p-3')} aria-label="Свойства" data-testid="sketch-inspector">
         {sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'wall' ? <WallPanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'node' ? <NodePanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
@@ -187,23 +203,14 @@ export function Sketch() {
                       ))}
                     </ul>
                   )}
-                  <p className="text-xs text-muted-foreground">
-                    {st.unsaved ? 'Черновик не удаётся сохранить в этом браузере: после перезагрузки он пропадёт.' : 'Черновик сохраняется в этом браузере.'}
-                  </p>
-                  <div className="flex gap-2">
-                    {floors.length > 1 && (
-                      <Button size="sm" variant="outline" hint="Убрать этот этаж из плана; Ctrl+Z вернёт"
-                        onClick={() => { st.removeFloor(floor.id); setSelection(null) }}>Удалить этаж</Button>
-                    )}
-                    <Button size="sm" variant="outline" hint="Начать с чистого листа; Ctrl+Z вернёт нарисованное"
-                      onClick={async () => { if (await ask({ title: 'Начать новый план?', text: 'Нарисованное уйдёт с экрана; Ctrl+Z вернёт его.', confirm: 'Начать заново', danger: true })) { st.reset(); setSelection(null); setFitSignal(n => n + 1) } }}>
-                      Новый план
-                    </Button>
-                  </div>
+                  {floors.length > 1 && (
+                    <Button size="sm" variant="outline" hint="Убрать этот этаж из плана; Ctrl+Z вернёт"
+                      onClick={() => { st.removeFloor(floor.id); setSelection(null) }}>Удалить этаж</Button>
+                  )}
                 </>
               )}
       </aside>
-      {dialog}
+      </div>
     </div>
   )
 }

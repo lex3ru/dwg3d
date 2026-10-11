@@ -220,6 +220,9 @@
 | id | uuid PK | |
 | building_id | uuid | → buildings |
 | name | text | |
+| kind | text | `file` — загруженный DWG/DXF \| `sketch` — план, нарисованный в 2D-редакторе |
+| sketch | jsonb null | нарисованный план целиком (`frontend/src/plan/model.ts`): этажи, узлы, стены, проёмы, подписи помещений |
+| sketch_version | integer | номер сохранения плана: правка поверх чужого сохранения отклоняется |
 | config | jsonb | настройки разбора |
 | edits | jsonb | правки 2D-редактора |
 | edits_version | integer | |
@@ -244,7 +247,9 @@
 | Столбец | Тип | |
 |---|---|---|
 | id | uuid PK | он же идентификатор задачи |
-| drawing_id, file_id | uuid FK | |
+| drawing_id | uuid FK | |
+| file_id | uuid null FK | файл, из которого сборка; у нарисованного плана нет |
+| sketch | jsonb null | копия нарисованного плана на момент запуска сборки |
 | n | integer | |
 | status, stage, progress, message, error, trace | | как в `jobs` |
 | config, edits | jsonb | снимок на момент сборки |

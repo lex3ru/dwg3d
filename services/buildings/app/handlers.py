@@ -24,15 +24,23 @@ def register(bus: Bus, client: ServiceClient) -> None:
         return (await session.execute(select(buildings.c.id).where(
             buildings.c.id == UUID(event["building_id"]), buildings.c.deleted_at.is_(None)))).scalar_one_or_none()
 
-    @bus.consumer("import.drawing.uploaded", name="drawing-uploaded")
-    async def drawing_uploaded(session: AsyncSession, event: dict) -> None:
+    async def drawing_came(session: AsyncSession, event: dict) -> None:
         if await building_of(session, event) is None:
-            log.warning("a drawing was uploaded for an unknown building %s", event.get("building_id"))
+            log.warning("a drawing came for an unknown building %s", event.get("building_id"))
             return
         data = event["data"]
         await session.execute(pg_insert(drawings).values(
             id=UUID(data["drawing_id"]), building_id=UUID(event["building_id"]), name=data["name"])
             .on_conflict_do_update(index_elements=["id"], set_={"name": data["name"], "updated_at": func.now()}))
+
+    @bus.consumer("import.drawing.uploaded", name="drawing-uploaded")
+    async def drawing_uploaded(session: AsyncSession, event: dict) -> None:
+        await drawing_came(session, event)
+
+    @bus.consumer("import.drawing.drawn", name="drawing-drawn")
+    async def drawing_drawn(session: AsyncSession, event: dict) -> None:
+        """A plan drawn in the 2D editor: a drawing like an uploaded one, its builds come the same way."""
+        await drawing_came(session, event)
 
     @bus.consumer("import.drawing.renamed", name="drawing-renamed")
     async def drawing_renamed(session: AsyncSession, event: dict) -> None:

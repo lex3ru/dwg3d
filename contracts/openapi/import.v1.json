@@ -120,6 +120,48 @@
         "title": "ObjectsExport",
         "type": "object"
       },
+      "SketchNew": {
+        "properties": {
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "building_id"
+        ],
+        "title": "SketchNew",
+        "type": "object"
+      },
+      "SketchSave": {
+        "properties": {
+          "sketch": {
+            "additionalProperties": true,
+            "description": "План целиком: version, floors (frontend/src/plan/model.ts)",
+            "title": "Sketch",
+            "type": "object"
+          },
+          "version": {
+            "description": "Номер сохранения, с которого начаты правки",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sketch",
+          "version"
+        ],
+        "title": "SketchSave",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -805,6 +847,147 @@
         "summary": "Новый файл чертежа; тот же файл повторно сборку не запускает",
         "tags": [
           "drawings"
+        ]
+      }
+    },
+    "/api/import/v1/drawings/{drawing_id}/sketch": {
+      "get": {
+        "operationId": "get_sketch_api_import_v1_drawings__drawing_id__sketch_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Sketch Api Import V1 Drawings  Drawing Id  Sketch Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Нарисованный план (frontend/src/plan/model.ts) и номер его сохранения",
+        "tags": [
+          "sketches"
+        ]
+      },
+      "put": {
+        "operationId": "save_sketch_api_import_v1_drawings__drawing_id__sketch_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchSave"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Save Sketch Api Import V1 Drawings  Drawing Id  Sketch Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Сохранить нарисованный план; правки поверх чужого сохранения — 409 conflict",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/sketches": {
+      "post": {
+        "operationId": "create_sketch_api_import_v1_sketches_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchNew"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Sketch Api Import V1 Sketches Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Новый нарисованный план здания: пустой лист 2D-редактора; собирается по запросу",
+        "tags": [
+          "sketches"
         ]
       }
     }
