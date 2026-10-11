@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { addChain, addWall, emptyFloor, WALL_DEFAULTS } from '../plan/index.ts'
-import { atLength, snap } from './snap.ts'
+import { addChain, addOpening, addWall, emptyFloor, WALL_DEFAULTS } from '../plan/index.ts'
+import { atLength, openingSpot, snap } from './snap.ts'
+import { clearances, openingShape } from './symbols.ts'
 import { fitView, gridSteps, toPlan, toScreen, zoomAt } from './view.ts'
 
 const P = WALL_DEFAULTS.partition
@@ -96,5 +97,65 @@ describe('view', () => {
 
   test('grid lines stay at least 12 px apart', () => {
     for (const scale of [3, 20, 50, 130, 400, 2000]) assert.ok(gridSteps(scale).minor * scale >= 12)
+  })
+})
+
+describe('placing openings', () => {
+  const bottom = Object.keys(box.walls).find(id => box.nodes[box.walls[id].a][1] === 0 && box.nodes[box.walls[id].b][1] === 0)!
+
+  test('the opening is centred under the cursor on the wall it is over', () => {
+    const s = openingSpot(box, [1.234, 0.02], 0.9, tol)!
+    assert.equal(s.wall, bottom)
+    assert.ok(Math.abs(s.at - 1.23) < 1e-9)
+    assert.equal(s.side, 'left')    // above the wall running east: its left side
+  })
+
+  test('its edge is a whole number of centimetres from the corner', () => {
+    const r = addWall(emptyFloor(), [0, 0], [4, 0], WALL_DEFAULTS.bearing)
+    const s = openingSpot(r.floor, [1.2345, 0], 0.9, tol)!
+    const edge = (s.at - 0.45) * 100
+    assert.ok(Math.abs(edge - Math.round(edge)) < 1e-6, String(edge))
+  })
+
+  test('near the middle of the wall it goes to the middle', () => {
+    assert.equal(openingSpot(box, [2.06, -0.03], 0.9, tol)!.at, 2)
+  })
+
+  test('next to a corner it is pushed clear of the corner', () => {
+    assert.equal(openingSpot(box, [0.1, 0], 0.9, tol)!.at, 0.05 + 0.45)
+  })
+
+  test('away from walls there is no place', () => {
+    assert.equal(openingSpot(box, [2, 1.5], 0.9, tol), null)
+  })
+
+  test('it slides clear of an opening already there', () => {
+    const f = addOpening(box, bottom, 2, 'door')!.floor
+    const s = openingSpot(f, [2.1, 0], 0.9, tol)!
+    assert.ok(Math.abs(s.at - 2) >= 0.9)
+  })
+})
+
+describe('opening symbols', () => {
+  const r = addWall(emptyFloor(), [0, 0], [4, 0], P)
+  const door = addOpening(r.floor, r.walls[0], 2, 'door', { side: 'left', hinge: 'a' })!
+
+  test('a door opens to its side with the leaf at its hinge', () => {
+    const o = door.floor.openings[door.id]
+    const sh = openingShape(door.floor, o)
+    // hinge at the start of the gap (x 1.55) on the left face (y 0.05); the open leaf goes up by the width
+    assert.match(sh.lines, /M1\.55 0\.05L1\.55 0\.95/)
+    // the swing ends where the leaf closes, at the far jamb
+    assert.match(sh.swing, /2\.45 0\.05$/)
+  })
+
+  test('the other side and hinge mirror it', () => {
+    const o = { ...door.floor.openings[door.id], side: 'right' as const, hinge: 'b' as const }
+    const sh = openingShape(door.floor, o)
+    assert.match(sh.lines, /M2\.45 -0\.05L2\.45 -0\.95/)
+  })
+
+  test('the distances to the ends are measured from the faces', () => {
+    assert.deepEqual(clearances({ ...door.floor.openings[door.id] }, 0, 4).map(v => Math.round(v * 100) / 100), [1.55, 1.55])
   })
 })

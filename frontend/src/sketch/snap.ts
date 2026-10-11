@@ -4,8 +4,8 @@
  * or on the centimetre grid. The tolerance is the snap radius in plan meters
  * (a few screen pixels at the current zoom).
  */
-import { ends, type Floor } from '../plan/index.ts'
-import { dist, lineHit, project, lerp, sub, type XY } from '../plan/vec.ts'
+import { ends, fitOpening, outlines, wallSides, type Floor, type WallOutline } from '../plan/index.ts'
+import { cross, dist, lineHit, project, lerp, sub, type XY } from '../plan/vec.ts'
 
 export type SnapKind = 'node' | 'wall' | 'cross' | 'straight' | 'align' | 'free'
 
@@ -109,4 +109,42 @@ export function atLength(from: XY, toward: XY, length: number): XY | null {
   const d = dist(from, toward)
   if (d < 1e-9 || !(length > 0)) return null
   return lerp(from, toward, length / d)
+}
+
+export interface OpeningSpot {
+  wall: string
+  /** the centre's distance from the wall's node a */
+  at: number
+  /** the side of the wall the cursor is on, looking from a to b */
+  side: 'left' | 'right'
+}
+
+/**
+ * Where an opening of `width` goes for the cursor: on the wall under it (or
+ * within `tol` of its faces), centred under the cursor with its edge a whole
+ * number of centimetres from the corner,
+ * in the middle of the wall's face when near it, moved clear of the wall's
+ * ends and other openings. null when no wall is near or none has room.
+ */
+export function openingSpot(f: Floor, raw: XY, width: number, tol: number, ignore?: string, lines: Record<string, WallOutline> = outlines(f)): OpeningSpot | null {
+  let best: { id: string; t: number; d: number } | null = null
+  for (const [id, w] of Object.entries(f.walls)) {
+    const [a, b] = ends(f, w)
+    const { t, d } = project(raw, a, b)
+    if (t < 0 || t > 1 || d > w.thickness / 2 + tol) continue
+    if (!best || d < best.d) best = { id, t, d }
+  }
+  if (!best) return null
+  const w = f.walls[best.id]
+  const [a, b] = ends(f, w)
+  const l = dist(a, b)
+  const s = wallSides(f, best.id, lines[best.id])
+  const mid = (s.from + s.to) / 2
+  // whole centimetres from the opening's edge to the corner, as it is measured on site
+  const edge = Math.round((best.t * l - width / 2 - s.from) * 100) / 100
+  let at = s.from + edge + width / 2
+  if (Math.abs(at - mid) <= tol) at = mid
+  const fit = fitOpening(f, best.id, at, width, ignore, lines)
+  if (fit === null) return null
+  return { wall: best.id, at: fit, side: cross(sub(b, a), sub(raw, a)) >= 0 ? 'left' : 'right' }
 }

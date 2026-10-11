@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  addWall, allSides, ends, findRooms, moveNode, offsetWall, outlines, removeWall, wallsAt,
-  type Floor, type Room, type Wall, type XY,
+  addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, offsetWall, openingRect, outlines, removeOpening, removeWall, wallsAt,
+  type Floor, type Opening, type OpeningKind, type Room, type Wall, type XY,
 } from '@/plan'
-import { dist, dot, inRing, perp, project, sub, unit } from '@/plan/vec'
+import { add, dist, dot, inRing, lerp, mul, perp, project, sub, unit } from '@/plan/vec'
 import { areaText, cmText } from './format'
-import { atLength, snap, type Snap } from './snap'
+import { atLength, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
+import { clearances, openingShape } from './symbols'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
 
-export type Tool = 'select' | 'wall'
-export type Selection = { kind: 'wall'; id: string } | { kind: 'node'; id: string } | { kind: 'room'; key: string }
+export type Tool = 'select' | 'wall' | 'opening'
+export type Selection = { kind: 'wall'; id: string } | { kind: 'node'; id: string } | { kind: 'room'; key: string } | { kind: 'opening'; id: string }
 
 const SNAP_PX = 10   // snap radius on screen
 const HIT_PX = 6     // how near a click must be to a node or a thin wall
@@ -39,6 +40,14 @@ const CSS = `
 .sketch .guide { stroke: #1c7ed6; stroke-width: 1; stroke-dasharray: 4 3; }
 .sketch .node { fill: #fff; stroke: #1c7ed6; stroke-width: 1.5; }
 .sketch .node.sel { fill: #1c7ed6; }
+.sketch .gap { fill: #fcfcfb; }
+.sketch .gap.sel { fill: #d0ebff; }
+.sketch .gap.bad { fill: #ffc9c9; }
+.sketch .gap.preview { fill: #d0ebff; fill-opacity: .9; }
+.sketch .op-line { fill: none; stroke: #343a40; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.sketch .op-swing { fill: none; stroke: #868e96; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.sketch .op-preview .op-line, .sketch .op-preview .op-swing { stroke: #1c7ed6; }
+.sketch .clear { font-size: 11px; font-weight: 600; fill: #2b8a3e; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
 .sketch .mark { fill: none; stroke-width: 2; }
 .sketch .mark.node { stroke: #e8590c; }
 .sketch .mark.wall, .sketch .mark.cross { stroke: #2b8a3e; }
@@ -73,25 +82,28 @@ function along(a: XY, b: XY): number {
 
 type Drag =
   | { kind: 'pan'; start: XY; view: View; moved: boolean }
+  | { kind: 'opening'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'node'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'wall'; id: string; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onCommit, fitSignal, issueWalls }: {
+export function Canvas({ floor, below, tool, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
   tool: Tool
   /** the wall a new one will be */
   wallProps: Omit<Wall, 'a' | 'b'>
+  /** the opening a new one will be */
+  openingProps: { kind: OpeningKind; width: number }
   selection: Selection | null
   onSelect: (s: Selection | null) => void
   onCommit: (f: Floor) => void
   /** changes when the plan must be fitted to the screen */
   fitSignal: number
-  /** walls with problems (crossing, …): drawn red */
-  issueWalls: Set<string>
+  /** walls and openings with problems (crossing, an opening off its wall, …): drawn red */
+  bad: Set<string>
 }) {
   const box = useRef<HTMLDivElement>(null)
   const svg = useRef<SVGSVGElement>(null)
@@ -103,6 +115,8 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
   // the wall being drawn: from its last point; `first` closes the chain
   const [chain, setChain] = useState<{ from: XY; first: XY } | null>(null)
   const [typed, setTyped] = useState('')
+  // where a new opening would go
+  const [spot, setSpot] = useState<OpeningSpot | null>(null)
   const [space, setSpace] = useState(false)
   const drag = useRef<Drag | null>(null)
 
@@ -140,7 +154,7 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
 
   // a tool change ends the wall being drawn
   const [lastTool, setLastTool] = useState(tool)
-  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null) }
+  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null) }
 
   // ---------------------------------------------------------------- hits
   const hit = useCallback((p: XY): Selection | null => {
@@ -148,6 +162,10 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
     let node: string | null = null, nd = t
     for (const [id, q] of Object.entries(floor.nodes)) { const d = dist(p, q); if (d <= nd) { node = id; nd = d } }
     if (node) return { kind: 'node', id: node }
+    for (const id of Object.keys(floor.openings)) {
+      const r = openingRect(floor, id)
+      if (inRing(p, r) || project(p, lerp(r[0], r[3], 0.5), lerp(r[1], r[2], 0.5)).d <= t) return { kind: 'opening', id }
+    }
     for (const [id, w] of Object.entries(floor.walls)) {
       const o = lines[id]
       if ((o && inRing(p, o.poly)) || project(p, ...ends(floor, w)).d <= Math.max(t, w.thickness / 2)) return { kind: 'wall', id }
@@ -190,8 +208,15 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
       }
       return
     }
+    if (tool === 'opening') {
+      const s = openingSpot(floor, plan, openingProps.width, tol, undefined, lines)
+      const r = s && addOpening(floor, s.wall, s.at, openingProps.kind, { width: openingProps.width, side: s.side })
+      if (r) { onCommit(r.floor); onSelect({ kind: 'opening', id: r.id }) }
+      return
+    }
     const h = hit(plan)
-    if (h?.kind === 'node') drag.current = { kind: 'node', id: h.id, base: floor, start: screen, moved: false }
+    if (h?.kind === 'opening') drag.current = { kind: 'opening', id: h.id, base: floor, start: screen, moved: false }
+    else if (h?.kind === 'node') drag.current = { kind: 'node', id: h.id, base: floor, start: screen, moved: false }
     else if (h?.kind === 'wall') drag.current = { kind: 'wall', id: h.id, base: floor, start: screen, startPlan: plan, moved: false }
     else drag.current = { kind: 'pan', start: screen, view, moved: false }
     onSelect(h)
@@ -211,6 +236,11 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
       setPreview(moveNode(d.base, d.id, s.p))
       return
     }
+    if (d?.kind === 'opening' && d.moved) {
+      const s = openingSpot(d.base, plan, d.base.openings[d.id].width, tol, d.id)
+      if (s) setPreview(moveOpening(d.base, d.id, s.at, s.wall))
+      return
+    }
     if (d?.kind === 'wall' && d.moved) {
       const w = d.base.walls[d.id]
       const [a, b] = ends(d.base, w)
@@ -221,6 +251,7 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
     }
     if (tool === 'wall') setCursor(snap(floor, plan, { tol, from: chain?.from, free: e.altKey }))
     else setCursor(null)
+    setSpot(tool === 'opening' ? openingSpot(floor, plan, openingProps.width, tol, undefined, lines) : null)
   }
 
   const up = (e: ReactPointerEvent<SVGSVGElement>) => {
@@ -237,7 +268,7 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
       if (!(d.id in next.nodes)) onSelect(null)
       return
     }
-    if (d.kind === 'wall' && d.moved) {
+    if ((d.kind === 'wall' || d.kind === 'opening') && d.moved) {
       if (preview) onCommit(preview)
       setPreview(null)
       return
@@ -277,6 +308,7 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
         if (selection.kind === 'wall') onCommit(removeWall(floor, selection.id))
+        if (selection.kind === 'opening') onCommit(removeOpening(floor, selection.id))
         if (selection.kind === 'node') onCommit(wallsAt(floor, selection.id).reduce((f, w) => removeWall(f, w), floor))
         if (selection.kind !== 'room') onSelect(null)
         e.preventDefault()
@@ -305,10 +337,16 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
     return out
   }, [view, size])
 
+  // the opening about to be placed, and the one whose distances to the corners are shown
+  const ghost: Opening | null = tool === 'opening' && spot
+    ? { wall: spot.wall, kind: openingProps.kind, at: spot.at, width: openingProps.width, height: 2, sill: 0, hinge: 'a', side: spot.side } : null
+  const gauged: Opening | null = ghost ?? (selection?.kind === 'opening' ? shown.openings[selection.id] ?? null : null)
   const selectedRoom: Room | undefined = selection?.kind === 'room' ? rooms.find(r => r.key === selection.key) : undefined
   const drawing = tool === 'wall' && chain && cursor
   const to = drawing ? (typed ? atLength(chain.from, cursor.p, Number(typed) / 100) ?? cursor.p : cursor.p) : null
-  const hint = tool === 'wall'
+  const hint = tool === 'opening'
+    ? 'Наведите на стену и щёлкните: проём встанет под курсором, зелёным — расстояния до углов; открывание — в сторону курсора'
+    : tool === 'wall'
     ? chain
       ? 'Щелчок — следующий угол, по первому углу — замкнуть; цифры — длина в см и Enter; Esc — закончить'
       : 'Щелчок — начать стену цепочкой, или протяните мышью одну стену; Alt — без привязок'
@@ -318,8 +356,8 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
     <div ref={box} className="relative h-full w-full overflow-hidden">
       <style>{CSS}</style>
       <svg ref={svg} className="sketch absolute inset-0 h-full w-full" width={size[0]} height={size[1]}
-        style={{ cursor: space ? 'grab' : tool === 'wall' ? 'crosshair' : 'default' }}
-        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => !drag.current && setCursor(null)}
+        style={{ cursor: space ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => { if (!drag.current) { setCursor(null); setSpot(null) } }}
         onContextMenu={e => e.preventDefault()} onDoubleClick={() => { setChain(null); setTyped('') }}
         data-testid="sketch-canvas">
         <g>{grid.map((l, i) => <line key={i} {...l} className={l.cls} />)}</g>
@@ -331,11 +369,16 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
             <path key={kind} className={kind === 'partition' ? 'wall partition' : 'wall'}
               d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === kind && lines[id]).map(([id]) => lines[id].poly))} />
           ))}
-          {Object.keys(shown.walls).filter(id => lines[id] && (issueWalls.has(id) || (selection?.kind === 'wall' && selection.id === id))).map(id => (
+          {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || (selection?.kind === 'wall' && selection.id === id))).map(id => (
             // the wall's own body, without the junction it shares with the walls it meets
             <path key={id} d={polyPath([[lines[id].aMinus, lines[id].bMinus, lines[id].bPlus, lines[id].aPlus]])}
               className={selection?.kind === 'wall' && selection.id === id ? 'wall sel' : 'wall bad'} />
           ))}
+          {Object.entries(shown.openings).map(([id, o]) => (
+            <OpeningMark key={id} floor={shown} o={o} overlap={0.6 / view.scale}
+              cls={selection?.kind === 'opening' && selection.id === id ? 'sel' : bad.has(id) ? 'bad' : ''} />
+          ))}
+          {ghost && <OpeningMark floor={shown} o={ghost} overlap={0.6 / view.scale} cls="preview" />}
           {drawing && to && dist(chain.from, to) > 1e-6 && <path className="preview" d={polyPath([segPoly(chain.from, to, wallProps.thickness)])} />}
         </g>
         <g>
@@ -368,6 +411,21 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
               </g>
             )
           })}
+          {gauged && (() => {
+            const o = gauged
+            const w = shown.walls[o.wall], sd = sides[o.wall]
+            if (!w || !sd) return null
+            const [a, b] = ends(shown, w)
+            const l = dist(a, b), d = unit(sub(b, a)), n = perp(d)
+            const [left, right] = clearances(o, sd.from, sd.to)
+            const at = (x: number) => add(lerp(a, b, x / l), mul(n, w.thickness / 2 + 14 / view.scale))
+            const label = (x: number, value: number) => {
+              const [sx, sy] = S(at(x))
+              return value > 0.005 && <text className="clear" x={sx} y={sy} textAnchor="middle" dominantBaseline="middle"
+                transform={`rotate(${along(S(a), S(b))} ${sx} ${sy})`}>{cmText(value)}</text>
+            }
+            return <g>{label(sd.from + left / 2, left)}{label(o.at + o.width / 2 + right / 2, right)}</g>
+          })()}
           {cursor?.guides.map(([p, q], i) => { const [a, b] = [S(p), S(q)]; return <line key={i} className="guide" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /> })}
           {drawing && to && (() => {
             const [a, b] = [S(chain.from), S(to)]
@@ -395,5 +453,17 @@ export function Canvas({ floor, below, tool, wallProps, selection, onSelect, onC
         {cursor && <span className="shrink-0 rounded bg-white/80 px-2 py-1 tabular-nums shadow-sm">x {cmText(cursor.p[0])} · y {cmText(cursor.p[1])} см</span>}
       </div>
     </div>
+  )
+}
+
+function OpeningMark({ floor, o, overlap, cls }: { floor: Floor; o: Opening; overlap: number; cls: string }) {
+  if (!floor.walls[o.wall]) return null
+  const sh = openingShape(floor, o, overlap)
+  return (
+    <g className={cls === 'preview' ? 'op-preview' : undefined}>
+      <path className={`gap ${cls}`} d={sh.gap} />
+      <path className="op-line" d={sh.lines} />
+      {sh.swing && <path className="op-swing" d={sh.swing} />}
+    </g>
   )
 }
