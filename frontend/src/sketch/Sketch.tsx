@@ -1,4 +1,4 @@
-import { BrickWall, DoorOpen, Eye, EyeOff, FlipHorizontal2, FlipVertical2, ImagePlus, Maximize2, Move, RotateCcw, RotateCw, Ruler, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
+import { BrickWall, Cylinder, DoorOpen, Footprints, Eye, EyeOff, FlipHorizontal2, FlipVertical2, ImagePlus, Maximize2, Move, RotateCcw, RotateCw, Ruler, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import {
   allSides, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
   WALL_DEFAULTS, wallLength, wallsAt,
-  removeWalls, takePiece,
+  removeWalls, takePiece, removeColumn, removeStair, setColumn, setStair, STAIR_WIDTH, stepsFor, RISER,
   type Floor, type Opening, type OpeningKind, type Piece, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
 import { dist, type XY } from '@/plan/vec'
@@ -27,6 +27,8 @@ const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon; hint: str
   { id: 'select', label: 'Выбор', key: 'V', icon: MousePointer2, hint: 'Выбрать и двигать стены, углы и помещения; клавиша V' },
   { id: 'wall', label: 'Стена', key: 'W', icon: BrickWall, hint: 'Рисовать стены от угла к углу с привязкой к углам и стенам; клавиша W' },
   { id: 'opening', label: 'Проём', key: 'O', icon: DoorOpen, hint: 'Ставить двери, окна, витражи и проходы в стены; клавиша O' },
+  { id: 'column', label: 'Колонна', key: 'C', icon: Cylinder, hint: 'Ставить отдельно стоящие колонны; клавиша C' },
+  { id: 'stair', label: 'Лестница', key: 'L', icon: Footprints, hint: 'Рисовать марш лестницы на этаж выше: щелчок внизу, щелчок вверху; клавиша L' },
 ]
 const THICKNESS_CM = [8, 10, 12, 20, 25, 38, 51]
 const KIND_LABEL: Record<WallKind, string> = { bearing: 'Несущая', partition: 'Перегородка' }
@@ -95,6 +97,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const [tool, setTool] = useState<Tool>('wall')
   const [kind, setKind] = useState<WallKind>('bearing')
   const [drawBy, setDrawBy] = useState<'axis' | 'faces'>('axis')
+  const [stairWidth, setStairWidth] = useState(STAIR_WIDTH)
   const [thickness, setThickness] = useState<Record<WallKind, number>>({ bearing: WALL_DEFAULTS.bearing.thickness, partition: WALL_DEFAULTS.partition.thickness })
   const [opening, setOpening_] = useState<OpeningKind>('door')
   const [openingWidth, setOpeningWidth] = useState<Record<OpeningKind, number>>(
@@ -121,6 +124,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const sel = selection?.kind === 'group' ? wallsSelection(selection.walls.filter(id => id in floor.walls)) : selection && (
     (selection.kind === 'wall' && selection.id in floor.walls) || (selection.kind === 'node' && selection.id in floor.nodes)
     || (selection.kind === 'opening' && selection.id in floor.openings)
+    || (selection.kind === 'column' && !!floor.columns?.[selection.id]) || (selection.kind === 'stair' && !!floor.stairs?.[selection.id])
     || (selection.kind === 'room' && rooms.some(r => r.key === selection.key))) ? selection : null
 
   useEffect(() => {
@@ -133,6 +137,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
       if (e.code === 'KeyV') setTool('select')
       if (e.code === 'KeyW') setTool('wall')
       if (e.code === 'KeyO') setTool('opening')
+      if (e.code === 'KeyC') setTool('column')
+      if (e.code === 'KeyL') setTool('stair')
       if (e.code === 'KeyF') setFitSignal(n => n + 1)
     }
     addEventListener('keydown', onKey)
@@ -143,7 +149,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
 
   return (
     <div className="relative h-full w-full" data-testid="sketch">
-      <Canvas floor={floor} below={below} tool={tool} drawBy={drawBy} wallProps={wallProps} selection={sel} onSelect={setSelection}
+      <Canvas floor={floor} below={below} tool={tool} drawBy={drawBy} wallProps={wallProps} stairWidth={stairWidth} selection={sel} onSelect={setSelection}
         openingProps={{ kind: opening, width: openingWidth[opening] }}
         onCommit={commit} fitSignal={fitSignal} bad={bad}
         underlayUrl={floor.underlay ? underlayUrl(drawing, floor.underlay.image) : null}
@@ -157,7 +163,12 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
           </Button>
         ))}
         <span className="mx-1 h-5 w-px bg-border" />
-        {tool === 'opening' ? (
+        {tool === 'stair' ? (
+          <Select value={Math.round(stairWidth * 100)} aria-label="Ширина нового марша, см" className="w-28" data-testid="sketch-stair-width"
+            onChange={e => setStairWidth(Number(e.target.value) / 100)}>
+            {[80, 90, 100, 110, 120, 150].map(v => <option key={v} value={v}>{v} см</option>)}
+          </Select>
+        ) : tool === 'opening' ? (
           <>
             <Select value={opening} onChange={e => setOpening_(e.target.value as OpeningKind)} aria-label="Вид нового проёма" className="w-28" data-testid="sketch-opening-kind">
               {Object.entries(OPENING_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -213,7 +224,9 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
         'max-md:inset-x-2 max-md:bottom-20 max-md:max-h-[45vh] max-md:overflow-y-auto', !sheet && 'max-md:hidden')}>
       <BuildCard drawing={drawing} st={st} />
       <aside className={cn(floatClass, 'space-y-3 rounded-lg p-3')} aria-label="Свойства" data-testid="sketch-inspector">
-        {sel?.kind === 'group' ? <GroupPanel floor={floor} walls={sel.walls} onCommit={commit} onCopy={setClipboard} onDone={() => setSelection(null)} />
+        {sel?.kind === 'column' ? <ColumnPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
+          : sel?.kind === 'stair' ? <StairPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
+          : sel?.kind === 'group' ? <GroupPanel floor={floor} walls={sel.walls} onCommit={commit} onCopy={setClipboard} onDone={() => setSelection(null)} />
           : sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'wall' ? <WallPanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'node' ? <NodePanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
@@ -564,6 +577,73 @@ function GroupPanel({ floor, walls, onCommit, onCopy, onDone }: {
         <Button size="sm" variant="outline" hint="Убрать выбранные стены с их проёмами; Delete делает то же, Ctrl+Z вернёт"
           onClick={() => { onCommit(removeWalls(floor, walls)); onDone() }}><Trash2 className="size-4" />Удалить</Button>
       </div>
+    </>
+  )
+}
+
+function ColumnPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; onCommit: (f: Floor) => void; onDone: () => void }) {
+  const c = floor.columns![id]
+  const set = (patch: Parameters<typeof setColumn>[2]) => onCommit(setColumn(floor, id, patch))
+  return (
+    <>
+      <h2 className="text-sm font-semibold">Колонна</h2>
+      <Row label="Форма">
+        <Select value={c.shape} data-testid="column-shape" onChange={e => set({ shape: e.target.value as 'rect' | 'round' })}>
+          <option value="rect">Прямоугольная</option>
+          <option value="round">Круглая</option>
+        </Select>
+      </Row>
+      <Row label={c.shape === 'round' ? 'Диаметр' : 'Ширина'}><CmField value={c.width} min={5} testid="column-width" onApply={v => v && set({ width: v })} /></Row>
+      {c.shape === 'rect' && (
+        <>
+          <Row label="Глубина"><CmField value={c.depth} min={5} testid="column-depth" onApply={v => v && set({ depth: v })} /></Row>
+          <Row label="Поворот">
+            <Select value={((Math.round(c.angle) % 180) + 180) % 180} onChange={e => set({ angle: Number(e.target.value) })} aria-label="Поворот колонны, градусы">
+              {[...new Set([0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, ((Math.round(c.angle) % 180) + 180) % 180])].sort((a, b) => a - b)
+                .map(v => <option key={v} value={v}>{v}°</option>)}
+            </Select>
+          </Row>
+        </>
+      )}
+      <p className="text-xs text-muted-foreground">Колонна в помещении вычитается из его площади. Перетаскивается мышью, стрелки — на 1 см.</p>
+      <Button size="sm" variant="outline" hint="Убрать колонну; Delete делает то же, Ctrl+Z вернёт" onClick={() => { onCommit(removeColumn(floor, id)); onDone() }}>
+        <Trash2 className="size-4" />Удалить колонну
+      </Button>
+    </>
+  )
+}
+
+/** Centimetres to a tenth, with a comma. */
+const cm1 = (m: number) => String(Math.round(m * 1000) / 10).replace('.', ',')
+
+function StairPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; onCommit: (f: Floor) => void; onDone: () => void }) {
+  const s = floor.stairs![id]
+  const set = (patch: Parameters<typeof setStair>[2]) => onCommit(setStair(floor, id, patch))
+  const riser = floor.height / s.steps, going = s.length / s.steps
+  return (
+    <>
+      <h2 className="text-sm font-semibold">Лестница</h2>
+      <Row label="Ширина"><CmField value={s.width} min={30} testid="stair-width" onApply={v => v && set({ width: v })} /></Row>
+      <Row label="Длина марша"><CmField value={s.length} min={50} testid="stair-length" onApply={v => v && set({ length: v })} /></Row>
+      <Row label="Ступеней">
+        <Select value={s.steps} data-testid="stair-steps" onChange={e => set({ steps: Number(e.target.value) })}>
+          {Array.from({ length: 40 }, (_, i) => i + 3).map(n => <option key={n} value={n}>{n}</option>)}
+        </Select>
+      </Row>
+      <p className="text-sm tabular-nums" data-testid="stair-steps-size">
+        Подступенок {cm1(riser)} см · проступь {cm1(going)} см
+      </p>
+      {riser > RISER + 1e-9 && <p className="text-xs text-destructive">Подступенок выше {RISER * 100} см: для {Math.round(floor.height * 100)} см этажа нужно не меньше {stepsFor(floor.height)} ступеней.</p>}
+      {going < 0.25 - 1e-9 && <p className="text-xs text-destructive">Проступь меньше 25 см — марш слишком крутой: удлините его.</p>}
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" hint="Подниматься в другую сторону" onClick={() => set({ angle: ((s.angle + 360) % 360) - 180 })}>
+          <FlipHorizontal2 className="size-4" />Развернуть
+        </Button>
+        <Button size="sm" variant="outline" hint="Убрать лестницу; Delete делает то же, Ctrl+Z вернёт" onClick={() => { onCommit(removeStair(floor, id)); onDone() }}>
+          <Trash2 className="size-4" />Удалить
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Марш ведёт на этаж выше: в его перекрытии над лестницей будет проём, на плане верхнего этажа он виден пунктиром.</p>
     </>
   )
 }

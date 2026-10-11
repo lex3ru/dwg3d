@@ -161,6 +161,16 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   await page.keyboard.press('Enter')
   await page.keyboard.press('Escape')
   await expect(summary).toHaveText(/^Стен: 9 /)
+
+  // a column, and a flight of stairs from its foot to its head; the flight's panel tells its steps
+  await page.getByTestId('sketch-tool-column').click()
+  await click(page, -2, 0.6)
+  await expect(page.locator('[data-testid=sketch-canvas] path.column')).toHaveCount(1)
+  await page.getByTestId('sketch-tool-stair').click()
+  await click(page, -2, -1.6)
+  await click(page, -2, 0)
+  await expect(page.locator('[data-testid=sketch-canvas] path.stair')).toHaveCount(1)
+  await expect(page.getByTestId('stair-steps-size')).toContainText('Подступенок 16,9 см')
   await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
 })
 

@@ -75,6 +75,12 @@ def export_sketch_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, cen
                     _opening(ifc, o, w, st, e, z1)
             for o in left:                     # host not found: the fill without a void
                 _opening(ifc, o, None, st, e, z1)
+        for i, p in enumerate(_polys(plan.columns)):
+            ifc.element("IfcColumn", f"Колонна {i + 1}", ifc.solids(p, e, top), st, "COLUMN")
+        for i, stair in enumerate(plan.stairs):             # each flight in its own steps, up to the next floor
+            riser = getattr(stair, "riser", float(b.get("riser", 0.165)))
+            solids = [s for k, t in enumerate(stair.treads) for s in ifc.solids(t, e, min(e + (k + 1) * riser, top))]
+            ifc.element("IfcStair", f"Лестница {i + 1}", solids, st, "STRAIGHT_RUN_STAIR")
         for i, r in enumerate(plan.rooms):
             sp = ifc.element("IfcSpace", getattr(r, "number", "") or str(i + 1), ifc.solids(r.poly, e, top), st,
                              "INTERNAL", {"Qto_SpaceBaseQuantities": {"NetFloorArea": float(r.area)}}, container=False)
@@ -85,6 +91,7 @@ def export_sketch_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, cen
         f, plan = floors[-1], plans[-1]
         st = ifc.storey("Кровля", f.elevation + f.height)
         z = f.elevation + f.height
-        ifc.element("IfcSlab", "Кровля", ifc.solids(plan.footprint, z - slab_t, z), st, "ROOF")
+        ifc.element("IfcSlab", "Кровля", ifc.solids(getattr(plan, "full_footprint", plan.footprint), z - slab_t, z), st,
+                    "ROOF")
     ifc.finish()
     ifc.f.write(str(path))

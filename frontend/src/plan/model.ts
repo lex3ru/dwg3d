@@ -68,6 +68,29 @@ export interface Underlay {
   hidden: boolean
 }
 
+/** A free-standing column: rectangular or round, turned about its middle. */
+export interface Column {
+  at: XY
+  shape: 'rect' | 'round'
+  /** across, and along (a round column uses the width) */
+  width: number
+  depth: number
+  /** degrees counter-clockwise */
+  angle: number
+}
+
+/** A straight flight of stairs from this floor up to the next. */
+export interface Stair {
+  /** the middle of the flight */
+  at: XY
+  width: number
+  /** the flight's run, along the way up */
+  length: number
+  /** the way up, degrees counter-clockwise from the right */
+  angle: number
+  steps: number
+}
+
 export interface Floor {
   id: string
   name: string
@@ -80,6 +103,8 @@ export interface Floor {
   openings: Record<string, Opening>
   rooms: Record<string, RoomLabel>
   underlay?: Underlay | null
+  columns?: Record<string, Column>
+  stairs?: Record<string, Stair>
 }
 
 export interface Sketch {
@@ -204,6 +229,20 @@ function readFloor(v: unknown, path: string): Floor {
       opacity: num(u.opacity, `${p}.opacity`, 0), hidden: u.hidden === true,
     }
   }
+  if (o.columns != null) f.columns = map(o.columns, `${path}.columns`, (x, p) => {
+    const c = obj(x, p)
+    return {
+      at: xy(c.at, `${p}.at`), shape: oneOf(c.shape, `${p}.shape`, ['rect', 'round'] as const),
+      width: num(c.width, `${p}.width`, 0.05), depth: num(c.depth, `${p}.depth`, 0.05), angle: num(c.angle, `${p}.angle`),
+    }
+  })
+  if (o.stairs != null) f.stairs = map(o.stairs, `${path}.stairs`, (x, p) => {
+    const c = obj(x, p)
+    return {
+      at: xy(c.at, `${p}.at`), width: num(c.width, `${p}.width`, 0.3), length: num(c.length, `${p}.length`, 0.5),
+      angle: num(c.angle, `${p}.angle`), steps: Math.round(num(c.steps, `${p}.steps`, 2)),
+    }
+  })
   for (const [id, w] of Object.entries(f.walls)) {
     if (!(w.a in f.nodes) || !(w.b in f.nodes)) fail(`${path}.walls.${id}`, 'конец стены ссылается на несуществующий узел')
     if (w.a === w.b) fail(`${path}.walls.${id}`, 'стена начинается и кончается в одном узле')

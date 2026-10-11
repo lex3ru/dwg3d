@@ -10,6 +10,7 @@
  *
  * A room takes its name from the label (`floor.rooms`) whose point lies in it.
  */
+import { columnRing } from './elements.ts'
 import { draft } from './graph.ts'
 import { newId, type Floor, type RoomLabel } from './model.ts'
 import { outlines, type WallOutline } from './outline.ts'
@@ -121,6 +122,13 @@ export function findRooms(f: Floor, lines: Record<string, WallOutline> = outline
     const around = inner.filter(r => !r.halves.some(h => o.halves.some(g => g.wall === h.wall)) && inRing(p, r.contour))
       .sort((x, y) => x.area - y.area)[0]
     if (around) holes.get(around)!.push(o.contour)
+  }
+  // a column standing in a room is a hole in it, as a free-standing wall is
+  for (const c of Object.values(f.columns ?? {})) {
+    const ring = columnRing(c)
+    const around = inner.filter(r => inRing(c.at, r.contour) && !holes.get(r)!.some(h => inRing(c.at, h)))
+      .sort((x, y) => x.area - y.area)[0]
+    if (around) holes.get(around)!.push(ring)
   }
   const labels = Object.entries(f.rooms).sort(([x], [y]) => (x < y ? -1 : 1))
   return inner.map(face => {

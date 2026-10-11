@@ -17,7 +17,7 @@ from ezdxf.enums import TextEntityAlignment
 from .dwg.config import load_config
 from .sketch import _polys, plan_of, read_sketch
 
-LAYERS = {"Стены": 7, "Перегородки": 8, "Проёмы": 1, "Помещения": 3, "Подписи": 5}
+LAYERS = {"Стены": 7, "Перегородки": 8, "Колонны": 7, "Лестницы": 6, "Проёмы": 1, "Помещения": 3, "Подписи": 5}
 GAP = 5.0           # meters between floors laid side by side
 TEXT = 0.25         # label height, meters
 
@@ -59,6 +59,27 @@ def _opening(msp, o, dx: float, dy: float) -> None:
         msp.add_arc((hinge[0] + dx, hinge[1] + dy), math.dist(hinge, tip), lo, hi, dxfattribs={"layer": "Проёмы"})
 
 
+def _stair(msp, st, dx: float, dy: float) -> None:
+    """The flight: its outline, the lines between its treads, and an arrow from its foot up to its head."""
+    _outline(msp, st.poly, "Лестницы", dx, dy)
+    (ux, uy), c = st.direction, st.poly.centroid
+    run = st.going * len(st.treads)
+    foot, head = (c.x - ux * run / 2, c.y - uy * run / 2), (c.x + ux * run / 2, c.y + uy * run / 2)
+    nx, ny, w = -uy, ux, st.width / 2
+
+    def line(p, q):
+        msp.add_line((p[0] + dx, p[1] + dy), (q[0] + dx, q[1] + dy), dxfattribs={"layer": "Лестницы"})
+
+    for k in range(1, len(st.treads)):
+        m = (foot[0] + ux * st.going * k, foot[1] + uy * st.going * k)
+        line((m[0] - nx * w, m[1] - ny * w), (m[0] + nx * w, m[1] + ny * w))
+    line(foot, head)
+    tip = min(0.25, w / 2)
+    back = (head[0] - ux * tip, head[1] - uy * tip)
+    line((back[0] + nx * tip * 0.6, back[1] + ny * tip * 0.6), head)
+    line((back[0] - nx * tip * 0.6, back[1] - ny * tip * 0.6), head)
+
+
 def sketch_dxf(sketch: dict, out: Path) -> dict[str, tuple[float, float]]:
     """Write the plan to `out`; returns where each floor was moved to on the sheet (floor id → shift, meters)."""
     sketch = read_sketch(sketch)
@@ -79,6 +100,9 @@ def sketch_dxf(sketch: dict, out: Path) -> dict[str, tuple[float, float]]:
         shifts[f["id"]] = (dx, dy)
         _outline(msp, plan.wall_parts.get("wall"), "Стены", dx, dy, fill=True)
         _outline(msp, plan.wall_parts.get("partition"), "Перегородки", dx, dy, fill=True)
+        _outline(msp, plan.columns, "Колонны", dx, dy, fill=True)
+        for st in plan.stairs:
+            _stair(msp, st, dx, dy)
         for o in plan.openings:
             _opening(msp, o, dx, dy)
         for r in plan.rooms:

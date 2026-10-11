@@ -29,6 +29,7 @@ from shapely.validation import make_valid
 
 from .dwg.config import load_config
 from .dwg.exports import export_obj_zip
+from .dwg.features import Stair
 from .dwg.floors import FloorCandidate
 from .dwg.geometry import EMPTY, FloorPlan, Opening, Room, plan_to_json
 from .dwg.model3d import SceneBuilder, _pane, extrude
@@ -110,6 +111,14 @@ def _floor(v, path: str) -> dict:
             "number": _str(x.get("number"), f"{p}.number", 40),
             "type": None if x.get("type") is None else _str(x.get("type"), f"{p}.type", 60)}),
     }
+    f["columns"] = {} if o.get("columns") is None else _map(o.get("columns"), f"{path}.columns", lambda x, p: {
+        "at": _xy(_obj(x, p).get("at"), f"{p}.at"), "shape": _one(x.get("shape"), f"{p}.shape", ("rect", "round")),
+        "width": _num(x.get("width"), f"{p}.width", 0.05), "depth": _num(x.get("depth"), f"{p}.depth", 0.05),
+        "angle": _num(x.get("angle"), f"{p}.angle")})
+    f["stairs"] = {} if o.get("stairs") is None else _map(o.get("stairs"), f"{path}.stairs", lambda x, p: {
+        "at": _xy(_obj(x, p).get("at"), f"{p}.at"), "width": _num(x.get("width"), f"{p}.width", 0.3),
+        "length": _num(x.get("length"), f"{p}.length", 0.5), "angle": _num(x.get("angle"), f"{p}.angle"),
+        "steps": int(round(_num(x.get("steps"), f"{p}.steps", 2)))})
     if o.get("underlay") is not None:
         u, p = _obj(o["underlay"], f"{path}.underlay"), f"{path}.underlay"
         f["underlay"] = {
@@ -246,6 +255,36 @@ def _faces(f: dict, w: dict, o: dict) -> tuple[float, float]:
     return max(0.0, at(o["a_plus"]), at(o["a_minus"])), min(length, at(o["b_plus"]), at(o["b_minus"]))
 
 
+def _box(at, deg: float, along: float, across: float) -> Polygon:
+    u = (math.cos(math.radians(deg)), math.sin(math.radians(deg)))
+    v = (-u[1], u[0])
+
+    def p(a, b):
+        x, y = a * along / 2, b * across / 2
+        return (at[0] + u[0] * x + v[0] * y, at[1] + u[1] * x + v[1] * y)
+    return Polygon([p(-1, -1), p(1, -1), p(1, 1), p(-1, 1)])
+
+
+def column_poly(c: dict) -> Polygon:
+    """A column's outline (frontend/src/plan/elements.ts): its rectangle, or its circle."""
+    if c["shape"] == "round":
+        return Point(c["at"]).buffer(c["width"] / 2, quad_segs=8)
+    return _box(c["at"], c["angle"], c["depth"], c["width"])
+
+
+def stair_of(s: dict, height: float) -> Stair:
+    """A flight as the pipeline's stairs are: its treads foot to head, each step rising height / steps."""
+    u = (math.cos(math.radians(s["angle"])), math.sin(math.radians(s["angle"])))
+    going = s["length"] / s["steps"]
+    foot = (s["at"][0] - u[0] * s["length"] / 2, s["at"][1] - u[1] * s["length"] / 2)
+    middles = [(foot[0] + u[0] * going * (i + 0.5), foot[1] + u[1] * going * (i + 0.5)) for i in range(s["steps"])]
+    treads = [_box(m, s["angle"], going, s["width"]) for m in middles]
+    st = Stair(treads=treads, direction=u, going=going, width=s["width"],
+               poly=_box(s["at"], s["angle"], s["length"], s["width"]))
+    st.riser = height / s["steps"]
+    return st
+
+
 def plan_of(f: dict, cfg: dict) -> FloorPlan:
     """The 2D plan of a drawn floor, as the pipeline's plans are."""
     lines = outlines(f)
@@ -315,7 +354,12 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
         full_parts = {k: _mp(_polys(v.difference(cut))) for k, v in full_parts.items()}
         low_parts = [(_mp(_polys(g.difference(cut))), h, r) for g, h, r in low_parts]
 
-    # rooms: the spaces the walls close; groups of walls standing inside a room are taken out of it
+    # columns stand free: what of them is in a wall is the wall
+    columns = _mp([column_poly(c) for c in f["columns"].values()])
+    if not columns.is_empty and not solid.is_empty:
+        columns = _mp(_polys(columns.difference(solid)))
+
+    # rooms: the spaces the walls close; groups of walls and columns standing inside a room are taken out of it
     filled = [Polygon(p.exterior) for p in _polys(solid)]
     labels = sorted(f["rooms"].items())
     rooms = []
@@ -323,7 +367,7 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
         for ring in body.interiors:
             space = Polygon(ring)
             inner = [x for x in filled if x.area < space.area and space.contains(x.representative_point())]
-            room = _mp(_polys(space.difference(_mp([solid, *inner]))))
+            room = _mp(_polys(space.difference(_mp([solid, columns, *inner]))))
             for part in _polys(room):
                 if part.area < float(cfg["geometry"]["min_room_area"]):
                     continue
@@ -335,15 +379,18 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
 
     footprint = _mp(filled)
     plan = FloorPlan()
-    plan.walls, plan.wall_parts, plan.columns = walls, parts, EMPTY
+    plan.walls, plan.wall_parts, plan.columns = walls, parts, columns
     plan.full_parts, plan.low_parts = full_parts, low_parts           # 3D only (SketchScene)
-    plan.openings, plan.rooms, plan.footprint, plan.stairs = openings, rooms, footprint, []
+    plan.openings, plan.rooms, plan.footprint = openings, rooms, footprint
+    plan.stairs = [stair_of(st, f["height"]) for st in f["stairs"].values()]
+    plan.full_footprint = footprint                                    # the slab may get openings: the roof does not
     kinds: dict[str, int] = {}
     for o in openings:
         kinds[o.kind] = kinds.get(o.kind, 0) + 1
     plan.stats = {"walls": len(f["walls"]), "wall_area_m2": round(walls.area, 2),
-                  "partition_area_m2": round(parts["partition"].area, 2), "columns": 0, "openings": kinds,
-                  "door_leaves": sum(len(o.leaves) for o in openings), "stairs": 0, "rooms": len(rooms),
+                  "partition_area_m2": round(parts["partition"].area, 2), "columns": len(_polys(columns)),
+                  "openings": kinds,
+                  "door_leaves": sum(len(o.leaves) for o in openings), "stairs": len(f["stairs"]), "rooms": len(rooms),
                   "footprint_m2": round(footprint.area, 2), "edits": 0}
     plan.debug = {"segments": [LineString([f["nodes"][w["a"]], f["nodes"][w["b"]]]) for w in f["walls"].values()]}
     return plan
@@ -364,10 +411,11 @@ class SketchScene(SceneBuilder):
               room_types: list[str] | None = None) -> tuple[int, list]:
         openings, plan.openings = plan.openings, []
         parts, plan.wall_parts = plan.wall_parts, getattr(plan, "full_parts", plan.wall_parts)
+        stairs, plan.stairs = plan.stairs, []
         try:
             node, rooms = super().floor(fid, plan, elevation, height, extras, room_types)
         finally:
-            plan.openings, plan.wall_parts = openings, parts
+            plan.openings, plan.wall_parts, plan.stairs = openings, parts, stairs
         e = elevation
         top = e + height - float(self.cfg["building"]["slab_thickness"])
         if top - e < 1.0:                                       # as the pipeline does with pathological heights
@@ -393,8 +441,15 @@ class SketchScene(SceneBuilder):
                 for hinge, tip in o.leaves:
                     leaf = LineString([hinge, tip]).buffer(0.02, cap_style="flat")
                     doors += extrude(leaf, e + sill + 0.01, e + head - 0.01)
+        # each flight climbs its floor in its own steps: the step i up to (i + 1) risers
+        steps = []
+        for st in stairs:
+            riser = getattr(st, "riser", float(self.cfg["building"].get("riser", 0.165)))
+            for i, tread in enumerate(st.treads):
+                steps += extrude(tread, e, min(e + (i + 1) * riser, top))
         prefix = f"floor_{fid}"
-        for name, meshes, role in ((f"{prefix}_more_walls", fills["walls"], "walls"),
+        for name, meshes, role in ((f"{prefix}_stairs", steps, "stairs"),
+                                   (f"{prefix}_more_walls", fills["walls"], "walls"),
                                    (f"{prefix}_more_partitions", fills["partitions"], "partitions"),
                                    (f"{prefix}_glass", glass, "glass"), (f"{prefix}_doors", doors, "doors")):
             child = self._add(name, meshes, role)
@@ -432,8 +487,15 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
             elevation_source="sketch", height_source="sketch", alignment="reference", n_shapes=len(f["walls"])))
         plans.append(plan)
 
+    # a flight leads to the floor above: its slab has an opening over it
+    for i in range(1, len(floors)):
+        below, lower = floors[i - 1], plans[i - 1]
+        if lower.stairs and abs(below.elevation + below.height - floors[i].elevation) < 0.05:
+            holes = _mp([st.poly for st in lower.stairs])
+            plans[i].footprint = _mp(_polys(plans[i].footprint.difference(holes)))
+
     progress("mesh", 0.75, "Построение 3D")
-    allfp = _mp([p.footprint for p in plans])
+    allfp = _mp([getattr(p, "full_footprint", p.footprint) for p in plans])
     bx0, by0, bx1, by1 = allfp.bounds
     center = ((bx0 + bx1) / 2, (by0 + by1) / 2)
     sb = SketchScene(cfg, center)
@@ -452,7 +514,7 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
     entrances = find_entrances(floors, plans, cfg, center)
     roof_node = None
     if cfg["building"].get("roof", True):
-        n = sb.roof(plans[-1].footprint, floors[-1].elevation + floors[-1].height)
+        n = sb.roof(getattr(plans[-1], "full_footprint", plans[-1].footprint), floors[-1].elevation + floors[-1].height)
         if n is not None:
             roof_node = "roof"
             roots.append(n)

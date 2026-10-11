@@ -312,3 +312,44 @@ def test_the_ifc_of_a_drawn_plan_has_its_own_heights(tmp_path):
     assert walls == {"SOLIDWALL": (0.0, top), "PARTITIONING": (0.0, 2.3)}
     spaces = sorted((sp.Name, sp.LongName) for sp in model.by_type("IfcSpace"))
     assert spaces[0] == ("101", "Кухня")
+
+
+def test_columns_and_stairs(tmp_path):
+    import ifcopenshell
+
+    from app.sketch import run
+
+    s = two_rooms()
+    f = s["floors"][0]
+    f["columns"] = {"c1": {"at": [1, 0.8], "shape": "rect", "width": 0.4, "depth": 0.4, "angle": 0}}
+    f["stairs"] = {"s1": {"at": [3, 1.5], "width": 1.0, "length": 2.0, "angle": 90, "steps": 15}}
+    upper = copy.deepcopy(f)
+    upper.update(id="f2", name="Этаж 2", level=2, elevation=2.7, openings={}, rooms={}, columns={}, stairs={})
+    s["floors"].append(upper)
+    cfg = load_config({})
+
+    plan = plan_of(read_sketch(s)["floors"][0], cfg)
+    kitchen = next(r for r in plan.rooms if r.name == "Кухня")
+    assert abs(kitchen.area - (1.825 * 2.75 - 0.16)) < 0.01                    # the column taken out
+    assert len(plan.stairs) == 1 and len(plan.stairs[0].treads) == 15
+    assert abs(plan.stairs[0].riser - 0.18) < 1e-9                              # 2.7 m in 15 steps
+
+    meta = run(s, tmp_path)
+    floors = {fl["id"]: fl for fl in meta["floors"]}
+    assert floors["f1"]["stats"]["columns"] == 1 and floors["f1"]["stats"]["stairs"] == 1
+    model = ifcopenshell.open(str(tmp_path / "model.ifc"))
+    assert len(model.by_type("IfcColumn")) == 1 and len(model.by_type("IfcStair")) == 1
+    # the upper floor's slab has the opening over the flight: 2 m × 1 m less than the floor below's
+    slabs = sorted((sl for sl in model.by_type("IfcSlab") if sl.PredefinedType == "FLOOR"),
+                   key=lambda sl: sl.ContainedInStructure[0].RelatingStructure.Elevation)
+    voids = [sl.Representation.Representations[0].Items[0].SweptArea for sl in slabs]
+    assert voids[0].is_a("IfcArbitraryClosedProfileDef") and voids[1].is_a("IfcArbitraryProfileDefWithVoids")
+
+    import ezdxf
+
+    from app.sketch_dxf import sketch_dxf
+    sketch_dxf(s, tmp_path / "plan.dxf")
+    msp = ezdxf.readfile(tmp_path / "plan.dxf").modelspace()
+    assert len(msp.query('LWPOLYLINE[layer=="Колонны"]')) == 1
+    # the flight: its outline, 14 lines between 15 treads, the arrow's line and its two barbs
+    assert len(msp.query('LWPOLYLINE[layer=="Лестницы"]')) == 1 and len(msp.query('LINE[layer=="Лестницы"]')) == 14 + 3

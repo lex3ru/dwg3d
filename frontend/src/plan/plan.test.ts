@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import { checkFloor } from './check.ts'
 import { offsetPolyline, wallsFromFaces } from './faces.ts'
 import { moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox } from './clip.ts'
+import { addColumn, addStair, stairEnds, stairTreads, stepsFor } from './elements.ts'
 import { addChain, addWall, bearingOnly, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
 import { emptyFloor, emptySketch, parseSketch, WALL_DEFAULTS, type Floor } from './model.ts'
 import { addOpening, fitOpening, moveOpening, openingRect, setOpening } from './openings.ts'
@@ -93,6 +94,28 @@ describe('wall graph', () => {
     removeWall(f, Object.keys(f.walls)[0])
     moveNode(f, Object.keys(f.nodes)[0], [9, 9])
     assert.equal(JSON.stringify(f), before)
+  })
+})
+
+describe('columns and stairs', () => {
+  test('a column in a room is taken out of its area', () => {
+    const f = addColumn(box(4, 3), [2, 1.5], { width: 0.5, depth: 0.4 }).floor
+    near(findRooms(f)[0].area, 3.9 * 2.9 - 0.5 * 0.4)
+    const round = addColumn(box(4, 3), [2, 1.5], { shape: 'round', width: 0.4 }).floor
+    assert.ok(Math.abs(findRooms(round)[0].area - (3.9 * 2.9 - Math.PI * 0.04)) < 0.01)
+  })
+
+  test('a flight from foot to head: its steps for the floor, its treads between', () => {
+    const r = addStair(emptyFloor(), [0, 0], [3, 0], 1.2)!
+    const s = r.floor.stairs![r.id]
+    assert.equal(s.steps, stepsFor(2.7))
+    assert.equal(s.steps, 16)                                       // 2.7 m in steps of 17 cm at most
+    near(s.length, 3); near(s.angle, 0)
+    nearXY(stairEnds(s)[0], [0, 0]); nearXY(stairEnds(s)[1], [3, 0])
+    const treads = stairTreads(s)
+    assert.equal(treads.length, 15)
+    nearXY(treads[0][0], [3 / 16, -0.6])
+    assert.equal(addStair(emptyFloor(), [0, 0], [0.2, 0]), null)    // too short to be a flight
   })
 })
 

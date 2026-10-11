@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import {
   addChain, addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, wallsFromFaces, openingRect, outlines, removeOpening, removeWall, wallsAt,
   moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox,
+  addColumn, addStair, columnRing, removeColumn, removeStair, setColumn, setStair, stairEnds, stairRing, stairTreads,
   type Floor, type Opening, type OpeningKind, type Piece, type Room, type Wall, type XY,
 } from '@/plan'
 import { add, dist, dot, inRing, lerp, mul, perp, project, signedArea, sub, unit } from '@/plan/vec'
@@ -14,7 +15,7 @@ import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
 
 /** underlay: drag the picture under the plan; calibrate: pick two points on it to set its scale */
-export type Tool = 'select' | 'wall' | 'opening' | 'underlay' | 'calibrate'
+export type Tool = 'select' | 'wall' | 'opening' | 'column' | 'stair' | 'underlay' | 'calibrate'
 export type { Selection } from './selection'
 
 const SNAP_PX = 10   // snap radius on screen
@@ -41,6 +42,12 @@ const CSS = `
 .sketch .face-line { fill: none; stroke: #e8590c; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .sketch .dim-open { fill: #1c7ed6; }
 .sketch .overall { stroke: #868e96; stroke-width: 1; }
+.sketch .column { fill: #495057; }
+.sketch .column.sel { fill: #1c7ed6; }
+.sketch .stair { fill: #f8f9fa; stroke: #495057; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.sketch .stair.sel { stroke: #1c7ed6; stroke-width: 2.5; }
+.sketch .stair-line { fill: none; stroke: #495057; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sketch .stair-hole { fill: none; stroke: #868e96; stroke-width: 1.2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
 .sketch .band { fill: #1c7ed6; fill-opacity: .08; stroke: #1c7ed6; stroke-width: 1; stroke-dasharray: 4 3; }
 .sketch .dim { font-size: 11px; fill: #495057; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; stroke-linejoin: round; font-family: inherit; }
 .sketch .room-name { font-size: 12px; font-weight: 600; fill: #343a40; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
@@ -95,12 +102,13 @@ type Drag =
   | { kind: 'underlay'; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'group'; base: Floor; nodes: string[]; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'band'; start: XY; startPlan: XY; moved: boolean }
+  | { kind: 'element'; what: 'column' | 'stair'; id: string; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'node'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'wall'; id: string; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate, clipboard, onCopy }: {
+export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, stairWidth, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate, clipboard, onCopy }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
@@ -111,6 +119,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   wallProps: Omit<Wall, 'a' | 'b'>
   /** the opening a new one will be */
   openingProps: { kind: OpeningKind; width: number }
+  /** a new stair's width */
+  stairWidth: number
   selection: Selection | null
   onSelect: (s: Selection | null) => void
   onCommit: (f: Floor) => void
@@ -142,6 +152,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   const [pts, setPts] = useState<XY[]>([])
   // the side set by Tab; else the walls go outside the way the line turns (clockwise: the room is on its right)
   const [sideSet, setSideSet] = useState<'left' | 'right' | null>(null)
+  // a flight being drawn: its foot, picked first
+  const [foot, setFoot] = useState<XY | null>(null)
   // the box being drawn round walls to pick them, and where the pointer was last (a piece is put there)
   const [band, setBand] = useState<[XY, XY] | null>(null)
   const pointer = useRef<XY | null>(null)
@@ -187,7 +199,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
 
   // a tool change ends the wall being drawn
   const [lastTool, setLastTool] = useState(tool)
-  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null); setCal([]); setPts([]) }
+  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null); setCal([]); setPts([]); setFoot(null) }
   const [lastDrawBy, setLastDrawBy] = useState(drawBy)
   if (drawBy !== lastDrawBy) { setLastDrawBy(drawBy); setChain(null); setPts([]); setSideSet(null); setTyped('') }
 
@@ -197,6 +209,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     let node: string | null = null, nd = t
     for (const [id, q] of Object.entries(floor.nodes)) { const d = dist(p, q); if (d <= nd) { node = id; nd = d } }
     if (node) return { kind: 'node', id: node }
+    for (const [id, c] of Object.entries(floor.columns ?? {})) if (inRing(p, columnRing(c))) return { kind: 'column', id }
     for (const id of Object.keys(floor.openings)) {
       const r = openingRect(floor, id)
       if (inRing(p, r) || project(p, lerp(r[0], r[3], 0.5), lerp(r[1], r[2], 0.5)).d <= t) return { kind: 'opening', id }
@@ -205,6 +218,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       const o = lines[id]
       if ((o && inRing(p, o.poly)) || project(p, ...ends(floor, w)).d <= Math.max(t, w.thickness / 2)) return { kind: 'wall', id }
     }
+    for (const [id, st] of Object.entries(floor.stairs ?? {})) if (inRing(p, stairRing(st))) return { kind: 'stair', id }
     const room = rooms.find(r => inRing(p, r.contour) && !r.holes.some(h => inRing(p, h)))
     return room ? { kind: 'room', key: room.key } : null
   }, [floor, lines, rooms, view.scale])
@@ -296,6 +310,21 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       else drag.current = { kind: 'pan', start: screen, view, moved: false }
       return
     }
+    if (tool === 'column') {
+      const r = addColumn(floor, snap(floor, plan, { tol, free: e.altKey }).p)
+      onCommit(r.floor)
+      onSelect({ kind: 'column', id: r.id })
+      return
+    }
+    if (tool === 'stair') {
+      // the foot, then the head: the way up
+      const p = snap(floor, plan, { tol, from: foot, free: e.altKey }).p
+      if (!foot) { setFoot(p); return }
+      const r = addStair(floor, foot, p, stairWidth)
+      setFoot(null)
+      if (r) { onCommit(r.floor); onSelect({ kind: 'stair', id: r.id }) }
+      return
+    }
     if (tool === 'opening') {
       const s = openingSpot(floor, plan, openingProps.width, tol, undefined, lines)
       const r = s && addOpening(floor, s.wall, s.at, openingProps.kind, { width: openingProps.width, side: s.side })
@@ -316,6 +345,11 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     if (!h && e.pointerType !== 'touch') {
       // a box round the walls to pick; a finger on the empty plan moves it instead
       drag.current = { kind: 'band', start: screen, startPlan: plan, moved: false }
+      return
+    }
+    if (h?.kind === 'column' || h?.kind === 'stair') {
+      drag.current = { kind: 'element', what: h.kind, id: h.id, base: floor, start: screen, startPlan: plan, moved: false }
+      onSelect(h)
       return
     }
     if (h?.kind === 'opening') drag.current = { kind: 'opening', id: h.id, base: floor, start: screen, moved: false }
@@ -341,6 +375,13 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     if (d && !d.moved && dist(screen, d.start) > DRAG_PX) d.moved = true
     if (d?.kind === 'band') {
       if (d.moved) setBand([d.startPlan, plan])
+      return
+    }
+    if (d?.kind === 'element' && d.moved) {
+      const raw = sub(plan, d.startPlan)
+      const delta: XY = e.altKey ? raw : [Math.round(raw[0] * 100) / 100, Math.round(raw[1] * 100) / 100]
+      const was = d.what === 'column' ? d.base.columns![d.id].at : d.base.stairs![d.id].at
+      setPreview(d.what === 'column' ? setColumn(d.base, d.id, { at: add(was, delta) }) : setStair(d.base, d.id, { at: add(was, delta) }))
       return
     }
     if (d?.kind === 'group' && d.moved) {
@@ -377,6 +418,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       return
     }
     if (tool === 'wall') setCursor(snap(snapFloor, plan, { tol, from: chain?.from, free: e.altKey }))
+    else if (tool === 'column' || tool === 'stair') setCursor(snap(floor, plan, { tol, from: tool === 'stair' ? foot : null, free: e.altKey }))
     else setCursor(null)
     setSpot(tool === 'opening' ? openingSpot(floor, plan, openingProps.width, tol, undefined, lines) : null)
   }
@@ -401,7 +443,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       onSelect(wallsSelection(wallsInBox(floor, [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])])))
       return
     }
-    if (d.kind === 'group') {
+    if (d.kind === 'group' || d.kind === 'element') {
       if (d.moved && preview) onCommit(preview)
       setPreview(null)
       return
@@ -465,6 +507,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
         e.preventDefault()
         return
       }
+      if (e.key === 'Escape' && foot) { setFoot(null); return }
       if (e.key === 'Escape') {
         if (typed) setTyped('')
         else if (chain && drawBy === 'faces') finishFaces(pts, false)
@@ -480,6 +523,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
         if (selection.kind === 'node') onCommit(moveNode(floor, selection.id, add(floor.nodes[selection.id], d)))
         if (selection.kind === 'wall') onCommit(moveWall(floor, selection.id, d))
         if (selection.kind === 'group') onCommit(moveNodes(floor, nodesOf(floor, selection.walls), d))
+        if (selection.kind === 'column') onCommit(setColumn(floor, selection.id, { at: add(floor.columns![selection.id].at, d) }))
+        if (selection.kind === 'stair') onCommit(setStair(floor, selection.id, { at: add(floor.stairs![selection.id].at, d) }))
         if (selection.kind === 'opening') {
           const o = floor.openings[selection.id], w = floor.walls[o.wall]
           const dir = unit(sub(floor.nodes[w.b], floor.nodes[w.a]))
@@ -491,6 +536,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
         if (selection.kind === 'wall') onCommit(removeWall(floor, selection.id))
         if (selection.kind === 'group') onCommit(removeWalls(floor, selection.walls))
+        if (selection.kind === 'column') onCommit(removeColumn(floor, selection.id))
+        if (selection.kind === 'stair') onCommit(removeStair(floor, selection.id))
         if (selection.kind === 'opening') onCommit(removeOpening(floor, selection.id))
         if (selection.kind === 'node') onCommit(wallsAt(floor, selection.id).reduce((f, w) => removeWall(f, w), floor))
         if (selection.kind !== 'room') onSelect(null)
@@ -501,7 +548,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     addEventListener('keydown', onDown)
     addEventListener('keyup', onUp)
     return () => { removeEventListener('keydown', onDown); removeEventListener('keyup', onUp) }
-  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit, drawBy, pts, finishFaces, side, clipboard, onCopy])
+  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit, drawBy, pts, finishFaces, side, clipboard, onCopy, foot])
 
   // ---------------------------------------------------------------- what to draw
   const grid = useMemo(() => {
@@ -529,7 +576,11 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   const to = drawing ? (typed ? typedPoint(chain.from, cursor.p, typed) ?? cursor.p : cursor.p) : null
   // «300<45» as «300 см ∠45°»
   const typedText = typed.split('<').map((v, i) => (i === 0 ? (v ? `${v} см` : '') : `∠${v}°`)).filter(Boolean).join(' ')
-  const hint = tool === 'calibrate'
+  const hint = tool === 'column'
+    ? 'Щелчок ставит колонну 40 × 40 см; размер, форма и поворот — в её свойствах'
+    : tool === 'stair'
+    ? foot ? 'Щелчок — верх марша: лестница пойдёт вверх отсюда туда; Esc — отменить' : 'Щелчок — низ марша (откуда подниматься), затем верх; ширина — на панели'
+    : tool === 'calibrate'
     ? cal.length === 1 ? 'Щёлкните второй конец отрезка, длина которого известна (размер на чертеже, стена)'
       : cal.length === 2 ? 'Введите длину отрезка справа, в панели «Подложка»; щелчок на картинке начнёт отрезок заново'
         : 'Щёлкните на картинке начало отрезка известной длины — например, размерную линию или стену'
@@ -562,8 +613,28 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
               transform={underlayTransform(shown.underlay)} opacity={shown.underlay.opacity} data-testid="sketch-underlay" />
           )}
           {belowLines && <g>{Object.values(belowLines).map((o, i) => <path key={i} className="below" d={polyPath([o.poly])} />)}</g>}
+          {/* the flights coming up from the floor below: the opening in this floor's slab */}
+          {Object.values(below?.stairs ?? {}).map((st, i) => <path key={`h${i}`} className="stair-hole" d={polyPath([stairRing(st)])} />)}
           {rooms.map(r => <path key={r.key} className={r === selectedRoom ? 'room sel' : 'room'} d={polyPath([r.contour, ...r.holes])} />)}
           {/* walls of a kind are one path: separate ones would show hairline seams where they meet */}
+          {Object.entries(shown.stairs ?? {}).map(([id, st]) => {
+            const [f0, f1] = stairEnds(st)
+            const sel = selection?.kind === 'stair' && selection.id === id
+            return (
+              <g key={id}>
+                <path className={sel ? 'stair sel' : 'stair'} d={polyPath([stairRing(st)])} />
+                <path className="stair-line" d={stairTreads(st).map(([a, b]) => `M${a[0]} ${a[1]}L${b[0]} ${b[1]}`).join('')} />
+                {/* the way up: a line from the foot with an arrow at the head */}
+                <path className="stair-line" d={`M${f0[0]} ${f0[1]}L${f1[0]} ${f1[1]}`} />
+                <path className="stair-line" d={(() => {
+                  const r = (st.angle * Math.PI) / 180, k = Math.min(0.25, st.width / 4)
+                  const back: XY = [f1[0] - Math.cos(r) * k, f1[1] - Math.sin(r) * k]
+                  const side: XY = [-Math.sin(r) * k * 0.6, Math.cos(r) * k * 0.6]
+                  return `M${back[0] + side[0]} ${back[1] + side[1]}L${f1[0]} ${f1[1]}L${back[0] - side[0]} ${back[1] - side[1]}`
+                })()} />
+              </g>
+            )
+          })}
           {/* partitions under the bearing walls, which are joined among themselves only: whole where a partition meets them */}
           <path className="wall partition"
             d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === 'partition' && lines[id]).map(([id]) => lines[id].poly))} />
@@ -573,6 +644,13 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
             <path key={id} d={polyPath([[lines[id].aMinus, lines[id].bMinus, lines[id].bPlus, lines[id].aPlus]])}
               className={selectedWalls(selection).includes(id) ? 'wall sel' : 'wall bad'} />
           ))}
+          {Object.entries(shown.columns ?? {}).map(([id, c]) => (
+            <path key={id} className={selection?.kind === 'column' && selection.id === id ? 'column sel' : 'column'} d={polyPath([columnRing(c)])} />
+          ))}
+          {tool === 'stair' && foot && cursor && dist(foot, cursor.p) > 0.05 && (() => {
+            const length = dist(foot, cursor.p), angle = (Math.atan2(cursor.p[1] - foot[1], cursor.p[0] - foot[0]) * 180) / Math.PI
+            return <path className="preview" d={polyPath([stairRing({ at: lerp(foot, cursor.p, 0.5), width: stairWidth, length, angle, steps: 2 })])} />
+          })()}
           {Object.entries(shown.openings).map(([id, o]) => (
             <OpeningMark key={id} floor={shown} o={o} overlap={0.6 / view.scale}
               cls={selection?.kind === 'opening' && selection.id === id ? 'sel' : bad.has(id) ? 'bad' : ''} />
