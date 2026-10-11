@@ -247,6 +247,8 @@ def _faces(f: dict, w: dict, o: dict) -> tuple[float, float]:
 def plan_of(f: dict, cfg: dict) -> FloorPlan:
     """The 2D plan of a drawn floor, as the pipeline's plans are."""
     lines = outlines(f)
+    # a wall lower than the floor (a half-wall, a counter) stands to its own height in 3D; None — up to the ceiling
+    low = {i: w["height"] for i, w in f["walls"].items() if w["height"] is not None and w["height"] < f["height"]}
     bodies: dict[str, Polygon] = {}
     for wid, w in f["walls"].items():
         o = lines[wid]
@@ -277,6 +279,7 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
                     source="manual", depth=w["thickness"], leaves=leaves)
         # its own heights (SketchScene), and the wall it is in, exactly as thick, to fill below and above it
         o.sill, o.head, o.wall_kind = op["sill"], op["sill"] + op["height"], w["kind"]
+        o.wall_top = low.get(op["wall"])
         t = w["thickness"] / 2
         o.body = Polygon([_add(c0, _mul(n, -t)), _add(c1, _mul(n, -t)), _add(c1, _mul(n, t)), _add(c0, _mul(n, t))])
         openings.append(o)
@@ -288,6 +291,23 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
         parts = {k: _mp(_polys(v.difference(cut))) for k, v in parts.items()}
     walls = _mp(list(parts.values()))
     solid = _mp(list(whole.values()))
+
+    # 3D: the walls up to the ceiling, and the lower ones by height, the higher first, none where a higher one is
+    full = {k: _mp([bodies[i] for i, w in f["walls"].items() if w["kind"] == k and i not in low]) for k in WALL_KINDS}
+    full_parts = {"wall": full["bearing"], "partition": _mp(_polys(full["partition"].difference(full["bearing"])))}
+    taken = _mp(list(full.values()))
+    low_parts: list[tuple[Polygon | MultiPolygon, float, str]] = []
+    for h in sorted(set(low.values()), reverse=True):
+        for kind in WALL_KINDS:
+            g = _mp([bodies[i] for i, w in f["walls"].items() if low.get(i) == h and w["kind"] == kind])
+            g = _mp(_polys(g.difference(taken))) if not taken.is_empty else g
+            if g.is_empty:
+                continue
+            taken = _mp([taken, g])
+            low_parts.append((g, h, "walls" if kind == "bearing" else "partitions"))
+    if not cut.is_empty:
+        full_parts = {k: _mp(_polys(v.difference(cut))) for k, v in full_parts.items()}
+        low_parts = [(_mp(_polys(g.difference(cut))), h, r) for g, h, r in low_parts]
 
     # rooms: the spaces the walls close; groups of walls standing inside a room are taken out of it
     filled = [Polygon(p.exterior) for p in _polys(solid)]
@@ -309,6 +329,7 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
     footprint = _mp(filled)
     plan = FloorPlan()
     plan.walls, plan.wall_parts, plan.columns = walls, parts, EMPTY
+    plan.full_parts, plan.low_parts = full_parts, low_parts           # 3D only (SketchScene)
     plan.openings, plan.rooms, plan.footprint, plan.stairs = openings, rooms, footprint, []
     kinds: dict[str, int] = {}
     for o in openings:
@@ -323,35 +344,40 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
 
 # -------------------------------------------------------------------- 3D ---
 class SketchScene(SceneBuilder):
-    """The pipeline's scene, each opening at its own sill and height.
+    """The pipeline's scene, each opening at its own sill and height, each wall at its own height.
 
     The pipeline gives all doors one height and all windows one sill and head
     (building.door_height, window_sill, window_head). A drawn opening has its
     own: the walls are built with every opening cut through to the top, then
     each one gets the wall below its sill and above its head, its glass or its
-    door leaf between."""
+    door leaf between. A wall lower than the floor stands to its own height,
+    and so does what fills its openings."""
 
     def floor(self, fid: str, plan: FloorPlan, elevation: float, height: float, extras: dict,
               room_types: list[str] | None = None) -> tuple[int, list]:
         openings, plan.openings = plan.openings, []
+        parts, plan.wall_parts = plan.wall_parts, getattr(plan, "full_parts", plan.wall_parts)
         try:
             node, rooms = super().floor(fid, plan, elevation, height, extras, room_types)
         finally:
-            plan.openings = openings
+            plan.openings, plan.wall_parts = openings, parts
         e = elevation
         top = e + height - float(self.cfg["building"]["slab_thickness"])
         if top - e < 1.0:                                       # as the pipeline does with pathological heights
             top = e + max(height, 2.0)
         fills: dict[str, list] = {"walls": [], "partitions": []}
+        for g, h, role in getattr(plan, "low_parts", []):
+            fills[role] += extrude(g, e, e + min(h, top - e))
         glass, doors = [], []
         for o in openings:
             role = "partitions" if o.wall_kind == "partition" else "walls"
-            sill = min(max(o.sill, 0.0), top - e)
-            head = min(max(o.head, sill), top - e)
+            wall_top = min(o.wall_top, top - e) if o.wall_top is not None else top - e
+            sill = min(max(o.sill, 0.0), wall_top)
+            head = min(max(o.head, sill), wall_top)
             if sill > 0.001:
                 fills[role] += extrude(o.body, e, e + sill)
-            if head < top - e - 0.001:
-                fills[role] += extrude(o.body, e + head, top)
+            if head < wall_top - 0.001:
+                fills[role] += extrude(o.body, e + head, e + wall_top)
             if head - sill < 0.01:
                 continue
             if o.kind in ("window", "vitrage"):
@@ -361,8 +387,8 @@ class SketchScene(SceneBuilder):
                     leaf = LineString([hinge, tip]).buffer(0.02, cap_style="flat")
                     doors += extrude(leaf, e + sill + 0.01, e + head - 0.01)
         prefix = f"floor_{fid}"
-        for name, meshes, role in ((f"{prefix}_opening_walls", fills["walls"], "walls"),
-                                   (f"{prefix}_opening_partitions", fills["partitions"], "partitions"),
+        for name, meshes, role in ((f"{prefix}_more_walls", fills["walls"], "walls"),
+                                   (f"{prefix}_more_partitions", fills["partitions"], "partitions"),
                                    (f"{prefix}_glass", glass, "glass"), (f"{prefix}_doors", doors, "doors")):
             child = self._add(name, meshes, role)
             if child is not None:

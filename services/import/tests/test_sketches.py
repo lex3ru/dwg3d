@@ -69,10 +69,33 @@ def test_each_opening_stands_at_its_own_height_in_3d():
     assert z["floor_f1_glass"] == (0.6, 2.4)
     assert z["floor_f1_doors"] == (0.01, 1.99)
     # the wall under the window's sill and over both openings, up to the ceiling
-    assert z["floor_f1_opening_walls"] == (0.0, round(top, 3))
-    assert z["floor_f1_opening_partitions"] == (2.0, round(top, 3))
+    assert z["floor_f1_more_walls"] == (0.0, round(top, 3))
+    assert z["floor_f1_more_partitions"] == (2.0, round(top, 3))
     # the walls themselves are cut through: the openings are filled only where they are not
     assert len(plan.openings) == 2
+
+
+def test_a_low_wall_stands_to_its_own_height_in_3d():
+    s = two_rooms()
+    f = s["floors"][0]
+    f["walls"]["p"]["height"] = 1.2                                  # the partition is a half-wall
+    del f["openings"]["win"]                                         # its door (2.1 m) is higher than it
+    cfg = load_config({})
+    plan = plan_of(read_sketch(s)["floors"][0], cfg)
+    sb = SketchScene(cfg, (0.0, 0.0))
+    sb.floor("f1", plan, 0.0, 2.7, {})
+    z = {name: (round(float(m.vertices[:, 2].min()), 3), round(float(m.vertices[:, 2].max()), 3))
+         for name, m in sb.meshes.items()}
+    top = round(2.7 - cfg["building"]["slab_thickness"], 3)
+    assert z["floor_f1_walls"] == (0.0, top)
+    assert z["floor_f1_more_partitions"] == (0.0, 1.2)
+    assert z["floor_f1_doors"] == (0.01, 1.19)                        # cut by the wall's top, nothing above it
+    assert "floor_f1_partitions" not in z                            # no full-height partition left
+    # where the half-wall meets the outer walls, the outer walls stand: nothing is built twice
+    half = plan.low_parts[0][0]
+    assert half.intersection(plan.full_parts["wall"]).area < 1e-6
+    # in 2D it is a wall like any other: it still parts the rooms
+    assert len(plan.rooms) == 2 and plan.wall_parts["partition"].area > 0.15  # 2.75 m × 10 cm less the door
 
 
 def test_a_wall_standing_inside_a_room_is_taken_out_of_it():
