@@ -5,10 +5,11 @@ import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Tip } from './ui/tooltip'
 
-const CHANGE: Record<string, string> = { new: 'новое', name: 'переименовано', outline: 'другой контур', returned: 'возвращено' }
+const CHANGE: Record<string, string> = { new: 'новое', name: 'переименовано', number: 'другой номер', outline: 'другой контур', returned: 'возвращено' }
 const CHANGE_HINTS: Record<string, string> = {
   new: 'Такого помещения в здании ещё нет: оно появится пустым',
   name: 'В чертеже у помещения другое название: после публикации оно заменит прежнее',
+  number: 'В плане у помещения другой номер: после публикации он заменит прежний',
   outline: 'Стены помещения в чертеже сдвинулись: изменятся контур и площадь',
   returned: 'Помещение было снято раньше и снова появилось в чертеже',
 }

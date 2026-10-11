@@ -1,12 +1,14 @@
 """A finished build of a drawing becomes floors and rooms that keep their ids."""
 from __future__ import annotations
 
+import copy
+
 import pytest
 from sqlalchemy import select
 from twin_chassis import Problem
 from twin_chassis.db import inbox, outbox
 
-from .conftest import API, Site
+from .conftest import API, DATA, Site
 
 
 async def events(app, type_: str | None = None) -> list[dict]:
@@ -254,3 +256,33 @@ async def test_placement_of_a_drawing(client, tokens, building, site):
     bad = await client.patch(f"{url}/{drawing['id']}", json={"placement": {"rotation": 1000}, "version": 9},
                              headers=admin)
     assert bad.status_code == 422
+
+
+def numbered(numbers: dict[int, str]) -> dict:
+    """The recorded build as a drawn plan gives it: the rooms of the first floor with numbers."""
+    data = copy.deepcopy(DATA["base"])
+    first = sorted(data["plans"])[0]
+    for idx, number in numbers.items():
+        data["plans"][first]["rooms"][idx]["number"] = number
+    return data
+
+
+async def test_the_number_of_a_drawn_room_comes_with_the_build(client, tokens, building, site):
+    admin = tokens.admin()
+    await site.build(numbered({0: "101", 1: "102"}))
+    rooms = {r["number"]: r for f in await tree(client, tokens, building) for r in f["rooms"] if r["number"]}
+    assert sorted(rooms) == ["101", "102"]
+
+    # a new build renumbers the room; a number given by hand stays
+    first, second = rooms["101"], rooms["102"]
+    r = await client.patch(f"{API}/rooms/{second['id']}", json={"number": "Б-2", "version": second["version"]},
+                           headers=admin)
+    assert r.status_code == 200
+    await site.build(numbered({0: "201", 1: "202"}))
+    now = {r["id"]: r["number"] for f in await tree(client, tokens, building) for r in f["rooms"]}
+    assert now[first["id"]] == "201" and now[second["id"]] == "Б-2"
+
+    # a drawing's build says nothing of numbers: they are left as they are
+    await site.build("base")
+    now = {r["id"]: r["number"] for f in await tree(client, tokens, building) for r in f["rooms"]}
+    assert now[first["id"]] == "201" and now[second["id"]] == "Б-2"

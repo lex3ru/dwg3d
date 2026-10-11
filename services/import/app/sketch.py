@@ -324,6 +324,7 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
                 label = next((lb for _, lb in labels if part.contains(Point(lb["at"]))), None)
                 r = Room(part, (label["name"] if label else "")[:60], round(part.area, 2))
                 r.label_type = label["type"] if label else None
+                r.number = label["number"].strip()[:40] if label else ""
                 rooms.append(r)
 
     footprint = _mp(filled)
@@ -458,7 +459,10 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
     for p in plans_dir.glob("floor_*.json"):
         p.unlink()
     for f, plan in zip(floors, plans, strict=True):
-        (plans_dir / f"floor_{f.id}.json").write_text(json.dumps(plan_to_json(plan)), encoding="utf-8")
+        data = plan_to_json(plan)
+        for entry, r in zip(data["rooms"], plan.rooms, strict=True):    # the number given in the editor goes too
+            entry["number"] = r.number
+        (plans_dir / f"floor_{f.id}.json").write_text(json.dumps(data), encoding="utf-8")
     exports = {"glb": glb.name}
     for name, make in (("model_obj.zip", lambda p: export_obj_zip(p, sb.meshes)),
                        ("model.ifc", lambda p: export_ifc(p, floors, plans, cfg, center, "plan"))):

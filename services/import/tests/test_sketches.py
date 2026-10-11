@@ -159,6 +159,8 @@ async def test_draw_save_build(client, app, worker, tokens):
     assert result["quality"]["status"] == "ok" and result["source"] == "sketch"
     plan = (await client.get(f"{API}/builds/{d['build']['id']}/files/{floor['plan']}", headers=admin)).json()
     assert len(plan["rooms"]) == 2 and sorted(o["kind"] for o in plan["openings"]) == ["door", "window"]
+    # the number given in the editor goes with its room; a room without a label has none
+    assert sorted((r["name"], r["number"]) for r in plan["rooms"]) == [("", ""), ("Кухня", "101")]
     model = await client.get(f"{API}/builds/{d['build']['id']}/files/model.glb", headers=admin)
     assert model.status_code == 200 and model.content[:4] == b"glTF"
 
