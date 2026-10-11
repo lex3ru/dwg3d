@@ -3,7 +3,8 @@ import { signIn } from './helpers'
 
 // A plan drawn from scratch (docs/TZ.md): the building's administrator draws walls, a partition and a door in
 // the 2D editor, names a room; the plan is kept on the server as one draws, built into the building's floors and
-// rooms, carried up to a new floor; a save made in another window is not overwritten; a picture goes under it.
+// rooms, carried up to a new floor; a save made in another window is not overwritten; a picture goes under it,
+// and a page of a PDF.
 
 // a 1 × 1 PNG
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex')
@@ -106,4 +107,29 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   await page.getByTestId('underlay-length').press('Enter')
   await expect(picture).not.toHaveAttribute('transform', before!)
   await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
+
+  // a PDF of two pages instead: the second page goes under the floor as a picture
+  await page.getByRole('button', { name: 'Убрать подложку' }).click()
+  await expect(picture).toHaveCount(0)
+  await page.getByTestId('underlay-file').setInputFiles({ name: 'plan.pdf', mimeType: 'application/pdf', buffer: twoPagePdf() })
+  await page.getByTestId('underlay-pdf-page').selectOption('2')
+  await page.getByTestId('underlay-pdf').getByRole('button', { name: 'Положить' }).click()
+  await expect(picture).toBeVisible({ timeout: 15_000 })
+  await expect(picture).toHaveAttribute('width', '4000')
+  await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
 })
+
+/** A PDF of two landscape pages, a rectangle drawn on each. */
+function twoPagePdf(): Buffer {
+  const page = (content: number) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 400] /Contents ${content} 0 R >>`
+  const stream = (s: string) => `<< /Length ${s.length} >>\nstream\n${s}\nendstream`
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>', page(5), page(6),
+    stream('0 0 0 RG 8 w 50 50 500 300 re S'), stream('0 0 1 RG 8 w 100 100 400 200 re S')]
+  let pdf = '%PDF-1.4\n'
+  const at: number[] = []
+  objects.forEach((o, i) => { at.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n` })
+  const xref = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${at.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  return Buffer.from(pdf, 'latin1')
+}

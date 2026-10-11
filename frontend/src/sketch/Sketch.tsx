@@ -14,6 +14,7 @@ import { dist, type XY } from '@/plan/vec'
 import { underlayUrl, uploadUnderlay } from '@/api'
 import { Canvas, type Selection, type Tool } from './Canvas'
 import { areaText } from './format'
+import { openPdf, type Pdf } from './pdf'
 import { calibrate, levelUnderlay, placeUnderlay, rotateUnderlay } from './underlay'
 import { BuildCard } from './BuildCard'
 import { useSketch, type SketchState } from './state'
@@ -342,6 +343,9 @@ function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
   const picker = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // a PDF of several pages: the page to lay waits to be chosen
+  const [pdf, setPdf] = useState<(Pdf & { name: string }) | null>(null)
+  const [page, setPage] = useState(1)
   const [opacity, setOpacity] = useState(u?.opacity ?? 0.5)
   const [was, setWas] = useState(u?.opacity)
   if (u?.opacity !== was) { setWas(u?.opacity); setOpacity(u?.opacity ?? 0.5) }
@@ -367,17 +371,50 @@ function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
     }
   }
   const set = (patch: Partial<NonNullable<typeof u>>) => u && onCommit({ ...floor, underlay: { ...u, ...patch } })
+  // a PDF: one page goes at once, of several the one chosen
+  const picked = async (file: File) => {
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) { await put(file); return }
+    setBusy(true)
+    setError(null)
+    try {
+      const doc = await openPdf(file)
+      if (doc.pages === 1) await put(await doc.picture(1))
+      else { setPdf({ ...doc, name: file.name }); setPage(1) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'PDF не открылся')
+    } finally {
+      setBusy(false)
+      if (picker.current) picker.current.value = ''
+    }
+  }
+  const layPage = async () => {
+    if (!pdf) return
+    setBusy(true)
+    try { await put(await pdf.picture(page)); setPdf(null) } catch (e) { setError(e instanceof Error ? e.message : 'Страница не легла') } finally { setBusy(false) }
+  }
 
   return (
     <div className="space-y-2 border-t pt-3" data-testid="sketch-underlay-panel">
       <h3 className="text-sm font-semibold">Подложка</h3>
-      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" data-testid="underlay-file"
-        onChange={e => { const f = e.target.files?.[0]; if (f) void put(f) }} />
+      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" className="hidden" data-testid="underlay-file"
+        onChange={e => { const f = e.target.files?.[0]; if (f) void picked(f) }} />
+      {pdf && (
+        <div className="space-y-1.5" data-testid="underlay-pdf">
+          <p className="text-xs text-muted-foreground">В «{pdf.name}» страниц: {pdf.pages}. Какую положить под этаж?</p>
+          <div className="flex gap-1.5">
+            <Select value={page} onChange={e => setPage(Number(e.target.value))} aria-label="Страница PDF" className="w-24" data-testid="underlay-pdf-page">
+              {Array.from({ length: pdf.pages }, (_, i) => <option key={i} value={i + 1}>стр. {i + 1}</option>)}
+            </Select>
+            <Button size="sm" disabled={busy} onClick={() => { void layPage() }} hint="Нарисовать эту страницу картинкой и положить её под этаж">Положить</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPdf(null)} hint="Не класть ничего из этого PDF">Отмена</Button>
+          </div>
+        </div>
+      )}
       {!u ? (
         <>
-          <p className="text-xs text-muted-foreground">Картинка плана — скан, фото, план из объявления, — по которой удобно обводить стены.</p>
+          <p className="text-xs text-muted-foreground">Картинка или PDF плана — скан, фото, план из объявления, — по которому удобно обводить стены.</p>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => picker.current?.click()}
-            hint="Положить под этаж картинку PNG, JPEG или WebP до 20 МБ; затем задать её масштаб по двум точкам">
+            hint="Положить под этаж картинку PNG, JPEG, WebP или страницу PDF; затем задать масштаб по двум точкам">
             <ImagePlus className="size-4" />{busy ? 'Загружается…' : 'Загрузить картинку'}
           </Button>
         </>
