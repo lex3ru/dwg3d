@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { checkFloor } from './check.ts'
+import { offsetPolyline, wallsFromFaces } from './faces.ts'
 import { addChain, addWall, bearingOnly, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
 import { emptyFloor, emptySketch, parseSketch, WALL_DEFAULTS, type Floor } from './model.ts'
 import { addOpening, fitOpening, moveOpening, openingRect, setOpening } from './openings.ts'
@@ -91,6 +92,39 @@ describe('wall graph', () => {
     removeWall(f, Object.keys(f.walls)[0])
     moveNode(f, Object.keys(f.nodes)[0], [9, 9])
     assert.equal(JSON.stringify(f), before)
+  })
+})
+
+describe('drawing by faces', () => {
+  const inner: XY[] = [[0, 0], [4, 0], [4, 3], [0, 3]]
+
+  test('a room drawn by its inner faces is as big as drawn, the walls outside', () => {
+    for (const pts of [inner, [...inner].reverse()]) {                  // either way round
+      const axis = wallsFromFaces(pts, 0.2, true)
+      const f = addChain(emptyFloor(), axis, { ...P, thickness: 0.2 }, true).floor
+      const [room] = findRooms(f)
+      near(room.area, 12)
+      const xs = axis.map(p => p[0]).sort((a, b) => a - b)
+      near(xs[0], -0.1); near(xs[3], 4.1)
+    }
+  })
+
+  test('the inner faces measure what was drawn', () => {
+    const f = addChain(emptyFloor(), wallsFromFaces(inner, 0.25, true), B, true).floor
+    const inside = Object.values(allSides(f)).map(s => Math.min(s.plus, s.minus)).sort((a, b) => a - b)
+    inside.forEach((v, i) => near(v, [3, 3, 4, 4][i]))
+  })
+
+  test('an open line has its walls on the side asked', () => {
+    const right = wallsFromFaces([[0, 0], [4, 0], [4, 3]], 0.2, false, 'right')
+    nearXY(right[0], [0, -0.1]); nearXY(right[1], [4.1, -0.1]); nearXY(right[2], [4.1, 3])
+    const left = wallsFromFaces([[0, 0], [4, 0]], 0.2, false, 'left')
+    nearXY(left[0], [0, 0.1])
+  })
+
+  test('points in line stay in line', () => {
+    const o = offsetPolyline([[0, 0], [2, 0], [4, 0]], 1, false)
+    nearXY(o[1], [2, 1])
   })
 })
 

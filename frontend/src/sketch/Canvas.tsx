@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, openingRect, outlines, removeOpening, removeWall, wallsAt,
+  addChain, addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, wallsFromFaces, openingRect, outlines, removeOpening, removeWall, wallsAt,
   type Floor, type Opening, type OpeningKind, type Room, type Wall, type XY,
 } from '@/plan'
-import { add, dist, dot, inRing, lerp, mul, perp, project, sub, unit } from '@/plan/vec'
+import { add, dist, dot, inRing, lerp, mul, perp, project, signedArea, sub, unit } from '@/plan/vec'
 import { areaText, cmText } from './format'
-import { atLength, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
+import { atLength, facesFloor, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
 import { clearances, openingShape } from './symbols'
 import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
@@ -35,6 +35,7 @@ const CSS = `
 .sketch .wall.sel { fill: #1c7ed6; }
 .sketch .wall.bad { fill: #e03131; }
 .sketch .preview { fill: #1c7ed6; fill-opacity: .45; }
+.sketch .face-line { fill: none; stroke: #e8590c; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .sketch .dim { font-size: 11px; fill: #495057; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; stroke-linejoin: round; font-family: inherit; }
 .sketch .room-name { font-size: 12px; font-weight: 600; fill: #343a40; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
 .sketch .room-area { font-size: 11px; fill: #c92a2a; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
@@ -91,11 +92,13 @@ type Drag =
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate }: {
+export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
   tool: Tool
+  /** walls drawn by their centre line, or by their faces (the walls then go outside the line) */
+  drawBy: 'axis' | 'faces'
   /** the wall a new one will be */
   wallProps: Omit<Wall, 'a' | 'b'>
   /** the opening a new one will be */
@@ -124,6 +127,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   const [typed, setTyped] = useState('')
   // where a new opening would go
   const [spot, setSpot] = useState<OpeningSpot | null>(null)
+  // drawn by faces: the line so far (walls are made of it when it is finished), and the side the walls go
+  const [pts, setPts] = useState<XY[]>([])
+  // the side set by Tab; else the walls go outside the way the line turns (clockwise: the room is on its right)
+  const [sideSet, setSideSet] = useState<'left' | 'right' | null>(null)
   // the points picked for the picture's scale
   const [cal, setCal] = useState<XY[]>([])
   const [space, setSpace] = useState(false)
@@ -136,6 +143,8 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   const rooms = useMemo(() => findRooms(shown, lines), [shown, lines])
   const belowLines = useMemo(() => (below ? outlines(below) : null), [below])
   const tol = SNAP_PX / view.scale
+  // what a wall being drawn snaps to: the walls' axes, or their faces and the line drawn so far
+  const snapFloor = useMemo(() => (drawBy === 'faces' ? facesFloor(floor, lines, pts) : floor), [drawBy, floor, lines, pts])
 
   const S = useCallback((p: XY) => toScreen(view, size, p), [view, size])
 
@@ -164,7 +173,9 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
 
   // a tool change ends the wall being drawn
   const [lastTool, setLastTool] = useState(tool)
-  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null); setCal([]) }
+  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null); setCal([]); setPts([]) }
+  const [lastDrawBy, setLastDrawBy] = useState(drawBy)
+  if (drawBy !== lastDrawBy) { setLastDrawBy(drawBy); setChain(null); setPts([]); setSideSet(null); setTyped('') }
 
   // ---------------------------------------------------------------- hits
   const hit = useCallback((p: XY): Selection | null => {
@@ -185,14 +196,35 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   }, [floor, lines, rooms, view.scale])
 
   // ---------------------------------------------------------------- drawing walls
+  // a line drawn by faces becomes walls: closed — a room, the walls outside it; open — on the chosen side
+  const turning = (line: XY[]): 'left' | 'right' => (line.length >= 3 && signedArea(line) < 0 ? 'left' : 'right')
+  const side = sideSet ?? turning(cursor && chain ? [...pts, cursor.p] : pts)
+  const finishFaces = useCallback((points: XY[], closed: boolean) => {
+    const clean = points.filter((p, i) => i === 0 || dist(p, points[i - 1]) > 1e-6)
+    if (clean.length >= 2) onCommit(addChain(floor, wallsFromFaces(clean, wallProps.thickness, closed, side), wallProps, closed).floor)
+    setPts([])
+    setSideSet(null)
+    setChain(null)
+    setTyped('')
+  }, [floor, wallProps, side, onCommit])
+
   const place = useCallback((to: XY, keepGoing: boolean) => {
     if (!chain) return
+    if (drawBy === 'faces') {
+      if (pts.length >= 3 && dist(to, chain.first) <= 1e-6) { finishFaces(pts, true); return }
+      const next = [...pts, to]
+      if (!keepGoing) { finishFaces(next, false); return }
+      setPts(next)
+      setChain({ from: to, first: chain.first })
+      setTyped('')
+      return
+    }
     const r = addWall(floor, chain.from, to, wallProps)
     if (r.walls.length) onCommit(r.floor)
     const closed = dist(to, chain.first) <= 1e-6
     setChain(keepGoing && !closed ? { from: to, first: chain.first } : null)
     setTyped('')
-  }, [chain, floor, wallProps, onCommit])
+  }, [chain, floor, wallProps, onCommit, drawBy, pts, finishFaces])
 
   const pointAt = (e: { clientX: number; clientY: number }): { screen: XY; plan: XY } => {
     const r = svg.current!.getBoundingClientRect()
@@ -226,9 +258,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
     }
     if (e.button !== 0) return
     if (tool === 'wall') {
-      const s = snap(floor, plan, { tol, from: chain?.from, free: e.altKey })
+      const s = snap(snapFloor, plan, { tol, from: chain?.from, free: e.altKey })
       if (!chain) {
         setChain({ from: s.p, first: s.p })
+        if (drawBy === 'faces') setPts([s.p])
         drag.current = { kind: 'draw', start: screen, moved: false }
       } else {
         drag.current = { kind: 'click', start: screen, moved: false }
@@ -300,7 +333,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       setPreview(offsetWall(d.base, d.id, off))
       return
     }
-    if (tool === 'wall') setCursor(snap(floor, plan, { tol, from: chain?.from, free: e.altKey }))
+    if (tool === 'wall') setCursor(snap(snapFloor, plan, { tol, from: chain?.from, free: e.altKey }))
     else setCursor(null)
     setSpot(tool === 'opening' ? openingSpot(floor, plan, openingProps.width, tol, undefined, lines) : null)
   }
@@ -334,12 +367,12 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
     }
     if (d.kind === 'draw' && d.moved && chain) {
       // drawn by dragging, as in RemPlanner: one wall, then the next starts afresh
-      const s = snap(floor, plan, { tol, from: chain.from, free: e.altKey })
+      const s = snap(snapFloor, plan, { tol, from: chain.from, free: e.altKey })
       place(s.p, false)
       return
     }
     if (d.kind === 'click' && !d.moved) {
-      const s = snap(floor, plan, { tol, from: chain?.from, free: e.altKey })
+      const s = snap(snapFloor, plan, { tol, from: chain?.from, free: e.altKey })
       place(s.p, true)
     }
   }
@@ -352,15 +385,18 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       if (e.code === 'Space') { setSpace(true); e.preventDefault(); return }
       if (chain && /^[0-9]$/.test(e.key)) { setTyped(t => (t + e.key).slice(0, 6)); e.preventDefault(); return }
       if (chain && e.key === 'Backspace' && typed) { setTyped(t => t.slice(0, -1)); e.preventDefault(); return }
+      if (e.key === 'Tab' && chain && drawBy === 'faces') { setSideSet(side === 'right' ? 'left' : 'right'); e.preventDefault(); return }
       if (e.key === 'Enter' && chain) {
         const to = typed && cursor ? atLength(chain.from, cursor.p, Number(typed) / 100) : null
         if (to) place([Math.round(to[0] * 1000) / 1000, Math.round(to[1] * 1000) / 1000], true)
+        else if (drawBy === 'faces') finishFaces(pts, false)
         else { setChain(null); setTyped('') }
         e.preventDefault()
         return
       }
       if (e.key === 'Escape') {
         if (typed) setTyped('')
+        else if (chain && drawBy === 'faces') finishFaces(pts, false)
         else if (chain) setChain(null)
         else onSelect(null)
         return
@@ -392,7 +428,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
     addEventListener('keydown', onDown)
     addEventListener('keyup', onUp)
     return () => { removeEventListener('keydown', onDown); removeEventListener('keyup', onUp) }
-  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit])
+  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit, drawBy, pts, finishFaces, side])
 
   // ---------------------------------------------------------------- what to draw
   const grid = useMemo(() => {
@@ -426,6 +462,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
     ? 'Перетащите картинку, чтобы совместить её с нарисованными стенами'
     : tool === 'opening'
     ? 'Наведите на стену и щёлкните: проём встанет под курсором, зелёным — расстояния до углов; открывание — в сторону курсора'
+    : tool === 'wall' && drawBy === 'faces'
+    ? chain
+      ? 'Щелчок — следующий угол грани, по первому — замкнуть помещение (стены лягут снаружи); цифры — длина грани в см и Enter; Tab — стены на другую сторону; Esc — закончить'
+      : 'Обводите помещение по внутренним граням — как меряют рулеткой; стены лягут снаружи'
     : tool === 'wall'
     ? chain
       ? 'Щелчок — следующий угол, по первому углу — замкнуть; цифры — длина в см и Enter; Esc — закончить'
@@ -438,7 +478,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       <svg ref={svg} className="sketch absolute inset-0 h-full w-full" width={size[0]} height={size[1]}
         style={{ cursor: space ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={() => { if (!drag.current) { setCursor(null); setSpot(null) } }}
-        onContextMenu={e => e.preventDefault()} onDoubleClick={() => { setChain(null); setTyped('') }}
+        onContextMenu={e => e.preventDefault()} onDoubleClick={() => { if (drawBy === 'faces' && chain) finishFaces(pts, false); else { setChain(null); setTyped('') } }}
         data-testid="sketch-canvas">
         <g>{grid.map((l, i) => <line key={i} {...l} className={l.cls} />)}</g>
         <g transform={planTransform(view, size)}>
@@ -463,7 +503,19 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
               cls={selection?.kind === 'opening' && selection.id === id ? 'sel' : bad.has(id) ? 'bad' : ''} />
           ))}
           {ghost && <OpeningMark floor={shown} o={ghost} overlap={0.6 / view.scale} cls="preview" />}
-          {drawing && to && dist(chain.from, to) > 1e-6 && <path className="preview" d={polyPath([segPoly(chain.from, to, wallProps.thickness)])} />}
+          {drawing && to && drawBy === 'axis' && dist(chain.from, to) > 1e-6 && <path className="preview" d={polyPath([segPoly(chain.from, to, wallProps.thickness)])} />}
+          {drawing && to && drawBy === 'faces' && (() => {
+            // the walls the line will make, on their side, and the line itself
+            const line = [...pts, to].filter((p, i, a) => i === 0 || dist(p, a[i - 1]) > 1e-6)
+            if (line.length < 2) return null
+            const axis = wallsFromFaces(line, wallProps.thickness, false, side)
+            return (
+              <g>
+                <path className="preview" d={polyPath(axis.slice(1).map((b, i) => segPoly(axis[i], b, wallProps.thickness)))} />
+                <path className="face-line" d={'M' + line.map(p => `${p[0]} ${p[1]}`).join('L')} />
+              </g>
+            )
+          })()}
         </g>
         <g>
           {Object.entries(shown.walls).map(([id, w]) => {

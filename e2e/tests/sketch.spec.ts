@@ -4,7 +4,7 @@ import { signIn } from './helpers'
 // A plan drawn from scratch (docs/TZ.md): the building's administrator draws walls, a partition and a door in
 // the 2D editor, names a room; the plan is kept on the server as one draws, built into the building's floors and
 // rooms, carried up to a new floor; a save made in another window is not overwritten; a picture goes under it,
-// and a page of a PDF.
+// and a page of a PDF; a room is drawn by its inner faces.
 
 // a 1 × 1 PNG
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex')
@@ -121,6 +121,17 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   await page.getByTestId('underlay-pdf').getByRole('button', { name: 'Положить' }).click()
   await expect(picture).toBeVisible({ timeout: 15_000 })
   await expect(picture).toHaveAttribute('width', '4000')
+  await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
+
+  // a room drawn by its inner faces, as measured: 4 × 3 m inside, the 25 cm walls go outside
+  await page.getByTestId('sketch-add-floor').click()
+  await page.getByTestId('add-floor-empty').click()
+  await expect(summary).toHaveText('Стен: 0 · помещений: 0')
+  await page.keyboard.press('w')
+  await page.getByTestId('sketch-kind').selectOption('bearing')
+  await page.getByTestId('sketch-draw-by').selectOption('faces')
+  for (const [x, y] of [[-5, -2], [-1, -2], [-1, 1], [-5, 1], [-5, -2]]) await click(page, x, y)
+  await expect(summary).toHaveText('Стен: 4 · помещений: 1 · 12,00 м²')
   await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
 })
 

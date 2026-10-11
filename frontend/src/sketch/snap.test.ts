@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { addChain, addOpening, addWall, emptyFloor, WALL_DEFAULTS } from '../plan/index.ts'
-import { atLength, openingSpot, snap } from './snap.ts'
+import { addChain, addOpening, addWall, emptyFloor, outlines, WALL_DEFAULTS } from '../plan/index.ts'
+import { atLength, facesFloor, openingSpot, snap } from './snap.ts'
 import { clearances, openingShape } from './symbols.ts'
 import { fitView, gridSteps, toPlan, toScreen, zoomAt } from './view.ts'
 
@@ -157,5 +157,26 @@ describe('opening symbols', () => {
 
   test('the distances to the ends are measured from the faces', () => {
     assert.deepEqual(clearances({ ...door.floor.openings[door.id] }, 0, 4).map(v => Math.round(v * 100) / 100), [1.55, 1.55])
+  })
+})
+
+describe('snapping to faces', () => {
+  const faces = facesFloor(box, outlines(box))
+
+  test('a corner of the inside of a room is a point to snap to', () => {
+    const s = snap(faces, [0.07, 0.04], { tol })
+    assert.equal(s.kind, 'node')
+    assert.ok(Math.abs(s.p[0] - 0.05) < 1e-9 && Math.abs(s.p[1] - 0.05) < 1e-9)
+  })
+
+  test('near a wall the point lands on its face, not its axis', () => {
+    const s = snap(faces, [2, 0.08], { tol: 0.05 })
+    assert.equal(s.kind, 'wall')
+    assert.ok(Math.abs(s.p[1] - 0.05) < 1e-9)
+  })
+
+  test('the line drawn so far is snapped to as well', () => {
+    const s = snap(facesFloor(box, outlines(box), [[1, 1]]), [1.03, 1.02], { tol })
+    assert.deepEqual(s.p, [1, 1])
   })
 })

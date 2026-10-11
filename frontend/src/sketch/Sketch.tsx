@@ -92,6 +92,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const { floor, commit, undo, redo } = st
   const [tool, setTool] = useState<Tool>('wall')
   const [kind, setKind] = useState<WallKind>('bearing')
+  const [drawBy, setDrawBy] = useState<'axis' | 'faces'>('axis')
   const [thickness, setThickness] = useState<Record<WallKind, number>>({ bearing: WALL_DEFAULTS.bearing.thickness, partition: WALL_DEFAULTS.partition.thickness })
   const [opening, setOpening_] = useState<OpeningKind>('door')
   const [openingWidth, setOpeningWidth] = useState<Record<OpeningKind, number>>(
@@ -138,7 +139,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
 
   return (
     <div className="relative h-full w-full" data-testid="sketch">
-      <Canvas floor={floor} below={below} tool={tool} wallProps={wallProps} selection={sel} onSelect={setSelection}
+      <Canvas floor={floor} below={below} tool={tool} drawBy={drawBy} wallProps={wallProps} selection={sel} onSelect={setSelection}
         openingProps={{ kind: opening, width: openingWidth[opening] }}
         onCommit={commit} fitSignal={fitSignal} bad={bad}
         underlayUrl={floor.underlay ? underlayUrl(drawing, floor.underlay.image) : null}
@@ -164,6 +165,11 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
           </>
         ) : (
           <>
+          <Select value={drawBy} onChange={e => setDrawBy(e.target.value as 'axis' | 'faces')} className="w-36" data-testid="sketch-draw-by"
+            aria-label="Как рисовать стены: по оси или по внутренней грани (стены лягут снаружи)">
+            <option value="axis">По оси</option>
+            <option value="faces">По внутр. грани</option>
+          </Select>
           <Select value={kind} onChange={e => setKind(e.target.value as WallKind)} aria-label="Вид новой стены" className="w-32" data-testid="sketch-kind">
             {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </Select>
@@ -246,10 +252,15 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
 
 function WallPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; onCommit: (f: Floor) => void; onDone: () => void }) {
   const w = floor.walls[id]
+  // left and right looking from the wall's start to its end
+  const sides = allSides(floor)[id]
   return (
     <>
       <h2 className="text-sm font-semibold">Стена</h2>
       <Row label="Длина по оси"><CmField value={wallLength(floor, id)} testid="wall-length" onApply={v => v && onCommit(setWallLength(floor, id, v))} /></Row>
+      {/* the faces: setting one moves the far end so that the face is that long */}
+      <Row label="Грань слева"><CmField value={sides.plus} testid="wall-face-left" onApply={v => v && onCommit(setWallLength(floor, id, sides.center + v - sides.plus))} /></Row>
+      <Row label="Грань справа"><CmField value={sides.minus} testid="wall-face-right" onApply={v => v && onCommit(setWallLength(floor, id, sides.center + v - sides.minus))} /></Row>
       <Row label="Толщина"><CmField value={w.thickness} testid="wall-thickness" onApply={v => v && onCommit(setWall(floor, id, { thickness: v }))} /></Row>
       <Row label="Высота"><CmField value={w.height} placeholder={`${Math.round(floor.height * 100)} — как этаж`} min={10} onApply={v => onCommit(setWall(floor, id, { height: v }))} /></Row>
       <Row label="Вид">
@@ -257,7 +268,7 @@ function WallPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; 
           {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </Select>
       </Row>
-      <p className="text-xs text-muted-foreground">Длина меняется от начала стены: её конец сдвигается вместе с примыкающими стенами.</p>
+      <p className="text-xs text-muted-foreground">Длина меняется от начала стены: её конец сдвигается вместе с примыкающими стенами. Грани — «слева» и «справа», если смотреть от начала стены к концу.</p>
       <Button size="sm" variant="outline" hint="Убрать стену; Delete делает то же, Ctrl+Z вернёт" onClick={() => { onCommit(removeWall(floor, id)); onDone() }}>
         <Trash2 className="size-4" />Удалить стену
       </Button>

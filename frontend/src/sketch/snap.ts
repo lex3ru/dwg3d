@@ -4,7 +4,7 @@
  * or on the centimetre grid. The tolerance is the snap radius in plan meters
  * (a few screen pixels at the current zoom).
  */
-import { ends, fitOpening, outlines, wallSides, type Floor, type WallOutline } from '../plan/index.ts'
+import { ends, fitOpening, outlines, wallSides, type Floor, type Wall, type WallOutline } from '../plan/index.ts'
 import { cross, dist, lineHit, project, lerp, sub, type XY } from '../plan/vec.ts'
 
 export type SnapKind = 'node' | 'wall' | 'cross' | 'straight' | 'align' | 'free'
@@ -147,4 +147,22 @@ export function openingSpot(f: Floor, raw: XY, width: number, tol: number, ignor
   const fit = fitOpening(f, best.id, at, width, ignore, lines)
   if (fit === null) return null
   return { wall: best.id, at: fit, side: cross(sub(b, a), sub(raw, a)) >= 0 ? 'left' : 'right' }
+}
+
+/**
+ * The faces of the walls as a floor of their own: their corners as nodes, each face as a wall —
+ * what a line drawn along faces snaps to. `extra` are points to snap to besides (the line so far).
+ */
+export function facesFloor(f: Floor, lines: Record<string, WallOutline>, extra: XY[] = []): Floor {
+  const nodes: Record<string, XY> = {}
+  const walls: Record<string, Wall> = {}
+  for (const [id, o] of Object.entries(lines)) {
+    for (const [side, a, b] of [['p', o.aPlus, o.bPlus], ['m', o.aMinus, o.bMinus]] as const) {
+      nodes[`${id}${side}a`] = a
+      nodes[`${id}${side}b`] = b
+      if (dist(a, b) > 1e-6) walls[`${id}${side}`] = { a: `${id}${side}a`, b: `${id}${side}b`, thickness: 0, height: null, kind: f.walls[id].kind }
+    }
+  }
+  extra.forEach((p, i) => { nodes[`x${i}`] = p })
+  return { ...f, nodes, walls, openings: {}, rooms: {} }
 }
