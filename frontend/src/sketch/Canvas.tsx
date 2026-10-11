@@ -6,6 +6,7 @@ import {
 import { add, dist, dot, inRing, lerp, mul, perp, project, signedArea, sub, unit } from '@/plan/vec'
 import { areaText, cmText } from './format'
 import { atLength, facesFloor, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
+import { extents, faceChain } from './dims'
 import { clearances, openingShape } from './symbols'
 import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
@@ -36,6 +37,8 @@ const CSS = `
 .sketch .wall.bad { fill: #e03131; }
 .sketch .preview { fill: #1c7ed6; fill-opacity: .45; }
 .sketch .face-line { fill: none; stroke: #e8590c; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.sketch .dim-open { fill: #1c7ed6; }
+.sketch .overall { stroke: #868e96; stroke-width: 1; }
 .sketch .dim { font-size: 11px; fill: #495057; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; stroke-linejoin: round; font-family: inherit; }
 .sketch .room-name { font-size: 12px; font-weight: 600; fill: #343a40; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
 .sketch .room-area { font-size: 11px; fill: #c92a2a; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
@@ -524,16 +527,35 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
             const [a, b] = ends(shown, w).map(S)
             if (dist(a, b) < 60) return null
             const n = unit(perp(sub(b, a)))   // on screen: perp of a screen vector points to the plan's minus side
-            const label = (p0: XY, p1: XY, value: number, sign: number) => {
+            const label = (p0: XY, p1: XY, value: number, sign: number, off: number, cls = 'dim', key?: string) => {
               const m0 = S(p0), m1 = S(p1)
-              const mid: XY = [(m0[0] + m1[0]) / 2 - n[0] * 9 * sign, (m0[1] + m1[1]) / 2 - n[1] * 9 * sign]
-              return <text className="dim" x={mid[0]} y={mid[1]} textAnchor="middle" dominantBaseline="middle"
+              const mid: XY = [(m0[0] + m1[0]) / 2 - n[0] * off * sign, (m0[1] + m1[1]) / 2 - n[1] * off * sign]
+              return <text key={key} className={cls} x={mid[0]} y={mid[1]} textAnchor="middle" dominantBaseline="middle"
                 transform={`rotate(${along(m0, m1)} ${mid[0]} ${mid[1]})`}>{cmText(value)}</text>
+            }
+            // a face with openings: its chain next to the wall, its whole length further out
+            const [pa, pb] = ends(shown, w)
+            const d = unit(sub(pb, pa))
+            const face = (side: 'plus' | 'minus', sign: number) => {
+              const start = side === 'plus' ? o.aPlus : o.aMinus
+              const s0 = dot(sub(start, pa), d)
+              const chain = faceChain(shown, id, o, side)
+              const whole = side === 'plus' ? s.plus : s.minus
+              const end = side === 'plus' ? o.bPlus : o.bMinus
+              if (!chain.length) return label(start, end, whole, sign, 9)
+              const at = (x: number) => add(start, mul(d, x - s0))
+              return (
+                <g>
+                  {chain.map((c, i) => dist(S(at(c.from)), S(at(c.to))) >= 26 &&
+                    label(at(c.from), at(c.to), c.to - c.from, sign, 9, c.opening ? 'dim dim-open' : 'dim', String(i)))}
+                  {label(start, end, whole, sign, 23)}
+                </g>
+              )
             }
             return (
               <g key={id}>
-                {label(o.aPlus, o.bPlus, s.plus, 1)}
-                {label(o.aMinus, o.bMinus, s.minus, -1)}
+                {face('plus', 1)}
+                {face('minus', -1)}
               </g>
             )
           })}
@@ -547,6 +569,28 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
               </g>
             )
           })}
+          {(() => {
+            // the floor's overall size, outside it: across on top, up on the left
+            const box = extents(lines)
+            if (!box) return null
+            const [x0, y0, x1, y1] = box
+            const tl = S([x0, y1]), br = S([x1, y0])
+            if (br[0] - tl[0] < 80) return null
+            const top = tl[1] - 46, left = tl[0] - 46, t = 4             // beyond the walls' own dimension lines
+            return (
+              <g pointerEvents="none" data-testid="sketch-overall">
+                <line className="overall" x1={tl[0]} y1={top} x2={br[0]} y2={top} />
+                <line className="overall" x1={tl[0]} y1={top - t} x2={tl[0]} y2={top + t} />
+                <line className="overall" x1={br[0]} y1={top - t} x2={br[0]} y2={top + t} />
+                <text className="dim" x={(tl[0] + br[0]) / 2} y={top - 7} textAnchor="middle">{cmText(x1 - x0)}</text>
+                <line className="overall" x1={left} y1={tl[1]} x2={left} y2={br[1]} />
+                <line className="overall" x1={left - t} y1={tl[1]} x2={left + t} y2={tl[1]} />
+                <line className="overall" x1={left - t} y1={br[1]} x2={left + t} y2={br[1]} />
+                <text className="dim" x={left - 7} y={(tl[1] + br[1]) / 2} textAnchor="middle"
+                  transform={`rotate(-90 ${left - 7} ${(tl[1] + br[1]) / 2})`}>{cmText(y1 - y0)}</text>
+              </g>
+            )
+          })()}
           {gauged && (() => {
             const o = gauged
             const w = shown.walls[o.wall], sd = sides[o.wall]
