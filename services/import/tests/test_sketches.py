@@ -223,12 +223,12 @@ async def test_a_picture_to_draw_over(client, worker, tokens):
 
     # the plan keeps it on its floor; the build does not mind it
     s = two_rooms()
-    s["floors"][0]["underlay"] = {"image": name, "at": [-1, -1], "scale": 0.01, "width": 600, "height": 400,
-                                  "opacity": 0.5, "hidden": False}
+    s["floors"][0]["underlay"] = {"image": name, "at": [-1, -1], "scale": 0.01, "rotation": 30, "width": 600,
+                                  "height": 400, "opacity": 0.5, "hidden": False}
     assert (await client.put(f"{API}/drawings/{d['id']}/sketch", json={"sketch": s, "version": 1},
                              headers=admin)).status_code == 200
     back = (await client.get(f"{API}/drawings/{d['id']}/sketch", headers=admin)).json()["sketch"]
-    assert back["floors"][0]["underlay"]["image"] == name
+    assert back["floors"][0]["underlay"]["image"] == name and back["floors"][0]["underlay"]["rotation"] == 30
     assert (await client.post(f"{API}/drawings/{d['id']}/builds", json={}, headers=admin)).status_code == 202
     await worker.run_once()
     assert (await client.get(f"{API}/drawings/{d['id']}", headers=admin)).json()["build"]["status"] == "done"

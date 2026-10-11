@@ -1,4 +1,4 @@
-import { BrickWall, DoorOpen, Eye, EyeOff, FlipHorizontal2, FlipVertical2, ImagePlus, Maximize2, Move, Ruler, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
+import { BrickWall, DoorOpen, Eye, EyeOff, FlipHorizontal2, FlipVertical2, ImagePlus, Maximize2, Move, RotateCcw, RotateCw, Ruler, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
@@ -14,7 +14,7 @@ import { dist, type XY } from '@/plan/vec'
 import { underlayUrl, uploadUnderlay } from '@/api'
 import { Canvas, type Selection, type Tool } from './Canvas'
 import { areaText } from './format'
-import { calibrate, placeUnderlay } from './underlay'
+import { calibrate, levelUnderlay, placeUnderlay, rotateUnderlay } from './underlay'
 import { BuildCard } from './BuildCard'
 import { useSketch, type SketchState } from './state'
 
@@ -387,14 +387,21 @@ function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
             <p className="text-xs text-foreground" data-testid="underlay-calibrate-hint">Щёлкните на картинке два конца отрезка известной длины.</p>
           )}
           {cal && (
-            <Row label="Длина отрезка">
-              <CmField value={null} placeholder={`сейчас ${Math.round(dist(cal[0], cal[1]) * 100)}`} min={1} testid="underlay-length"
-                onApply={v => { if (v) { onCommit({ ...floor, underlay: calibrate(u, cal[0], cal[1], v) }); setTool('select') } }} />
-            </Row>
+            <>
+              <Row label="Длина отрезка">
+                <CmField value={null} placeholder={`сейчас ${Math.round(dist(cal[0], cal[1]) * 100)}`} min={1} testid="underlay-length"
+                  onApply={v => { if (v) { onCommit({ ...floor, underlay: calibrate(u, cal[0], cal[1], v) }); setTool('select') } }} />
+              </Row>
+              <Button size="sm" variant="outline" data-testid="underlay-level"
+                onClick={() => { onCommit({ ...floor, underlay: levelUnderlay(u, cal[0], cal[1]) }); setTool('select') }}
+                hint="Повернуть картинку так, чтобы отмеченный отрезок шёл ровно по горизонтали или вертикали — что ближе">
+                Выровнять по отрезку
+              </Button>
+            </>
           )}
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" variant={tool === 'calibrate' ? 'default' : 'outline'} onClick={() => setTool(tool === 'calibrate' ? 'select' : 'calibrate')}
-              hint="Задать масштаб картинки: щёлкнуть два конца отрезка, длина которого известна, и ввести её" data-testid="underlay-calibrate">
+              hint="Отметить на картинке два конца отрезка: задать по его длине масштаб или выровнять по нему картинку" data-testid="underlay-calibrate">
               <Ruler className="size-4" />Масштаб
             </Button>
             <Button size="sm" variant={tool === 'underlay' ? 'default' : 'outline'} onClick={() => setTool(tool === 'underlay' ? 'select' : 'underlay')}
@@ -410,6 +417,15 @@ function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
               <Trash2 className="size-4" />
             </Button>
           </div>
+          <Row label="Поворот">
+            <div className="flex items-center gap-1">
+              <Button size="icon-sm" variant="ghost" aria-label="Повернуть влево на 90°" hint="Повернуть картинку на 90° против часовой стрелки"
+                onClick={() => set(rotateUnderlay(u, 90))}><RotateCcw className="size-4" /></Button>
+              <Button size="icon-sm" variant="ghost" aria-label="Повернуть вправо на 90°" hint="Повернуть картинку на 90° по часовой стрелке"
+                onClick={() => set(rotateUnderlay(u, -90))}><RotateCw className="size-4" /></Button>
+              <DegField value={u.rotation ?? 0} onApply={deg => set(rotateUnderlay(u, deg - (u.rotation ?? 0)))} />
+            </div>
+          </Row>
           <Row label="Прозрачность">
             <input type="range" min={0.1} max={1} step={0.05} value={opacity} aria-label="Насколько видна подложка" data-testid="underlay-opacity"
               onChange={e => setOpacity(Number(e.target.value))}
@@ -418,6 +434,26 @@ function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
         </>
       )}
       {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+/** An angle in degrees, counter-clockwise; applied on Enter or when the field is left. */
+function DegField({ value, onApply }: { value: number; onApply: (deg: number) => void }) {
+  const shown = String(Math.round(value * 10) / 10)
+  const [text, setText] = useState(shown)
+  const [was, setWas] = useState(shown)
+  if (shown !== was) { setWas(shown); setText(shown) }
+  const apply = () => {
+    const v = Number(text.replace(',', '.'))
+    if (Number.isFinite(v) && v !== value) onApply(v)
+    else setText(shown)
+  }
+  return (
+    <div className="relative">
+      <Input value={text} inputMode="decimal" className="w-20 pr-5 tabular-nums" aria-label="Угол поворота картинки, градусы против часовой" data-testid="underlay-angle"
+        onChange={e => setText(e.target.value)} onBlur={apply} onKeyDown={e => { if (e.key === 'Enter') { apply(); e.currentTarget.blur() } }} />
+      <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">°</span>
     </div>
   )
 }

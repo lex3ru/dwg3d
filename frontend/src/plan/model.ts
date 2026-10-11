@@ -59,6 +59,8 @@ export interface Underlay {
   at: XY
   /** meters per pixel */
   scale: number
+  /** degrees counter-clockwise, about `at` */
+  rotation: number
   /** pixels */
   width: number
   height: number
@@ -197,6 +199,7 @@ function readFloor(v: unknown, path: string): Floor {
     const u = obj(o.underlay, `${path}.underlay`), p = `${path}.underlay`
     f.underlay = {
       image: str(u.image, `${p}.image`), at: xy(u.at, `${p}.at`), scale: num(u.scale, `${p}.scale`, 1e-6),
+      rotation: u.rotation === undefined ? 0 : num(u.rotation, `${p}.rotation`),
       width: num(u.width, `${p}.width`, 1), height: num(u.height, `${p}.height`, 1),
       opacity: num(u.opacity, `${p}.opacity`, 0), hidden: u.hidden === true,
     }

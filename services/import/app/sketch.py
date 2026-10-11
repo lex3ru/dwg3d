@@ -114,6 +114,7 @@ def _floor(v, path: str) -> dict:
         f["underlay"] = {
             "image": _str(u.get("image"), f"{p}.image", 64), "at": _xy(u.get("at"), f"{p}.at"),
             "scale": _num(u.get("scale"), f"{p}.scale", 1e-6), "width": _num(u.get("width"), f"{p}.width", 1),
+            "rotation": 0.0 if u.get("rotation") is None else _num(u.get("rotation"), f"{p}.rotation"),
             "height": _num(u.get("height"), f"{p}.height", 1), "opacity": _num(u.get("opacity"), f"{p}.opacity", 0),
             "hidden": u.get("hidden") is True}
     else:
