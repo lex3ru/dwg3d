@@ -31,7 +31,7 @@ from .dwg.config import load_config
 from .dwg.exports import export_ifc, export_obj_zip
 from .dwg.floors import FloorCandidate
 from .dwg.geometry import EMPTY, FloorPlan, Opening, Room, plan_to_json
-from .dwg.model3d import SceneBuilder
+from .dwg.model3d import SceneBuilder, _pane, extrude
 from .dwg.semantics import classify_room, find_entrances, floor_pois, legend, room_type_rules
 
 VERSION = 1
@@ -273,8 +273,13 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
             hp = _add(hinge, _mul(n, s * w["thickness"] / 2))
             leaves = [(hp, _add(hp, _mul(n, s * (x1 - x0))))]
         mid = _mul(_add(c0, c1), 0.5)
-        openings.append(Opening(kind=op["kind"], poly=rect, width=round(x1 - x0, 3), center=mid, direction=d,
-                                source="manual", depth=w["thickness"], leaves=leaves))
+        o = Opening(kind=op["kind"], poly=rect, width=round(x1 - x0, 3), center=mid, direction=d,
+                    source="manual", depth=w["thickness"], leaves=leaves)
+        # its own heights (SketchScene), and the wall it is in, exactly as thick, to fill below and above it
+        o.sill, o.head, o.wall_kind = op["sill"], op["sill"] + op["height"], w["kind"]
+        t = w["thickness"] / 2
+        o.body = Polygon([_add(c0, _mul(n, -t)), _add(c1, _mul(n, -t)), _add(c1, _mul(n, t)), _add(c0, _mul(n, t))])
+        openings.append(o)
 
     whole = {k: _mp([bodies[i] for i, w in f["walls"].items() if w["kind"] == k]) for k in WALL_KINDS}
     cut = _mp([o.poly for o in openings])
@@ -316,6 +321,55 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
     return plan
 
 
+# -------------------------------------------------------------------- 3D ---
+class SketchScene(SceneBuilder):
+    """The pipeline's scene, each opening at its own sill and height.
+
+    The pipeline gives all doors one height and all windows one sill and head
+    (building.door_height, window_sill, window_head). A drawn opening has its
+    own: the walls are built with every opening cut through to the top, then
+    each one gets the wall below its sill and above its head, its glass or its
+    door leaf between."""
+
+    def floor(self, fid: str, plan: FloorPlan, elevation: float, height: float, extras: dict,
+              room_types: list[str] | None = None) -> tuple[int, list]:
+        openings, plan.openings = plan.openings, []
+        try:
+            node, rooms = super().floor(fid, plan, elevation, height, extras, room_types)
+        finally:
+            plan.openings = openings
+        e = elevation
+        top = e + height - float(self.cfg["building"]["slab_thickness"])
+        if top - e < 1.0:                                       # as the pipeline does with pathological heights
+            top = e + max(height, 2.0)
+        fills: dict[str, list] = {"walls": [], "partitions": []}
+        glass, doors = [], []
+        for o in openings:
+            role = "partitions" if o.wall_kind == "partition" else "walls"
+            sill = min(max(o.sill, 0.0), top - e)
+            head = min(max(o.head, sill), top - e)
+            if sill > 0.001:
+                fills[role] += extrude(o.body, e, e + sill)
+            if head < top - e - 0.001:
+                fills[role] += extrude(o.body, e + head, top)
+            if head - sill < 0.01:
+                continue
+            if o.kind in ("window", "vitrage"):
+                glass += extrude(_pane(o), e + sill, e + head)
+            elif o.kind == "door":
+                for hinge, tip in o.leaves:
+                    leaf = LineString([hinge, tip]).buffer(0.02, cap_style="flat")
+                    doors += extrude(leaf, e + sill + 0.01, e + head - 0.01)
+        prefix = f"floor_{fid}"
+        for name, meshes, role in ((f"{prefix}_opening_walls", fills["walls"], "walls"),
+                                   (f"{prefix}_opening_partitions", fills["partitions"], "partitions"),
+                                   (f"{prefix}_glass", glass, "glass"), (f"{prefix}_doors", doors, "doors")):
+            child = self._add(name, meshes, role)
+            if child is not None:
+                self.w.nodes[node].setdefault("children", []).append(child)
+        return node, rooms
+
+
 # -------------------------------------------------------------------- build ---
 def _noop(stage: str, frac: float, msg: str = "") -> None:
     pass
@@ -349,7 +403,7 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
     allfp = _mp([p.footprint for p in plans])
     bx0, by0, bx1, by1 = allfp.bounds
     center = ((bx0 + bx1) / 2, (by0 + by1) / 2)
-    sb = SceneBuilder(cfg, center)
+    sb = SketchScene(cfg, center)
     roots, floors_meta, pois = [], [], []
     rules = room_type_rules(cfg)
     known_types = {t["type"] for t in legend(cfg)}

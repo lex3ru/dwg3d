@@ -6,7 +6,7 @@ import copy
 import pytest
 
 from app.dwg.config import load_config
-from app.sketch import SketchError, plan_of, read_sketch
+from app.sketch import SketchError, SketchScene, plan_of, read_sketch
 
 from .conftest import BUILDING
 from .test_drawings import events
@@ -52,6 +52,27 @@ def test_rooms_are_measured_inside_the_walls_as_in_the_editor():
     assert len(door.leaves) == 1 and abs(door.width - 0.9) < 1e-6
     # the openings are cut through the walls
     assert all(plan.walls.intersection(o.poly).area < 1e-4 for o in plan.openings)
+
+
+def test_each_opening_stands_at_its_own_height_in_3d():
+    s = two_rooms()
+    ops = s["floors"][0]["openings"]
+    ops["door"].update(height=2.0)                                   # a low door
+    ops["win"].update(sill=0.6, height=1.8)                          # a tall window, low sill
+    cfg = load_config({})
+    plan = plan_of(read_sketch(s)["floors"][0], cfg)
+    sb = SketchScene(cfg, (0.0, 0.0))
+    sb.floor("f1", plan, 0.0, 2.7, {})
+    z = {name: (round(float(m.vertices[:, 2].min()), 3), round(float(m.vertices[:, 2].max()), 3))
+         for name, m in sb.meshes.items()}
+    top = 2.7 - cfg["building"]["slab_thickness"]
+    assert z["floor_f1_glass"] == (0.6, 2.4)
+    assert z["floor_f1_doors"] == (0.01, 1.99)
+    # the wall under the window's sill and over both openings, up to the ceiling
+    assert z["floor_f1_opening_walls"] == (0.0, round(top, 3))
+    assert z["floor_f1_opening_partitions"] == (2.0, round(top, 3))
+    # the walls themselves are cut through: the openings are filled only where they are not
+    assert len(plan.openings) == 2
 
 
 def test_a_wall_standing_inside_a_room_is_taken_out_of_it():
