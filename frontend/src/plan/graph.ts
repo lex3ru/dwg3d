@@ -275,3 +275,14 @@ export function splitWall(f: Floor, id: string, p: XY): { floor: Floor; node: st
   return { floor: d, node: split(d, id, t) }
 }
 
+
+/**
+ * The floor's bearing walls alone, as the start of the floor above: partitions,
+ * openings and room names go, and a bearing wall a partition had cut in two is
+ * whole again.
+ */
+export function bearingOnly(f: Floor): Floor {
+  let out = f
+  for (const [id, w] of Object.entries(f.walls)) if (w.kind !== 'bearing') out = removeWall(out, id)
+  return { ...out, openings: {}, rooms: {} }
+}

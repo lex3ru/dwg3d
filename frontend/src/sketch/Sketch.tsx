@@ -168,7 +168,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
         <Select value={floor.id} onChange={e => pickFloor(e.target.value)} aria-label="Этаж" className="w-28" data-testid="sketch-floor">
           {floors.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
-        <Button size="icon-sm" variant="ghost" onClick={st.addFloor} aria-label="Добавить этаж" data-testid="sketch-add-floor" hint="Добавить этаж над верхним; стены нижнего этажа видны под ним бледно">
+        <Button size="icon-sm" variant="ghost" onClick={st.addFloor} aria-label="Добавить этаж" data-testid="sketch-add-floor" hint="Добавить этаж над верхним: на нём сразу будут несущие стены этажа под ним, без перегородок и проёмов; Ctrl+Z отменит">
           <Plus className="size-4" />
         </Button>
       </div>

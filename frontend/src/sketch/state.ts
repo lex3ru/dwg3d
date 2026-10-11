@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, getSketch, saveSketch } from '@/api'
-import { emptyFloor, parseSketch, SketchError, type Floor, type Sketch } from '@/plan'
+import { bearingOnly, emptyFloor, parseSketch, SketchError, type Floor, type Sketch } from '@/plan'
 import { Conflict, Saver } from './saver'
 
 const DEPTH = 200
@@ -118,8 +118,10 @@ export function useSketch(drawing: string): SketchState {
   const floor = floors.find(f => f.id === floorId) ?? floors[0] ?? null
   const addFloor = useCallback(() => {
     if (!floors.length) return
+    // the floor goes on top, its bearing walls carried up from the floor under it
     const top = floors.reduce((a, b) => (b.level > a.level ? b : a))
-    const f = emptyFloor(top.level + 1, { elevation: top.elevation + top.height })
+    const { nodes, walls } = bearingOnly(top)
+    const f = emptyFloor(top.level + 1, { elevation: top.elevation + top.height, height: top.height, nodes, walls })
     push(s => ({ ...s, floors: [...s.floors, f] }))
     setFloorId(f.id)
   }, [push, floors])

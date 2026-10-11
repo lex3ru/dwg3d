@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { checkFloor } from './check.ts'
-import { addChain, addWall, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
+import { addChain, addWall, bearingOnly, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
 import { emptyFloor, emptySketch, parseSketch, WALL_DEFAULTS, type Floor } from './model.ts'
 import { addOpening, fitOpening, moveOpening, openingRect, setOpening } from './openings.ts'
 import { allSides, outlines } from './outline.ts'
@@ -91,6 +91,21 @@ describe('wall graph', () => {
     removeWall(f, Object.keys(f.walls)[0])
     moveNode(f, Object.keys(f.nodes)[0], [9, 9])
     assert.equal(JSON.stringify(f), before)
+  })
+})
+
+describe('the floor above', () => {
+  test('starts with the bearing walls below, whole where partitions cut them', () => {
+    let f = box(4, 3, B)
+    f = addWall(f, [2, 0], [2, 3], P).floor                    // cuts the long bearing walls in two
+    f = addOpening(f, Object.keys(f.walls)[0], 0.8, 'window')!.floor
+    f = labelRoom(f, findRooms(f)[0], { name: 'Кухня' }).floor
+    const up = bearingOnly(f)
+    assert.deepEqual(count(up), [4, 4])
+    assert.ok(Object.values(up.walls).every(w => w.kind === 'bearing'))
+    assert.deepEqual(up.openings, {})
+    assert.deepEqual(up.rooms, {})
+    near(findRooms(up)[0].area, 3.75 * 2.75)
   })
 })
 
