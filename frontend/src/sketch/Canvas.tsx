@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, offsetWall, openingRect, outlines, removeOpening, removeWall, wallsAt,
+  addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, openingRect, outlines, removeOpening, removeWall, wallsAt,
   type Floor, type Opening, type OpeningKind, type Room, type Wall, type XY,
 } from '@/plan'
 import { add, dist, dot, inRing, lerp, mul, perp, project, sub, unit } from '@/plan/vec'
@@ -200,9 +200,26 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
     return { screen, plan: toPlan(view, size, screen) }
   }
 
+  // fingers on the plan: two of them zoom and pan it, whatever the tool
+  const touches = useRef(new Map<number, XY>())
+  const pinch = useRef<{ d0: number; mid0: XY; view: View } | null>(null)
+  const pinchStart = () => {
+    const [p, q] = [...touches.current.values()]
+    pinch.current = { d0: Math.max(dist(p, q), 1), mid0: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], view }
+    // what the first finger began is not meant
+    if (drag.current?.kind === 'draw') setChain(null)
+    drag.current = null
+    setPreview(null)
+  }
+
   const down = (e: ReactPointerEvent<SVGSVGElement>) => {
     const { screen, plan } = pointAt(e)
-    svg.current!.setPointerCapture(e.pointerId)
+    try { svg.current!.setPointerCapture(e.pointerId) } catch { /* a pointer the browser no longer tracks */ }
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, screen)
+      if (touches.current.size === 2) { pinchStart(); return }
+      if (touches.current.size > 2) return
+    }
     if (e.button === 1 || e.button === 2 || space) {
       drag.current = { kind: 'pan', start: screen, view, moved: false }
       return
@@ -245,6 +262,15 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
 
   const move = (e: ReactPointerEvent<SVGSVGElement>) => {
     const { screen, plan } = pointAt(e)
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) touches.current.set(e.pointerId, screen)
+    if (pinch.current && touches.current.size >= 2) {
+      const [p, q] = [...touches.current.values()]
+      const { d0, mid0, view: v0 } = pinch.current
+      const mid: XY = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]
+      const zoomed = zoomAt(v0, size, mid0, dist(p, q) / d0)
+      setView({ ...zoomed, cx: zoomed.cx - (mid[0] - mid0[0]) / zoomed.scale, cy: zoomed.cy + (mid[1] - mid0[1]) / zoomed.scale })
+      return
+    }
     const d = drag.current
     if (d && !d.moved && dist(screen, d.start) > DRAG_PX) d.moved = true
     if (d?.kind === 'pan') {
@@ -280,6 +306,14 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   }
 
   const up = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId)
+      if (pinch.current) {
+        if (touches.current.size < 2) pinch.current = null
+        drag.current = null
+        return
+      }
+    }
     const d = drag.current
     drag.current = null
     if (!d) return
@@ -329,6 +363,21 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
         if (typed) setTyped('')
         else if (chain) setChain(null)
         else onSelect(null)
+        return
+      }
+      const arrow = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, XY>)[e.key]
+      if (arrow && selection && !chain) {
+        // a centimetre a press, ten with Shift; an opening slides along its wall
+        const step = e.shiftKey ? 0.1 : 0.01
+        const d: XY = [arrow[0] * step, arrow[1] * step]
+        if (selection.kind === 'node') onCommit(moveNode(floor, selection.id, add(floor.nodes[selection.id], d)))
+        if (selection.kind === 'wall') onCommit(moveWall(floor, selection.id, d))
+        if (selection.kind === 'opening') {
+          const o = floor.openings[selection.id], w = floor.walls[o.wall]
+          const dir = unit(sub(floor.nodes[w.b], floor.nodes[w.a]))
+          onCommit(moveOpening(floor, selection.id, o.at + dot(d, dir)))        // the step as it falls along the wall
+        }
+        e.preventDefault()
         return
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
@@ -388,7 +437,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       <style>{CSS}</style>
       <svg ref={svg} className="sketch absolute inset-0 h-full w-full" width={size[0]} height={size[1]}
         style={{ cursor: space ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
-        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => { if (!drag.current) { setCursor(null); setSpot(null) } }}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={() => { if (!drag.current) { setCursor(null); setSpot(null) } }}
         onContextMenu={e => e.preventDefault()} onDoubleClick={() => { setChain(null); setTyped('') }}
         data-testid="sketch-canvas">
         <g>{grid.map((l, i) => <line key={i} {...l} className={l.cls} />)}</g>
@@ -493,7 +542,8 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
         </g>
       </svg>
       <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex items-end justify-between gap-3 text-xs text-[#495057]">
-        <span className="rounded bg-white/80 px-2 py-1 shadow-sm" data-testid="sketch-hint">{hint}</span>
+        {/* about keys and the mouse: not for a phone */}
+        <span className="rounded bg-white/80 px-2 py-1 shadow-sm max-md:hidden" data-testid="sketch-hint">{hint}</span>
         {cursor && <span className="shrink-0 rounded bg-white/80 px-2 py-1 tabular-nums shadow-sm">x {cmText(cursor.p[0])} · y {cmText(cursor.p[1])} см</span>}
       </div>
     </div>

@@ -96,6 +96,7 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
 
   // a new floor starts with the bearing walls under it, without the partition
   await page.getByTestId('sketch-add-floor').click()
+  await page.getByTestId('add-floor-bearing').click()
   await expect(page.getByTestId('sketch-floor')).toHaveValue(/.+/)
   await expect(summary).toHaveText('Стен: 4 · помещений: 1 · 21,56 м²')
 

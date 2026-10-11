@@ -30,7 +30,8 @@ export interface SketchState {
   redo: () => void
   canUndo: boolean
   canRedo: boolean
-  addFloor: () => void
+  /** a floor on top: with the bearing walls of the one under it, a copy of it whole, or empty */
+  addFloor: (start?: 'bearing' | 'copy' | 'empty') => void
   removeFloor: (id: string) => void
   /** saves what is not saved yet; resolves when the server has it */
   flush: () => Promise<void>
@@ -116,12 +117,15 @@ export function useSketch(drawing: string): SketchState {
 
   const floors = useMemo(() => present?.floors ?? [], [present])
   const floor = floors.find(f => f.id === floorId) ?? floors[0] ?? null
-  const addFloor = useCallback(() => {
+  const addFloor = useCallback((start: 'bearing' | 'copy' | 'empty' = 'bearing') => {
     if (!floors.length) return
-    // the floor goes on top, its bearing walls carried up from the floor under it
+    // the floor goes on top, starting from the floor under it
     const top = floors.reduce((a, b) => (b.level > a.level ? b : a))
-    const { nodes, walls } = bearingOnly(top)
-    const f = emptyFloor(top.level + 1, { elevation: top.elevation + top.height, height: top.height, nodes, walls })
+    const from = start === 'copy' ? top : start === 'bearing' ? bearingOnly(top) : null
+    const f = emptyFloor(top.level + 1, {
+      elevation: top.elevation + top.height, height: top.height,
+      ...(from ? { nodes: from.nodes, walls: from.walls, openings: from.openings, rooms: from.rooms } : {}),
+    })
     push(s => ({ ...s, floors: [...s.floors, f] }))
     setFloorId(f.id)
   }, [push, floors])

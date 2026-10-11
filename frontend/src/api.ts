@@ -167,6 +167,9 @@ export const patchFloor = (floor: TreeFloor, patch: { name?: string; level?: num
 export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
   api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
 export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)
+/** The kinds of rooms a build tells apart (its default settings): type → its name and colour. */
+export const getRoomTypes = () =>
+  api<{ room_types: Record<string, { label: string; color: string }> }>(`${IMPORT}/config/default`).then(c => c.room_types)
 /** A new plan drawn from scratch in the building: an empty sheet of the 2D editor. */
 export const createSketch = (building: string, name?: string) =>
   api<Drawing>(`${IMPORT}/sketches`, { method: 'POST', json: { building_id: building, name: name ?? '' } })

@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
 import { Input } from '@/components/ui/input'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Select } from '@/components/ui/select'
+import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
   allSides, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
@@ -11,7 +13,7 @@ import {
   type Floor, type Opening, type OpeningKind, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
 import { dist, type XY } from '@/plan/vec'
-import { underlayUrl, uploadUnderlay } from '@/api'
+import { getRoomTypes, underlayUrl, uploadUnderlay } from '@/api'
 import { Canvas, type Selection, type Tool } from './Canvas'
 import { areaText } from './format'
 import { openPdf, type Pdf } from './pdf'
@@ -95,6 +97,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const [openingWidth, setOpeningWidth] = useState<Record<OpeningKind, number>>(
     () => Object.fromEntries(Object.entries(OPENING_DEFAULTS).map(([k, v]) => [k, v.width])) as Record<OpeningKind, number>)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // on a phone the properties are a sheet over the plan's bottom, opened when wanted
+  const [sheet, setSheet] = useState(false)
   // two points picked on the picture: its scale waits for their distance
   const [cal, setCal] = useState<[XY, XY] | null>(null)
   const [lastTool, setLastTool] = useState(tool)
@@ -177,12 +181,26 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
         <Select value={floor.id} onChange={e => pickFloor(e.target.value)} aria-label="Этаж" className="w-28" data-testid="sketch-floor">
           {floors.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
-        <Button size="icon-sm" variant="ghost" onClick={st.addFloor} aria-label="Добавить этаж" data-testid="sketch-add-floor" hint="Добавить этаж над верхним: на нём сразу будут несущие стены этажа под ним, без перегородок и проёмов; Ctrl+Z отменит">
-          <Plus className="size-4" />
-        </Button>
+        <DropdownMenu>
+          <Tip label="Добавить этаж над верхним; Ctrl+Z отменит">
+            <DropdownMenuTrigger asChild>
+              <Button size="icon-sm" variant="ghost" aria-label="Добавить этаж" data-testid="sketch-add-floor"><Plus className="size-4" /></Button>
+            </DropdownMenuTrigger>
+          </Tip>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onSelect={() => st.addFloor('bearing')} data-testid="add-floor-bearing">Несущие стены этажа ниже</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => st.addFloor('copy')} data-testid="add-floor-copy">Копия этажа ниже целиком</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => st.addFloor('empty')} data-testid="add-floor-empty">Пустой этаж</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <div className="absolute top-2 right-2 flex w-72 flex-col gap-2 max-md:hidden">
+      <Button size="sm" variant="secondary" className="absolute right-2 bottom-10 md:hidden" onClick={() => setSheet(o => !o)}
+        hint={sheet ? 'Спрятать свойства, чтобы видеть план' : 'Свойства выбранного, этаж, подложка, сборка здания'} data-testid="sketch-sheet">
+        {sheet ? 'Скрыть' : 'Свойства'}
+      </Button>
+      <div className={cn('absolute flex flex-col gap-2 md:top-2 md:right-2 md:w-72',
+        'max-md:inset-x-2 max-md:bottom-20 max-md:max-h-[45vh] max-md:overflow-y-auto', !sheet && 'max-md:hidden')}>
       <BuildCard drawing={drawing} st={st} />
       <aside className={cn(floatClass, 'space-y-3 rounded-lg p-3')} aria-label="Свойства" data-testid="sketch-inspector">
         {sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
@@ -267,9 +285,11 @@ function NodePanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; 
 function RoomPanel({ floor, roomKey, rooms, onCommit, onKey }: {
   floor: Floor; roomKey: string; rooms: ReturnType<typeof findRooms>; onCommit: (f: Floor) => void; onKey: (key: string) => void
 }) {
+  const [types, setTypes] = useState<[string, string][] | null>(null)
+  useEffect(() => { getRoomTypes().then(t => setTypes(Object.entries(t).map(([k, v]) => [k, v.label])), () => setTypes([])) }, [])
   const room = rooms.find(r => r.key === roomKey)
   if (!room) return null
-  const set = (patch: { name?: string; number?: string }) => {
+  const set = (patch: { name?: string; number?: string; type?: string | null }) => {
     const r = labelRoom(floor, room, patch)
     onCommit(r.floor)
     onKey(r.id)
@@ -280,6 +300,13 @@ function RoomPanel({ floor, roomKey, rooms, onCommit, onKey }: {
       <h2 className="text-sm font-semibold">Помещение</h2>
       <Row label="Номер"><TextField value={room.label?.number ?? ''} testid="room-number" onApply={number => set({ number })} /></Row>
       <Row label="Название"><TextField value={room.label?.name ?? ''} placeholder="Кухня, коридор…" testid="room-name" onApply={name => set({ name })} /></Row>
+      <Row label="Вид">
+        <Select value={room.label?.type ?? ''} onChange={e => set({ type: e.target.value || null })} data-testid="room-type"
+          aria-label="Вид помещения: по нему цвет на плане и в 3D">
+          <option value="">по названию</option>
+          {(types ?? []).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </Select>
+      </Row>
       <p className="text-sm tabular-nums" data-testid="room-area">
         Площадь {areaText(room.area)} · периметр {perimeter.toFixed(2).replace('.', ',')} м
       </p>
