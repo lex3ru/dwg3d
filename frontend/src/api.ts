@@ -365,6 +365,9 @@ async function download(path: string, init: RequestInit & { json?: unknown }, fa
 }
 export const labelsSheet = (body: { asset_ids?: string[]; building_id?: string; floor_id?: string; room_id?: string; size?: number }) =>
   download(`${ASSETS}/labels`, { method: 'POST', json: body }, 'метки.pdf')
+/** A drawn plan as a DXF (or DWG) drawing, as it is saved now. */
+export const downloadSketch = (drawing: string, format: 'dxf' | 'dwg' = 'dxf') =>
+  download(`${IMPORT}/drawings/${drawing}/export?format=${format}`, { method: 'GET' }, `plan.${format}`)
 export const drawingWithObjects = (building: string, drawing_id: string, format: 'dxf' | 'dwg') =>
   download(`/api/reports/buildings/${building}/drawing`, { method: 'POST', json: { drawing_id, format } }, `drawing.${format}`)
 

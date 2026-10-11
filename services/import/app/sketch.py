@@ -250,9 +250,13 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
     lines = outlines(f)
     # a wall lower than the floor (a half-wall, a counter) stands to its own height in 3D; None — up to the ceiling
     low = {i: w["height"] for i, w in f["walls"].items() if w["height"] is not None and w["height"] < f["height"]}
+    # bearing walls are joined among themselves only: one stays whole where a partition meets it, the partition
+    # stops at its face (joined with everything, the bearing wall would have a notch the partition fills)
+    bearing = {i: w for i, w in f["walls"].items() if w["kind"] == "bearing"}
+    bearing_lines = outlines({**f, "walls": bearing})
     bodies: dict[str, Polygon] = {}
     for wid, w in f["walls"].items():
-        o = lines[wid]
+        o = bearing_lines[wid] if wid in bearing else lines[wid]
         a, b = f["nodes"][w["a"]], f["nodes"][w["b"]]
         bodies[wid] = _poly([a, o["a_minus"], o["b_minus"], b, o["b_plus"], o["a_plus"]])
 

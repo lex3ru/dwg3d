@@ -150,7 +150,7 @@ export function Building({ id, review }: { id: string; review?: string }) {
                   {shown && (
                     <Button asChild size="sm" hint="3D и план чертежа в редакторе: помещения, объекты, слои инженерных систем"><a href={`#/f/${d.id}`}><Box className="size-4" /> Открыть</a></Button>
                   )}
-                  {shown && !drawn && (
+                  {shown && (
                     <Button variant="outline" size="sm" disabled={busy || running}
                       hint="Скачать DXF этого чертежа, где объекты учёта стоят блоками с атрибутами: номер, состояние, ответственный, помещение"
                       onClick={() => act(drawingWithObjects(id, d.id, 'dxf'))}>

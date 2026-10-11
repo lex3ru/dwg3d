@@ -495,12 +495,12 @@ async def export_with_objects(drawing_id: UUID, body: ObjectsExport, request: Re
 
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id)
-        _file_only(d)
-        f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
-        b = None
-        if d.current_build_id:
-            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
-    if b is None:
+        f = b = None
+        if d.kind == "file":
+            f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
+            if d.current_build_id:
+                b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
+    if b is None and d.kind == "file":
         raise Problem(409, "not_ready", "Чертёж ещё не обработан")
     path, filename, stats = await asyncio.to_thread(drawing_with_objects, d, f, b, body.format, body.objects,
                                                     body.types)
@@ -515,7 +515,7 @@ async def export_with_objects(drawing_id: UUID, body: ObjectsExport, request: Re
 
 # ------------------------------------------------------------------- export ---
 @router.get("/drawings/{drawing_id}/export", tags=["export"], response_class=StreamingResponse,
-            summary="Исходный чертёж с правками 2D-редактора: format=dxf или dwg")
+            summary="Исходный чертёж с правками 2D-редактора, нарисованный план — как он сохранён: format=dxf или dwg")
 async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf",
                          _: Identity = Depends(manages_drawing)) -> StreamingResponse:
     from .export import edited_drawing
@@ -524,7 +524,16 @@ async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf"
         raise Problem(422, "invalid", "format: dxf или dwg", errors=[{"field": "format", "message": "dxf или dwg"}])
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id)
-        _file_only(d)
+    if d.kind == "sketch":                                    # the drawn plan itself, as it is saved now
+        from .export import sketch_drawing
+        path, filename = await asyncio.to_thread(sketch_drawing, d, format)
+        data = await asyncio.to_thread(path.read_bytes)
+        shutil.rmtree(path.parent, ignore_errors=True)
+        from urllib.parse import quote
+        headers = {"Content-Length": str(len(data)),
+                   "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+        return StreamingResponse(iter([data]), media_type=storage.MEDIA[f".{format}"], headers=headers)
+    async with request.app.state.db.begin() as session:
         f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
         b = None
         if d.current_build_id:

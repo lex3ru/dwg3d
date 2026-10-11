@@ -70,6 +70,10 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   // built into the building: its floor and rooms, the named one among them
   await page.getByTestId('sketch-build-button').click()
   await expect(page.getByTestId('sketch-built')).toBeVisible({ timeout: 90_000 })
+  // the plan as a DXF drawing
+  const download = page.waitForEvent('download')
+  await page.getByTestId('sketch-dxf').click()
+  expect((await download).suggestedFilename()).toMatch(/\.dxf$/)
   const sketch = page.url()
   await page.goto(`/#/b/${building}/rooms`)
   await expect(page.locator('main')).toContainText('Кухня', { timeout: 30_000 })

@@ -759,7 +759,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Исходный чертёж с правками 2D-редактора: format=dxf или dwg",
+        "summary": "Исходный чертёж с правками 2D-редактора, нарисованный план — как он сохранён: format=dxf или dwg",
         "tags": [
           "export"
         ]

@@ -131,6 +131,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
 
   const shown = preview ?? floor
   const lines = useMemo(() => outlines(shown), [shown])
+  const bearingLines = useMemo(() => outlines({ ...shown, walls: Object.fromEntries(Object.entries(shown.walls).filter(([, w]) => w.kind === 'bearing')) }), [shown])
   const sides = useMemo(() => allSides(shown, lines), [shown, lines])
   const rooms = useMemo(() => findRooms(shown, lines), [shown, lines])
   const belowLines = useMemo(() => (below ? outlines(below) : null), [below])
@@ -399,10 +400,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
           {belowLines && <g>{Object.values(belowLines).map((o, i) => <path key={i} className="below" d={polyPath([o.poly])} />)}</g>}
           {rooms.map(r => <path key={r.key} className={r === selectedRoom ? 'room sel' : 'room'} d={polyPath([r.contour, ...r.holes])} />)}
           {/* walls of a kind are one path: separate ones would show hairline seams where they meet */}
-          {(['bearing', 'partition'] as const).map(kind => (
-            <path key={kind} className={kind === 'partition' ? 'wall partition' : 'wall'}
-              d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === kind && lines[id]).map(([id]) => lines[id].poly))} />
-          ))}
+          {/* partitions under the bearing walls, which are joined among themselves only: whole where a partition meets them */}
+          <path className="wall partition"
+            d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === 'partition' && lines[id]).map(([id]) => lines[id].poly))} />
+          <path className="wall" d={polyPath(Object.values(bearingLines).map(o => o.poly))} />
           {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || (selection?.kind === 'wall' && selection.id === id))).map(id => (
             // the wall's own body, without the junction it shares with the walls it meets
             <path key={id} d={polyPath([[lines[id].aMinus, lines[id].bMinus, lines[id].bPlus, lines[id].aPlus]])}

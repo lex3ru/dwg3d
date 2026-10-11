@@ -240,3 +240,45 @@ async def test_only_a_drawn_plan_has_pictures(client, tokens, sample):
     r = await client.post(f"{API}/drawings/{d['id']}/underlays", files={"file": ("p.png", PNG, "image/png")},
                           headers=tokens.admin())
     assert r.status_code == 409 and r.json()["code"] == "not_sketch"
+
+
+async def test_a_drawn_plan_as_a_dxf_drawing(client, tokens, tmp_path):
+    from urllib.parse import quote
+
+    import ezdxf
+
+    admin = tokens.admin()
+    d = await new_sketch(client, tokens, name="Дача")
+    url = f"{API}/drawings/{d['id']}/export"
+    r = await client.get(url, params={"format": "dxf"}, headers=admin)
+    assert r.status_code == 409 and r.json()["code"] == "nothing_to_export"      # no walls yet
+
+    s = two_rooms()
+    upper = copy.deepcopy(s["floors"][0])
+    upper.update(id="f2", name="Этаж 2", level=2, elevation=2.7, openings={}, rooms={})
+    s["floors"].append(upper)
+    assert (await client.put(f"{API}/drawings/{d['id']}/sketch", json={"sketch": s, "version": 1},
+                             headers=admin)).status_code == 200
+    r = await client.get(url, params={"format": "dxf"}, headers=admin)
+    assert r.status_code == 200 and quote("Дача.dxf") in r.headers["content-disposition"]
+    (tmp_path / "plan.dxf").write_bytes(r.content)
+    doc = ezdxf.readfile(tmp_path / "plan.dxf")
+    msp = doc.modelspace()
+    assert {"Стены", "Перегородки", "Проёмы", "Помещения", "Подписи"} <= {layer.dxf.name for layer in doc.layers}
+    labels = [m.text for m in msp.query("MTEXT")]
+    assert sum("101 Кухня" in t for t in labels) == 1 and len(labels) == 4          # two rooms on each floor
+    assert len(msp.query('ARC[layer=="Проёмы"]')) == 1                                # the door's swing
+    assert sorted(t.dxf.text for t in msp.query("TEXT")) == ["Этаж 1", "Этаж 2"]
+    # the floors lie side by side, the second right of the first
+    xs = sorted({round(p.dxf.insert[0], 3) for p in msp.query("TEXT")})
+    assert len(xs) == 2 and xs[1] - xs[0] >= 4.25 + 5 - 0.01
+
+    # the objects drawn on their floors, where they stand on the plan
+    body = {"format": "dxf", "types": {"chair": {"id": "chair", "w": 0.5, "d": 0.5}},
+            "objects": [{"floor": "f2", "at": [1, 1], "angle": 0, "type": "chair", "name": "Стул"}]}
+    r = await client.post(url, json=body, headers=admin)
+    assert r.status_code == 200 and r.headers["x-objects-drawn"] == "1"
+    (tmp_path / "objects.dxf").write_bytes(r.content)
+    [chair] = ezdxf.readfile(tmp_path / "objects.dxf").modelspace().query("INSERT")
+    second = [t for t in msp.query("TEXT") if t.dxf.text == "Этаж 2"][0].dxf.insert
+    assert abs(chair.dxf.insert[0] - (second[0] + 0.125 + 1)) < 1e-6       # 1 m right of the floor's left wall face

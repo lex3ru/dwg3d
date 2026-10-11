@@ -1,6 +1,6 @@
-import { Box, Hammer } from 'lucide-react'
+import { Box, FileDown, Hammer } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getDrawing, rebuildDrawing, type Drawing } from '@/api'
+import { downloadSketch, getDrawing, rebuildDrawing, type Drawing } from '@/api'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
 import { cn } from '@/lib/utils'
@@ -81,6 +81,15 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
             : errors.length ? `Собрать здание из плана: сначала исправьте — ${errors[0]}`
               : running ? 'Сборка уже идёт' : 'Сохранить план и собрать из него этажи, помещения и 3D-модель здания'}>
           <Hammer className="size-4" />Собрать здание
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy || empty} data-testid="sketch-dxf"
+          hint={empty ? 'Скачать план чертежом DXF: сначала нарисуйте стены' : 'Скачать план чертежом DXF в метрах — стены, проёмы, помещения с номерами и площадями; этажи рядом'}
+          onClick={() => {
+            setBusy(true)
+            setRefused(null)
+            st.flush().then(() => downloadSketch(drawing)).catch((e: Error) => setRefused(e.message)).finally(() => setBusy(false))
+          }}>
+          <FileDown className="size-4" />DXF
         </Button>
         {built && (
           <Button asChild size="sm" variant="outline" hint="3D-сцена здания из этого плана: помещения, расстановка объектов">
