@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   addChain, addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, wallsFromFaces, openingRect, outlines, removeOpening, removeWall, wallsAt,
-  type Floor, type Opening, type OpeningKind, type Room, type Wall, type XY,
+  moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox,
+  type Floor, type Opening, type OpeningKind, type Piece, type Room, type Wall, type XY,
 } from '@/plan'
 import { add, dist, dot, inRing, lerp, mul, perp, project, signedArea, sub, unit } from '@/plan/vec'
 import { areaText, cmText } from './format'
-import { atLength, facesFloor, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
+import { facesFloor, openingSpot, snap, typedPoint, type OpeningSpot, type Snap } from './snap'
 import { extents, faceChain } from './dims'
+import { selectedWalls, wallsSelection, type Selection } from './selection'
 import { clearances, openingShape } from './symbols'
 import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
 
 /** underlay: drag the picture under the plan; calibrate: pick two points on it to set its scale */
 export type Tool = 'select' | 'wall' | 'opening' | 'underlay' | 'calibrate'
-export type Selection = { kind: 'wall'; id: string } | { kind: 'node'; id: string } | { kind: 'room'; key: string } | { kind: 'opening'; id: string }
+export type { Selection } from './selection'
 
 const SNAP_PX = 10   // snap radius on screen
 const HIT_PX = 6     // how near a click must be to a node or a thin wall
@@ -39,6 +41,7 @@ const CSS = `
 .sketch .face-line { fill: none; stroke: #e8590c; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .sketch .dim-open { fill: #1c7ed6; }
 .sketch .overall { stroke: #868e96; stroke-width: 1; }
+.sketch .band { fill: #1c7ed6; fill-opacity: .08; stroke: #1c7ed6; stroke-width: 1; stroke-dasharray: 4 3; }
 .sketch .dim { font-size: 11px; fill: #495057; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; stroke-linejoin: round; font-family: inherit; }
 .sketch .room-name { font-size: 12px; font-weight: 600; fill: #343a40; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
 .sketch .room-area { font-size: 11px; fill: #c92a2a; paint-order: stroke; stroke: #fcfcfb; stroke-width: 3px; font-family: inherit; }
@@ -90,12 +93,14 @@ type Drag =
   | { kind: 'pan'; start: XY; view: View; moved: boolean }
   | { kind: 'opening'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'underlay'; base: Floor; start: XY; startPlan: XY; moved: boolean }
+  | { kind: 'group'; base: Floor; nodes: string[]; start: XY; startPlan: XY; moved: boolean }
+  | { kind: 'band'; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'node'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'wall'; id: string; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate }: {
+export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate, clipboard, onCopy }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
@@ -117,6 +122,9 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   underlayUrl: string | null
   /** two points picked on the picture with the «calibrate» tool */
   onCalibrate: (a: XY, b: XY) => void
+  /** the piece copied last (kept by the page, so it goes from floor to floor) */
+  clipboard: Piece | null
+  onCopy: (p: Piece) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
   const svg = useRef<SVGSVGElement>(null)
@@ -134,6 +142,9 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   const [pts, setPts] = useState<XY[]>([])
   // the side set by Tab; else the walls go outside the way the line turns (clockwise: the room is on its right)
   const [sideSet, setSideSet] = useState<'left' | 'right' | null>(null)
+  // the box being drawn round walls to pick them, and where the pointer was last (a piece is put there)
+  const [band, setBand] = useState<[XY, XY] | null>(null)
+  const pointer = useRef<XY | null>(null)
   // the points picked for the picture's scale
   const [cal, setCal] = useState<XY[]>([])
   const [space, setSpace] = useState(false)
@@ -249,6 +260,9 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
 
   const down = (e: ReactPointerEvent<SVGSVGElement>) => {
     const { screen, plan } = pointAt(e)
+    // the plan takes the keys: a field or a list of the panels keeps them otherwise, and a length typed goes there
+    const focused = document.activeElement
+    if (focused instanceof HTMLInputElement || focused instanceof HTMLSelectElement || focused instanceof HTMLTextAreaElement) focused.blur()
     try { svg.current!.setPointerCapture(e.pointerId) } catch { /* a pointer the browser no longer tracks */ }
     if (e.pointerType === 'touch') {
       touches.current.set(e.pointerId, screen)
@@ -289,6 +303,21 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       return
     }
     const h = hit(plan)
+    const picked = selectedWalls(selection)
+    if (e.shiftKey && h?.kind === 'wall') {
+      // Shift: a wall into the selection, or out of it
+      onSelect(wallsSelection(picked.includes(h.id) ? picked.filter(x => x !== h.id) : [...picked, h.id]))
+      return
+    }
+    if (selection?.kind === 'group' && h?.kind === 'wall' && picked.includes(h.id)) {
+      drag.current = { kind: 'group', base: floor, nodes: nodesOf(floor, picked), start: screen, startPlan: plan, moved: false }
+      return
+    }
+    if (!h && e.pointerType !== 'touch') {
+      // a box round the walls to pick; a finger on the empty plan moves it instead
+      drag.current = { kind: 'band', start: screen, startPlan: plan, moved: false }
+      return
+    }
     if (h?.kind === 'opening') drag.current = { kind: 'opening', id: h.id, base: floor, start: screen, moved: false }
     else if (h?.kind === 'node') drag.current = { kind: 'node', id: h.id, base: floor, start: screen, moved: false }
     else if (h?.kind === 'wall') drag.current = { kind: 'wall', id: h.id, base: floor, start: screen, startPlan: plan, moved: false }
@@ -307,8 +336,19 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       setView({ ...zoomed, cx: zoomed.cx - (mid[0] - mid0[0]) / zoomed.scale, cy: zoomed.cy + (mid[1] - mid0[1]) / zoomed.scale })
       return
     }
+    pointer.current = plan
     const d = drag.current
     if (d && !d.moved && dist(screen, d.start) > DRAG_PX) d.moved = true
+    if (d?.kind === 'band') {
+      if (d.moved) setBand([d.startPlan, plan])
+      return
+    }
+    if (d?.kind === 'group' && d.moved) {
+      const raw = sub(plan, d.startPlan)
+      const delta: XY = e.altKey ? raw : [Math.round(raw[0] * 100) / 100, Math.round(raw[1] * 100) / 100]
+      setPreview(moveNodes(d.base, d.nodes, delta))
+      return
+    }
     if (d?.kind === 'pan') {
       if (d.moved) setView({ ...d.view, cx: d.view.cx - (screen[0] - d.start[0]) / d.view.scale, cy: d.view.cy + (screen[1] - d.start[1]) / d.view.scale })
       return
@@ -354,6 +394,18 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     drag.current = null
     if (!d) return
     const { plan } = pointAt(e)
+    if (d.kind === 'band') {
+      setBand(null)
+      if (!d.moved) { onSelect(null); return }
+      const [p, q] = [d.startPlan, plan]
+      onSelect(wallsSelection(wallsInBox(floor, [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])])))
+      return
+    }
+    if (d.kind === 'group') {
+      if (d.moved && preview) onCommit(preview)
+      setPreview(null)
+      return
+    }
     if (d.kind === 'node' && d.moved) {
       const s = snap(d.base, plan, { tol, skip: [d.id], free: e.altKey })
       const next = moveNode(d.base, d.id, s.p, true)
@@ -384,13 +436,29 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   useEffect(() => {
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement
     const onDown = (e: KeyboardEvent) => {
-      if (typing(e) || e.ctrlKey || e.metaKey) return
+      if (typing(e)) return
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        // copy, cut, put down, duplicate — by the keys' places, whatever the layout
+        const picked = selectedWalls(selection)
+        const piece = picked.length ? takePiece(floor, picked) : null
+        const put = (p: Piece, at: XY) => { const r = putPiece(floor, p, at); onCommit(r.floor); onSelect(wallsSelection(r.walls)) }
+        if (e.code === 'KeyC' && piece) onCopy(piece)
+        else if (e.code === 'KeyX' && piece) { onCopy(piece); onCommit(removeWalls(floor, picked)); onSelect(null) }
+        else if (e.code === 'KeyV' && clipboard) put(clipboard, pointer.current ?? add(clipboard.center, [1, -1]))
+        else if (e.code === 'KeyD' && piece) { onCopy(piece); put(piece, add(piece.center, [piece.size[0] + 1, 0])) }    // beside it, a metre apart
+        else return
+        e.preventDefault()
+        return
+      }
       if (e.code === 'Space') { setSpace(true); e.preventDefault(); return }
-      if (chain && /^[0-9]$/.test(e.key)) { setTyped(t => (t + e.key).slice(0, 6)); e.preventDefault(); return }
+      if (chain && /^[0-9]$/.test(e.key)) { setTyped(t => (t + e.key).slice(0, 10)); e.preventDefault(); return }
+      // an angle after the length: «<» (the key «Б» in a Russian layout), then degrees, «-» for clockwise
+      if (chain && (e.key === '<' || e.code === 'Comma')) { setTyped(t => (t.includes('<') ? t : t + '<')); e.preventDefault(); return }
+      if (chain && e.key === '-' && typed.endsWith('<')) { setTyped(t => t + '-'); e.preventDefault(); return }
       if (chain && e.key === 'Backspace' && typed) { setTyped(t => t.slice(0, -1)); e.preventDefault(); return }
       if (e.key === 'Tab' && chain && drawBy === 'faces') { setSideSet(side === 'right' ? 'left' : 'right'); e.preventDefault(); return }
       if (e.key === 'Enter' && chain) {
-        const to = typed && cursor ? atLength(chain.from, cursor.p, Number(typed) / 100) : null
+        const to = typed && cursor ? typedPoint(chain.from, cursor.p, typed) : null
         if (to) place([Math.round(to[0] * 1000) / 1000, Math.round(to[1] * 1000) / 1000], true)
         else if (drawBy === 'faces') finishFaces(pts, false)
         else { setChain(null); setTyped('') }
@@ -411,6 +479,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
         const d: XY = [arrow[0] * step, arrow[1] * step]
         if (selection.kind === 'node') onCommit(moveNode(floor, selection.id, add(floor.nodes[selection.id], d)))
         if (selection.kind === 'wall') onCommit(moveWall(floor, selection.id, d))
+        if (selection.kind === 'group') onCommit(moveNodes(floor, nodesOf(floor, selection.walls), d))
         if (selection.kind === 'opening') {
           const o = floor.openings[selection.id], w = floor.walls[o.wall]
           const dir = unit(sub(floor.nodes[w.b], floor.nodes[w.a]))
@@ -421,6 +490,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
         if (selection.kind === 'wall') onCommit(removeWall(floor, selection.id))
+        if (selection.kind === 'group') onCommit(removeWalls(floor, selection.walls))
         if (selection.kind === 'opening') onCommit(removeOpening(floor, selection.id))
         if (selection.kind === 'node') onCommit(wallsAt(floor, selection.id).reduce((f, w) => removeWall(f, w), floor))
         if (selection.kind !== 'room') onSelect(null)
@@ -431,7 +501,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
     addEventListener('keydown', onDown)
     addEventListener('keyup', onUp)
     return () => { removeEventListener('keydown', onDown); removeEventListener('keyup', onUp) }
-  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit, drawBy, pts, finishFaces, side])
+  }, [chain, typed, cursor, selection, floor, place, onSelect, onCommit, drawBy, pts, finishFaces, side, clipboard, onCopy])
 
   // ---------------------------------------------------------------- what to draw
   const grid = useMemo(() => {
@@ -456,7 +526,9 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
   const gauged: Opening | null = ghost ?? (selection?.kind === 'opening' ? shown.openings[selection.id] ?? null : null)
   const selectedRoom: Room | undefined = selection?.kind === 'room' ? rooms.find(r => r.key === selection.key) : undefined
   const drawing = tool === 'wall' && chain && cursor
-  const to = drawing ? (typed ? atLength(chain.from, cursor.p, Number(typed) / 100) ?? cursor.p : cursor.p) : null
+  const to = drawing ? (typed ? typedPoint(chain.from, cursor.p, typed) ?? cursor.p : cursor.p) : null
+  // «300<45» as «300 см ∠45°»
+  const typedText = typed.split('<').map((v, i) => (i === 0 ? (v ? `${v} см` : '') : `∠${v}°`)).filter(Boolean).join(' ')
   const hint = tool === 'calibrate'
     ? cal.length === 1 ? 'Щёлкните второй конец отрезка, длина которого известна (размер на чертеже, стена)'
       : cal.length === 2 ? 'Введите длину отрезка справа, в панели «Подложка»; щелчок на картинке начнёт отрезок заново'
@@ -471,9 +543,9 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
       : 'Обводите помещение по внутренним граням — как меряют рулеткой; стены лягут снаружи'
     : tool === 'wall'
     ? chain
-      ? 'Щелчок — следующий угол, по первому углу — замкнуть; цифры — длина в см и Enter; Esc — закончить'
+      ? 'Щелчок — следующий угол, по первому углу — замкнуть; цифры — длина в см, «<» (Б) и градусы — угол, Enter; Esc — закончить'
       : 'Щелчок — начать стену цепочкой, или протяните мышью одну стену; Alt — без привязок'
-    : 'Щелчок выбирает стену, угол или помещение; перетаскивание двигает угол или стену; Delete — удалить; пробел или правая кнопка — сдвинуть план'
+    : 'Щелчок — стена, угол, помещение; рамка по пустому месту или Shift+щелчок — несколько стен; Ctrl+C, X, V, D — копировать, вырезать, вставить под курсор, дублировать; Delete — удалить; пробел или правая кнопка — сдвинуть план'
 
   return (
     <div ref={box} className="relative h-full w-full overflow-hidden">
@@ -496,10 +568,10 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
           <path className="wall partition"
             d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === 'partition' && lines[id]).map(([id]) => lines[id].poly))} />
           <path className="wall" d={polyPath(Object.values(bearingLines).map(o => o.poly))} />
-          {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || (selection?.kind === 'wall' && selection.id === id))).map(id => (
+          {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || selectedWalls(selection).includes(id))).map(id => (
             // the wall's own body, without the junction it shares with the walls it meets
             <path key={id} d={polyPath([[lines[id].aMinus, lines[id].bMinus, lines[id].bPlus, lines[id].aPlus]])}
-              className={selection?.kind === 'wall' && selection.id === id ? 'wall sel' : 'wall bad'} />
+              className={selectedWalls(selection).includes(id) ? 'wall sel' : 'wall bad'} />
           ))}
           {Object.entries(shown.openings).map(([id, o]) => (
             <OpeningMark key={id} floor={shown} o={o} overlap={0.6 / view.scale}
@@ -569,6 +641,10 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
               </g>
             )
           })}
+          {band && (() => {
+            const [p, q] = [S(band[0]), S(band[1])]
+            return <rect className="band" x={Math.min(p[0], q[0])} y={Math.min(p[1], q[1])} width={Math.abs(q[0] - p[0])} height={Math.abs(q[1] - p[1])} />
+          })()}
           {(() => {
             // the floor's overall size, outside it: across on top, up on the left
             const box = extents(lines)
@@ -620,7 +696,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, se
             const [a, b] = [S(chain.from), S(to)]
             const mid: XY = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
             return <text className="len" x={mid[0]} y={mid[1] - 14} textAnchor="middle" transform={`rotate(${along(a, b)} ${mid[0]} ${mid[1]})`}>
-              {typed ? `${typed} см ⏎` : `${cmText(dist(chain.from, to))} см`}
+              {typed ? `${typedText} ⏎` : `${cmText(dist(chain.from, to))} см`}
             </text>
           })()}
           {tool === 'select' && Object.entries(shown.nodes).map(([id, p]) => {

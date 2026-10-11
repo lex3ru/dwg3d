@@ -104,6 +104,27 @@ export function snap(f: Floor, raw: XY, o: SnapOptions): Snap {
   return { p: onGrid(raw), kind: 'free', guides: [] }
 }
 
+/**
+ * What was typed while drawing: a length in centimetres, then «<» and an angle in degrees
+ * (counter-clockwise from the right, as on a protractor) — «300», «300<45», «<45».
+ */
+export function readTyped(text: string): { length: number | null; angle: number | null } {
+  const [l, a] = text.split('<')
+  const num = (v: string | undefined) => (v === undefined || v.trim() === '' || !Number.isFinite(Number(v)) ? null : Number(v))
+  const length = num(l)
+  return { length: length !== null && length > 0 ? length / 100 : null, angle: num(a) }
+}
+
+/** Where a wall typed in goes: the length (or as far as the cursor) in the angle typed (or towards the cursor). */
+export function typedPoint(from: XY, cursor: XY, text: string): XY | null {
+  const { length, angle } = readTyped(text)
+  if (angle === null) return length === null ? null : atLength(from, cursor, length)
+  const r = (angle * Math.PI) / 180
+  const dir: XY = [Math.cos(r), Math.sin(r)]
+  const l = length ?? Math.max(0, (cursor[0] - from[0]) * dir[0] + (cursor[1] - from[1]) * dir[1])
+  return l > 0 ? [from[0] + dir[0] * l, from[1] + dir[1] * l] : null
+}
+
 /** The point at `length` from `from` in the direction of `toward` (a length typed while drawing). */
 export function atLength(from: XY, toward: XY, length: number): XY | null {
   const d = dist(from, toward)

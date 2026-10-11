@@ -10,11 +10,13 @@ import { cn } from '@/lib/utils'
 import {
   allSides, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
   WALL_DEFAULTS, wallLength, wallsAt,
-  type Floor, type Opening, type OpeningKind, type Sketch as Sketch_, type WallKind,
+  removeWalls, takePiece,
+  type Floor, type Opening, type OpeningKind, type Piece, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
 import { dist, type XY } from '@/plan/vec'
 import { getRoomTypes, underlayUrl, uploadUnderlay } from '@/api'
-import { Canvas, type Selection, type Tool } from './Canvas'
+import { Canvas, type Tool } from './Canvas'
+import { wallsSelection, type Selection } from './selection'
 import { areaText } from './format'
 import { openPdf, type Pdf } from './pdf'
 import { calibrate, levelUnderlay, placeUnderlay, rotateUnderlay } from './underlay'
@@ -98,6 +100,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const [openingWidth, setOpeningWidth] = useState<Record<OpeningKind, number>>(
     () => Object.fromEntries(Object.entries(OPENING_DEFAULTS).map(([k, v]) => [k, v.width])) as Record<OpeningKind, number>)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // the piece copied last: kept here, so it can be put on another floor
+  const [clipboard, setClipboard] = useState<Piece | null>(null)
   // on a phone the properties are a sheet over the plan's bottom, opened when wanted
   const [sheet, setSheet] = useState(false)
   // two points picked on the picture: its scale waits for their distance
@@ -114,7 +118,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const wallProps = { ...WALL_DEFAULTS[kind], thickness: thickness[kind] }
 
   // what was selected may be gone after undo or another edit
-  const sel = selection && (
+  const sel = selection?.kind === 'group' ? wallsSelection(selection.walls.filter(id => id in floor.walls)) : selection && (
     (selection.kind === 'wall' && selection.id in floor.walls) || (selection.kind === 'node' && selection.id in floor.nodes)
     || (selection.kind === 'opening' && selection.id in floor.openings)
     || (selection.kind === 'room' && rooms.some(r => r.key === selection.key))) ? selection : null
@@ -143,7 +147,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
         openingProps={{ kind: opening, width: openingWidth[opening] }}
         onCommit={commit} fitSignal={fitSignal} bad={bad}
         underlayUrl={floor.underlay ? underlayUrl(drawing, floor.underlay.image) : null}
-        onCalibrate={(a, b) => setCal([a, b])} />
+        onCalibrate={(a, b) => setCal([a, b])} clipboard={clipboard} onCopy={setClipboard} />
 
       <div className={cn(floatClass, 'absolute top-2 left-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1 rounded-lg p-1')}>
         {TOOLS.map(t => (
@@ -209,7 +213,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
         'max-md:inset-x-2 max-md:bottom-20 max-md:max-h-[45vh] max-md:overflow-y-auto', !sheet && 'max-md:hidden')}>
       <BuildCard drawing={drawing} st={st} />
       <aside className={cn(floatClass, 'space-y-3 rounded-lg p-3')} aria-label="Свойства" data-testid="sketch-inspector">
-        {sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
+        {sel?.kind === 'group' ? <GroupPanel floor={floor} walls={sel.walls} onCommit={commit} onCopy={setClipboard} onDone={() => setSelection(null)} />
+          : sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'wall' ? <WallPanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'node' ? <NodePanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
             : sel?.kind === 'room' ? <RoomPanel floor={floor} roomKey={sel.key} rooms={rooms} onCommit={commit} onKey={key => setSelection({ kind: 'room', key })} />
@@ -530,5 +535,35 @@ function DegField({ value, onApply }: { value: number; onApply: (deg: number) =>
         onChange={e => setText(e.target.value)} onBlur={apply} onKeyDown={e => { if (e.key === 'Enter') { apply(); e.currentTarget.blur() } }} />
       <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">°</span>
     </div>
+  )
+}
+
+/** Several walls picked: how many, their thickness and kind all at once, copied, taken away. */
+function GroupPanel({ floor, walls, onCommit, onCopy, onDone }: {
+  floor: Floor; walls: string[]; onCommit: (f: Floor) => void; onCopy: (p: Piece) => void; onDone: () => void
+}) {
+  const openings = Object.values(floor.openings).filter(o => walls.includes(o.wall)).length
+  const thick = [...new Set(walls.map(id => floor.walls[id].thickness))]
+  const kinds = [...new Set(walls.map(id => floor.walls[id].kind))]
+  const all = (patch: Parameters<typeof setWall>[2]) => onCommit(walls.reduce((f, id) => setWall(f, id, patch), floor))
+  return (
+    <>
+      <h2 className="text-sm font-semibold" data-testid="group-title">Выбрано стен: {walls.length}{openings ? `, проёмов в них: ${openings}` : ''}</h2>
+      <Row label="Толщина"><CmField value={thick.length === 1 ? thick[0] : null} placeholder="разная" testid="group-thickness"
+        onApply={v => v && all({ thickness: v })} /></Row>
+      <Row label="Вид">
+        <Select value={kinds.length === 1 ? kinds[0] : ''} onChange={e => e.target.value && all({ kind: e.target.value as WallKind })} data-testid="group-kind">
+          {kinds.length > 1 && <option value="">разные</option>}
+          {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </Select>
+      </Row>
+      <p className="text-xs text-muted-foreground">Перетащите любую из выбранных стен, чтобы сдвинуть все; стрелки — на 1 см, с Shift — на 10. Ctrl+C и Ctrl+V — копия под курсор, в том числе на другой этаж; Ctrl+D — копия рядом, справа.</p>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" hint="Запомнить эти стены с их проёмами и названиями помещений, чтобы вставить (Ctrl+V); Ctrl+C делает то же"
+          onClick={() => { const p = takePiece(floor, walls); if (p) onCopy(p) }}>Копировать</Button>
+        <Button size="sm" variant="outline" hint="Убрать выбранные стены с их проёмами; Delete делает то же, Ctrl+Z вернёт"
+          onClick={() => { onCommit(removeWalls(floor, walls)); onDone() }}><Trash2 className="size-4" />Удалить</Button>
+      </div>
+    </>
   )
 }

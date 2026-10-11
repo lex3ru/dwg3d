@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { addChain, addOpening, addWall, emptyFloor, outlines, WALL_DEFAULTS } from '../plan/index.ts'
-import { atLength, facesFloor, openingSpot, snap } from './snap.ts'
+import { atLength, facesFloor, openingSpot, readTyped, snap, typedPoint } from './snap.ts'
 import { clearances, openingShape } from './symbols.ts'
 import { fitView, gridSteps, toPlan, toScreen, zoomAt } from './view.ts'
 
@@ -178,5 +178,25 @@ describe('snapping to faces', () => {
   test('the line drawn so far is snapped to as well', () => {
     const s = snap(facesFloor(box, outlines(box), [[1, 1]]), [1.03, 1.02], { tol })
     assert.deepEqual(s.p, [1, 1])
+  })
+})
+
+describe('typing a wall', () => {
+  const near2 = (p: [number, number] | null, q: [number, number]) => assert.ok(p && Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9, String(p))
+
+  test('a length, a length and an angle, an angle alone', () => {
+    assert.deepEqual(readTyped('300'), { length: 3, angle: null })
+    assert.deepEqual(readTyped('300<45'), { length: 3, angle: 45 })
+    assert.deepEqual(readTyped('<90'), { length: null, angle: 90 })
+    assert.deepEqual(readTyped('<'), { length: null, angle: null })
+  })
+
+  test('a length goes towards the cursor; an angle sets the way, counter-clockwise from the right', () => {
+    near2(typedPoint([0, 0], [10, 0], '300'), [3, 0])
+    near2(typedPoint([0, 0], [10, 0], '200<90'), [0, 2])
+    near2(typedPoint([1, 1], [0, 0], '100<180'), [0, 1])
+    // an angle alone: as far along it as the cursor is
+    near2(typedPoint([0, 0], [3, 4], '<0'), [3, 0])
+    assert.equal(typedPoint([0, 0], [3, 4], '<180'), null)          // the cursor is behind: nowhere to go
   })
 })

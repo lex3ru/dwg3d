@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { checkFloor } from './check.ts'
 import { offsetPolyline, wallsFromFaces } from './faces.ts'
+import { moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox } from './clip.ts'
 import { addChain, addWall, bearingOnly, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
 import { emptyFloor, emptySketch, parseSketch, WALL_DEFAULTS, type Floor } from './model.ts'
 import { addOpening, fitOpening, moveOpening, openingRect, setOpening } from './openings.ts'
@@ -92,6 +93,51 @@ describe('wall graph', () => {
     removeWall(f, Object.keys(f.walls)[0])
     moveNode(f, Object.keys(f.nodes)[0], [9, 9])
     assert.equal(JSON.stringify(f), before)
+  })
+})
+
+describe('pieces of a plan', () => {
+  // a 4 × 3 room with a door and a name
+  const room = () => {
+    let f = box(4, 3)
+    const bottom = Object.keys(f.walls).find(id => f.nodes[f.walls[id].a][1] === 0 && f.nodes[f.walls[id].b][1] === 0)!
+    f = addOpening(f, bottom, 2, 'door')!.floor
+    return labelRoom(f, findRooms(f)[0], { name: 'Кухня', number: '1' }).floor
+  }
+
+  test('a room copied beside itself: its walls, its door and its name come along', () => {
+    const f = room()
+    const piece = takePiece(f, Object.keys(f.walls))!
+    assert.equal(piece.walls.length, 4)
+    assert.equal(piece.openings.length, 1)
+    assert.deepEqual(piece.rooms.map(r => r.name), ['Кухня'])
+    const r = putPiece(f, piece, [2 + 6, 1.5])                     // 6 m to the right
+    const rooms = findRooms(r.floor)
+    assert.equal(rooms.length, 2)
+    assert.deepEqual(rooms.map(x => x.label?.name).sort(), ['Кухня', 'Кухня'])
+    assert.equal(Object.keys(r.floor.openings).length, 2)
+    assert.equal(r.walls.length, 4)
+  })
+
+  test('put against the original it joins it: the shared wall is one wall', () => {
+    const f = room()
+    const r = putPiece(f, takePiece(f, Object.keys(f.walls))!, [2 + 4, 1.5])   // its left wall on the right one
+    const rooms = findRooms(r.floor)
+    assert.equal(rooms.length, 2)
+    assert.equal(Object.keys(r.floor.walls).length, 7)
+    assert.deepEqual(checkFloor(r.floor), [])
+  })
+
+  test('walls in a box, moved together and taken away', () => {
+    const f = addChain(room(), [[6, 0], [8, 0]], P).floor
+    const inBox = wallsInBox(f, [-1, -1, 5, 4])
+    assert.equal(inBox.length, 4)
+    const moved = moveNodes(f, nodesOf(f, inBox), [1, 1])
+    near(findRooms(moved)[0].area, 3.9 * 2.9)
+    assert.ok(Object.values(moved.nodes).some(p => p[0] === 5 && p[1] === 4))
+    const gone = removeWalls(f, inBox)
+    assert.deepEqual(count(gone), [2, 1])
+    assert.deepEqual(gone.openings, {})
   })
 })
 

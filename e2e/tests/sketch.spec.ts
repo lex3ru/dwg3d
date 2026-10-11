@@ -4,7 +4,7 @@ import { signIn } from './helpers'
 // A plan drawn from scratch (docs/TZ.md): the building's administrator draws walls, a partition and a door in
 // the 2D editor, names a room; the plan is kept on the server as one draws, built into the building's floors and
 // rooms, carried up to a new floor; a save made in another window is not overwritten; a picture goes under it,
-// and a page of a PDF; a room is drawn by its inner faces.
+// and a page of a PDF; a room is drawn by its inner faces, picked by a box and duplicated; a wall is typed.
 
 // a 1 × 1 PNG
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex')
@@ -132,6 +132,35 @@ test('a plan drawn from scratch becomes the building', async ({ page }) => {
   await page.getByTestId('sketch-draw-by').selectOption('faces')
   for (const [x, y] of [[-5, -2], [-1, -2], [-1, 1], [-5, 1], [-5, -2]]) await click(page, x, y)
   await expect(summary).toHaveText('Стен: 4 · помещений: 1 · 12,00 м²')
+
+  // the room's walls picked by a box and duplicated beside it: one more room
+  await page.getByTestId('sketch-tool-select').click()
+  await page.keyboard.press('f')                                   // the whole floor in view, with room round it
+  // from the bottom left (the toolbar is over the top left of the plan) to the top right
+  const [bx0, by0] = await at(page, -5.35, -2.35), [bx1, by1] = await at(page, -0.65, 1.35)
+  await page.mouse.move(bx0, by0)
+  await page.mouse.down()
+  await page.mouse.move(bx1, by1, { steps: 5 })
+  await page.mouse.up()
+  await expect(page.getByTestId('group-title')).toHaveText('Выбрано стен: 4')
+  await page.keyboard.press('Control+d')
+  await expect(page.getByTestId('group-title')).toHaveText('Выбрано стен: 4')     // the copy, now picked
+  await page.keyboard.press('Escape')
+  await expect(summary).toHaveText('Стен: 8 · помещений: 2 · 24,00 м²')
+
+  // a wall typed by its length and its angle: 150 cm straight up
+  await page.getByTestId('sketch-tool-wall').click()
+  await page.getByTestId('sketch-draw-by').selectOption('axis')
+  await click(page, -4.5, -1.5)                                    // inside the first room, in view
+  const [ux, uy] = await at(page, -3.5, -1.5)
+  await page.mouse.move(ux, uy)
+  await page.keyboard.type('150')
+  await page.keyboard.press('Comma')
+  await page.keyboard.type('90')
+  await expect(page.locator('[data-testid=sketch-canvas] .len')).toHaveText('150 см ∠90° ⏎')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+  await expect(summary).toHaveText(/^Стен: 9 /)
   await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
 })
 
