@@ -353,3 +353,17 @@ def test_columns_and_stairs(tmp_path):
     assert len(msp.query('LWPOLYLINE[layer=="Колонны"]')) == 1
     # the flight: its outline, 14 lines between 15 treads, the arrow's line and its two barbs
     assert len(msp.query('LWPOLYLINE[layer=="Лестницы"]')) == 1 and len(msp.query('LINE[layer=="Лестницы"]')) == 14 + 3
+
+
+def test_the_roof_leaves_a_terrace_in_low_walls_open():
+    # a 4 × 3 room and, east of it, a 2 × 3 terrace in walls 1 m high
+    s = two_rooms()
+    f = s["floors"][0]
+    f["nodes"].update(g=[6, 0], h=[6, 3])
+    f["walls"].update(t1=wall("b", "g"), t2=wall("g", "h"), t3=wall("h", "c"))
+    for k in ("t1", "t2", "t3"):
+        f["walls"][k]["height"] = 1.0
+    plan = plan_of(read_sketch(s)["floors"][0], load_config({}))
+    assert len(plan.rooms) == 3                                      # the terrace is a room on the plan
+    assert abs(plan.roof_footprint.area - 4.25 * 3.25) < 0.01        # the roof only over the walls up to the ceiling
+    assert plan.footprint.area > plan.roof_footprint.area + 5

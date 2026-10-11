@@ -384,6 +384,19 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
     plan.openings, plan.rooms, plan.footprint = openings, rooms, footprint
     plan.stairs = [stair_of(st, f["height"]) for st in f["stairs"].values()]
     plan.full_footprint = footprint                                    # the slab may get openings: the roof does not
+    # the roof covers what the walls up to the ceiling close: a terrace in low walls stays open
+    if low:
+        # joined among themselves only, the walls up to the ceiling keep their corners whole where low walls meet them
+        tall = {i: w for i, w in f["walls"].items() if i not in low}
+        tall_lines = outlines({**f, "walls": tall})
+        tall_bodies = []
+        for i, w in tall.items():
+            o = tall_lines[i]
+            tall_bodies.append(_poly([f["nodes"][w["a"]], o["a_minus"], o["b_minus"], f["nodes"][w["b"]],
+                                      o["b_plus"], o["a_plus"]]))
+        plan.roof_footprint = _mp([Polygon(p.exterior) for p in _polys(_mp(tall_bodies))])
+    else:
+        plan.roof_footprint = footprint
     kinds: dict[str, int] = {}
     for o in openings:
         kinds[o.kind] = kinds.get(o.kind, 0) + 1
@@ -514,7 +527,7 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
     entrances = find_entrances(floors, plans, cfg, center)
     roof_node = None
     if cfg["building"].get("roof", True):
-        n = sb.roof(getattr(plans[-1], "full_footprint", plans[-1].footprint), floors[-1].elevation + floors[-1].height)
+        n = sb.roof(getattr(plans[-1], "roof_footprint", plans[-1].footprint), floors[-1].elevation + floors[-1].height)
         if n is not None:
             roof_node = "roof"
             roots.append(n)

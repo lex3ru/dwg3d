@@ -91,7 +91,7 @@ def export_sketch_ifc(path: Path, floors, plans: list[FloorPlan], cfg: dict, cen
         f, plan = floors[-1], plans[-1]
         st = ifc.storey("Кровля", f.elevation + f.height)
         z = f.elevation + f.height
-        ifc.element("IfcSlab", "Кровля", ifc.solids(getattr(plan, "full_footprint", plan.footprint), z - slab_t, z), st,
+        ifc.element("IfcSlab", "Кровля", ifc.solids(getattr(plan, "roof_footprint", plan.footprint), z - slab_t, z), st,
                     "ROOF")
     ifc.finish()
     ifc.f.write(str(path))
