@@ -58,6 +58,20 @@
         "title": "Body_upload_file_api_import_v1_drawings__drawing_id__files_post",
         "type": "object"
       },
+      "Body_upload_underlay_api_import_v1_drawings__drawing_id__underlays_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_underlay_api_import_v1_drawings__drawing_id__underlays_post",
+        "type": "object"
+      },
       "DrawingPatch": {
         "properties": {
           "name": {
@@ -943,6 +957,106 @@
           }
         },
         "summary": "Сохранить нарисованный план; правки поверх чужого сохранения — 409 conflict",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/drawings/{drawing_id}/underlays": {
+      "post": {
+        "operationId": "upload_underlay_api_import_v1_drawings__drawing_id__underlays_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_underlay_api_import_v1_drawings__drawing_id__underlays_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upload Underlay Api Import V1 Drawings  Drawing Id  Underlays Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Картинка-подложка нарисованного плана (PNG, JPEG, WebP до 20 МБ); в план её вписывает редактор",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/drawings/{drawing_id}/underlays/{name}": {
+      "get": {
+        "operationId": "get_underlay_api_import_v1_drawings__drawing_id__underlays__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Картинка-подложка нарисованного плана",
         "tags": [
           "sketches"
         ]

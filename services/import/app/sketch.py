@@ -3,7 +3,8 @@
 A sketch (frontend/src/plan/model.ts) is a graph of walls: nodes, walls as the
 centre line between two nodes with a thickness, openings placed on a wall by
 the distance of their centre from its node `a`, and room labels by a point.
-Its build gives what a DWG build gives (app/dwg/pipeline.py) — floors with
+A floor may have a picture under it to draw over (`underlay`); the build
+ignores it. Its build gives what a DWG build gives (app/dwg/pipeline.py) — floors with
 rooms, plans/floor_<id>.json, model.glb, IFC and OBJ — so the buildings
 service takes it the same way. The 3D model, room types, entrances and the
 exports are the pipeline's own; only the plan comes from the sketch instead of
@@ -108,6 +109,15 @@ def _floor(v, path: str) -> dict:
             "number": _str(x.get("number"), f"{p}.number", 40),
             "type": None if x.get("type") is None else _str(x.get("type"), f"{p}.type", 60)}),
     }
+    if o.get("underlay") is not None:
+        u, p = _obj(o["underlay"], f"{path}.underlay"), f"{path}.underlay"
+        f["underlay"] = {
+            "image": _str(u.get("image"), f"{p}.image", 64), "at": _xy(u.get("at"), f"{p}.at"),
+            "scale": _num(u.get("scale"), f"{p}.scale", 1e-6), "width": _num(u.get("width"), f"{p}.width", 1),
+            "height": _num(u.get("height"), f"{p}.height", 1), "opacity": _num(u.get("opacity"), f"{p}.opacity", 0),
+            "hidden": u.get("hidden") is True}
+    else:
+        f["underlay"] = None
     for wid, w in f["walls"].items():
         if w["a"] not in f["nodes"] or w["b"] not in f["nodes"]:
             _fail(f"{path}.walls.{wid}", "конец стены ссылается на несуществующий узел")

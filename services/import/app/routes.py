@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -265,6 +266,59 @@ async def save_sketch(drawing_id: UUID, body: SketchSave, request: Request,
         await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(
             sketch=sketch, sketch_version=d.sketch_version + 1, updated_at=func.now()))
         return {"version": d.sketch_version + 1}
+
+
+# a picture of a plan to draw over, kept with the drawn plan
+UNDERLAY_MAX = 20 * 1024 * 1024
+UNDERLAY_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
+UNDERLAY_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|webp)$")
+
+
+def _image_kind(head: bytes) -> str | None:
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+@router.post("/drawings/{drawing_id}/underlays", status_code=201, tags=["sketches"],
+             summary="Картинка-подложка нарисованного плана (PNG, JPEG, WebP до 20 МБ); в план её вписывает редактор")
+async def upload_underlay(drawing_id: UUID, request: Request, file: UploadFile = File(...),
+                          _: Identity = Depends(manages_drawing)) -> dict:
+    async with request.app.state.db.begin() as session:
+        _sketch_only(await _drawing(session, drawing_id))
+    data = await file.read(UNDERLAY_MAX + 1)
+    if len(data) > UNDERLAY_MAX:
+        raise Problem(413, "too_large", "Картинка больше 20 МБ", title="Файл слишком большой")
+    kind = _image_kind(data[:16])
+    if kind is None:
+        raise Problem(422, "invalid", "Подложкой может быть картинка PNG, JPEG или WebP",
+                      errors=[{"field": "file", "message": "Нужна картинка PNG, JPEG или WebP"}])
+    name = f"{uuid7().hex}.{kind}"
+    await asyncio.to_thread(storage.bucket().put_bytes, storage.underlay_key(drawing_id, name), data,
+                            UNDERLAY_TYPES[kind])
+    return {"id": name, "size": len(data)}
+
+
+@router.get("/drawings/{drawing_id}/underlays/{name}", tags=["sketches"], response_class=StreamingResponse,
+            summary="Картинка-подложка нарисованного плана")
+async def get_underlay(drawing_id: UUID, name: str, request: Request,
+                       me: Identity = Depends(reads_drawing)) -> StreamingResponse:
+    _no_guest(me)
+    if not UNDERLAY_NAME.match(name):
+        raise Problem(404, "not_found", "Файл не найден")
+    async with request.app.state.db.begin() as session:
+        _sketch_only(await _drawing(session, drawing_id))
+    key = storage.underlay_key(drawing_id, name)
+    size = await asyncio.to_thread(storage.bucket().size, key)
+    if size is None:
+        raise Problem(404, "not_found", "Файл не найден")
+    headers = {"Content-Length": str(size), "Cache-Control": "private, max-age=31536000, immutable"}
+    return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)),
+                             media_type=UNDERLAY_TYPES[name.rsplit(".", 1)[1]], headers=headers)
 
 
 # ------------------------------------------------------------------- config ---

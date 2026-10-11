@@ -1,6 +1,7 @@
 """Where the files are: the service's bucket, and working copies for the pipeline.
 
   drawings/<drawing>/files/<file>/<name>  an uploaded DWG/DXF
+  drawings/<drawing>/underlays/<name>     a picture a plan is drawn over (a drawn plan)
   builds/<build>/model.glb, plans/floor_<id>.json, model.ifc, model_obj.zip, <stem>.dxf
   exports/<drawing>/<key>/edited.dxf|dwg  the drawing with corrections drawn in
 
@@ -43,6 +44,10 @@ def workdir(drawing_id) -> Path:
 
 def file_key(drawing_id, file_id, filename: str) -> str:
     return f"drawings/{drawing_id}/files/{file_id}/{filename}"
+
+
+def underlay_key(drawing_id, name: str) -> str:
+    return f"drawings/{drawing_id}/underlays/{name}"
 
 
 def build_prefix(build_id) -> str:

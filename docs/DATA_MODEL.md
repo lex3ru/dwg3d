@@ -221,7 +221,7 @@
 | building_id | uuid | → buildings |
 | name | text | |
 | kind | text | `file` — загруженный DWG/DXF \| `sketch` — план, нарисованный в 2D-редакторе |
-| sketch | jsonb null | нарисованный план целиком (`frontend/src/plan/model.ts`): этажи, узлы, стены, проёмы, подписи помещений |
+| sketch | jsonb null | нарисованный план целиком (`frontend/src/plan/model.ts`): этажи, узлы, стены, проёмы, подписи помещений, подложка этажа (имя картинки, положение, масштаб) |
 | sketch_version | integer | номер сохранения плана: правка поверх чужого сохранения отклоняется |
 | config | jsonb | настройки разбора |
 | edits | jsonb | правки 2D-редактора |

@@ -31,6 +31,7 @@
 | `DELETE /drawings/{id}` | удалить чертёж |
 | `POST /sketches` | `building_id` → нарисованный план (пустой лист); сборки нет, пока её не попросят |
 | `GET /drawings/{id}/sketch` | нарисованный план и номер его сохранения (`version`) |
+| `POST /drawings/{id}/underlays`, `GET …/underlays/{name}` | картинка-подложка нарисованного плана: PNG, JPEG или WebP до 20 МБ (узнаётся по содержимому); в план её вписывает редактор, сборка её не читает |
 | `PUT /drawings/{id}/sketch` | `{sketch, version}` → сохранить; если план успели сохранить после `version` — `409 conflict` с текущим номером |
 | `GET /drawings/{id}/config`, `GET /config/default` | настройки разбора и правки 2D-редактора (`config.edits`) |
 | `POST /drawings/{id}/builds` | пересобрать, при необходимости изменив настройки и правки; нарисованный план — как он сохранён сейчас |

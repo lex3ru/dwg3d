@@ -1,5 +1,5 @@
-import { BrickWall, DoorOpen, FlipHorizontal2, FlipVertical2, Maximize2, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { BrickWall, DoorOpen, Eye, EyeOff, FlipHorizontal2, FlipVertical2, ImagePlus, Maximize2, Move, Ruler, MousePointer2, Plus, Redo2, Trash2, Undo2, type LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
 import { Input } from '@/components/ui/input'
@@ -10,9 +10,11 @@ import {
   WALL_DEFAULTS, wallLength, wallsAt,
   type Floor, type Opening, type OpeningKind, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
-import { dist } from '@/plan/vec'
+import { dist, type XY } from '@/plan/vec'
+import { underlayUrl, uploadUnderlay } from '@/api'
 import { Canvas, type Selection, type Tool } from './Canvas'
 import { areaText } from './format'
+import { calibrate, placeUnderlay } from './underlay'
 import { BuildCard } from './BuildCard'
 import { useSketch, type SketchState } from './state'
 
@@ -92,6 +94,10 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const [openingWidth, setOpeningWidth] = useState<Record<OpeningKind, number>>(
     () => Object.fromEntries(Object.entries(OPENING_DEFAULTS).map(([k, v]) => [k, v.width])) as Record<OpeningKind, number>)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // two points picked on the picture: its scale waits for their distance
+  const [cal, setCal] = useState<[XY, XY] | null>(null)
+  const [lastTool, setLastTool] = useState(tool)
+  if (tool !== lastTool) { setLastTool(tool); setCal(null) }
   const [fitSignal, setFitSignal] = useState(0)
 
   const issues = useMemo(() => checkFloor(floor), [floor])
@@ -129,7 +135,9 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
     <div className="relative h-full w-full" data-testid="sketch">
       <Canvas floor={floor} below={below} tool={tool} wallProps={wallProps} selection={sel} onSelect={setSelection}
         openingProps={{ kind: opening, width: openingWidth[opening] }}
-        onCommit={commit} fitSignal={fitSignal} bad={bad} />
+        onCommit={commit} fitSignal={fitSignal} bad={bad}
+        underlayUrl={floor.underlay ? underlayUrl(drawing, floor.underlay.image) : null}
+        onCalibrate={(a, b) => setCal([a, b])} />
 
       <div className={cn(floatClass, 'absolute top-2 left-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1 rounded-lg p-1')}>
         {TOOLS.map(t => (
@@ -203,6 +211,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
                       ))}
                     </ul>
                   )}
+                  <UnderlayPanel floor={floor} drawing={drawing} onCommit={commit} tool={tool}
+                    setTool={t => { setTool(t); setSelection(null) }} cal={cal} />
                   {floors.length > 1 && (
                     <Button size="sm" variant="outline" hint="Убрать этот этаж из плана; Ctrl+Z вернёт"
                       onClick={() => { st.removeFloor(floor.id); setSelection(null) }}>Удалить этаж</Button>
@@ -321,5 +331,93 @@ function OpeningPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: strin
         <Trash2 className="size-4" />Удалить проём
       </Button>
     </>
+  )
+}
+
+/** The picture under the floor: putting one in, its scale by two points, its place, how much it shows. */
+function UnderlayPanel({ floor, drawing, onCommit, tool, setTool, cal }: {
+  floor: Floor; drawing: string; onCommit: (f: Floor) => void; tool: Tool; setTool: (t: Tool) => void; cal: [XY, XY] | null
+}) {
+  const u = floor.underlay ?? null
+  const picker = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [opacity, setOpacity] = useState(u?.opacity ?? 0.5)
+  const [was, setWas] = useState(u?.opacity)
+  if (u?.opacity !== was) { setWas(u?.opacity); setOpacity(u?.opacity ?? 0.5) }
+
+  const put = async (file: File) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const { id } = await uploadUnderlay(drawing, file)
+      const img = new Image()
+      img.src = underlayUrl(drawing, id)
+      await img.decode()
+      const ps = Object.values(floor.nodes)
+      const walls: [number, number, number, number] | null = ps.length
+        ? [Math.min(...ps.map(p => p[0])), Math.min(...ps.map(p => p[1])), Math.max(...ps.map(p => p[0])), Math.max(...ps.map(p => p[1]))] : null
+      onCommit({ ...floor, underlay: placeUnderlay(id, img.naturalWidth, img.naturalHeight, walls) })
+      setTool('calibrate')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Картинку не удалось загрузить')
+    } finally {
+      setBusy(false)
+      if (picker.current) picker.current.value = ''
+    }
+  }
+  const set = (patch: Partial<NonNullable<typeof u>>) => u && onCommit({ ...floor, underlay: { ...u, ...patch } })
+
+  return (
+    <div className="space-y-2 border-t pt-3" data-testid="sketch-underlay-panel">
+      <h3 className="text-sm font-semibold">Подложка</h3>
+      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" data-testid="underlay-file"
+        onChange={e => { const f = e.target.files?.[0]; if (f) void put(f) }} />
+      {!u ? (
+        <>
+          <p className="text-xs text-muted-foreground">Картинка плана — скан, фото, план из объявления, — по которой удобно обводить стены.</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => picker.current?.click()}
+            hint="Положить под этаж картинку PNG, JPEG или WebP до 20 МБ; затем задать её масштаб по двум точкам">
+            <ImagePlus className="size-4" />{busy ? 'Загружается…' : 'Загрузить картинку'}
+          </Button>
+        </>
+      ) : (
+        <>
+          {tool === 'calibrate' && !cal && (
+            <p className="text-xs text-foreground" data-testid="underlay-calibrate-hint">Щёлкните на картинке два конца отрезка известной длины.</p>
+          )}
+          {cal && (
+            <Row label="Длина отрезка">
+              <CmField value={null} placeholder={`сейчас ${Math.round(dist(cal[0], cal[1]) * 100)}`} min={1} testid="underlay-length"
+                onApply={v => { if (v) { onCommit({ ...floor, underlay: calibrate(u, cal[0], cal[1], v) }); setTool('select') } }} />
+            </Row>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant={tool === 'calibrate' ? 'default' : 'outline'} onClick={() => setTool(tool === 'calibrate' ? 'select' : 'calibrate')}
+              hint="Задать масштаб картинки: щёлкнуть два конца отрезка, длина которого известна, и ввести её" data-testid="underlay-calibrate">
+              <Ruler className="size-4" />Масштаб
+            </Button>
+            <Button size="sm" variant={tool === 'underlay' ? 'default' : 'outline'} onClick={() => setTool(tool === 'underlay' ? 'select' : 'underlay')}
+              hint="Перетаскивать картинку мышью, чтобы совместить её со стенами" data-testid="underlay-move">
+              <Move className="size-4" />Двигать
+            </Button>
+            <Button size="icon-sm" variant="ghost" aria-label={u.hidden ? 'Показать подложку' : 'Скрыть подложку'} onClick={() => set({ hidden: !u.hidden })}
+              hint={u.hidden ? 'Показать картинку под планом' : 'Спрятать картинку, не убирая её'}>
+              {u.hidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+            </Button>
+            <Button size="icon-sm" variant="ghost" aria-label="Убрать подложку" onClick={() => { onCommit({ ...floor, underlay: null }); setTool('select') }}
+              hint="Убрать картинку из-под этажа; Ctrl+Z вернёт">
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+          <Row label="Прозрачность">
+            <input type="range" min={0.1} max={1} step={0.05} value={opacity} aria-label="Насколько видна подложка" data-testid="underlay-opacity"
+              onChange={e => setOpacity(Number(e.target.value))}
+              onPointerUp={() => opacity !== u.opacity && set({ opacity })} onKeyUp={() => opacity !== u.opacity && set({ opacity })} />
+          </Row>
+        </>
+      )}
+      {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
+    </div>
   )
 }

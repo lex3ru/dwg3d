@@ -233,6 +233,7 @@
 | `POST /drawings/{id}/files` | новый файл чертежа (будущая ревизия) | manage |
 | `DELETE /drawings/{id}` | удалить чертёж | manage |
 | `POST /sketches` | `building_id` → нарисованный план: пустой лист 2D-редактора | manage здания |
+| `POST /drawings/{id}/underlays`, `GET /drawings/{id}/underlays/{name}` | картинка-подложка нарисованного плана (PNG, JPEG, WebP до 20 МБ) | запись — manage; чтение — кто видит план |
 | `GET` / `PUT /drawings/{id}/sketch` | нарисованный план и номер сохранения; сохранение поверх чужого — `409 conflict` с текущим номером | чтение — кто видит план; запись — manage |
 | `GET` / `PUT /drawings/{id}/config` | настройки разбора | manage |
 | `GET` / `PUT /drawings/{id}/edits` | правки 2D-редактора | manage |

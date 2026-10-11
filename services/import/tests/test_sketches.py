@@ -151,3 +151,46 @@ async def test_who_may_draw(client, tokens, grants):
     grants["boss"] = [{"role": "admin", "scope": {"kind": "building", "id": BUILDING}, "building_id": BUILDING}]
     boss = tokens.bearer("boss")
     assert (await client.put(f"{API}/drawings/{d['id']}/sketch", json=body, headers=boss)).status_code == 200
+
+
+# a 1 × 1 PNG
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                    "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+
+
+async def test_a_picture_to_draw_over(client, worker, tokens):
+    admin = tokens.admin()
+    d = await new_sketch(client, tokens)
+    url = f"{API}/drawings/{d['id']}/underlays"
+    r = await client.post(url, files={"file": ("plan.png", PNG, "image/png")}, headers=admin)
+    assert r.status_code == 201, r.text
+    name = r.json()["id"]
+    assert name.endswith(".png")
+    got = await client.get(f"{url}/{name}", headers=admin)
+    assert got.status_code == 200 and got.content == PNG and got.headers["content-type"] == "image/png"
+    assert (await client.get(f"{url}/x.png", headers=admin)).status_code == 404
+    assert (await client.get(f"{url}/{'0' * 32}.png", headers=admin)).status_code == 404
+
+    # what is not a picture is refused, whatever its name says
+    r = await client.post(url, files={"file": ("plan.png", b"%PDF-1.7 ...", "image/png")}, headers=admin)
+    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "file"
+
+    # the plan keeps it on its floor; the build does not mind it
+    s = two_rooms()
+    s["floors"][0]["underlay"] = {"image": name, "at": [-1, -1], "scale": 0.01, "width": 600, "height": 400,
+                                  "opacity": 0.5, "hidden": False}
+    assert (await client.put(f"{API}/drawings/{d['id']}/sketch", json={"sketch": s, "version": 1},
+                             headers=admin)).status_code == 200
+    back = (await client.get(f"{API}/drawings/{d['id']}/sketch", headers=admin)).json()["sketch"]
+    assert back["floors"][0]["underlay"]["image"] == name
+    assert (await client.post(f"{API}/drawings/{d['id']}/builds", json={}, headers=admin)).status_code == 202
+    await worker.run_once()
+    assert (await client.get(f"{API}/drawings/{d['id']}", headers=admin)).json()["build"]["status"] == "done"
+
+
+async def test_only_a_drawn_plan_has_pictures(client, tokens, sample):
+    from .conftest import upload
+    d = (await upload(client, tokens, sample)).json()
+    r = await client.post(f"{API}/drawings/{d['id']}/underlays", files={"file": ("p.png", PNG, "image/png")},
+                          headers=tokens.admin())
+    assert r.status_code == 409 and r.json()["code"] == "not_sketch"

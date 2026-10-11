@@ -7,9 +7,11 @@ import { add, dist, dot, inRing, lerp, mul, perp, project, sub, unit } from '@/p
 import { areaText, cmText } from './format'
 import { atLength, openingSpot, snap, type OpeningSpot, type Snap } from './snap'
 import { clearances, openingShape } from './symbols'
+import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
 import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
 
-export type Tool = 'select' | 'wall' | 'opening'
+/** underlay: drag the picture under the plan; calibrate: pick two points on it to set its scale */
+export type Tool = 'select' | 'wall' | 'opening' | 'underlay' | 'calibrate'
 export type Selection = { kind: 'wall'; id: string } | { kind: 'node'; id: string } | { kind: 'room'; key: string } | { kind: 'opening'; id: string }
 
 const SNAP_PX = 10   // snap radius on screen
@@ -83,12 +85,13 @@ function along(a: XY, b: XY): number {
 type Drag =
   | { kind: 'pan'; start: XY; view: View; moved: boolean }
   | { kind: 'opening'; id: string; base: Floor; start: XY; moved: boolean }
+  | { kind: 'underlay'; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'node'; id: string; base: Floor; start: XY; moved: boolean }
   | { kind: 'wall'; id: string; base: Floor; start: XY; startPlan: XY; moved: boolean }
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad }: {
+export function Canvas({ floor, below, tool, wallProps, openingProps, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
@@ -104,6 +107,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   fitSignal: number
   /** walls and openings with problems (crossing, an opening off its wall, …): drawn red */
   bad: Set<string>
+  /** where the floor's picture is fetched from */
+  underlayUrl: string | null
+  /** two points picked on the picture with the «calibrate» tool */
+  onCalibrate: (a: XY, b: XY) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
   const svg = useRef<SVGSVGElement>(null)
@@ -117,6 +124,8 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   const [typed, setTyped] = useState('')
   // where a new opening would go
   const [spot, setSpot] = useState<OpeningSpot | null>(null)
+  // the points picked for the picture's scale
+  const [cal, setCal] = useState<XY[]>([])
   const [space, setSpace] = useState(false)
   const drag = useRef<Drag | null>(null)
 
@@ -154,7 +163,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
 
   // a tool change ends the wall being drawn
   const [lastTool, setLastTool] = useState(tool)
-  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null) }
+  if (tool !== lastTool) { setLastTool(tool); setChain(null); setTyped(''); setCursor(null); setSpot(null); setCal([]) }
 
   // ---------------------------------------------------------------- hits
   const hit = useCallback((p: XY): Selection | null => {
@@ -208,6 +217,17 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       }
       return
     }
+    if (tool === 'calibrate') {
+      const pts = cal.length >= 2 ? [plan] : [...cal, plan]
+      setCal(pts)
+      if (pts.length === 2) onCalibrate(pts[0], pts[1])
+      return
+    }
+    if (tool === 'underlay') {
+      if (floor.underlay && onUnderlay(floor.underlay, plan)) drag.current = { kind: 'underlay', base: floor, start: screen, startPlan: plan, moved: false }
+      else drag.current = { kind: 'pan', start: screen, view, moved: false }
+      return
+    }
     if (tool === 'opening') {
       const s = openingSpot(floor, plan, openingProps.width, tol, undefined, lines)
       const r = s && addOpening(floor, s.wall, s.at, openingProps.kind, { width: openingProps.width, side: s.side })
@@ -234,6 +254,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       const s = snap(d.base, plan, { tol, skip: [d.id], free: e.altKey })
       setCursor(s)
       setPreview(moveNode(d.base, d.id, s.p))
+      return
+    }
+    if (d?.kind === 'underlay' && d.moved && d.base.underlay) {
+      setPreview({ ...d.base, underlay: moveUnderlay(d.base.underlay, sub(plan, d.startPlan)) })
       return
     }
     if (d?.kind === 'opening' && d.moved) {
@@ -268,7 +292,7 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
       if (!(d.id in next.nodes)) onSelect(null)
       return
     }
-    if ((d.kind === 'wall' || d.kind === 'opening') && d.moved) {
+    if ((d.kind === 'wall' || d.kind === 'opening' || d.kind === 'underlay') && d.moved) {
       if (preview) onCommit(preview)
       setPreview(null)
       return
@@ -344,7 +368,13 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
   const selectedRoom: Room | undefined = selection?.kind === 'room' ? rooms.find(r => r.key === selection.key) : undefined
   const drawing = tool === 'wall' && chain && cursor
   const to = drawing ? (typed ? atLength(chain.from, cursor.p, Number(typed) / 100) ?? cursor.p : cursor.p) : null
-  const hint = tool === 'opening'
+  const hint = tool === 'calibrate'
+    ? cal.length === 1 ? 'Щёлкните второй конец отрезка, длина которого известна (размер на чертеже, стена)'
+      : cal.length === 2 ? 'Введите длину отрезка справа, в панели «Подложка»; щелчок на картинке начнёт отрезок заново'
+        : 'Щёлкните на картинке начало отрезка известной длины — например, размерную линию или стену'
+    : tool === 'underlay'
+    ? 'Перетащите картинку, чтобы совместить её с нарисованными стенами'
+    : tool === 'opening'
     ? 'Наведите на стену и щёлкните: проём встанет под курсором, зелёным — расстояния до углов; открывание — в сторону курсора'
     : tool === 'wall'
     ? chain
@@ -362,6 +392,10 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
         data-testid="sketch-canvas">
         <g>{grid.map((l, i) => <line key={i} {...l} className={l.cls} />)}</g>
         <g transform={planTransform(view, size)}>
+          {shown.underlay && !shown.underlay.hidden && underlayUrl && (
+            <image href={underlayUrl} width={shown.underlay.width} height={shown.underlay.height} preserveAspectRatio="none"
+              transform={underlayTransform(shown.underlay)} opacity={shown.underlay.opacity} data-testid="sketch-underlay" />
+          )}
           {belowLines && <g>{Object.values(belowLines).map((o, i) => <path key={i} className="below" d={polyPath([o.poly])} />)}</g>}
           {rooms.map(r => <path key={r.key} className={r === selectedRoom ? 'room sel' : 'room'} d={polyPath([r.contour, ...r.holes])} />)}
           {/* walls of a kind are one path: separate ones would show hairline seams where they meet */}
@@ -425,6 +459,15 @@ export function Canvas({ floor, below, tool, wallProps, openingProps, selection,
                 transform={`rotate(${along(S(a), S(b))} ${sx} ${sy})`}>{cmText(value)}</text>
             }
             return <g>{label(sd.from + left / 2, left)}{label(o.at + o.width / 2 + right / 2, right)}</g>
+          })()}
+          {cal.length > 0 && (() => {
+            const [a, b] = [S(cal[0]), cal[1] ? S(cal[1]) : null]
+            return (
+              <g pointerEvents="none">
+                {b && <line className="guide" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />}
+                {[a, b].filter(Boolean).map((p, i) => <circle key={i} className="mark node" cx={p![0]} cy={p![1]} r={6} />)}
+              </g>
+            )
           })()}
           {cursor?.guides.map(([p, q], i) => { const [a, b] = [S(p), S(q)]; return <line key={i} className="guide" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /> })}
           {drawing && to && (() => {

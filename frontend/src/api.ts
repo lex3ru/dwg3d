@@ -171,6 +171,10 @@ export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}
 export const createSketch = (building: string, name?: string) =>
   api<Drawing>(`${IMPORT}/sketches`, { method: 'POST', json: { building_id: building, name: name ?? '' } })
 export const getSketch = (drawing: string) => api<{ sketch: unknown; version: number }>(`${IMPORT}/drawings/${drawing}/sketch`)
+/** A picture to draw the plan over: stored with the drawn plan, its name goes into the floor's underlay. */
+export const uploadUnderlay = (drawing: string, file: File) =>
+  api<{ id: string; size: number }>(`${IMPORT}/drawings/${drawing}/underlays`, { method: 'POST', body: fileForm(file) })
+export const underlayUrl = (drawing: string, image: string) => `${IMPORT}/drawings/${drawing}/underlays/${image}`
 /** Saves over the save `version` the edits started from; another save made meanwhile — ApiError 409 «conflict». */
 export const saveSketch = (drawing: string, sketch: unknown, version: number) =>
   api<{ version: number }>(`${IMPORT}/drawings/${drawing}/sketch`, { method: 'PUT', json: { sketch, version } })

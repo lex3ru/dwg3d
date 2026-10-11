@@ -52,6 +52,20 @@ export interface RoomLabel {
   type: string | null
 }
 
+/** A picture of a plan under the floor to draw over: where its bottom-left corner lies and how many meters a pixel is. */
+export interface Underlay {
+  /** the picture's name in the drawing's store (import: /drawings/{id}/underlays/{image}) */
+  image: string
+  at: XY
+  /** meters per pixel */
+  scale: number
+  /** pixels */
+  width: number
+  height: number
+  opacity: number
+  hidden: boolean
+}
+
 export interface Floor {
   id: string
   name: string
@@ -63,6 +77,7 @@ export interface Floor {
   walls: Record<string, Wall>
   openings: Record<string, Opening>
   rooms: Record<string, RoomLabel>
+  underlay?: Underlay | null
 }
 
 export interface Sketch {
@@ -177,6 +192,14 @@ function readFloor(v: unknown, path: string): Floor {
         type: r.type === null ? null : str(r.type, `${p}.type`),
       }
     }),
+  }
+  if (o.underlay != null) {
+    const u = obj(o.underlay, `${path}.underlay`), p = `${path}.underlay`
+    f.underlay = {
+      image: str(u.image, `${p}.image`), at: xy(u.at, `${p}.at`), scale: num(u.scale, `${p}.scale`, 1e-6),
+      width: num(u.width, `${p}.width`, 1), height: num(u.height, `${p}.height`, 1),
+      opacity: num(u.opacity, `${p}.opacity`, 0), hidden: u.hidden === true,
+    }
   }
   for (const [id, w] of Object.entries(f.walls)) {
     if (!(w.a in f.nodes) || !(w.b in f.nodes)) fail(`${path}.walls.${id}`, 'конец стены ссылается на несуществующий узел')
