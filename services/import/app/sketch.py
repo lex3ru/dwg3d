@@ -28,11 +28,12 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from .dwg.config import load_config
-from .dwg.exports import export_ifc, export_obj_zip
+from .dwg.exports import export_obj_zip
 from .dwg.floors import FloorCandidate
 from .dwg.geometry import EMPTY, FloorPlan, Opening, Room, plan_to_json
 from .dwg.model3d import SceneBuilder, _pane, extrude
 from .dwg.semantics import classify_room, find_entrances, floor_pois, legend, room_type_rules
+from .sketch_ifc import export_sketch_ifc
 
 VERSION = 1
 WALL_KINDS = ("bearing", "partition")
@@ -470,7 +471,7 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
         (plans_dir / f"floor_{f.id}.json").write_text(json.dumps(data), encoding="utf-8")
     exports = {"glb": glb.name}
     for name, make in (("model_obj.zip", lambda p: export_obj_zip(p, sb.meshes)),
-                       ("model.ifc", lambda p: export_ifc(p, floors, plans, cfg, center, "plan"))):
+                       ("model.ifc", lambda p: export_sketch_ifc(p, floors, plans, cfg, center, "План"))):
         (out_dir / name).unlink(missing_ok=True)
         try:
             make(out_dir / name)

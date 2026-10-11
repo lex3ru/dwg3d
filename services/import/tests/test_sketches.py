@@ -282,3 +282,33 @@ async def test_a_drawn_plan_as_a_dxf_drawing(client, tokens, tmp_path):
     [chair] = ezdxf.readfile(tmp_path / "objects.dxf").modelspace().query("INSERT")
     second = [t for t in msp.query("TEXT") if t.dxf.text == "Этаж 2"][0].dxf.insert
     assert abs(chair.dxf.insert[0] - (second[0] + 0.125 + 1)) < 1e-6       # 1 m right of the floor's left wall face
+
+
+def test_the_ifc_of_a_drawn_plan_has_its_own_heights(tmp_path):
+    import ifcopenshell
+
+    from app.sketch import run
+
+    s = two_rooms()
+    f = s["floors"][0]
+    f["walls"]["p"]["height"] = 2.3                                  # the partition stops short of the ceiling
+    f["openings"]["door"].update(height=2.0)
+    f["openings"]["win"].update(sill=0.6, height=1.8)
+    meta = run(s, tmp_path)
+    assert meta["exports"].get("ifc") == "model.ifc", meta["warnings"]
+    model = ifcopenshell.open(str(tmp_path / "model.ifc"))
+
+    def z(el):
+        solid = el.Representation.Representations[0].Items[0]
+        return round(solid.Position.Location.Coordinates[2], 3), round(solid.Depth, 3)
+
+    [window] = model.by_type("IfcWindow")
+    [door] = model.by_type("IfcDoor")
+    assert (round(window.OverallHeight, 3), z(window)) == (1.8, (0.6, 1.8))
+    assert (round(door.OverallHeight, 3), z(door)) == (2.0, (0.0, 2.0))
+    assert sorted(z(o) for o in model.by_type("IfcOpeningElement")) == [(0.0, 2.0), (0.6, 1.8)]
+    walls = {w.PredefinedType: z(w) for w in model.by_type("IfcWall")}
+    top = round(2.7 - load_config({})["building"]["slab_thickness"], 3)
+    assert walls == {"SOLIDWALL": (0.0, top), "PARTITIONING": (0.0, 2.3)}
+    spaces = sorted((sp.Name, sp.LongName) for sp in model.by_type("IfcSpace"))
+    assert spaces[0] == ("101", "Кухня")
