@@ -53,7 +53,7 @@ class World:
                       "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "x": 2.5, "y": 1.0, "angle": 90, "responsible_id": PETROV,
                       "props": {"warranty_until": SOON, "service_due": LATER}, "version": 1, "updated_at": f"{TODAY.isoformat()}T10:00:00Z"},
             PRINTER: {"id": PRINTER, "type_name": "Принтер лазерный", "inventory_no": "00124", "state": "faulty",
-                      "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": None,
+                      "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "x": 1.0, "y": 2.0, "angle": 0, "responsible_id": None,
                       "props": {"service_due": FAR}, "version": 2, "updated_at": "2024-01-01T10:00:00Z"},
         }
 
@@ -185,6 +185,18 @@ class World:
                 return httpx.Response(200, json={"person_id": pair[0], "room_id": pair[1]})
             self.assignments = [p for p in self.assignments if p != pair]
             return httpx.Response(204)
+        if path.endswith("/inventory-numbers"):
+            return httpx.Response(200, json={"numbers": [f"ИЗ-{len(self.assets) + 1:05d}"]})
+        if path.endswith("/assets") and request.method == "POST":
+            if me.sub not in self.admins and not me.is_admin:
+                return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+            a = {"id": str(uuid4()), "type_id": body["type_id"], "type_name": "Извещатель дымовой" if body["type_id"] == "t-smoke" else "Стол",
+                 "inventory_no": body["inventory_no"], "state": "in_use", "building_id": BUILDING, "floor_id": body["floor_id"],
+                 "room_id": ROOM214, "x": body["x"], "y": body["y"], "angle": body.get("angle") or 0, "responsible_id": None, "props": {}, "version": 1}
+            self.assets[a["id"]] = a
+            return httpx.Response(201, json=a)
+        if "/catalog/v1/types/batch-get" in path:
+            return httpx.Response(200, json={"items": [{"id": i, "name": "Извещатель дымовой" if i == "t-smoke" else "Стол"} for i in body["ids"]]})
         if path.endswith("/assets") and request.method == "GET":
             p = request.url.params
             items = [a for a in self.assets.values()
@@ -205,7 +217,9 @@ class World:
             if request.method in ("POST", "PATCH"):
                 if body.get("version") != a["version"]:
                     return httpx.Response(409, json={"code": "version_conflict", "detail": "Объект изменил кто-то другой"})
-                if path.endswith("/state"):
+                if path.endswith("/move"):
+                    a.update({k: body[k] for k in ("floor_id", "x", "y", "angle") if k in body})
+                elif path.endswith("/state"):
                     a["state"] = body["state"]
                 elif path.endswith("/responsible"):
                     a["responsible_id"] = body["person_id"]

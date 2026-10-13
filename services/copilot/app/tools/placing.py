@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from . import Ctx, ToolError, tool
-from .proposing import Place, ProposeVariant, propose_variant
+from .proposing import Place, ProposeObjects, propose_objects
 from .reading import _building
 
 
@@ -19,14 +19,13 @@ class PlaceByRules(BaseModel):
     count: int = Field(1, ge=1, le=200, description="сколько в каждом помещении")
     where: Literal["along_wall", "center", "corners", "grid"] = Field("along_wall", description="вдоль стен спиной к ним, от центра, по углам, сеткой")
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
-    name: str | None = Field(None, max_length=200, description="название варианта")
     summary: str | None = Field(None, max_length=2000)
-    then: Literal["return", "propose"] = Field("propose", description="return — только показать места; propose — сразу вариант")
+    then: Literal["return", "propose"] = Field("propose", description="return — только показать места; propose — сразу предложение")
 
 
 @tool("place_by_rules", """Расставить предметы типа по помещениям по правилам (считает код): внутри контура, не на других
-предметах, не в дверях и проходах, не на перегородках; вдоль стен, по углам, сеткой или от центра. Результат — вариант
-расстановки (или только места при then=return). Координаты сам не придумывай — этот инструмент их находит.""", kind="propose")
+предметах, не в дверях и проходах, не на перегородках; вдоль стен, по углам, сеткой или от центра. Результат — предложение
+(или только места при then=return). Координаты сам не придумывай — этот инструмент их находит.""", kind="propose")
 async def place_by_rules(ctx: Ctx, args: PlaceByRules) -> dict:
     b = _building(ctx, None)
     got = await ctx.call("POST", "planning", "/placements", json={
@@ -40,8 +39,7 @@ async def place_by_rules(ctx: Ctx, args: PlaceByRules) -> dict:
         out["places"] = places[:200]
         return out
     item = got.get("item") or {}
-    v = await propose_variant(ctx, ProposeVariant(
-        name=args.name or f"{item.get('name', 'Предметы')}: {len(places)} шт.",
+    v = await propose_objects(ctx, ProposeObjects(
         summary=args.summary or f"Поставить {len(places)} × {item.get('name', '')} ({args.where}) в {len(got.get('rooms', []))} помещениях",
         places=[Place(type_id=args.type_id, floor_id=p["floor_id"], x=p["x"], y=p["y"], angle=p.get("angle")) for p in places]))
     return {**out, **v}
@@ -51,13 +49,12 @@ class PlaceDetectors(BaseModel):
     type_id: str | None = Field(None, description="тип извещателя; пусто — первый тип каталога с радиусом контроля")
     floor_id: str | None = None
     room_ids: list[str] | None = Field(None, max_length=100)
-    name: str | None = Field(None, max_length=200)
     then: Literal["return", "propose"] = "propose"
 
 
 @tool("place_detectors", """Пожарные извещатели по площади (считает код): сколько есть в каждом помещении, сколько нужно
 (каждый защищает ≈0,7·π·r² пола, не меньше одного на помещение), где добавить — равномерно, подальше от имеющихся.
-Результат — вариант с местами (или только расчёт при then=return).""", kind="propose")
+Результат — предложение с местами (или только расчёт при then=return).""", kind="propose")
 async def place_detectors(ctx: Ctx, args: PlaceDetectors) -> dict:
     b = _building(ctx, None)
     type_id = args.type_id
@@ -75,8 +72,7 @@ async def place_detectors(ctx: Ctx, args: PlaceDetectors) -> dict:
             out["note"] = "Извещателей хватает: добавлять нечего"
         return out
     item = got.get("item") or {}
-    v = await propose_variant(ctx, ProposeVariant(
-        name=args.name or f"Извещатели: +{len(places)}",
+    v = await propose_objects(ctx, ProposeObjects(
         summary=f"Добавить {len(places)} × {item.get('name', 'извещатель')} по площади в {sum(1 for r in got.get('rooms', []) if r.get('add'))} помещениях",
         places=[Place(type_id=type_id, floor_id=p["floor_id"], x=p["x"], y=p["y"], angle=0) for p in places]))
     return {**out, **v}

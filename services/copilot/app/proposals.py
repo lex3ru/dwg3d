@@ -19,8 +19,18 @@ log = logging.getLogger("copilot")
 MAX_ACTIONS = 500
 
 
-def action(label: str, service: str, method: str, path: str, body: dict | None = None) -> dict:
-    return {"label": label, "service": service, "method": method, "path": path, **({"body": body} if body is not None else {})}
+def action(label: str, service: str, method: str, path: str, body: dict | None = None, show: dict | None = None) -> dict:
+    """`show` — how the panel draws it on the plan: {kind: new|move|remove, floor_id, x, y, from?: {floor_id, x, y}, title}."""
+    return {"label": label, "service": service, "method": method, "path": path, **({"body": body} if body is not None else {}),
+            **({"show": show} if show else {})}
+
+
+def new_asset_action(label: str, type_id: str, floor_id: str, x: float, y: float, angle: float | None = None,
+                     product_id: str | None = None, inventory_no: str | None = None, show: dict | None = None) -> dict:
+    """A new object; its inventory number, when not given, is taken from the free ones at the moment of applying."""
+    return {"label": label, "kind": "asset_new", "type_id": type_id, "floor_id": floor_id, "x": x, "y": y,
+            **({"angle": angle} if angle is not None else {}), **({"product_id": product_id} if product_id else {}),
+            **({"inventory_no": inventory_no} if inventory_no else {}), **({"show": show} if show else {})}
 
 
 def sketch_action(label: str, drawing_id: str, version: int, sketch: dict) -> dict:
@@ -40,6 +50,7 @@ def as_json(row) -> dict:
             "decided_by": m.get("decided_by"), "count": len(acts),
             "labels": [a.get("label") for a in acts][:50],
             "sketch": next(({"drawing_id": a["drawing_id"], "version": a["version"]} for a in acts if a.get("kind") == "sketch"), None),
+            "shows": [a["show"] for a in acts if a.get("show")][:500],
             "drawing_id": next((d.get("drawing_id") for d in ((m.get("result") or {}).get("done") or []) if d.get("drawing_id")), None)}
 
 
@@ -82,6 +93,25 @@ async def apply(session: AsyncSession, client: ServiceClient, row, me: Identity,
             if a.get("kind") == "sketch":
                 r = await client.request("PUT", "import", f"/drawings/{a['drawing_id']}/sketch", token=token,
                                          json={"sketch": a["sketch"], "version": a["version"]})
+            elif a.get("kind") == "asset_new":
+                number = a.get("inventory_no")
+                if not number:
+                    n = await client.request("GET", "assets", "/inventory-numbers", token=token,
+                                             params={"type_id": a["type_id"], "count": 1})
+                    numbers = n.json().get("numbers") if n.status_code == 200 else None
+                    number = (numbers or [None])[0]
+                if not number:
+                    failure = {"index": i, "label": a.get("label"), "status": 422, "detail": "Не удалось подобрать инвентарный номер"}
+                    status = "open"
+                    break
+                r = await client.request("POST", "assets", "/assets", token=token, json={
+                    "type_id": a["type_id"], "inventory_no": number, "floor_id": a["floor_id"], "x": a["x"], "y": a["y"],
+                    **({"angle": a["angle"]} if a.get("angle") is not None else {}),
+                    **({"product_id": a["product_id"]} if a.get("product_id") else {})})
+                if r.status_code < 300:
+                    done.append({"index": i, "label": a.get("label"), "status": r.status_code, "asset_id": r.json().get("id"),
+                                 "inventory_no": number})
+                    continue
             elif a.get("kind") == "sketch_new":
                 # a new drawn plan: the drawing first, then its plan over the empty one it starts with
                 r = await client.request("POST", "import", "/sketches", token=token,

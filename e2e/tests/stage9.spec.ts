@@ -35,6 +35,14 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
   const stamp = Date.now().toString().slice(-7)
   await page.setViewportSize({ width: 1400, height: 850 })
   await signIn(page, 'admin')
+  // the stand's own model settings come back at the end: the scenario borrows them, it does not own them
+  const previous = await (await page.request.get('/api/copilot/v1/settings')).json() as Record<string, unknown>
+  const restore = async () => {
+    const { base_url, model, enabled, daily_limit, max_steps, temperature } = previous
+    await page.request.put('/api/copilot/v1/settings', { data: { base_url, model, daily_limit, max_steps, temperature, enabled: false } })
+    if (enabled && base_url && model) await page.request.put('/api/copilot/v1/settings', { data: { enabled: true } })
+  }
+  try {
   await configure(page, true)
 
   // a building with a floor and one object
@@ -113,11 +121,18 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
   const pane4 = page.getByTestId('copilot')
   await pane4.getByLabel('Вопрос помощнику').fill('поставь извещатели на этаже')
   await pane4.getByLabel('Вопрос помощнику').press('Enter')
-  const variantCard = pane4.getByTestId('copilot-proposal').last()
-  await expect(variantCard).toContainText('Извещатели', { timeout: 20_000 })
-  await variantCard.getByRole('link', { name: 'Открыть вариант' }).click()
-  await expect(page).toHaveURL(/\/variants\//)
-  await expect(page.getByRole('main')).toContainText('Извещатель пожарный дымовой')
+  const detectorsCard = pane4.getByTestId('copilot-proposal').last()
+  await expect(detectorsCard).toHaveAttribute('data-status', 'open', { timeout: 20_000 })
+  await expect(detectorsCard).toContainText('Извещатель')
+  // shown on the plan as green marks before anything is done
+  await detectorsCard.getByTestId('copilot-show-plan').click()
+  await expect(page.getByTestId('plan-proposal')).toBeVisible()
+  await expect(page.getByTestId('plan-mark').first()).toBeVisible()
+  const detectorsBefore = (await (await page.request.get(`/api/assets/v1/assets?building_id=${building}&q=Извещатель`)).json()).total as number
+  expect(detectorsBefore).toBe(0)
+  await detectorsCard.getByRole('button', { name: 'Применить' }).click()
+  await expect(detectorsCard).toHaveAttribute('data-status', 'applied')
+  await expect.poll(async () => (await (await page.request.get(`/api/assets/v1/assets?building_id=${building}&q=Извещатель`)).json()).total as number).toBeGreaterThan(0)
 
   // a drawn plan with mistakes: the copilot proposes the repair, the open editor takes it — with undo — and saves
   const made = await page.request.post('/api/import/v1/sketches', { data: { building_id: building, name: 'План с ошибками' } })
@@ -173,4 +188,7 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
   await expect(page.getByTestId('building-name')).toHaveText(`Помощник ${stamp}`)
   await expect(page.getByTestId('copilot-open')).toHaveCount(0)
   await expect(page.getByTestId('copilot')).toHaveCount(0)
+  } finally {
+    await restore()
+  }
 })

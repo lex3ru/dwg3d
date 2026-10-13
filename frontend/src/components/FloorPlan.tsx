@@ -12,11 +12,15 @@ const path = (polygons: Ring[][]) => polygons.map(rings => rings.map(
  * A room can be chosen; the chosen one is highlighted.
  */
 export type Dot = { id: string; x: number; y: number; title: string; tone: 'ok' | 'bad' | 'warn' | 'note'; chosen?: boolean }
+/** a change someone proposes: a new object, one moved from somewhere, one to write off */
+export type Mark = { kind: 'new' | 'move' | 'remove'; x: number; y: number; title: string; from?: { x: number; y: number } | null }
 
-export function FloorPlan({ plan, selected, onSelect, dots, onDot, onPoint, className }: {
+export function FloorPlan({ plan, selected, onSelect, dots, onDot, marks, onPoint, className }: {
   plan: FloorPlanData; selected?: string | null; onSelect?: (room: string) => void; className?: string
   /** objects standing on the floor */
   dots?: Dot[]; onDot?: (id: string) => void
+  /** proposed changes drawn over the objects: green — new, blue — moved (with a line from where it stands), red — written off */
+  marks?: Mark[]
   /** when given, a click anywhere on the plan picks a point (plan coordinates, m) instead of a room */
   onPoint?: (x: number, y: number) => void
 }) {
@@ -62,6 +66,17 @@ export function FloorPlan({ plan, selected, onSelect, dots, onDot, onPoint, clas
           strokeWidth={font * 0.12} onClick={e => { if (!onPoint) { e.stopPropagation(); onDot?.(d.id) } }}>
           <title>{d.title}</title>
         </circle>
+      ))}
+      {marks?.map((m, i) => (
+        <g key={`mark-${i}`} data-testid="plan-mark" data-kind={m.kind} className="pointer-events-none">
+          {m.from && <line x1={m.from.x} y1={-m.from.y} x2={m.x} y2={-m.y} strokeWidth={font * 0.1} strokeDasharray={`${font * 0.3} ${font * 0.2}`} className="stroke-sky-500" />}
+          <circle cx={m.x} cy={-m.y} r={font * 0.9} strokeWidth={font * 0.18} fill="none"
+            className={m.kind === 'new' ? 'stroke-emerald-500' : m.kind === 'remove' ? 'stroke-destructive' : 'stroke-sky-500'}>
+            <title>{m.kind === 'new' ? 'поставить: ' : m.kind === 'remove' ? 'списать: ' : 'переставить: '}{m.title}</title>
+          </circle>
+          {m.kind === 'remove' && <path d={`M${m.x - font * 0.5} ${-m.y - font * 0.5}L${m.x + font * 0.5} ${-m.y + font * 0.5}M${m.x - font * 0.5} ${-m.y + font * 0.5}L${m.x + font * 0.5} ${-m.y - font * 0.5}`}
+            strokeWidth={font * 0.15} className="stroke-destructive" />}
+        </g>
       ))}
     </svg>
   )

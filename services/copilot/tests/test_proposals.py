@@ -3,7 +3,7 @@
 stale when the data changed; variants for objects; who may propose; the audit."""
 from __future__ import annotations
 
-from conftest import API, BUILDING, MONITOR, PETROV, PRINTER, ROOM214, ROOM215, configure
+from conftest import API, BUILDING, FLOOR, MONITOR, PETROV, PRINTER, ROOM214, ROOM215, configure
 from test_chat import ask, new_chat
 
 
@@ -91,7 +91,7 @@ async def test_who_may_propose_and_decide(app, client, tokens, world, model):
     assert world.comments[0]["body"] == "Проверить розетки" and world.comments[0]["target_id"] == ROOM214
 
 
-async def test_objects_go_as_a_variant(app, client, tokens, world, model):
+async def test_objects_are_proposed_and_moved_on_approval(app, client, tokens, world, model):
     await configure(client, tokens)
     world.admins.add("user-1")
     me = tokens.bearer("user-1")
@@ -99,23 +99,44 @@ async def test_objects_go_as_a_variant(app, client, tokens, world, model):
     model.script = [
         {"calls": [("room", {"room_id": ROOM214})]},
         {"calls": [("move_to_room", {"asset_ids": [MONITOR, PRINTER], "room_id": ROOM215})]},
-        {"text": "Сделал вариант переноса."},
+        {"text": "Предложил перенос."},
     ]
     got = await ask(client, me, chat, "перенеси всё из 214 в 215")
     prop = next(e["proposal"] for e in got if e["type"] == "proposal")
-    assert prop["kind"] == "variant" and prop["name"] == "Перенос в 215 Серверная" and prop["counts"]["move"] == 2
-    v = world.variants[prop["variant_id"]]
-    ops = {o["asset_id"]: o["data"] for o in v["ops"]}
-    assert ops[MONITOR]["version"] == 1 and ops[PRINTER]["version"] == 2
-    # points inside the room's polygon [0..4]x[0..3], distinct
-    pts = {(o["x"], o["y"]) for o in ops.values()}
+    assert prop["status"] == "open" and prop["count"] == 2 and "Перенести 2 объектов в 215 Серверная" == prop["summary"]
+    # drawn on the plan: where each goes and where it stands now
+    shows = prop["shows"]
+    assert [s["kind"] for s in shows] == ["move", "move"] and shows[0]["from"] == {"floor_id": FLOOR, "x": 2.5, "y": 1.0}
+    pts = {(s["x"], s["y"]) for s in shows}
     assert len(pts) == 2 and all(0 < x < 4 and 0 < y < 3 for x, y in pts)
-    # the fact is untouched
-    assert world.assets[MONITOR]["room_id"] == ROOM214
-    # an empty variant is refused
-    model.script = [{"calls": [("propose_variant", {"name": "Пусто", "summary": "ничего"})]}, {"text": "."}]
-    got = await ask(client, me, chat, "сделай пустой вариант")
+    # the fact is untouched until approved; then the objects are moved with the user's token
+    assert world.assets[MONITOR]["x"] == 2.5
+    r = await client.post(f"{API}/proposals/{prop['id']}/apply", headers=me)
+    assert r.status_code == 200 and r.json()["status"] == "applied", r.text
+    assert world.assets[MONITOR]["floor_id"] == FLOOR and (world.assets[MONITOR]["x"], world.assets[MONITOR]["y"]) in pts
+    assert ("user-1", "POST", f"/api/assets/v1/assets/{PRINTER}/move") in world.asked
+    # an empty proposal is refused
+    model.script = [{"calls": [("propose_objects", {"summary": "ничего"})]}, {"text": "."}]
+    got = await ask(client, me, chat, "сделай пустое")
     assert "пуст" in next(e["error"] for e in got if e["type"] == "tool")
+
+
+async def test_new_objects_get_numbers_when_applied(app, client, tokens, world, model):
+    await configure(client, tokens)
+    world.admins.add("user-1")
+    me = tokens.bearer("user-1")
+    chat = await new_chat(client, me)
+    model.script = [{"calls": [("propose_objects", {"summary": "Два стола", "places": [{"type_id": "t-desk", "floor_id": FLOOR, "x": 1, "y": 1},
+                                                                                        {"type_id": "t-desk", "floor_id": FLOOR, "x": 3, "y": 1, "inventory_no": "СТ-7"}],
+                                                    "removes": [PRINTER]})]}, {"text": "."}]
+    got = await ask(client, me, chat, "поставь два стола и спиши принтер")
+    prop = next(e["proposal"] for e in got if e["type"] == "proposal")
+    assert [s["kind"] for s in prop["shows"]] == ["remove", "new", "new"] and "Поставить Стол СТ-7" in prop["labels"][2]
+    r = await client.post(f"{API}/proposals/{prop['id']}/apply", headers=me)
+    assert r.json()["status"] == "applied", r.text
+    done = r.json()["result"]["done"]
+    assert done[1]["inventory_no"].startswith("ИЗ-") and done[2]["inventory_no"] == "СТ-7" and done[1]["asset_id"]
+    assert world.assets[PRINTER]["state"] == "retired" and sum(1 for a in world.assets.values() if a.get("type_id") == "t-desk") == 2
 
 
 async def test_a_crashing_tool_is_told_not_fatal(app, client, tokens, world, model, monkeypatch):

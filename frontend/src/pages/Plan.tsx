@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listProducts, listTypes, moveAsset,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, getProposal, listAllAssets, listComments, listProducts, listTypes, moveAsset,
   productLabel, type Product,
-  type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type TreeFloor,
+  type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type ProposalShow, type TreeFloor,
 } from '../api'
 import { CommentList } from '../components/Comments'
-import { FloorPlan, type Dot } from '../components/FloorPlan'
+import { FloorPlan, type Dot, type Mark } from '../components/FloorPlan'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Tip } from '../components/ui/tooltip'
@@ -17,10 +17,12 @@ import { to } from '../shell/route'
 const NOTE_HINT = 'Заметка к месту на плане: щелчок по точке, затем текст; её увидят все, кто видит план этого места'
 
 /** The 2D plan of a floor: pick a floor, pick a room. */
-export function Plan({ me, building, floors, floor, room, admin, move }: {
+export function Plan({ me, building, floors, floor, room, admin, move, proposal }: {
   me: Me; building: string; floors: TreeFloor[]; floor?: string; room?: string
   /** the object being moved: the next click on the plan is its new place */
   move?: string
+  /** a proposal of the copilot: its changes are drawn over the plan */
+  proposal?: string
   /** the building's administrator places objects here */
   admin?: boolean
 }) {
@@ -67,6 +69,14 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
     addComment({ building_id: building, target_kind: 'point', floor_id: active.id, x: noting.x, y: noting.y, body: noting.text.trim() })
       .then(() => { setNoting(null); setError(null); loadNotes() }, (ex: Error) => setError(ex.message))
   }
+  // the places a proposal of the copilot would change, drawn over the objects
+  const [loaded, setLoaded] = useState<{ id: string; summary: string; status: string; shows: ProposalShow[] } | null>(null)
+  useEffect(() => {
+    if (proposal) getProposal(proposal).then(p => setLoaded({ id: p.id, summary: p.summary, status: p.status, shows: p.shows ?? [] }), () => {})
+  }, [proposal])
+  const shown = proposal && loaded?.id === proposal ? loaded : null
+  const marks: Mark[] = shown && active ? shown.shows.filter(s => s.floor_id === active.id && s.x != null && s.y != null).map(s => ({
+    kind: s.kind, x: s.x!, y: s.y!, title: s.title, from: s.from && s.from.floor_id === active.id ? { x: s.from.x, y: s.from.y } : null })) : []
   const [fetched, setFetched] = useState<Asset | null>(null)
   useEffect(() => { if (move) getAsset(move).then(setFetched, (e: Error) => setError(e.message)) }, [move])
   const moving = fetched?.id === move ? fetched : null
@@ -222,8 +232,16 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
           Загружаю план этажа…
         </div>
       )}
+      {shown && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm" data-testid="plan-proposal">
+          <span className="font-medium">Предложение помощника:</span>
+          <span className="min-w-0 flex-1 truncate">{shown.summary}</span>
+          <span className="text-xs text-muted-foreground">зелёное — поставить, синее — переставить, красное — списать{shown.status !== 'open' && ` · ${shown.status === 'applied' ? 'уже применено' : shown.status === 'rejected' ? 'отклонено' : 'устарело'}`}</span>
+          <Tip label="Убрать пометки предложения с плана"><a href={to.plan(building, active.id)} className="text-primary underline underline-offset-2">скрыть</a></Tip>
+        </div>
+      )}
       {plan?.floor === active.id && (
-        <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]"
+        <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]" marks={marks}
           dots={[
             ...assets.filter(a => a.x != null).map(a => ({ id: a.id, x: a.x!, y: a.y!, tone: assetTone(a) as Dot['tone'], title: `${a.type_name} · ${a.inventory_no}`, chosen: a.id === move })),
             ...(series?.points ?? []).map(([x, y], i) => ({ id: `new-${i}`, x, y, tone: 'warn' as const, title: number(series!, i), chosen: true })),

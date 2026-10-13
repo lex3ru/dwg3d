@@ -28,14 +28,14 @@ async def _asset(ctx: Ctx, asset_id: str) -> dict:
     return await ctx.get("assets", f"/assets/{asset_id}")
 
 
-# ------------------------------------------------------------------ variants ---
+# ------------------------------------------------------------------- objects ---
 class Place(BaseModel):
     type_id: str = Field(description="тип каталога")
     floor_id: str
     x: float
     y: float
     angle: float | None = None
-    inventory_no: str | None = Field(None, description="инвентарный номер; пусто — назначат при применении")
+    inventory_no: str | None = Field(None, description="инвентарный номер; пусто — свободный номер подберётся при применении")
     product_id: str | None = None
 
 
@@ -47,60 +47,71 @@ class Move(BaseModel):
     angle: float | None = None
 
 
-class ProposeVariant(BaseModel):
-    name: str = Field(description="название варианта, например «Переезд бухгалтерии»", max_length=200)
+class ProposeObjects(BaseModel):
     summary: str = Field(description="что и зачем предлагается, одной-двумя фразами", max_length=2000)
     places: list[Place] = Field(default_factory=list, description="новые объекты и где их поставить (координаты плана этажа, м)")
     moves: list[Move] = Field(default_factory=list, description="перестановки существующих объектов")
-    removes: list[str] = Field(default_factory=list, description="id объектов, которые убрать (списать)")
-    based_on: str | None = Field(None, description="id варианта, копией которого начать; пусто — от факта")
+    removes: list[str] = Field(default_factory=list, description="id объектов, которые списать")
 
 
-@tool("propose_variant", """Предложить изменения объектов вариантом расстановки (проектирование): поставить новые, переставить,
-убрать. Координаты — метры плана этажа; не выдумывай их: возьми из карточки объекта, из помещения (move_to_room) или спроси.
-Пользователь увидит вариант на плане, сравнит с фактом и применит сам.""", kind="propose")
-async def propose_variant(ctx: Ctx, args: ProposeVariant) -> dict:
-    b = _building(ctx, None)
+async def _type_names(ctx: Ctx, ids: set[str]) -> dict[str, str]:
+    if not ids:
+        return {}
+    try:
+        got = await ctx.call("POST", "catalog", "/types/batch-get", json={"ids": sorted(ids)})
+        return {t["id"]: t.get("name", "") for t in got.get("items", [])}
+    except ToolError:
+        return {}
+
+
+@tool("propose_objects", """Предложить изменения объектов: поставить новые, переставить, списать. Координаты — метры плана
+этажа; не выдумывай их: возьми из карточек объектов (x, y), из помещения (move_to_room подберёт места сам) или спроси.
+Пользователь увидит предложение на плане и применит сам.""", kind="propose")
+async def propose_objects(ctx: Ctx, args: ProposeObjects) -> dict:
     if not (args.places or args.moves or args.removes):
-        raise ToolError("Вариант пуст: укажите places, moves или removes")
-    edits: list[dict] = []
+        raise ToolError("Предложение пусто: укажите places, moves или removes")
+    actions: list[dict] = []
     for m in args.moves:
         a = await _asset(ctx, m.asset_id)
-        edits.append({"kind": "move", "asset_id": m.asset_id, "version": a["version"], "floor_id": m.floor_id or a["floor_id"],
-                      "x": m.x, "y": m.y, **({"angle": m.angle} if m.angle is not None else {})})
+        floor = m.floor_id or a["floor_id"]
+        label = f"{a.get('type_name')} {a.get('inventory_no')}: переставить в ({m.x}, {m.y})" + ("" if floor == a["floor_id"] else " на другой этаж")
+        body = {"floor_id": floor, "x": m.x, "y": m.y, "version": a["version"], **({"angle": m.angle} if m.angle is not None else {})}
+        show = {"kind": "move", "floor_id": floor, "x": m.x, "y": m.y, "title": f"{a.get('type_name')} {a.get('inventory_no')}",
+                **({"from": {"floor_id": a["floor_id"], "x": a["x"], "y": a["y"]}} if a.get("x") is not None else {})}
+        actions.append(proposals.action(label, "assets", "POST", f"/assets/{m.asset_id}/move", body, show))
     for r in args.removes:
         a = await _asset(ctx, r)
-        edits.append({"kind": "remove", "asset_id": r, "version": a["version"]})
+        show = {"kind": "remove", "floor_id": a["floor_id"], "x": a.get("x"), "y": a.get("y"), "title": f"{a.get('type_name')} {a.get('inventory_no')}"} \
+            if a.get("x") is not None else None
+        actions.append(proposals.action(f"{a.get('type_name')} {a.get('inventory_no')}: списать", "assets", "POST",
+                                        f"/assets/{r}/state", {"state": "retired", "version": a["version"]}, show))
+    names = await _type_names(ctx, {p.type_id for p in args.places})
     for p in args.places:
-        edits.append({"kind": "place", **{k: v for k, v in p.model_dump().items() if v is not None}})
-    v = await ctx.call("POST", "planning", "/variants", json={"building_id": b, "name": args.name[:200], "based_on": args.based_on})
-    res = await ctx.call("POST", "planning", f"/variants/{v['id']}/edits", json={"edits": edits})
-    v = await ctx.get("planning", f"/variants/{v['id']}")
-    prop = {"kind": "variant", "variant_id": v["id"], "name": v["name"], "summary": args.summary, "counts": v.get("counts"),
-            "building_id": b}
-    return {"proposal": prop, "edits": res, "next": "Вариант создан как черновик; пользователь посмотрит его в разделе «Варианты» и применит сам."}
+        name = names.get(p.type_id, "объект")
+        show = {"kind": "new", "floor_id": p.floor_id, "x": p.x, "y": p.y, "title": name}
+        actions.append(proposals.new_asset_action(f"Поставить {name}" + (f" {p.inventory_no}" if p.inventory_no else "") + f" в ({p.x}, {p.y})",
+                                                  p.type_id, p.floor_id, p.x, p.y, p.angle, p.product_id, p.inventory_no, show))
+    return await _propose(ctx, args.summary, actions)
 
 
 class MoveToRoom(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=200, description="какие объекты")
     room_id: str = Field(description="куда")
-    name: str | None = Field(None, description="название варианта; по умолчанию «Перенос в <помещение>»")
     summary: str | None = None
 
 
-@tool("move_to_room", """Перенести объекты в другое помещение вариантом расстановки: места внутри помещения подбираются сами
-(сеткой от центра), точную расстановку пользователь поправит в редакторе. Для «перенеси всё из 305 в 310» сначала найди
+@tool("move_to_room", """Перенести объекты в другое помещение предложением: места внутри помещения подбираются сами
+(сеткой от центра), точную расстановку пользователь поправит потом. Для «перенеси всё из 305 в 310» сначала найди
 объекты помещения (room), затем вызови это.""", kind="propose")
 async def move_to_room(ctx: Ctx, args: MoveToRoom) -> dict:
     room = await ctx.get("buildings", f"/rooms/{args.room_id}")
     poly = geometry.outer_ring(room.get("polygon"))
     if len(poly) < 3:
-        raise ToolError("У помещения нет контура: перенести автоматически нельзя, укажите координаты в propose_variant")
+        raise ToolError("У помещения нет контура: перенести автоматически нельзя, укажите координаты в propose_objects")
     points = geometry.spread(poly, len(args.asset_ids))
     label = _room_label(room)
     moves = [Move(asset_id=a, floor_id=room["floor_id"], x=x, y=y) for a, (x, y) in zip(args.asset_ids, points, strict=True)]
-    return await propose_variant(ctx, ProposeVariant(
-        name=args.name or f"Перенос в {label}", summary=args.summary or f"Перенести {len(moves)} объектов в {label}", moves=moves))
+    return await propose_objects(ctx, ProposeObjects(summary=args.summary or f"Перенести {len(moves)} объектов в {label}", moves=moves))
 
 
 # --------------------------------------------------------------------- rooms ---
