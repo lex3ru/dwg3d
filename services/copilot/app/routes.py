@@ -284,17 +284,22 @@ async def list_proposals(request: Request, building_id: UUID | None = None, stat
     return {"items": [props.as_json(r) for r in rows]}
 
 
-@router.get("/proposals/{proposal_id}", summary="Предложение: действия и состояние")
+@router.get("/proposals/{proposal_id}", summary="Предложение: действия и состояние (с планом, если он в нём)")
 async def get_proposal(proposal_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     row = await _proposal(request, proposal_id, me)
-    return {**props.as_json(row), "actions": [{k: v for k, v in a.items() if k != "sketch"} for a in row.actions or []]}
+    return {**props.as_json(row), "actions": list(row.actions or [])}
 
 
 @router.post("/proposals/{proposal_id}/apply", summary="Применить предложение: действия выполняются с токеном применяющего")
-async def apply_proposal(proposal_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
+async def apply_proposal(proposal_id: UUID, request: Request, by: str | None = None,
+                         me: Identity = Depends(forbid_guests)) -> dict:
+    """`by=editor` — the open editor of the drawn plan has applied the plan itself (and saves it with undo);
+    the proposal is only marked applied. Only for a proposal that is a plan."""
     await _proposal(request, proposal_id, me, decide=True)
     async with request.app.state.db.begin() as session:
         row = await _proposal(request, proposal_id, me, decide=True, session=session)
+        if by == "editor":
+            return await props.applied_elsewhere(session, row, me)
         return await props.apply(session, request.app.state.client, row, me, _token(request))
 
 

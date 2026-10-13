@@ -708,7 +708,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Предложение: действия и состояние",
+        "summary": "Предложение: действия и состояние (с планом, если он в нём)",
         "tags": [
           "copilot"
         ]
@@ -716,6 +716,7 @@
     },
     "/api/copilot/v1/proposals/{proposal_id}/apply": {
       "post": {
+        "description": "`by=editor` — the open editor of the drawn plan has applied the plan itself (and saves it with undo);\nthe proposal is only marked applied. Only for a proposal that is a plan.",
         "operationId": "apply_proposal_api_copilot_v1_proposals__proposal_id__apply_post",
         "parameters": [
           {
@@ -726,6 +727,22 @@
               "format": "uuid",
               "title": "Proposal Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "By"
             }
           }
         ],

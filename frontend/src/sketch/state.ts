@@ -10,6 +10,10 @@ import { bearingOnly, emptyFloor, parseSketch, SketchError, type Floor, type Ske
 import { Conflict, Saver } from './saver'
 
 const DEPTH = 200
+/** window event: the copilot's pane hands a whole plan to the open editor of that drawing */
+export const APPLY_EVENT = 'twin.sketch.apply'
+export const applyInEditor = (drawing: string, sketch: unknown) =>
+  dispatchEvent(new CustomEvent(APPLY_EVENT, { detail: { drawing, sketch } }))
 const SAVE_DELAY = 800
 
 /** loading — not here yet; saved; unsaved — a save is coming; saving; conflict — saved elsewhere meanwhile;
@@ -101,6 +105,16 @@ export function useSketch(drawing: string): SketchState {
     changed()
     setH({ past: [...h.past.slice(-DEPTH + 1), h.present], present: n, future: [] })
   }, [h, changed])
+  // the copilot proposed a repaired plan and the user applied it here: one step of undo, saved as any change
+  useEffect(() => {
+    const take = (e: Event) => {
+      const d = (e as CustomEvent<{ drawing: string; sketch: unknown }>).detail
+      if (d.drawing !== drawing) return
+      try { const s = parseSketch(d.sketch); push(() => s) } catch { /* not a plan: ignored */ }
+    }
+    addEventListener(APPLY_EVENT, take)
+    return () => removeEventListener(APPLY_EVENT, take)
+  }, [drawing, push])
   const commit = useCallback((f: Floor) => {
     push(s => s.floors.includes(f) ? s : { ...s, floors: s.floors.map(x => (x.id === f.id ? f : x)) })
   }, [push])

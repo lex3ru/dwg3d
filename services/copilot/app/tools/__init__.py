@@ -144,4 +144,4 @@ async def run(ctx: Ctx, name: str, raw: str) -> tuple[str, bool, Any]:
     return text, False, data
 
 
-from . import checks, proposing, reading  # noqa: E402,F401  (registers the tools)
+from . import checks, plan, proposing, reading  # noqa: E402,F401  (registers the tools)

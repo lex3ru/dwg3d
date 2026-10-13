@@ -1,7 +1,8 @@
 import { Bot, Check, History, Plus, Send, Square, Trash2, Wrench, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  applyProposal, askCopilot, createCopilotChat, deleteCopilotChat, getCopilotChat, listCopilotChats, rejectProposal,
+  applyProposal, askCopilot, createCopilotChat, deleteCopilotChat, getCopilotChat, getProposal, listCopilotChats, markProposalApplied,
+  rejectProposal,
   type CopilotChat, type CopilotEvent, type CopilotItem, type CopilotProposal, type CopilotStatus, type CopilotUI,
 } from '../api'
 import { Badge } from '../components/ui/badge'
@@ -9,10 +10,12 @@ import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
 import { to } from '../shell/route'
+import { applyInEditor } from '../sketch/state'
 import { hrefOf } from './links'
 import { Answer } from './render'
 
 const TOOL_LABEL: Record<string, string> = {
+  drawings: 'чертежи', plan_summary: 'сводка плана', check_plan: 'проверка плана', propose_plan_fixes: 'предложение: починка плана',
   propose_variant: 'вариант расстановки', move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
   propose_state: 'предложение: состояние', propose_responsible: 'предложение: ответственные', propose_notes: 'предложение: примечания',
   propose_assignments: 'предложение: привязки', propose_grants: 'предложение: права', propose_comment: 'предложение: комментарий',
@@ -157,7 +160,7 @@ function Chat({ ui, building, status, onClose }: { ui: CopilotUI; building: stri
             </div>
           </div>
         )}
-        {items.map((it, i) => <Item key={i} item={it} building={building} canDecide={status.can_propose} />)}
+        {items.map((it, i) => <Item key={i} item={it} building={building} canDecide={status.can_propose} editor={ui.drawing?.id ?? null} />)}
         {busy && <p className="text-xs text-muted-foreground" data-testid="copilot-busy">{busy}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div ref={bottom} />
@@ -175,7 +178,7 @@ function Chat({ ui, building, status, onClose }: { ui: CopilotUI; building: stri
   )
 }
 
-function Item({ item, building, canDecide }: { item: Shown; building: string | null; canDecide: boolean }) {
+function Item({ item, building, canDecide, editor }: { item: Shown; building: string | null; canDecide: boolean; editor: string | null }) {
   if (item.type === 'user') {
     return <div className="ml-8 rounded-lg bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{item.text}</div>
   }
@@ -194,7 +197,7 @@ function Item({ item, building, canDecide }: { item: Shown; building: string | n
     return <a href={href} className="block text-xs text-primary underline underline-offset-2">Показано: {item.label || 'на экране'}</a>
   }
   if (item.type === 'error') return <p role="alert" className="text-sm text-destructive">{item.message}</p>
-  if (item.type === 'proposal') return <ProposalCard proposal={item.proposal} building={building} canDecide={canDecide} />
+  if (item.type === 'proposal') return <ProposalCard proposal={item.proposal} building={building} canDecide={canDecide} editor={editor} />
   return null
 }
 
@@ -203,7 +206,9 @@ const STATUS: Record<string, [string, 'default' | 'success' | 'destructive' | 'w
 }
 
 /** What the copilot proposes: a variant to look at in «Варианты», or actions to apply or reject here. */
-function ProposalCard({ proposal, building, canDecide }: { proposal: CopilotProposal; building: string | null; canDecide: boolean }) {
+function ProposalCard({ proposal, building, canDecide, editor }: { proposal: CopilotProposal; building: string | null; canDecide: boolean
+  /** the drawn plan open in the editor beside the pane: a plan proposed for it is applied there, with undo */
+  editor: string | null }) {
   const [state, setState] = useState(proposal)
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
@@ -227,6 +232,16 @@ function ProposalCard({ proposal, building, canDecide }: { proposal: CopilotProp
     setBusy(true); setError(null)
     what().then(p => { setState(p); setAsking(false) }, (e: Error) => setError(e.message)).finally(() => setBusy(false))
   }
+  const inEditor = !!state.sketch && state.sketch.drawing_id === editor
+  // a plan for the open editor goes into it (one step of undo; the editor saves); any other proposal is run by the service
+  const apply = () => act(async () => {
+    if (!inEditor) return applyProposal(state.id)
+    const full = await getProposal(state.id)
+    const plan = full.actions.find(a => a.kind === 'sketch')
+    if (!plan) return applyProposal(state.id)
+    applyInEditor(plan.drawing_id!, plan.sketch)
+    return markProposalApplied(state.id)
+  })
   return (
     <div className="rounded-md border bg-background px-3 py-2 text-sm" data-testid="copilot-proposal" data-status={state.status}>
       <div className="flex items-start gap-2">
@@ -241,8 +256,9 @@ function ProposalCard({ proposal, building, canDecide }: { proposal: CopilotProp
       {state.result?.reason && <p className="mt-1 text-xs text-muted-foreground">Причина: {state.result.reason}</p>}
       {state.status === 'open' && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={busy} onClick={() => act(() => applyProposal(state.id))}
-            hint="Выполнить перечисленные действия от вашего имени; в журнале они будут записаны на вас"><Check className="size-4" /> Применить</Button>
+          <Button size="sm" disabled={busy} onClick={apply}
+            hint={inEditor ? 'Внести исправления в открытый план; отменить можно как любое действие в редакторе'
+              : 'Выполнить перечисленные действия от вашего имени; в журнале они будут записаны на вас'}><Check className="size-4" /> Применить</Button>
           {!asking
             ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setAsking(true)} hint="Отклонить предложение; причину увидит помощник">Отклонить</Button>
             : <form className="flex flex-1 gap-1" onSubmit={e => { e.preventDefault(); act(() => rejectProposal(state.id, reason)) }}>

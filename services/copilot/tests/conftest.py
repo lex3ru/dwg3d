@@ -18,7 +18,7 @@ from app.main import SERVICE, build
 API = "/api/copilot/v1"
 BUILDING, FLOOR, ROOM214, ROOM215, OTHER_BUILDING, OTHER_ROOM = (str(uuid4()) for _ in range(6))
 MONITOR, PRINTER = str(uuid4()), str(uuid4())
-PETROV = str(uuid4())
+PETROV, SKETCH = str(uuid4()), str(uuid4())
 TODAY = date.today()
 SOON, LATER, FAR = ((TODAY + timedelta(days=d)).isoformat() for d in (7, 12, 90))
 
@@ -41,6 +41,9 @@ class World:
         self.grants: list[dict] = []
         self.comments: list[dict] = []
         self.assignments: list[tuple[str, str]] = []
+        self.sketch, self.sketch_version, self.repairs = {"version": 1, "floors": []}, 3, []
+        self.issues = [{"floor_id": "f1", "level": "error", "code": "short-wall", "message": "Стена короче 5 мм", "ids": ["s"]},
+                       {"floor_id": "f1", "level": "warning", "code": "unnamed-room", "message": "Помещение без названия", "ids": [], "at": [1, 1]}]
         self.assets = {
             MONITOR: {"id": MONITOR, "type_name": "Монитор 24\"", "inventory_no": "00123", "state": "in_use",
                       "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": PETROV,
@@ -80,6 +83,25 @@ class World:
                 r.update({k: v for k, v in body.items() if k in ("name", "number", "type")})
                 r["version"] += 1
             return httpx.Response(200, json=r)
+        if "/import/v1/" in path:
+            if path.endswith("/drawings") and request.method == "GET":
+                return httpx.Response(200, json={"items": [{"id": SKETCH, "name": "План", "kind": "sketch", "status": "done"}]})
+            if path.endswith("/sketch/check"):
+                return httpx.Response(200, json={"version": self.sketch_version, "issues": self.issues, "errors": 1, "warnings": 1,
+                                                 "fixable": ["short-wall"], "summary": {"floors": [{"id": "f1", "level": 1, "walls": 7, "rooms": [{"name": "Кухня", "area": 5.0}], "unnamed": 1}]}})
+            if path.endswith("/sketch/repair"):
+                if me.sub not in self.admins and not me.is_admin:
+                    return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+                self.repairs.append(body)
+                return httpx.Response(200, json={"version": self.sketch_version, "sketch": {"version": 1, "floors": [{"id": "f1", "fixed": True}]},
+                                                 "fixed": [{"floor_id": "f1", "code": "short-wall", "ids": ["s"], "what": "стена s убрана"}],
+                                                 "left": [self.issues[1]], "errors": 0, "warnings": 1})
+            if path.endswith("/sketch") and request.method == "PUT":
+                if body.get("version") != self.sketch_version:
+                    return httpx.Response(409, json={"code": "conflict", "detail": "План успели изменить в другом окне"})
+                self.sketch, self.sketch_version = body["sketch"], self.sketch_version + 1
+                return httpx.Response(200, json={"version": self.sketch_version})
+            return httpx.Response(404, json={"code": "not_found", "detail": "Нет такого чертежа"})
         if path.endswith("/comments") and request.method == "POST":
             self.comments.append(body)
             return httpx.Response(201, json={"id": str(uuid4()), **body})

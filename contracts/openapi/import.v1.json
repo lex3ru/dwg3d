@@ -134,6 +134,38 @@
         "title": "ObjectsExport",
         "type": "object"
       },
+      "RepairIn": {
+        "properties": {
+          "codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Какие проблемы чинить; пусто — все исправимые",
+            "title": "Codes"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Id"
+          }
+        },
+        "title": "RepairIn",
+        "type": "object"
+      },
       "SketchNew": {
         "properties": {
           "building_id": {
@@ -957,6 +989,107 @@
           }
         },
         "summary": "Сохранить нарисованный план; правки поверх чужого сохранения — 409 conflict",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/drawings/{drawing_id}/sketch/check": {
+      "get": {
+        "description": "The server's twin of the editor's checks, with more: loose ends, rooms without a name, labels in no room,\nnumbers given twice, narrow doors, bearing walls off the ones below (app/sketch_check.py).",
+        "operationId": "check_sketch_api_import_v1_drawings__drawing_id__sketch_check_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Check Sketch Api Import V1 Drawings  Drawing Id  Sketch Check Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Проблемы нарисованного плана (ошибки и предупреждения по этажам) и его сводка",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/drawings/{drawing_id}/sketch/repair": {
+      "post": {
+        "operationId": "repair_sketch_api_import_v1_drawings__drawing_id__sketch_repair_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepairIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Repair Sketch Api Import V1 Drawings  Drawing Id  Sketch Repair Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Починенный план (не сохраняется): что исправлено и что осталось; сохранить — PUT /sketch с version",
         "tags": [
           "sketches"
         ]

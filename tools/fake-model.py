@@ -31,7 +31,13 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
             data = {}
         if isinstance(data, dict) and isinstance(data.get("proposal"), dict):
             p = data["proposal"]
-            return {"text": f"Предложил: {p.get('summary') or p.get('name')}. Примените, если согласны."}
+            fixes = "; ".join(p.get("fixes") or [])
+            return {"text": f"Предложил: {p.get('summary') or p.get('name')}." + (f" Правки: {fixes}." if fixes else "") + " Примените, если согласны."}
+        if isinstance(data, dict) and "by_code" in data and "issues" in data:
+            if data.get("fixable") and "propose_plan_fixes" in names and any(w in question for w in ("исправ", "почин")):
+                return {"calls": [("propose_plan_fixes", {"drawing_id": data["drawing_id"]})]}
+            parts = [f"{i['message']} ({', '.join(i['ids']) or 'этаж ' + str(i['floor_id'])})" for i in data["issues"][:10]]
+            return {"text": f"Ошибок: {data['errors']}, предупреждений: {data['warnings']}. " + "; ".join(parts) + "."}
         if isinstance(data, dict) and data.get("counts") and data.get("legend"):
             legend = data["legend"]
             parts = [f"{legend[k]}: {v}" for k, v in data["counts"].items() if v]
@@ -69,6 +75,8 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
         return {"calls": [("find_rooms", {"q": rename.group(1)[:40]})]}
     if number and "find_rooms" in names:
         return {"calls": [("find_rooms", {"q": number.group(1)})]}
+    if "план" in question and any(w in question for w in ("провер", "ошибк", "исправ", "почин")) and "check_plan" in names:
+        return {"calls": [("check_plan", {})]}
     if any(w in question for w in ("аудит", "проверь учёт", "проверь учет")) and "audit_assets" in names:
         return {"calls": [("audit_assets", {})]}
     if any(w in question for w in ("объект", "оборудован", "мебел", "принтер", "монитор")) and "find_assets" in names:

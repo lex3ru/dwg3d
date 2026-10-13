@@ -581,7 +581,12 @@ export type CopilotProposal = {
   count: number; labels: string[]; result: { done?: { label: string }[]; failed?: { label: string; status: number; detail: string } | null; reason?: string } | null
   sketch: { drawing_id: string; version: number } | null
 } | { kind: 'variant'; variant_id: string; name: string; summary: string; building_id: string; counts: Record<string, number> }
-export const getProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }> & { actions: Record<string, unknown>[] }>(`${COPILOT}/proposals/${id}`)
+export type ProposalAction = { label: string; kind?: 'sketch'; drawing_id?: string; version?: number; sketch?: unknown
+  service?: string; method?: string; path?: string; body?: unknown }
+export const getProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }> & { actions: ProposalAction[] }>(`${COPILOT}/proposals/${id}`)
 export const applyProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply`, { method: 'POST' })
+/** The editor of the drawn plan applied the proposal's plan itself: only mark it. */
+export const markProposalApplied = (id: string) =>
+  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply?by=editor`, { method: 'POST' })
 export const rejectProposal = (id: string, reason: string) =>
   api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/reject`, { method: 'POST', json: { reason } })

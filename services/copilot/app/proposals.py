@@ -110,6 +110,22 @@ async def apply(session: AsyncSession, client: ServiceClient, row, me: Identity,
     return as_json(fresh)
 
 
+async def applied_elsewhere(session: AsyncSession, row, me: Identity) -> dict:
+    """The editor applied the plan of the proposal itself: mark it, run nothing."""
+    if row.status != "open":
+        raise Problem(409, "not_open", f"Предложение уже {STATUS_NAMES.get(row.status, row.status)}")
+    if not any(a.get("kind") == "sketch" for a in row.actions or []):
+        raise Problem(422, "invalid", "Так применяется только предложение о нарисованном плане")
+    result = {"done": [{"index": i, "label": a.get("label"), "status": "editor"} for i, a in enumerate(row.actions or [])],
+              "failed": None, "at": datetime.now(UTC).isoformat()}
+    await session.execute(update(proposals).where(proposals.c.id == row.id).values(
+        result=result, status="applied", decided_at=datetime.now(UTC), decided_by=me.sub))
+    await emit(session, "copilot.proposal.applied", ("proposal", row.id),
+               {"proposal_id": str(row.id), "chat_id": str(row.chat_id), "summary": row.summary, "actions": len(row.actions or [])},
+               **({"building_id": row.building_id} if row.building_id else {}))
+    return as_json(await one(session, row.id))
+
+
 async def reject(session: AsyncSession, row, me: Identity, reason: str | None) -> dict:
     if row.status != "open":
         raise Problem(409, "not_open", f"Предложение уже {STATUS_NAMES.get(row.status, row.status)}")
