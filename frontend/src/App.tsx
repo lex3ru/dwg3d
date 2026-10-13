@@ -12,6 +12,8 @@ import { Assets } from './pages/Assets'
 import { Building } from './pages/Building'
 import { Buildings } from './pages/Buildings'
 import { Catalog } from './pages/Catalog'
+import { CopilotButton, CopilotPane } from './copilot/Panel'
+import { useCopilot } from './copilot/useCopilot'
 import { GuestView } from './pages/Guest'
 import { Home } from './pages/Home'
 import { Journal } from './pages/Journal'
@@ -27,6 +29,7 @@ import { Sketch } from './sketch/Sketch'
 import { guestAddress, to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
 import { barStream, useEvents } from './stream'
+import type { CopilotUI } from './api'
 
 const noop = () => {}
 
@@ -155,6 +158,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   const b = scope?.building ?? null
   // what the building's administrator may: drawings, the editor, people, rights
   const admin = buildingId ? manages(me, buildingId) : sys
+  const copilot = useCopilot(b?.id ?? null)
 
   let content: ReactNode
   let panel: ReactNode = null
@@ -250,11 +254,50 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   }
   const planPanel = route.page === 'building' && route.section === 'plan'
   return (
-    <Shell me={me} route={route} building={b} several={(mine?.ids.length ?? 0) > 1 || sys} editor={scope?.editor ?? null} crumbs={crumbs}
-      panel={panel} onClosePanel={closePanel} keepMain={planPanel}>
-      {content}
-    </Shell>
+    <>
+      <Shell me={me} route={route} building={b} several={(mine?.ids.length ?? 0) > 1 || sys} editor={scope?.editor ?? null} crumbs={crumbs}
+        panel={panel} onClosePanel={closePanel} keepMain={planPanel}
+        side={copilot.status && copilot.open && <CopilotPane ui={copilotContext(route, scope)} building={b?.id ?? null} status={copilot.status} onClose={() => copilot.setOpen(false)} />}>
+        {content}
+      </Shell>
+      {copilot.status && !copilot.open && <CopilotButton onOpen={() => copilot.setOpen(true)} />}
+    </>
   )
+}
+
+/** What the user has open, for the copilot: «здесь», «это», «на этом этаже» point at it. */
+function copilotContext(route: Route, scope: Scope | null): CopilotUI {
+  const ui: CopilotUI = {}
+  if (scope) ui.building = { id: scope.building.id, name: scope.building.name }
+  const floor = (id?: string) => { const f = scope?.floors.find(x => x.id === id); return f ? { id: f.id, name: f.name } : undefined }
+  const room = (id?: string) => {
+    for (const f of scope?.floors ?? []) {
+      const r = f.rooms.find(x => x.id === id)
+      if (r) return { floor: { id: f.id, name: f.name }, room: { id: r.id, name: [r.number, r.name].filter(Boolean).join(' ') || 'без названия' } }
+    }
+    return null
+  }
+  if (route.page === 'building') {
+    ui.section = route.section
+    if (route.section === 'plan') {
+      if (route.item) ui.floor = floor(route.item)
+      const r = room(route.sub)
+      if (r) { ui.floor = r.floor; ui.room = r.room }
+    } else if (route.section === 'rooms') {
+      const r = room(route.item)
+      if (r) { ui.floor = r.floor; ui.room = r.room }
+    } else if (route.section === 'assets' && route.item) {
+      ui.asset = { id: route.item }
+    } else if (route.section === 'variants' && route.item) {
+      ui.variant = { id: route.item }
+    }
+  } else if (route.page === 'editor' || route.page === 'sketch') {
+    ui.section = route.page === 'editor' ? 'редактор 3D' : 'рисование плана'
+    ui.drawing = { id: route.drawing }
+  } else {
+    ui.section = route.page
+  }
+  return ui
 }
 
 /** The user; on a phone also what the menu on the left holds on a wide screen. */
