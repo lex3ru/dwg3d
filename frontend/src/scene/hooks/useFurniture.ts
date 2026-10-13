@@ -22,7 +22,7 @@ export function useFurniture(p: {
   rebuilding: boolean
   reload: () => void
   hiddenNow: Set<string>
-  layerFor: (c: CatalogItem) => string | undefined
+  layerFor: (c: CatalogItem) => string | null | undefined
   refuseLocked: (it: PlacedItem | undefined) => boolean
   syncLayers: (items: { layer?: string }[]) => void
   tool: Tool
@@ -170,7 +170,9 @@ export function useFurniture(p: {
   }
   const placeItem = (c: CatalogItem, pose: Pose) => {
     if (!furnFloor) return
-    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle, layer: p.layerFor(c) }
+    const layer = p.layerFor(c)
+    if (layer === null) return
+    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle, layer }
     if (p.refuseLocked(it)) return
     setFurniture([...furniture, it])
     setFurnSel(it.id)

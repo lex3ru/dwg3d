@@ -10,6 +10,8 @@ async function screen(page: Page, x: number, y: number) {
 
 // Stage 8, engineering systems in the editor: a camera and a light placed as objects land in the layers
 // «Видеонаблюдение» and «Освещение»; the view mode «Инженерные системы» shows them with their coverage.
+// A layer offers its own sections of the catalog only; a light found while a variant is edited is placed
+// in that variant's layer of lighting, never in the fact.
 
 test('a camera and a light are objects of their systems\' layers and show their coverage', async ({ page }) => {
   test.setTimeout(180_000)
@@ -51,7 +53,7 @@ test('a camera and a light are objects of their systems\' layers and show their 
   await page.screenshot({ path: 'test-results/systems.png' })
 })
 
-test('a camera and a light placed in the editor land in their systems\' layers and stay on screen in «Инженерные системы»', async ({ page }) => {
+test('a camera and a light are placed from their systems\' layers and stay on screen in «Инженерные системы»', async ({ page }) => {
   test.setTimeout(240_000)
   const stamp = Date.now().toString().slice(-7)
   await page.setViewportSize({ width: 1400, height: 850 })
@@ -79,10 +81,15 @@ test('a camera and a light placed in the editor land in their systems\' layers a
     await answerNumber(page, `К-${stamp}-${Math.random().toString(36).slice(2, 5)}`)
     await page.waitForTimeout(2500)
   }
-  // a camera dragged while «Объекты учёта» is edited: the whole catalog is offered, the camera goes to «Видеонаблюдение»
+  // «Объекты учёта» do not offer a camera: the search names the layer it is placed in, and goes there
   await page.locator('li', { hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
+  await page.getByPlaceholder('Поиск в каталоге').fill('Камера купольная')
+  await expect(page.getByText('В этом слое ничего не найдено')).toBeVisible()
+  await expect(page.getByText(/В слое «Видеонаблюдение»: \d+/)).toBeVisible()
+  await page.getByRole('button', { name: 'Перейти' }).click()
+  await expect(page.getByRole('toolbar', { name: 'Редактирование слоя' })).toContainText('Видеонаблюдение')
   await drop('Камера купольная (потолок)', 9, 5)
   await expect.poll(async () => (await objects()).length, { timeout: 10_000 }).toBe(1)
   await page.getByRole('button', { name: 'Готово' }).click()
@@ -101,4 +108,50 @@ test('a camera and a light placed in the editor land in their systems\' layers a
   await page.getByRole('button', { name: 'Готово' }).click()
   await expect(layer('Освещение').locator('svg.lucide-chevron-right')).toHaveCount(1)
   await page.screenshot({ path: 'test-results/systems-placed.png' })
+})
+
+test('a light found while a variant is edited goes to the variant\'s lighting, though the lighting shows the fact', async ({ page }) => {
+  test.setTimeout(240_000)
+  const stamp = Date.now().toString().slice(-7)
+  await page.setViewportSize({ width: 1400, height: 850 })
+  await signIn(page, 'admin')
+  await page.getByRole('button', { name: 'Создать здание' }).click()
+  await page.getByLabel('Название').fill(`Свет варианта ${stamp}`)
+  await page.getByRole('button', { name: 'Создать', exact: true }).click()
+  await page.waitForURL(/#\/p\//)
+  const building = /#\/p\/([\w-]+)/.exec(page.url())![1]
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  await expect(page.locator('[data-drawing="sample.dxf"]')).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  await page.goto(`/#/b/${building}/variants`)
+  await page.getByLabel('Название варианта').fill('Перестановка')
+  await page.getByRole('button', { name: 'Создать вариант' }).click()
+  await expect(page.getByTestId('variant-card').getByRole('heading', { name: 'Перестановка' })).toBeVisible()
+  const vid = ((await (await page.request.get(`/api/planning/v1/variants?building_id=${building}`)).json()).items as { id: string }[])[0].id
+  // the variant chosen for «Объекты учёта» only (as the tree does): the lighting still shows the fact
+  await page.evaluate(([b, v]) => localStorage.setItem(`dwg3d.layers.${b}`,
+    JSON.stringify({ active: `variant:${v}`, variants: { assets: `variant:${v}` } })), [building, vid])
+  await page.goto(`/#/p/${building}`)
+  await page.locator('[data-drawing="sample.dxf"]').getByRole('link', { name: 'Открыть' }).click()
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
+  await page.locator('button').first().click()
+  await page.getByText('План 1-го этажа').first().click()
+  await page.locator('li', { hasText: 'Перестановка' }).filter({ hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
+  await page.getByRole('button', { name: '2D', exact: true }).click()
+  await page.waitForTimeout(2500)
+  await page.getByPlaceholder('Поиск в каталоге').fill('панель 600×600')
+  await expect(page.getByText(/В слое «Освещение · Перестановка»: \d+/)).toBeVisible()
+  await page.getByRole('button', { name: 'Перейти' }).click()
+  const name = 'Светильник светодиодный, панель 600×600'
+  const item = page.getByText(name, { exact: true }).first()
+  const b = (await item.boundingBox())!
+  await page.mouse.move(b.x + 20, b.y + 8); await page.mouse.down()
+  const [sx, sy] = await screen(page, 3, 3)
+  await page.mouse.move(sx - 40, sy, { steps: 5 }); await page.mouse.move(sx, sy, { steps: 5 }); await page.mouse.up()
+  await answerNumber(page, '')
+  // a proposal of the variant, not an object of the fact
+  const light = ((await (await page.request.get('/api/catalog/v1/types?active=true')).json()).items as { id: string; name: string }[])
+    .find(t => t.name === name)!.id
+  await expect.poll(async () => ((await (await page.request.get(`/api/planning/v1/variants/${vid}/view`)).json()).items as { type_id: string }[])
+    .filter(o => o.type_id === light).length, { timeout: 10_000 }).toBe(1)
+  expect(((await (await page.request.get(`/api/assets/v1/assets?building_id=${building}`)).json()).items as unknown[]).length).toBe(0)
 })

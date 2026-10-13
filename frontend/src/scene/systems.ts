@@ -27,6 +27,12 @@ export function systemOf(layer: string): string {
   return i < 0 ? '' : layer.slice(i)
 }
 
+/** The set a layer of objects belongs to: `assets` for the fact, `variant:<id>` for a variant of the planning service.
+ * A new object stays in the set of the layer being edited — a light put in a variant is the variant's, never the fact's. */
+export function layerSet(layer: string): string {
+  return layer.slice(0, layer.length - systemOf(layer).length)
+}
+
 /** Which variant each layer of objects shows, for the editor to open a variant of the planning service on all of them. */
 export function showingVariant(vid: string): Record<string, string> {
   return Object.fromEntries([LAYER, ...SYSTEMS.map((x) => `${LAYER}.${x.kind}`)].map((l) => [l, VARIANT + vid + systemOf(l)]))

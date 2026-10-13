@@ -1,6 +1,7 @@
-import { Search } from 'lucide-react'
+import { ArrowRight, Search } from 'lucide-react'
 import { useState } from 'react'
 import type { FloorMeta } from '@/scene/api'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Tip } from '@/components/ui/tooltip'
@@ -11,6 +12,9 @@ import { cm, ItemThumb } from './parts'
 /**
  * The catalog of the layer being edited (its categories only), in the left
  * dock: drag an item onto the plan, or click it and then click the plan.
+ * What the search finds in other layers' sections (a light while «Объекты
+ * учёта» is edited) is not placed from here: it is named with its layer, to go
+ * and edit that one.
  */
 export default function Catalog(p: {
   /** catalog categories the layer takes; null: any */
@@ -19,13 +23,28 @@ export default function Catalog(p: {
   placing: CatalogItem | null
   onPick: (c: CatalogItem, drag: boolean) => void
   locked: boolean
+  /** the layer an item of another section belongs in, next to the one being edited */
+  layerOf: (c: CatalogItem) => { id: string; name: string } | null
+  onGoLayer: (id: string) => void
 }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
   const own = CATALOG.filter((c) => !p.categories || p.categories.includes(c.cat))
   const cats = CATEGORIES.filter((c) => own.some((x) => x.cat === c.id))
   const s = q.trim().toLowerCase()
-  const found = own.filter((c) => (cat === 'all' || c.cat === cat) && (!s || `${c.name} ${c.tags ?? ''}`.toLowerCase().includes(s)))
+  const hit = (c: CatalogItem) => !s || `${c.name} ${c.tags ?? ''}`.toLowerCase().includes(s)
+  const found = own.filter((c) => (cat === 'all' || c.cat === cat) && hit(c))
+  // found in the sections of other layers, by the layer each goes to
+  const away = new Map<string, { name: string; items: CatalogItem[] }>()
+  if (s && p.categories) {
+    for (const c of CATALOG) {
+      if (p.categories.includes(c.cat) || !hit(c)) continue
+      const l = p.layerOf(c)
+      if (!l) continue
+      if (!away.has(l.id)) away.set(l.id, { name: l.name, items: [] })
+      away.get(l.id)!.items.push(c)
+    }
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="grid shrink-0 gap-2 border-b border-border p-2">
@@ -63,8 +82,24 @@ export default function Catalog(p: {
             </Tip>
           </li>
         ))}
-        {!found.length && <li className="p-3 text-center text-xs text-muted-foreground">Ничего не найдено</li>}
+        {!found.length && <li className="p-3 text-center text-xs text-muted-foreground">{away.size ? 'В этом слое ничего не найдено' : 'Ничего не найдено'}</li>}
       </ul>
+      {away.size > 0 && (
+        <div className="grid shrink-0 gap-1.5 border-t border-border p-2 text-xs">
+          {[...away].map(([id, l]) => (
+            <div key={id} className="flex items-center gap-2 rounded-md bg-secondary p-2">
+              <div className="min-w-0 flex-1">
+                <div>В слое «{l.name}»: {l.items.length}</div>
+                <div className="truncate text-muted-foreground">{l.items.slice(0, 3).map((c) => c.name).join(', ')}{l.items.length > 3 ? '…' : ''}</div>
+              </div>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={() => p.onGoLayer(id)}
+                hint={`Эти позиции ставятся в слой «${l.name}»: перейти к его редактированию`}>
+                Перейти <ArrowRight />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

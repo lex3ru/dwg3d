@@ -151,7 +151,7 @@ export default function App() {
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
     layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
+    targetLayer, layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
@@ -570,10 +570,15 @@ export default function App() {
     else setShapeSel(o.id)
   }
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
-    // «Объекты учёта» offers the whole catalog: what belongs to a system (a camera, a light) goes to that system's layer
-    <Catalog categories={editKind?.kind === 'furniture' ? null : editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
+    // a layer offers its own sections only: a camera or a light is placed in its system's layer, not from «Объекты учёта»
+    <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
-      locked={rebuilding} />
+      locked={rebuilding} layerOf={(c) => {
+        // a variant's layer is named by its variant: «Освещение · Перестановка»
+        const t = targetLayer(c), k = t && kinds.find((x) => x.kind === t.kind)
+        return t && { id: t.id, name: k && k.name !== t.name ? `${k.name} · ${t.name}` : t.name }
+      }}
+      onGoLayer={(id) => { setPlacing(null); showVariant(id); editLayerTo(id) }} />
   ) : r ? (
     <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
       drawingSelected={drawingSel} onFloor={selectFloor} onRoom={(f, rm) => { setDrawingSel(false); focusRoom(f, rm) }} onOpenJob={openJob}
