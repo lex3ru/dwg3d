@@ -86,6 +86,19 @@
             "description": "Или объект, добавленный этим вариантом",
             "title": "Op Id"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Марка и модель нового объекта, если известна",
+            "title": "Product Id"
+          },
           "type_id": {
             "anyOf": [
               {

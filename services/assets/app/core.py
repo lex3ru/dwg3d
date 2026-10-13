@@ -31,6 +31,7 @@ def asset_json(a) -> dict:
     return {
         "id": str(a.id), "type_id": str(a.type_id), "type_name": a.type_name,
         "category_id": str(a.category_id) if a.category_id else None, "schema_version": a.schema_version,
+        "product_id": str(a.product_id) if a.product_id else None, "product_name": a.product_name,
         "building_id": str(a.building_id), "floor_id": str(a.floor_id), "room_id": str(a.room_id),
         "x": a.x, "y": a.y, "angle": a.angle, "elevation": a.elevation,
         "container_id": str(a.container_id) if a.container_id else None,
@@ -68,6 +69,39 @@ async def fetch_type(client, type_id: UUID, token: str | None) -> dict:
     if r.status_code != 200:
         raise Problem(503, "service_unavailable", "Каталог не ответил", extra={"service": "catalog"})
     return r.json()
+
+
+def token_of(request: Request) -> str | None:
+    return request.headers.get("authorization", "").partition(" ")[2].strip() or None
+
+
+async def fetch_product(client, product_id: UUID, token: str | None) -> dict | None:
+    """The make and model as the catalog describes it; None — no such product."""
+    r = await client.get("catalog", f"/products/{product_id}", token=token)
+    if r.status_code == 404:
+        return None
+    if r.status_code != 200:
+        raise Problem(503, "service_unavailable", "Каталог не ответил", extra={"service": "catalog"})
+    return r.json()
+
+
+def product_label(p: dict) -> str:
+    return f"{p.get('vendor') or ''} {p.get('name') or ''}".strip()
+
+
+async def product_of(request: Request, type_id: UUID, product_id: UUID | None) -> tuple[UUID | None, str]:
+    """The product an object may name — one of its type, offered (not archived) — and the name to keep a copy of."""
+    if product_id is None:
+        return None, ""
+    p = await fetch_product(request.app.state.client, product_id, token_of(request))
+    if p is None:
+        raise Problem(422, "invalid", "Нет такой модели в каталоге", errors=[{"field": "product_id", "message": "не найдена"}])
+    if p["type_id"] != str(type_id):
+        raise Problem(422, "invalid", f"Модель «{product_label(p)}» — другого типа",
+                      errors=[{"field": "product_id", "message": "другого типа"}])
+    if not p["active"]:
+        raise Problem(422, "invalid", f"Модель «{product_label(p)}» в архиве", errors=[{"field": "product_id", "message": "в архиве"}])
+    return product_id, product_label(p)
 
 
 async def store_schema(session, t: dict):

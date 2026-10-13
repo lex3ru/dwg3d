@@ -533,3 +533,42 @@ async def test_free_inventory_numbers_for_one_who_has_none(client, world, boss, 
     assert (await client.get(url, params={"type_id": couch}, headers=boss)).json() == {"numbers": ["КШ-18"]}
     guest = tokens.guest("building", BUILDING, BUILDING)
     assert (await client.get(url, params={"type_id": couch}, headers=guest)).status_code == 403
+
+
+async def test_the_make_and_model_of_an_object(client, app, world, boss):
+    """A type says what the object is; a product of the catalog — which make and model, if it is named."""
+    by_vendor = {p["vendor"]: p for p in world.products.values()}
+    km, old, rack = by_vendor["Медстальконструкция"], by_vendor[""], by_vendor["ЦМО"]
+    a = await put(client, boss, world, "couch", "К-0001", product_id=km["id"])
+    assert (a["product_id"], a["product_name"]) == (km["id"], "Медстальконструкция КМ-01")
+    plain = await put(client, boss, world, "couch", "К-0002", x=3.0)
+    assert (plain["product_id"], plain["product_name"]) == (None, "")
+    # of another type, archived or unknown — refused
+    body = {"type_id": world.types["couch"]["id"], "floor_id": FLOOR, "x": 2, "y": 2, "inventory_no": "К-0003"}
+    for wrong in (rack["id"], old["id"], str(uuid4())):
+        r = await client.post(f"{API}/assets", json={**body, "product_id": wrong}, headers=boss)
+        assert r.status_code == 422 and r.json()["errors"][0]["field"] == "product_id", wrong
+    # the card describes the product; the list finds by its name and filters by it
+    card = await get(client, boss, a)
+    assert (card["product"]["article"], card["product"]["price"]) == ("KM01", 15000.0)
+    assert (await get(client, boss, plain))["product"] is None
+    found = (await client.get(f"{API}/assets", params={"building_id": BUILDING, "q": "КМ-01"}, headers=boss)).json()["items"]
+    assert [x["inventory_no"] for x in found] == ["К-0001"]
+    by_product = (await client.get(f"{API}/assets", params={"product_id": km["id"]}, headers=boss)).json()["items"]
+    assert [x["inventory_no"] for x in by_product] == ["К-0001"]
+    # the administrator names or clears the model; it goes to the history
+    r = await client.patch(f"{API}/assets/{plain['id']}", json={"product_id": km["id"], "version": plain["version"]}, headers=boss)
+    assert r.status_code == 200 and r.json()["product_name"] == "Медстальконструкция КМ-01"
+    r = await client.patch(f"{API}/assets/{plain['id']}", json={"product_id": None, "version": r.json()["version"]}, headers=boss)
+    assert r.status_code == 200 and r.json()["product_id"] is None
+    history = (await client.get(f"{API}/assets/{plain['id']}/history", headers=boss)).json()["items"]
+    assert history[0]["changes"]["product_name"] == ["Медстальконструкция КМ-01", ""]
+    keeper = world.person("keeper", ("responsible", "asset", a["id"]))
+    r = await client.patch(f"{API}/assets/{a['id']}", json={"product_id": None, "version": a["version"]}, headers=keeper)
+    assert r.status_code == 403
+    # renamed in the catalog: the copies follow
+    event = envelope("catalog.product.changed", ("product", km["id"]), {**{k: km[k] for k in ("product_id", "type_id") if k in km},
+                     "product_id": km["id"], "type_id": km["type_id"], "vendor": "МСК", "name": "КМ-01", "article": "KM01",
+                     "price": 15000.0, "currency": "RUB", "active": True}, actor={"kind": "service", "id": "catalog"})
+    assert await app.state.bus.handle("product-changed", event) is True
+    assert (await get(client, boss, a))["product_name"] == "МСК КМ-01"

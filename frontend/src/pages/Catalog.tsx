@@ -1,8 +1,9 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
-  archiveType, deleteTypeModel, getType, listCategories, listSets, listTypes, putTypeModel, saveSet, saveType, typeModelUrl,
-  type CatalogType, type Category, type Prop, type PropertySet, type TypeBody,
+  archiveProduct, archiveType, deleteTypeModel, getType, listCategories, listProducts, listSets, listTypes, productLabel, putTypeModel,
+  saveProduct, saveSet, saveType, typeModelUrl,
+  type CatalogType, type Category, type Product, type ProductBody, type Prop, type PropertySet, type TypeBody,
 } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -13,6 +14,8 @@ const ModelPreview = lazy(() => import('../components/ModelPreview'))
 const select = 'h-8 rounded-md border bg-card px-2 text-sm'
 const KINDS: Record<Prop['kind'], string> = { text: 'текст', number: 'число', date: 'дата', bool: 'да / нет', choice: 'выбор', person: 'человек' }
 const EDITORS: Record<Prop['editable_by'], string> = { system: 'система (каталог)', admin: 'администратор здания', responsible: 'ответственный' }
+const plural = (n: number, one: string, few: string, many: string) =>
+  (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many)
 const PORTABLE = 'Перемещать объекты этого типа может и ответственный, а не только администратор здания'
 const CONTAINER = 'В объект этого типа можно вкладывать другие объекты'
 const WALL = 'Объекты этого типа вешают на стену: при расстановке они встают к ближайшей стене'
@@ -70,6 +73,7 @@ export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string
                       {t.wall_mounted && <Tip label={WALL}><Badge>на стене</Badge></Tip>}
                       {t.ceiling_mounted && <Tip label={CEILING}><Badge>на потолке</Badge></Tip>}
                       {t.model && <Tip label="Объекты типа показываются в 3D своей моделью, а не фигурой по габаритам"><Badge variant="success">3D-модель</Badge></Tip>}
+                      {!!t.products && <Tip label="Марки и модели типа: объект может назвать свою, по ней считается цена"><Badge>{t.products} {plural(t.products, 'модель', 'модели', 'моделей')}</Badge></Tip>}
                       <span className="text-muted-foreground tabular-nums">{t.size.map(v => v.toLocaleString('ru')).join(' × ')} м</span>
                     </a>
                   </li>
@@ -220,7 +224,9 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
       </Tip>
     </label>
   )
+  // the makes and models have a form of their own, so they stand after the type's form, not inside it
   return (
+    <>
     <form className="max-w-4xl space-y-5" onSubmit={e => {
       e.preventDefault()
       const values = Object.fromEntries(Object.entries(body.values).filter(([k, v]) => ofType.some(p => p.key === k) && v !== '' && v != null))
@@ -250,6 +256,12 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
               <option value="wall">на стене</option>
               <option value="ceiling">на потолке</option>
             </select>
+          </Tip>
+        </label>
+        <label className="grid gap-1 text-sm">Ориентировочная цена, {body.currency}
+          <Tip label="Для оценки варианта, когда у объекта не названа модель; цены моделей — ниже, в «Марки и модели»">
+            <Input className="w-28" type="number" step="0.01" min="0" aria-label="Ориентировочная цена" value={body.price ?? ''}
+              onChange={e => patch({ price: e.target.value === '' ? null : Number(e.target.value) })} />
           </Tip>
         </label>
         <label className="grid gap-1 text-sm">Высота установки, м
@@ -351,5 +363,84 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
         )}
       </div>
     </form>
+    {existing && <div className="mt-6 max-w-4xl"><Products type={existing} onChanged={onChanged} /></div>}
+    </>
+  )
+}
+
+const EMPTY_PRODUCT: ProductBody = { vendor: '', name: '', article: null, supplier: null, price: null, currency: 'RUB', note: '', sort: 0 }
+
+/** The makes and models of a type: what an object of it may be — Dell P2723DE, LG 27UL550 — with the article, the
+ * supplier and the list price. Added and changed here; an archived one is not offered, its objects stay it. */
+function Products({ type, onChanged }: { type: CatalogType; onChanged: () => void }) {
+  const [items, setItems] = useState<Product[]>([])
+  const [archived, setArchived] = useState(false)
+  const [editing, setEditing] = useState<Product | 'new' | null>(null)
+  const [body, setBody] = useState<ProductBody>(EMPTY_PRODUCT)
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(() => listProducts(type.id, !archived).then(setItems, (e: Error) => setError(e.message)), [type.id, archived])
+  useEffect(() => { load() }, [load])
+  const open = (p: Product | 'new') => {
+    setEditing(p)
+    setBody(p === 'new' ? EMPTY_PRODUCT : { vendor: p.vendor, name: p.name, article: p.article, supplier: p.supplier, price: p.price, currency: p.currency, note: p.note, sort: p.sort })
+    setError(null)
+  }
+  const field = (key: 'vendor' | 'name' | 'article' | 'supplier', label: string, hint: string, required = false) => (
+    <label className="grid gap-1 text-sm">{label}
+      <Tip label={hint}>
+        <Input className="w-44" value={body[key] ?? ''} required={required} aria-label={label}
+          onChange={e => setBody({ ...body, [key]: key === 'article' || key === 'supplier' ? e.target.value || null : e.target.value })} />
+      </Tip>
+    </label>
+  )
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-base font-semibold">Марки и модели</h2>
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <input type="checkbox" className="accent-primary" checked={archived} onChange={e => setArchived(e.target.checked)} /> архив
+        </label>
+        {editing == null && <Button type="button" variant="outline" size="sm" hint="Новая марка и модель этого типа: объект сможет назвать её при постановке или в карточке"
+          onClick={() => open('new')}><Plus className="size-4" /> Модель</Button>}
+      </div>
+      <p className="text-sm text-muted-foreground">Какой именно модели объект типа «{type.name}»: с артикулом, поставщиком и ценой по прайсу. Объект называет свою модель при постановке или в карточке; вариант считается по её цене.</p>
+      {items.length > 0 && (
+        <ul className="mt-2 divide-y rounded-lg border bg-card text-sm" data-testid="products">
+          {items.map(p => (
+            <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5" data-product={productLabel(p)}>
+              <span className="min-w-40 flex-1 font-medium">{productLabel(p)}</span>
+              <span className="text-muted-foreground">{[p.article && `арт. ${p.article}`, p.supplier].filter(Boolean).join(' · ')}</span>
+              <span className="tabular-nums text-muted-foreground">{p.price != null ? `${p.price.toLocaleString('ru')} ${p.currency}` : '—'}</span>
+              <Button type="button" variant="ghost" size="sm" hint="Изменить марку, модель, артикул, поставщика или цену" onClick={() => open(p)}>Изменить</Button>
+              <Button type="button" variant="ghost" size="sm" hint={p.active ? 'Убрать из выбора при постановке; объекты этой модели останутся ею' : 'Снова предлагать при постановке'}
+                onClick={() => archiveProduct(p.id, p.active).then(() => { load(); onChanged() }, (e: Error) => setError(e.message))}>
+                {p.active ? 'В архив' : 'Вернуть'}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {items.length === 0 && editing == null && <p className="mt-2 text-sm text-muted-foreground">{archived ? 'В архиве моделей нет.' : 'Моделей пока нет: объекты этого типа ставятся без марки и модели.'}</p>}
+      {editing != null && (
+        <form className="mt-3 flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3" data-testid="product-form" onSubmit={e => {
+          e.preventDefault()
+          saveProduct(type.id, body, editing === 'new' ? undefined : editing).then(() => { setEditing(null); load(); onChanged() }, (ex: Error) => setError(ex.message))
+        }}>
+          {field('vendor', 'Производитель', 'Марка: Dell, LG, «Дельта»; можно оставить пустым, если не важна')}
+          {field('name', 'Модель', 'Как её называет производитель: P2723DE, СП-1600', true)}
+          {field('article', 'Артикул', 'Код по прайсу поставщика')}
+          {field('supplier', 'Поставщик', 'У кого покупают')}
+          <label className="grid gap-1 text-sm">Цена, {body.currency}
+            <Tip label="Цена по прайсу: по ней считается вариант, где объект этой модели">
+              <Input className="w-28" type="number" step="0.01" min="0" aria-label="Цена модели" value={body.price ?? ''}
+                onChange={e => setBody({ ...body, price: e.target.value === '' ? null : Number(e.target.value) })} />
+            </Tip>
+          </label>
+          <Button type="submit" size="sm" hint={editing === 'new' ? 'Добавить модель типу' : 'Сохранить изменения модели'}>{editing === 'new' ? 'Добавить' : 'Сохранить'}</Button>
+          <Button type="button" size="sm" variant="ghost" hint="Закрыть форму, ничего не сохраняя" onClick={() => setEditing(null)}>Отмена</Button>
+        </form>
+      )}
+      {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+    </div>
   )
 }

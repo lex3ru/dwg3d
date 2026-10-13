@@ -172,8 +172,9 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
             <th className="text-right">Цена</th><th className="text-right">Сумма варианта</th></tr></thead>
           <tbody>
             {cmp.items.map(i => (
-              <tr key={i.type_id} className="border-t" data-type={i.name}>
-                <td className="py-1">{i.name}</td><td className="text-right tabular-nums">{i.qty_a}</td><td className="text-right tabular-nums">{i.qty_b}</td>
+              <tr key={`${i.type_id}|${i.product_id ?? ''}`} className="border-t" data-type={i.name}>
+                <td className="py-1">{i.name}{i.product && <span className="ml-1 text-muted-foreground">{i.product}</span>}</td>
+                <td className="text-right tabular-nums">{i.qty_a}</td><td className="text-right tabular-nums">{i.qty_b}</td>
                 <td className="text-right tabular-nums">{signed(i.delta)}</td><td className="text-right tabular-nums">{money(i.price, i.currency)}</td>
                 <td className="text-right tabular-nums">{money(i.sum_b, i.currency)}</td>
               </tr>

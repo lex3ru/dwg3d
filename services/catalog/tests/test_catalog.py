@@ -204,3 +204,37 @@ async def test_property_with_values_at_objects_stays(client, tokens, used):
     # a property nobody has filled in goes freely; a new one comes freely
     used.clear()
     assert (await client.patch(f"{API}/property-sets/{sset['id']}", json=without, headers=admin)).status_code == 200
+
+
+async def test_products_of_a_type(client, app, tokens):
+    """A make and model of a type: offered with the type, priced by its list price; one of a kind per type."""
+    admin, user = tokens.admin(), tokens.bearer("user-1")
+    monitor = (await named(client, user, "types"))["Монитор 27″"]
+    url = f"{API}/types/{monitor['id']}/products"
+    dell = {"vendor": "Dell", "name": "P2723DE", "article": "210-BDDW", "supplier": "ООО «Сервер»", "price": 32990}
+    r = await client.post(url, json=dell, headers=admin)
+    assert r.status_code == 201
+    made = r.json()
+    assert (made["type_id"], made["vendor"], made["price"], made["active"]) == (monitor["id"], "Dell", 32990.0, True)
+    assert (await events(app))[-1]["type"] == "catalog.product.created"
+    # the same make and model twice is refused; the user reads, the administrator writes
+    assert (await client.post(url, json={**dell, "name": " P2723DE "}, headers=admin)).status_code == 409
+    assert (await client.post(url, json={"vendor": "LG", "name": "27UL550"}, headers=user)).status_code == 403
+    assert (await client.post(url, json={"vendor": "LG", "name": "27UL550"}, headers=admin)).status_code == 201
+    assert (await client.post(f"{API}/types/{made['id']}/products", json=dell, headers=admin)).status_code == 404
+    # listed with the type, counted on it
+    assert [p["vendor"] for p in (await client.get(url, headers=user)).json()["items"]] == ["Dell", "LG"]
+    assert (await client.get(f"{API}/types/{monitor['id']}", headers=user)).json()["products"] == 2
+    assert (await named(client, user, "types"))["Монитор 27″"]["products"] == 2
+    # a change against a stale version is refused; archived — out of the type's offer, still read by id
+    patch = {**dell, "price": 29990, "version": made["version"]}
+    assert (await client.patch(f"{API}/products/{made['id']}", json=patch, headers=admin)).json()["price"] == 29990.0
+    assert (await client.patch(f"{API}/products/{made['id']}", json=patch, headers=admin)).status_code == 409
+    gone = await client.post(f"{API}/products/{made['id']}/archive", headers=admin)
+    assert gone.json()["active"] is False and (await events(app))[-1]["type"] == "catalog.product.archived"
+    assert [p["vendor"] for p in (await client.get(url, headers=user)).json()["items"]] == ["LG"]
+    assert (await client.get(f"{API}/products/{made['id']}", headers=user)).json()["name"] == "P2723DE"
+    assert len((await client.get(f"{API}/products?type_id={monitor['id']}", headers=user)).json()["items"]) == 2
+    # the office set no longer keeps a vendor and a model with the type
+    office = (await named(client, user, "property-sets"))["Оргтехника"]
+    assert [p["key"] for p in office["properties"]][:1] == ["consumables"]

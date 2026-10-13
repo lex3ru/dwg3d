@@ -293,11 +293,12 @@ async function variantOps(id: string, ops: Json[]): Promise<Json[]> {
       if (op.op === 'update' && (op.item !== undefined || op.size !== undefined)) throw refuse('Тип и размер объекта задаёт каталог')
       if (op.op === 'create') {
         const type = (await call('GET', `${CATALOG}/types/${op.item}`)).name
-        const number = (await askNumber({ title: 'Новый объект в варианте', optional: true, suggestion: await nextNumber(k.building, op.item),
-          generate: generator(op.item, 1).generate,
-          text: `Инвентарный номер «${type}» — можно оставить пустым и указать перед применением варианта` }))?.trim()
+        const answer = await askNumber({ title: 'Новый объект в варианте', optional: true, suggestion: await nextNumber(k.building, op.item),
+          generate: generator(op.item, 1).generate, products: await productsOf(op.item),
+          text: `Инвентарный номер «${type}» — можно оставить пустым и указать перед применением варианта` })
+        const number = answer?.number.trim()
         edits.push({ kind: 'place', type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1], angle: op.angle ?? 0,
-          inventory_no: number || null, note: op.note ?? '' })
+          ...(answer?.product ? { product_id: answer.product } : {}), inventory_no: number || null, note: op.note ?? '' })
         after.push({ op, was: null })
         continue
       }
@@ -390,7 +391,8 @@ async function catalog(): Promise<Json> {
 function objectOut(a: Json, floor: string, id = viewerIds.get(a.id) ?? a.id): Json {
   objectInfo.set(a.id, { number: a.inventory_no, card: `#/b/${a.building_id}/assets/${a.id}` })
   return { id, version: a.version, layer: layerOf(a.category_id), geom: 'point', floor, item: a.type_id, at: [a.x, a.y],
-    angle: ((a.angle ?? 0) + 360) % 360, note: a.note ?? '', ...(a.elevation != null ? { elev: a.elevation } : {}) }
+    angle: ((a.angle ?? 0) + 360) % 360, note: a.note ?? '', ...(a.elevation != null ? { elev: a.elevation } : {}),
+    ...(a.product_name ? { product: a.product_name } : {}) }
 }
 
 /** The objects standing on the floors of the drawing (those in containers stand with their container). */
@@ -414,12 +416,27 @@ const refuse = (detail: string) => new Failed(json({ detail }, 422))
  * dropped would vanish. `null` — not placed. */
 export type NumberQuestion = { title: string; text: string; suggestion: string; optional: boolean
   /** numbers free in the whole system, from the assets service: for one who has none at hand */
-  generate: () => Promise<string> }
-let askNumber: (q: NumberQuestion) => Promise<string | null> = async (q) => window.prompt(q.text, q.suggestion)
+  generate: () => Promise<string>
+  /** the makes and models of the type to choose from (none — not asked) */
+  products: { id: string; label: string; price: number | null; currency: string }[] }
+/** the answer: the number and the product chosen (null — none); null — not placed */
+export type NumberAnswer = { number: string; product: string | null }
+let askNumber: (q: NumberQuestion) => Promise<NumberAnswer | null> = async (q) => {
+  const number = window.prompt(q.text, q.suggestion)
+  return number == null ? null : { number, product: null }
+}
 export function setNumberAsker(ask: typeof askNumber): () => void {
   const before = askNumber
   askNumber = ask
   return () => { askNumber = before }
+}
+
+/** The makes and models of a type offered at placing, as the question lists them. */
+async function productsOf(type: string): Promise<NumberQuestion['products']> {
+  try {
+    return ((await call('GET', `${CATALOG}/types/${type}/products`)).items as Json[])
+      .map((p) => ({ id: p.id, label: `${p.vendor} ${p.name}`.trim(), price: p.price ?? null, currency: p.currency ?? 'RUB' }))
+  } catch { return [] }
 }
 
 /** The next number for a new object of a type: after the last one given in this building (КР-0007 → КР-0008). */
@@ -466,21 +483,24 @@ async function objectOps(id: string, all: Json[]): Promise<Json> {
   // several new at once (a copy, a row): one number asked, the next ones go in a row
   const creates = ops.filter((op) => op.op === 'create')
   let numbers: string[] = []
+  let product: string | null = null          // the make and model of all of them (a row is of one model)
   if (creates.length) {
     const type = (await call('GET', `${CATALOG}/types/${creates[0].item}`)).name
     const gen = generator(creates[0].item, creates.length)
-    const first = (await askNumber({ title: creates.length > 1 ? `Новые объекты: ${creates.length}` : 'Новый объект', optional: false,
-      suggestion: await nextNumber(k.building, creates[0].item), generate: gen.generate,
-      text: creates.length > 1 ? `Инвентарный номер первого из «${type}» — следующие пойдут подряд` : `Инвентарный номер «${type}»` }))?.trim()
+    const answer = await askNumber({ title: creates.length > 1 ? `Новые объекты: ${creates.length}` : 'Новый объект', optional: false,
+      suggestion: await nextNumber(k.building, creates[0].item), generate: gen.generate, products: await productsOf(creates[0].item),
+      text: creates.length > 1 ? `Инвентарный номер первого из «${type}» — следующие пойдут подряд` : `Инвентарный номер «${type}»` })
+    const first = answer?.number.trim()
     if (!first) throw refuse('Объект не поставлен: нужен инвентарный номер')
     numbers = gen.row(first) ?? inRow(first, creates.length)
+    product = answer?.product ?? null
   }
   for (const op of ops) {
     const server = objectIds.get(op.id) ?? op.id
     if (op.op === 'create') {
       const number = numbers.shift()!
-      const a = await call('POST', `${ASSETS}/assets`, { type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1],
-        angle: op.angle ?? 0, inventory_no: number, note: op.note ?? '' })
+      const a = await call('POST', `${ASSETS}/assets`, { type_id: op.item, product_id: product, floor_id: k.floors.get(op.floor),
+        x: op.at[0], y: op.at[1], angle: op.angle ?? 0, inventory_no: number, note: op.note ?? '' })
       objectIds.set(op.id, a.id)
       viewerIds.set(a.id, op.id)
       items.push(objectOut(a, op.floor, op.id))

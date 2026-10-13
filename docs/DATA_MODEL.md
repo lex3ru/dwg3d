@@ -320,6 +320,23 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 
 **type_sets**: `type_id FK`, `set_id FK`, `sort`; PK `(type_id, set_id)`.
 
+**products** — марки и модели типа (с миграции 0006)
+
+| Столбец | Тип | |
+|---|---|---|
+| id | uuid PK | |
+| type_id | uuid FK types | |
+| vendor | text | производитель; пусто, если не важен |
+| name | text | модель, как её называет производитель |
+| article, supplier | text null | |
+| price, currency | numeric(12,2), char(3) | цена по прайсу; `types.price` — ориентировочная, когда модель не выбрана |
+| note | text | |
+| active | boolean | архивная не предлагается, объекты остаются ею |
+| version, sort, updated_at | | |
+
+Уникальность `(type_id, vendor, name)`. События `product.created`,
+`product.changed`, `product.archived`, `product.restored`.
+
 Начальное наполнение (разделы, наборы «Учёт», «Медицинское изделие»,
 «Мебель», типы) — из файла при первом запуске; правки каталога он не трогает.
 
@@ -336,6 +353,8 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 | id | uuid PK | |
 | type_id | uuid | → catalog |
 | type_name, category_id | | копия из каталога — для поиска и фильтров |
+| product_id | uuid null | → catalog.products: марка и модель, если названа |
+| product_name | text | копия «производитель модель» — для списков и поиска |
 | schema_version | integer | схема, по которой проверены `props` |
 | building_id, floor_id, room_id | uuid | → buildings |
 | x, y | double null | метры; пусто у вложенного |

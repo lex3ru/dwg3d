@@ -295,10 +295,9 @@ OFFICE_CATEGORIES = [
 ]
 EQUIPMENT = _id(0x208)
 OFFICE_SETS = [
-    {"id": EQUIPMENT, "name": "Оргтехника", "description": "Техника офиса: модель, сетевое имя, расходные материалы",
+    # the make and model are the object's product (migration 0006), not properties of the type
+    {"id": EQUIPMENT, "name": "Оргтехника", "description": "Техника офиса: расходные материалы, сетевое имя, сервис",
      "properties": [
-        _p("vendor", "Производитель", "text", by="system", stored="type"),
-        _p("model_no", "Модель", "text", by="system", stored="type"),
         _p("consumables", "Расходные материалы", "text", by="system", stored="type"),
         _p("network_name", "Сетевое имя", "text", by="responsible"),
         _p("service_until", "Сервисный контракт до", "date"),

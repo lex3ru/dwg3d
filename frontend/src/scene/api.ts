@@ -202,6 +202,8 @@ export interface PlacedItem {
   angle: number
   /** [w, d, h] override of the catalog size */
   size?: [number, number, number]
+  /** the make and model named: «Dell P2723DE» (an object of the records) */
+  product?: string
   note?: string
   /** mounting height override, m */
   elev?: number

@@ -103,7 +103,8 @@ def _taken(ex: IntegrityError) -> Problem | None:
 @router.get("/assets", tags=["assets"], summary="Объекты, видимые спрашивающему")
 async def list_assets(request: Request, building_id: UUID | None = None, floor_id: UUID | None = None,
                       room_id: UUID | None = None, type_id: UUID | None = None, category_id: UUID | None = None,
-                      state: str | None = None, responsible_id: UUID | None = None, container_id: UUID | None = None,
+                      product_id: UUID | None = None, state: str | None = None, responsible_id: UUID | None = None,
+                      container_id: UUID | None = None,
                       needs_placement: bool | None = None, needs_fill: bool | None = None, q: str | None = None,
                       limit: int = 200, cursor: int = 0, me: Identity = Depends(current_identity)) -> dict:
     """Also filters by values of properties: `prop.<key>=`, `prop.<key>.gte=`, `prop.<key>.lte=`
@@ -114,14 +115,15 @@ async def list_assets(request: Request, building_id: UUID | None = None, floor_i
         where.append(seen)
     for column, value in ((assets.c.building_id, building_id), (assets.c.floor_id, floor_id), (assets.c.room_id, room_id),
                           (assets.c.type_id, type_id), (assets.c.category_id, category_id),
-                          (assets.c.responsible_id, responsible_id), (assets.c.container_id, container_id),
+                          (assets.c.product_id, product_id), (assets.c.responsible_id, responsible_id),
+                          (assets.c.container_id, container_id),
                           (assets.c.needs_placement, needs_placement), (assets.c.needs_fill, needs_fill)):
         if value is not None:
             where.append(column == value)
     if q and q.strip():
         pattern = core.like(q)
-        where.append(assets.c.type_name.ilike(pattern) | assets.c.inventory_no.ilike(pattern)
-                     | func.coalesce(assets.c.serial_no, "").ilike(pattern))
+        where.append(assets.c.type_name.ilike(pattern) | assets.c.product_name.ilike(pattern)
+                     | assets.c.inventory_no.ilike(pattern) | func.coalesce(assets.c.serial_no, "").ilike(pattern))
     for name, value in request.query_params.items():
         if name.startswith("prop."):
             key, _, op = name[5:].partition(".")
@@ -163,7 +165,13 @@ async def get_asset(asset_id: UUID, request: Request, me: Identity = Depends(cur
                                           .order_by(assets.c.type_name, assets.c.inventory_no))).all()
         (card,), children = await _shown(session, me, [a]), await _shown(session, me, children)
     type_props = [p for p in schema.type_props if me.kind != "guest" or p.get("kind") != "person"]
-    return {**card, "schema": schema.schema, "type_props": type_props,
+    product = None                                     # the make and model as the catalog describes it; none when it is down
+    if a.product_id:
+        try:
+            product = await core.fetch_product(request.app.state.client, a.product_id, core.token_of(request))
+        except Problem:
+            product = None
+    return {**card, "schema": schema.schema, "type_props": type_props, "product": product,
             "portable": schema.portable, "container": schema.container, "children": children,
             "can": {"edit": decide(scopes, "edit", core.chain(a)), "manage": decide(scopes, "manage", core.chain(a)),
                     "move": decide(scopes, "manage" if not schema.portable else "move_portable", core.chain(a))}}
@@ -265,6 +273,7 @@ class Place(BaseModel):
 
 class AssetIn(Place):
     type_id: UUID
+    product_id: UUID | None = Field(default=None, description="Марка и модель из каталога, если известна")
     inventory_no: str = Field(min_length=1, max_length=60)
     serial_no: str | None = Field(default=None, max_length=100)
     props: dict = Field(default_factory=dict)
@@ -299,12 +308,15 @@ async def _insert(request: Request, session, me: Identity, who: dict, body: Asse
     if kind.archived:
         raise Problem(422, "invalid", f"Тип «{kind.name}» в архиве", errors=[{"field": "type_id", "message": "в архиве"}])
     core.check_props(kind.schema, body.props)
+    product_id, product_name = await core.product_of(request, body.type_id, body.product_id)
     a = (await session.execute(insert(assets).values(
         id=uuid7(), type_id=body.type_id, type_name=kind.name, category_id=kind.category_id,
+        product_id=product_id, product_name=product_name,
         schema_version=kind.schema_version, inventory_no=body.inventory_no.strip(), serial_no=body.serial_no,
         props=body.props, note=body.note, needs_fill=core.incomplete(kind.schema, body.props), qr_code=core.qr_code(),
         created_by=me.sub, **where).returning(assets))).one()
-    await core.record(session, a.id, who, "created", {"type": [None, kind.name], "inventory_no": [None, a.inventory_no]})
+    await core.record(session, a.id, who, "created", {"type": [None, kind.name], "inventory_no": [None, a.inventory_no],
+                                                       **({"product_name": [None, product_name]} if product_name else {})})
     await emit(session, "assets.asset.created", ("asset", a.id),
                {"asset_id": str(a.id), "type_id": str(a.type_id), "inventory_no": a.inventory_no}, **core.scope_fields(a))
     return a
@@ -362,6 +374,7 @@ async def create_asset(body: AssetIn, request: Request, me: Identity = Depends(f
 
 class Batch(BaseModel):
     type_id: UUID
+    product_id: UUID | None = Field(default=None, description="Марка и модель всех объектов ряда")
     floor_id: UUID
     points: list[tuple[float, float]] = Field(min_length=1, max_length=500, description="Точки [x, y]")
     angle: float = 0
@@ -386,7 +399,8 @@ async def create_batch(body: Batch, request: Request, me: Identity = Depends(for
                 where = {"building_id": building, "floor_id": body.floor_id, "room_id": room, "x": x, "y": y,
                          "container_id": None, "angle": body.angle, "elevation": None}
                 _need(scopes, "manage", _area(where), "Ставить объекты может администратор здания")
-                one = AssetIn(type_id=body.type_id, inventory_no=f"{body.prefix}{body.start + i:0{body.width}d}")
+                one = AssetIn(type_id=body.type_id, product_id=body.product_id,
+                              inventory_no=f"{body.prefix}{body.start + i:0{body.width}d}")
                 made.append(core.asset_json(await _insert(request, session, me, who, one, where)))
     except IntegrityError as ex:                    # one taken number refuses them all
         raise _taken(ex) or ex from ex
@@ -491,6 +505,7 @@ async def import_assets(request: Request, building_id: UUID, file: UploadFile = 
 
 # ------------------------------------------------------------------ changes ---
 class AssetPatch(BaseModel):
+    product_id: UUID | None = Field(default=None, description="Марка и модель из каталога; null — не названа")
     inventory_no: str | None = Field(default=None, min_length=1, max_length=60)
     serial_no: str | None = Field(default=None, max_length=100)
     note: str | None = Field(default=None, max_length=2000)
@@ -500,7 +515,8 @@ class AssetPatch(BaseModel):
 
 async def _apply(session, a, who: dict, values: dict, action: str = "changed", **history) -> object:
     """Write the changed fields, the history entry and the event; returns the row."""
-    changes = {k: [getattr(a, k), v] for k, v in values.items() if getattr(a, k) != v}
+    plain = lambda x: str(x) if isinstance(x, UUID) else x          # noqa: E731 — identifiers go to the history as text
+    changes = {k: [plain(getattr(a, k)), plain(v)] for k, v in values.items() if getattr(a, k) != v}
     if "props" in changes:
         was, now = changes.pop("props")
         changes.update({f"props.{k}": [was.get(k), now.get(k)] for k in {*was, *now} if was.get(k) != now.get(k)})
@@ -526,6 +542,10 @@ async def patch_asset(asset_id: UUID, body: AssetPatch, request: Request, me: Id
             if "inventory_no" in sent or "serial_no" in sent:
                 _need(scopes, "manage", core.chain(a), "Номера меняет администратор здания")
                 values.update({k: sent[k] for k in ("inventory_no", "serial_no") if k in sent})
+            if "product_id" in sent:
+                _need(scopes, "manage", core.chain(a), "Модель объекта меняет администратор здания")
+                product_id, product_name = await core.product_of(request, a.type_id, sent["product_id"])
+                values.update(product_id=product_id, product_name=product_name)
             if "note" in sent:
                 _need(scopes, "edit", core.chain(a))
                 values["note"] = sent["note"] or ""

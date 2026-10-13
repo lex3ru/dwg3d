@@ -17,6 +17,7 @@ from app.main import SERVICE, build
 API = "/api/planning/v1"
 BUILDING, FLOOR, ROOM = (str(uuid4()) for _ in range(3))
 DESK, CHAIR = str(uuid4()), str(uuid4())
+DELTA = str(uuid4())                              # a make and model of the desk, dearer than the type's estimate
 
 
 class World:
@@ -26,10 +27,14 @@ class World:
         self.assets: dict[str, dict] = {}
         self.types = {DESK: {"id": DESK, "name": "Рабочий стол", "category_id": "c", "price": 12000.0, "currency": "RUB"},
                       CHAIR: {"id": CHAIR, "name": "Кресло посетителя", "category_id": "c", "price": 3500.0, "currency": "RUB"}}
+        self.products = {DELTA: {"id": DELTA, "type_id": DESK, "vendor": "Дельта", "name": "СП-1600", "article": None,
+                                 "supplier": None, "price": 15000.0, "currency": "RUB", "note": "", "active": True, "version": 1}}
 
-    def put(self, type_id: str, number: str, x: float, y: float = 1.0) -> dict:
+    def put(self, type_id: str, number: str, x: float, y: float = 1.0, product_id: str | None = None) -> dict:
+        p = self.products.get(product_id or "")
         a = {"id": str(uuid4()), "type_id": type_id, "type_name": self.types[type_id]["name"], "building_id": BUILDING,
              "floor_id": FLOOR, "room_id": ROOM, "x": x, "y": y, "angle": 0, "inventory_no": number, "note": "",
+             "product_id": p["id"] if p else None, "product_name": f"{p['vendor']} {p['name']}" if p else "",
              "props": {}, "state": "in_use", "container_id": None, "version": 1}
         self.assets[a["id"]] = a
         return a
@@ -49,6 +54,8 @@ class World:
             return httpx.Response(200, json={"admin": False, "person_id": None, "buildings": [BUILDING],
                                              "grants": grants if me.sub in self.admins else []})
         if "/catalog/" in path:
+            if path.endswith("/products"):
+                return httpx.Response(200, json={"items": list(self.products.values())})
             return httpx.Response(200, json={"items": list(self.types.values()) if request.url.params.get("active") == "true" else []})
         body = json.loads(request.content) if request.content else {}
         if path.endswith("/assets") and request.method == "GET":
@@ -57,7 +64,7 @@ class World:
         if path.endswith("/assets") and request.method == "POST":
             if any(a["inventory_no"] == body["inventory_no"] for a in self.assets.values()):
                 return httpx.Response(409, json={"code": "inventory_no_taken", "detail": "Такой инвентарный номер уже есть"})
-            a = self.put(body["type_id"], body["inventory_no"], body["x"], body["y"])
+            a = self.put(body["type_id"], body["inventory_no"], body["x"], body["y"], body.get("product_id"))
             return httpx.Response(201, json=a)
         asset_id = path.split("/assets/")[-1].split("/")[0]
         a = self.assets.get(asset_id)

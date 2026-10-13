@@ -54,6 +54,7 @@ export default function ItemInspector(p: {
         <ItemSymbol c={c} />
         <div className="min-w-0 flex-1">
           <b className="block truncate">{c.name}</b>
+          {sel.product && <span className="block truncate text-xs text-muted-foreground">{sel.product}</span>}
           {asset && (
             <Tip label="Открыть карточку объекта: свойства, ответственный, история">
               <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">инв. № {asset.number} — карточка</a>

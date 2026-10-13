@@ -136,6 +136,7 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
               <a href={to.assets(building, a.id)} aria-current={a.id === selected ? 'true' : undefined} data-asset={a.inventory_no}
                 className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-secondary', a.id === selected && 'bg-accent')}>
                 <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span>
+                  {a.product_name && <span className="ml-2 text-muted-foreground">{a.product_name}</span>}
                   <span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
                 <span className="text-muted-foreground max-sm:hidden">{room(a)}</span>
                 {a.needs_placement && <NeedsMark need="placement"><Badge variant="warning">разместить</Badge></NeedsMark>}

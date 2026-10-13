@@ -55,6 +55,15 @@ class World:
                                           options=[{"value": "good", "title": "хороший"}, {"value": "worn", "title": "изношен"}])),
             "rack": kind("Стойка", container=True),
         }
+        # the makes and models of the couch, as the catalog would answer
+        self.products = {p["id"]: p for p in [
+            {"id": str(uuid4()), "type_id": self.types["couch"]["id"], "vendor": "Медстальконструкция", "name": "КМ-01",
+             "article": "KM01", "supplier": None, "price": 15000.0, "currency": "RUB", "note": "", "active": True, "version": 1},
+            {"id": str(uuid4()), "type_id": self.types["couch"]["id"], "vendor": "", "name": "Старая", "article": None,
+             "supplier": None, "price": None, "currency": "RUB", "note": "", "active": False, "version": 1},
+            {"id": str(uuid4()), "type_id": self.types["rack"]["id"], "vendor": "ЦМО", "name": "ШТК-М-42U", "article": None,
+             "supplier": None, "price": 48000.0, "currency": "RUB", "note": "", "active": True, "version": 1},
+        ]}
 
     def person(self, sub: str, *grants: tuple[str, str, str]) -> dict[str, str]:
         """An account with a person behind it and grants (role, scope kind, scope id) in BUILDING; its headers."""
@@ -89,6 +98,9 @@ class World:
             return httpx.Response(200, json={"building_id": BUILDING, "rooms": rooms})
         if path.endswith("/types"):
             return httpx.Response(200, json={"items": list(self.types.values())})
+        if "/products/" in path:
+            p = self.products.get(path.rsplit("/", 1)[-1])
+            return httpx.Response(200, json=p) if p else httpx.Response(404, json={"code": "not_found"})
         found = next((t for t in self.types.values() if path.endswith(f"/types/{t['id']}")), None)
         return httpx.Response(200, json=found) if found else httpx.Response(404, json={"code": "not_found"})
 

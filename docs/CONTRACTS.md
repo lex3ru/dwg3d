@@ -293,6 +293,8 @@
 `PropertySet {id, name, properties[], version}`,
 `Type {id, category_id, name, size: [w, d, h], elevation, wall_mounted, ceiling_mounted, shape, color, model, container, portable, sets[], properties[], values{}, article, supplier, price, currency, active, schema_version}`.
 
+`Product {id, type_id, vendor, name, article, supplier, price, currency, note, active, version, sort}` — марка и модель типа: `GET /products?type_id=`, `GET|POST /types/{id}/products`, `GET|PATCH /products/{id}`, `POST /products/{id}/archive|restore`.
+
 **Свойство**: `{key, title, kind, unit, options[], required, stored, editable_by}`
 
 - `kind`: `text` | `number` | `date` | `bool` | `choice` | `person`
@@ -333,6 +335,7 @@
 ```
 Asset {
   id, type_id, schema_version,
+  product_id, product_name,              // марка и модель, если названа (catalog.products)
   building_id, floor_id, room_id,        // room_id сервис определяет сам по точке
   x, y, angle, elevation,                // у вложенного отсутствуют
   container_id,                          // у вложенного

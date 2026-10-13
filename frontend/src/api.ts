@@ -253,6 +253,8 @@ export type CatalogType = TypeRest & {
   id: string; category_id: string; name: string; size: [number, number, number]; container: boolean; portable: boolean
   sets: string[]; properties: Prop[]; values: Record<string, unknown>; model: TypeModel | null; active: boolean
   schema_version: number; version: number; schema?: Prop[]
+  /** makes and models offered (active ones) */
+  products?: number
 }
 export type TypeBody = TypeRest & {
   category_id: string; name: string; w: number; d: number; h: number; container: boolean; portable: boolean
@@ -262,6 +264,20 @@ export type TypeBody = TypeRest & {
 const items = <T,>(path: string) => api<{ items: T[] }>(`${CATALOG}/${path}`).then(r => r.items)
 export const listCategories = () => items<Category>('categories')
 export const listSets = () => items<PropertySet>('property-sets')
+/** A make and model of a type — «Монитор 27″» → Dell P2723DE — with the article, the supplier and the list price;
+ * an object may name its product; a variant is priced by the product when named, else by the type's estimate. */
+export type Product = {
+  id: string; type_id: string; vendor: string; name: string; article: string | null; supplier: string | null
+  price: number | null; currency: string; note: string; active: boolean; version: number; sort: number
+}
+export type ProductBody = Omit<Product, 'id' | 'type_id' | 'active' | 'version'>
+export const productLabel = (p: { vendor: string; name: string }) => `${p.vendor} ${p.name}`.trim()
+export const listProducts = (typeId: string, active = true) => items<Product>(`types/${typeId}/products?active=${active}`)
+export const saveProduct = (typeId: string, body: ProductBody, existing?: Product) => existing
+  ? api<Product>(`${CATALOG}/products/${existing.id}`, { method: 'PATCH', json: { ...body, version: existing.version } })
+  : api<Product>(`${CATALOG}/types/${typeId}/products`, { method: 'POST', json: body })
+export const archiveProduct = (id: string, archive: boolean) =>
+  api<Product>(`${CATALOG}/products/${id}/${archive ? 'archive' : 'restore'}`, { method: 'POST' })
 export const listTypes = (active: boolean) => items<CatalogType>(`types?active=${active}`)
 export const getType = (id: string) => api<CatalogType>(`${CATALOG}/types/${id}`)
 export const saveType = (body: TypeBody, existing?: CatalogType) => existing
@@ -286,6 +302,8 @@ export const STATES: Record<AssetState, string> = {
 export type Asset = {
   id: string; type_id: string; type_name: string; building_id: string; floor_id: string; room_id: string
   x: number | null; y: number | null; container_id: string | null; inventory_no: string; serial_no: string | null
+  /** the make and model named (catalog's product) and a copy of its name */
+  product_id: string | null; product_name: string
   state: AssetState; responsible_id: string | null; props: Record<string, unknown>; note: string
   needs_placement: boolean; needs_fill: boolean; qr_code: string; version: number
 }
@@ -295,6 +313,8 @@ export type AssetCard = Asset & {
   schema: Prop[]; portable: boolean; container: boolean; children: Asset[]
   /** what the catalog says of the type as a whole: properties kept with the type, with their values */
   type_props: (Prop & { value: unknown })[]
+  /** the make and model as the catalog describes it; null — none named, or the catalog is down */
+  product: Product | null
   can: { edit: boolean; manage: boolean; move: boolean }
 }
 export type HistoryEntry = {
@@ -318,9 +338,9 @@ export async function listAllAssets(params: Record<string, string | undefined>):
   return all
 }
 export const getAsset = (id: string) => api<AssetCard>(`${ASSETS}/assets/${id}`)
-export const createAsset = (body: { type_id: string; floor_id: string; x: number; y: number; inventory_no: string }) =>
+export const createAsset = (body: { type_id: string; product_id?: string | null; floor_id: string; x: number; y: number; inventory_no: string }) =>
   api<Asset>(`${ASSETS}/assets`, { method: 'POST', json: body })
-export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string; inventory_no?: string }) =>
+export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string; inventory_no?: string; product_id?: string | null }) =>
   api<Asset>(`${ASSETS}/assets/${a.id}`, { method: 'PATCH', json: { ...patch, version: a.version } })
 export const setAssetState = (a: Asset, state: AssetState) =>
   api<Asset>(`${ASSETS}/assets/${a.id}/state`, { method: 'POST', json: { state, version: a.version } })
@@ -471,7 +491,9 @@ export type Comparison = {
   counts: { added: number; removed: number; moved: number; changed: number; same: number }
   objects: { key: string; change: 'added' | 'removed' | 'moved' | 'changed'; what: string[]; asset_id: string | null; op_id: string | null
     type_id: string; name: string; inventory_no: string | null; floor_id: string }[]
-  items: { type_id: string; name: string; price: number | null; currency: string; qty_a: number; qty_b: number; delta: number; sum_a?: number; sum_b?: number }[]
+  /** a line per type and make and model; `product` — its name, '' for objects of no named model */
+  items: { type_id: string; product_id: string | null; name: string; product: string; price: number | null; currency: string
+    qty_a: number; qty_b: number; delta: number; sum_a?: number; sum_b?: number }[]
   totals: Record<string, { a: number; b: number; delta: number }>
 }
 export const listVariants = (building: string) => api<{ items: Variant[] }>(`${PLANNING}/variants?building_id=${building}`).then(r => r.items)

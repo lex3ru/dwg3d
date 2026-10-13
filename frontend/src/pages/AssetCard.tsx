@@ -1,10 +1,11 @@
 import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, Pencil, QrCode, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listTypes, moveAssetInto,
-  patchAsset, peopleByIds,
+  addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listProducts, listTypes,
+  moveAssetInto, patchAsset, peopleByIds, productLabel,
   revertAsset, setAssetResponsible, setAssetState, STATES,
-  type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Me, type Person, type Prop, type TreeFloor,
+  type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Me, type Person, type Product, type Prop,
+  type TreeFloor,
 } from '../api'
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
@@ -31,6 +32,7 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
   const [names, setNames] = useState<Record<string, string>>({})
   const [people, setPeople] = useState<Person[]>([])
   const [boxes, setBoxes] = useState<Asset[]>([])           // containers of the building this one could stand in
+  const [products, setProducts] = useState<Product[]>([])   // makes and models of the type, for the administrator to name one
   const [error, setError] = useState<string | null>(null)
   const [renumbering, setRenumbering] = useState<string | null>(null)       // the number being changed
   const [partial, setPartial] = useState(false)             // the people service did not answer: no names
@@ -44,7 +46,10 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
       if (ids.length) {
         try { setNames(Object.fromEntries((await peopleByIds(ids)).map(p => [p.id, p.full_name]))); setPartial(false) } catch { setPartial(true) }
       }
-      if (card.can.manage) listPeople().then(setPeople, () => {})
+      if (card.can.manage) {
+        listPeople().then(setPeople, () => {})
+        listProducts(card.type_id).then(setProducts, () => setProducts([]))
+      }
       if (card.can.move && !card.container) {
         Promise.all([listTypes(true), listAssets({ building_id: building, limit: '500' })]).then(([types, all]) => {
           const holding = new Set(types.filter(t => t.container).map(t => t.id))
@@ -147,6 +152,29 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
             </select>
           </Tip>
         ) : (a.responsible_id ? names[a.responsible_id] ?? '…' : 'не назначен')}</dd>
+        {(a.product || a.product_name || products.length > 0) && (
+          <>
+            <dt className="text-muted-foreground">Марка и модель</dt>
+            <dd>
+              {a.can.manage && a.state !== 'retired' ? (
+                <Tip label="Какой именно модели этот объект — из моделей его типа в каталоге; смена запишется в историю">
+                  <select className={`${select} max-w-full`} value={a.product_id ?? ''} aria-label="Марка и модель"
+                    onChange={e => act(patchAsset(a, { product_id: e.target.value || null }))}>
+                    <option value="">не указана</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+                    {a.product_id && !products.some(p => p.id === a.product_id) && <option value={a.product_id}>{a.product_name} (в архиве)</option>}
+                  </select>
+                </Tip>
+              ) : show(a.product_name)}
+              {a.product && (a.product.article || a.product.supplier || a.product.price != null) && (
+                <div className="text-xs text-muted-foreground">
+                  {[a.product.article && `арт. ${a.product.article}`, a.product.supplier,
+                    a.product.price != null && `${a.product.price.toLocaleString('ru')} ${a.product.currency}`].filter(Boolean).join(' · ')}
+                </div>
+              )}
+            </dd>
+          </>
+        )}
         {a.schema.map(p => (
           <Field key={p.key} p={p} value={a.props[p.key]} editable={editable(p) && a.state !== 'retired'}
             onSave={v => act(patchAsset(a, { props: { [p.key]: v } }))} />
@@ -210,7 +238,8 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
               {Object.entries(h.changes).map(([field, [was, now]]) => {
                 const prop = field.startsWith('props.') ? a.schema.find(p => `props.${p.key}` === field) : undefined
                 const title = field.startsWith('props.') ? prop?.title ?? field
-                  : field === 'state' ? 'Состояние' : field === 'note' ? 'Примечание' : null
+                  : field === 'state' ? 'Состояние' : field === 'note' ? 'Примечание' : field === 'product_name' ? 'Марка и модель'
+                    : field === 'inventory_no' ? 'Инвентарный номер' : field === 'serial_no' ? 'Заводской номер' : null
                 // a choice in the words of its options, as the field shows it: «изношен», not «worn»
                 const value = (v: unknown) => (field === 'state' ? STATES[v as AssetState] ?? show(v)
                   : prop?.options?.find(o => o.value === v)?.title ?? show(v))
