@@ -283,3 +283,71 @@ def _rest(row) -> dict:
 
 
 MORE_TYPES += [_rest(row) for row in _REST]
+
+
+# The office: furniture of workplaces and meeting rooms into «Мебель», and the office equipment — printers,
+# computers, screens, the kitchen's appliances — in a section of its own with a property set of its own
+# (migration 0005). Same columns as the rows above; `elev` of what stands on a desk or a counter is the
+# desk's or the counter's height.
+OFFICE = _id(0x10B)
+OFFICE_CATEGORIES = [
+    {"id": OFFICE, "name": "Оргтехника и офисное оборудование", "color": "#be4bdb", "sort": 25},
+]
+EQUIPMENT = _id(0x208)
+OFFICE_SETS = [
+    {"id": EQUIPMENT, "name": "Оргтехника", "description": "Техника офиса: модель, сетевое имя, расходные материалы",
+     "properties": [
+        _p("vendor", "Производитель", "text", by="system", stored="type"),
+        _p("model_no", "Модель", "text", by="system", stored="type"),
+        _p("consumables", "Расходные материалы", "text", by="system", stored="type"),
+        _p("network_name", "Сетевое имя", "text", by="responsible"),
+        _p("service_until", "Сервисный контракт до", "date"),
+     ]},
+]
+# (number, section, name, (w, d, h), shape, color, elev, flags)
+_OFFICE = [
+    (0x3E0, FURNITURE, "Стол офисный 1600×800", (1.6, 0.8, 0.75), "desk", "#d2b48c", None, "c"),
+    (0x3E1, FURNITURE, "Стол офисный угловой", (1.6, 1.6, 0.75), "desk", "#d2b48c", None, "c"),
+    (0x3E2, FURNITURE, "Стол переговорный круглый", (1.2, 1.2, 0.75), "table", "#d2b48c", None, ""),
+    (0x3E3, FURNITURE, "Стол переговорный, 8 мест", (3.2, 1.2, 0.75), "table", "#d2b48c", None, "c"),
+    (0x3E4, FURNITURE, "Кресло руководителя", (0.7, 0.7, 1.2), "chair_office", "#343a40", None, ""),
+    (0x3E5, FURNITURE, "Кресло офисное", (0.6, 0.6, 1.0), "chair_office", "#495057", None, ""),
+    (0x3E6, FURNITURE, "Стул офисный", (0.5, 0.55, 0.85), "chair", "#868e96", None, "p"),
+    (0x3E7, FURNITURE, "Тумба подкатная", (0.4, 0.5, 0.6), "nightstand", "#d2b48c", None, "cp"),
+    (0x3E8, FURNITURE, "Шкаф картотечный", (0.5, 0.6, 1.3), "cabinet", "#adb5bd", None, "c"),
+    (0x3E9, FURNITURE, "Стеллаж архивный", (1.0, 0.4, 2.2), "rack", "#adb5bd", None, "c"),
+    (0x3EA, FURNITURE, "Диван офисный, 3 места", (2.0, 0.85, 0.8), "sofa", "#495057", None, ""),
+    (0x3EB, FURNITURE, "Перегородка офисная мобильная", (1.2, 0.05, 1.6), "folding", "#dee2e6", None, "p"),
+    (0x3EC, FURNITURE, "Корзина для бумаг", (0.3, 0.3, 0.35), "bin", "#868e96", None, "p"),
+    (0x3ED, FURNITURE, "Доска маркерная настенная", (1.2, 0.05, 0.9), "device_wall", "#f8f9fa", 0.9, "w"),
+    (0x3EE, FURNITURE, "Флипчарт", (0.7, 0.6, 1.9), "kiosk", "#f8f9fa", None, "p"),
+    (0x3EF, FURNITURE, "Вешалка настенная", (0.6, 0.1, 0.2), "device_wall", "#8d6e63", 1.6, "w"),
+
+    (0x3F0, OFFICE, "МФУ лазерное (принтер, сканер, копир)", (0.5, 0.45, 0.45), "device", "#e9ecef", 0.75, ""),
+    (0x3F1, OFFICE, "Принтер лазерный", (0.4, 0.4, 0.25), "device", "#e9ecef", 0.75, "p"),
+    (0x3F2, OFFICE, "МФУ напольное, формат A3", (0.6, 0.7, 1.1), "device", "#e9ecef", None, ""),
+    (0x3F3, OFFICE, "Системный блок", (0.2, 0.45, 0.45), "device", "#343a40", None, ""),
+    (0x3F4, OFFICE, "Монитор 27″", (0.62, 0.2, 0.45), "screen_tv", "#212529", 0.75, ""),
+    (0x3F5, OFFICE, "Моноблок", (0.55, 0.2, 0.45), "screen_tv", "#212529", 0.75, ""),
+    (0x3F6, OFFICE, "Ноутбук", (0.35, 0.25, 0.03), "device", "#495057", 0.75, "p"),
+    (0x3F7, OFFICE, "Телефон IP настольный", (0.22, 0.2, 0.18), "device", "#343a40", 0.75, "p"),
+    (0x3F8, OFFICE, "Телевизор настенный 55″", (1.25, 0.08, 0.72), "screen_tv", "#212529", 1.4, "w"),
+    (0x3F9, OFFICE, "Проектор потолочный", (0.35, 0.3, 0.12), "device", "#e9ecef", 2.5, "t"),
+    (0x3FA, OFFICE, "Экран проекционный настенный", (2.0, 0.1, 1.5), "device_wall", "#f8f9fa", 1.0, "w"),
+    (0x3FB, OFFICE, "Шредер", (0.4, 0.3, 0.6), "bin", "#495057", None, "p"),
+    (0x3FC, OFFICE, "ИБП", (0.2, 0.4, 0.35), "device", "#343a40", None, ""),
+    (0x3FD, OFFICE, "Сейф", (0.45, 0.45, 0.7), "cabinet", "#495057", None, "c"),
+    (0x3FE, OFFICE, "Кофемашина", (0.3, 0.45, 0.4), "device", "#343a40", 0.9, "p"),
+    (0x3FF, OFFICE, "Холодильник офисный", (0.55, 0.6, 0.85), "fridge", "#f8f9fa", None, ""),
+    (0x400, OFFICE, "Микроволновая печь", (0.5, 0.4, 0.3), "device", "#e9ecef", 0.9, "p"),
+]
+
+
+def _office(row) -> dict:
+    n, category, name, size, shape, color, elev, flags = row
+    sets = [ACCOUNTING, FURNISHING if category == FURNITURE else EQUIPMENT]
+    t = _t(n, category, name, size, sets, [], container="c" in flags, portable="p" in flags, color=color)
+    return {**t, "shape": shape, "elevation": elev, "wall_mounted": "w" in flags, "ceiling_mounted": "t" in flags}
+
+
+OFFICE_TYPES = [_office(row) for row in _OFFICE]
