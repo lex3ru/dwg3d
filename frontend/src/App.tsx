@@ -22,6 +22,8 @@ import { RoomCard } from './pages/RoomCard'
 import { Rooms } from './pages/Rooms'
 import { Scan } from './pages/Scan'
 import { System } from './pages/System'
+import { SketchPrint } from './sketch/Print'
+import { Sketch } from './sketch/Sketch'
 import { guestAddress, to, useRoute, type Route } from './shell/route'
 import { Shell, type Crumb } from './shell/Shell'
 import { barStream, useEvents } from './stream'
@@ -139,7 +141,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
 
   // the editor is opened by a drawing: find its building for the menu
   const [drawingOf, setDrawingOf] = useState<Record<string, string>>({})
-  const drawing = route.page === 'editor' ? route.drawing : null
+  const drawing = route.page === 'editor' || route.page === 'sketch' ? route.drawing : null
   useEffect(() => {
     if (drawing && !drawingOf[drawing]) getDrawing(drawing).then(d => setDrawingOf(m => ({ ...m, [drawing]: d.building_id })), () => {})
   }, [drawing, drawingOf])
@@ -160,6 +162,8 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   const crumbs: Crumb[] = []
   if (route.page === 'editor' && admin) {
     content = <Suspense fallback={<Centered title="Загрузка…" />}><Scene editable={admin} /></Suspense>
+  } else if (route.page === 'sketch' && admin) {
+    content = <Sketch key={route.drawing} drawing={route.drawing} />
   } else if (route.page === 'catalog' && sys) {
     crumbs.push({ label: 'Каталог', href: '#/catalog' })
     content = <Catalog kind={route.kind} item={route.item} />
@@ -239,6 +243,10 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
   } else {
     crumbs.push({ label: 'Мои здания' })
     content = <Buildings me={me} refresh={seen} />
+  }
+  // the sheets for print: the page itself, no menu round it
+  if (route.page === 'sketch' && route.print) {
+    return admin ? <SketchPrint drawing={route.drawing} /> : <Centered title="Загрузка…" />
   }
   const planPanel = route.page === 'building' && route.section === 'plan'
   return (

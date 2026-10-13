@@ -29,7 +29,7 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
       hint: 'Реестр мебели и оборудования: поиск, отбор по состоянию, загрузка и выгрузка Excel, QR-метки' },
   ] : []
   const manage: Item[] = b && manages(me, b) ? [
-    { key: 'drawings', href: to.drawings(b), label: 'Чертежи', icon: FileStack, active: section === 'drawings',
+    { key: 'drawings', href: to.drawings(b), label: 'Чертежи', icon: FileStack, active: section === 'drawings' || route.page === 'sketch',
       hint: 'Загрузка поэтажных планов DWG/DXF, их сборка в этажи и помещения, проверка новых сборок' },
     ...(editor ? [{ key: 'editor', href: to.editor(editor), label: 'Редактор', icon: PencilRuler, active: route.page === 'editor',
       hint: '3D-сцена здания: расстановка объектов, слои инженерных систем' }] : []),
@@ -70,7 +70,7 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
   children: ReactNode
 }) {
   const { main, manage, system } = menu(route, me, building, editor)
-  const rail = route.page === 'editor'
+  const rail = route.page === 'editor' || route.page === 'sketch'
   // the name is cut short in the menu: the hint carries it whole
   const toBuilding = several ? 'К списку всех доступных вам зданий' : 'На главную страницу здания: что требует внимания, мои помещения и объекты'
   // folded to icons, the hint names the section too

@@ -10,6 +10,10 @@ drawings = Table(
     Column("id", Uuid, primary_key=True),
     Column("building_id", Uuid, nullable=False, index=True),          # -> buildings
     Column("name", Text, nullable=False, server_default=""),
+    # file: an uploaded DWG/DXF; sketch: a plan drawn in the 2D editor, kept here (app/sketch.py)
+    Column("kind", Text, nullable=False, server_default="file"),
+    Column("sketch", JSONB),
+    Column("sketch_version", Integer, nullable=False, server_default="0"),       # each save of the sketch +1
     # how to read the drawing: layer roles, units, floors, and the corrections of the 2D editor
     # (config.edits, anchored to floor sheets — app/dwg/edits.py)
     Column("config", JSONB, nullable=False, server_default="{}"),
@@ -38,7 +42,8 @@ builds = Table(
     "builds", metadata,                                               # the queue and the history of builds
     Column("id", Uuid, primary_key=True),
     Column("drawing_id", Uuid, ForeignKey("drawings.id", ondelete="CASCADE"), nullable=False, index=True),
-    Column("file_id", Uuid, ForeignKey("drawing_files.id"), nullable=False),
+    Column("file_id", Uuid, ForeignKey("drawing_files.id")),          # none for a sketch
+    Column("sketch", JSONB),                                          # the sketch as it was when the build began
     Column("n", Integer, nullable=False),
     Column("status", Text, nullable=False, server_default="queued"),   # queued | running | done | error
     Column("stage", Text, nullable=False, server_default="queued"),

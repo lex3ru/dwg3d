@@ -214,6 +214,7 @@ async def propose(session: AsyncSession, drawing, result: dict, plans: dict[str,
         for k, (idx, r) in enumerate(found):
             old = matched.get(k)
             out_rooms.append({"candidate": f["id"], "idx": idx, "name": r.get("name") or "",
+                              **({"number": r.get("number") or None} if "number" in r else {}),
                               "area": round(float(r.get("area") or 0.0), 2),
                               "room_id": str(old.id) if old is not None else None, "auto": True})
     return {"floors": out_floors, "moves": moves, "rooms": out_rooms}
@@ -250,6 +251,8 @@ async def explain(session: AsyncSession, drawing, plans: dict[str, dict], propos
                 changes.append("returned")
             if "name" not in old.manual and (r["name"] or "") != (old.name or ""):
                 changes.append("name")
+            if "number" in r and "number" not in old.manual and r["number"] != old.number:
+                changes.append("number")
             if _iou(polygon(polys.get((r["candidate"], r["idx"])) or [[]]), polygon(old.polygon)) < 0.995:
                 changes.append("outline")
         rooms_out.append({**r, "floor_id": of_floor.get(r["candidate"]), "old_name": old.name if old else None,
@@ -345,10 +348,12 @@ async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans
             values = {"idx": idx, "area": float(r.get("area") or 0.0), "polygon": r["poly"], "label": label,
                       "status": "active", "retired_at": None, "revision_id": revision_id, "floor_id": fid}
             row = known.get(room_of.get((f["id"], idx)))
+            # a drawn plan gives the room's number; a drawing's plan does not, and then the number is left as it is
+            number = {"number": r.get("number") or None} if "number" in r else {}
             if row is None:
                 rid = uuid7()
-                await session.execute(insert(rooms).values(id=rid, building_id=building_id,
-                                                           name=r.get("name") or "", type=m.get("type"), **values))
+                await session.execute(insert(rooms).values(id=rid, building_id=building_id, name=r.get("name") or "",
+                                                           type=m.get("type"), **number, **values))
                 summary["rooms"]["created"].append(str(rid))
             else:
                 rid = row.id
@@ -357,9 +362,11 @@ async def apply(session: AsyncSession, drawing, build: dict, result: dict, plans
                     values["name"] = r.get("name") or ""
                 if "type" not in row.manual:
                     values["type"] = m.get("type")
+                if number and "number" not in row.manual:
+                    values.update(number)
                 outline = _iou(polygon(r["poly"]), polygon(row.polygon)) < 0.995
                 if outline or row.status != "active" or row.floor_id != fid or any(
-                        getattr(row, key) != values[key] for key in ("name", "type") if key in values):
+                        getattr(row, key) != values[key] for key in ("name", "number", "type") if key in values):
                     summary["rooms"]["changed"].append({"id": str(rid), "outline": outline})
                 await session.execute(update(rooms).where(rooms.c.id == rid)
                                       .values(**values, version=rooms.c.version + 1))

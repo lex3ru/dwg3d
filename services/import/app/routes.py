@@ -1,5 +1,8 @@
 """Requests of the import service, under /api/import/v1 (contracts/openapi/import.v1.json).
 
+A drawing is an uploaded DWG/DXF or a plan drawn in the 2D editor (kind «sketch», app/sketch.py): the
+sketch is saved here whole and built on request, a copy of it going with the build.
+
 Reading is for those who may see the plan of the building the drawing belongs
 to, changes for its administrators (rights.py).
 """
@@ -9,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -26,10 +30,13 @@ from .dwg.config import ConfigError, deep_merge, load_config, validate_config
 from .dwg.edits import anchor_of
 from .models import builds, drawing_files, drawings
 from .rights import manages_drawing, reads_build, reads_building, reads_drawing
+from .sketch import SketchError, empty_sketch, read_sketch
 
 router = APIRouter()
 MAX_UPLOAD = int(os.environ.get("TWIN_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 BUSY = "Чертёж ещё обрабатывается"
+SKETCH = "Это нарисованный план: он меняется в 2D-редакторе, а не файлом"
+MAX_SKETCH_WALLS = 20000
 
 
 # ------------------------------------------------------------------ helpers ---
@@ -79,6 +86,11 @@ async def _drawing(session, drawing_id: UUID, *, lock: bool = False):
     return d
 
 
+def _file_only(d) -> None:
+    if d.kind == "sketch":
+        raise Problem(409, "sketch", SKETCH)
+
+
 # ----------------------------------------------------------------- drawings ---
 @router.post("/drawings", status_code=201, tags=["drawings"],
              summary="Загрузить чертёж в здание; сборка запускается сама")
@@ -123,6 +135,7 @@ async def upload_file(drawing_id: UUID, request: Request, file: UploadFile = Fil
     db = request.app.state.db
     async with db.begin() as session:
         d = await _drawing(session, drawing_id)
+        _file_only(d)
         if await store.has_active_build(session, drawing_id):
             raise Problem(409, "busy", BUSY)
         current = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
@@ -193,6 +206,166 @@ async def delete_drawing(drawing_id: UUID, request: Request, _: Identity = Depen
                    building_id=d.building_id)
 
 
+# ----------------------------------------------------------------- sketches ---
+class SketchNew(BaseModel):
+    building_id: UUID
+    name: str = Field(default="", max_length=200)
+
+
+@router.post("/sketches", status_code=201, tags=["sketches"],
+             summary="Новый нарисованный план здания: пустой лист 2D-редактора; собирается по запросу")
+async def create_sketch(body: SketchNew, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    await request.app.state.rights.require(request, me, "manage", [("building", body.building_id)],
+                                           what="Здание не найдено")
+    drawing_id = uuid7()
+    name = body.name.strip() or "Нарисованный план"
+    async with request.app.state.db.begin() as session:
+        await session.execute(insert(drawings).values(
+            id=drawing_id, building_id=body.building_id, name=name, kind="sketch",
+            sketch=empty_sketch(uuid7().hex[-10:]), sketch_version=1, created_by=me.sub))
+        await emit(session, "import.drawing.drawn", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": name}, building_id=body.building_id)
+        return await store.drawing_json(session, await _drawing(session, drawing_id))
+
+
+def _sketch_only(d) -> None:
+    if d.kind != "sketch":
+        raise Problem(409, "not_sketch", "Это загруженный чертёж, а не нарисованный план")
+
+
+@router.get("/drawings/{drawing_id}/sketch", tags=["sketches"],
+            summary="Нарисованный план (frontend/src/plan/model.ts) и номер его сохранения")
+async def get_sketch(drawing_id: UUID, request: Request, me: Identity = Depends(reads_drawing)) -> dict:
+    _no_guest(me)
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        _sketch_only(d)
+        return {"sketch": d.sketch, "version": d.sketch_version}
+
+
+class SketchSave(BaseModel):
+    sketch: dict = Field(description="План целиком: version, floors (frontend/src/plan/model.ts)")
+    version: int = Field(ge=0, description="Номер сохранения, с которого начаты правки")
+
+
+@router.put("/drawings/{drawing_id}/sketch", tags=["sketches"],
+            summary="Сохранить нарисованный план; правки поверх чужого сохранения — 409 conflict")
+async def save_sketch(drawing_id: UUID, body: SketchSave, request: Request,
+                      _: Identity = Depends(manages_drawing)) -> dict:
+    try:
+        sketch = read_sketch(body.sketch)
+    except SketchError as ex:
+        raise Problem(422, "invalid", f"План: {ex}", errors=[{"field": "sketch", "message": str(ex)}]) from ex
+    if sum(len(f["walls"]) for f in sketch["floors"]) > MAX_SKETCH_WALLS:
+        raise Problem(422, "invalid", f"В плане больше {MAX_SKETCH_WALLS} стен")
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        _sketch_only(d)
+        if body.version != d.sketch_version:
+            raise Problem(409, "conflict", "План успели изменить в другом окне", extra={"version": d.sketch_version})
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(
+            sketch=sketch, sketch_version=d.sketch_version + 1, updated_at=func.now()))
+        return {"version": d.sketch_version + 1}
+
+
+@router.post("/drawings/{drawing_id}/to-sketch", tags=["sketches"],
+             summary="Перевести загруженный чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы "
+                     "его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются")
+async def to_sketch(drawing_id: UUID, request: Request, _: Identity = Depends(manages_drawing)) -> dict:
+    from .to_sketch import sketch_of
+
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        _file_only(d)
+        b = None
+        if d.current_build_id:
+            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one_or_none()
+    if b is None or b.status != "done" or not b.out_prefix:
+        raise Problem(409, "not_ready", "Чертёж ещё не собран: в план переводится его последняя сборка")
+    result = b.result or {}
+
+    def convert() -> tuple[dict, list[str]]:
+        plans = {}
+        for f in result.get("floors") or []:
+            path = f.get("plan") or f"plans/floor_{f['id']}.json"
+            data = storage.bucket().get_bytes(f"{b.out_prefix}/{path}")
+            if data is not None:
+                plans[f["id"]] = json.loads(data)
+        return sketch_of(result, plans, load_config(b.config or d.config or {}))
+
+    sketch, notes = await asyncio.to_thread(convert)
+    try:
+        sketch = read_sketch(sketch)
+    except SketchError as ex:                                # never expected: the converter makes what it reads
+        raise Problem(422, "invalid", f"План не получился: {ex}") from ex
+    if not any(f["walls"] for f in sketch["floors"]):
+        raise Problem(422, "invalid", "В сборке чертежа не нашлось стен, которые можно перевести в план")
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        _file_only(d)
+        if d.current_build_id != b.id:
+            raise Problem(409, "conflict", "Чертёж успели пересобрать: переведите его ещё раз")
+        name = (await store.drawing_json(session, d))["name"]          # the file's, when it was not named
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(
+            kind="sketch", name=name, sketch=sketch, sketch_version=d.sketch_version + 1, updated_at=func.now()))
+        await emit(session, "import.drawing.drawn", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": name, "from_file": True}, building_id=d.building_id)
+        return {**await store.drawing_json(session, await _drawing(session, drawing_id)), "notes": notes}
+
+
+# a picture of a plan to draw over, kept with the drawn plan
+UNDERLAY_MAX = 20 * 1024 * 1024
+UNDERLAY_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
+UNDERLAY_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|webp)$")
+
+
+def _image_kind(head: bytes) -> str | None:
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+@router.post("/drawings/{drawing_id}/underlays", status_code=201, tags=["sketches"],
+             summary="Картинка-подложка нарисованного плана (PNG, JPEG, WebP до 20 МБ); в план её вписывает редактор")
+async def upload_underlay(drawing_id: UUID, request: Request, file: UploadFile = File(...),
+                          _: Identity = Depends(manages_drawing)) -> dict:
+    async with request.app.state.db.begin() as session:
+        _sketch_only(await _drawing(session, drawing_id))
+    data = await file.read(UNDERLAY_MAX + 1)
+    if len(data) > UNDERLAY_MAX:
+        raise Problem(413, "too_large", "Картинка больше 20 МБ", title="Файл слишком большой")
+    kind = _image_kind(data[:16])
+    if kind is None:
+        raise Problem(422, "invalid", "Подложкой может быть картинка PNG, JPEG или WebP",
+                      errors=[{"field": "file", "message": "Нужна картинка PNG, JPEG или WebP"}])
+    name = f"{uuid7().hex}.{kind}"
+    await asyncio.to_thread(storage.bucket().put_bytes, storage.underlay_key(drawing_id, name), data,
+                            UNDERLAY_TYPES[kind])
+    return {"id": name, "size": len(data)}
+
+
+@router.get("/drawings/{drawing_id}/underlays/{name}", tags=["sketches"], response_class=StreamingResponse,
+            summary="Картинка-подложка нарисованного плана")
+async def get_underlay(drawing_id: UUID, name: str, request: Request,
+                       me: Identity = Depends(reads_drawing)) -> StreamingResponse:
+    _no_guest(me)
+    if not UNDERLAY_NAME.match(name):
+        raise Problem(404, "not_found", "Файл не найден")
+    async with request.app.state.db.begin() as session:
+        _sketch_only(await _drawing(session, drawing_id))
+    key = storage.underlay_key(drawing_id, name)
+    size = await asyncio.to_thread(storage.bucket().size, key)
+    if size is None:
+        raise Problem(404, "not_found", "Файл не найден")
+    headers = {"Content-Length": str(size), "Cache-Control": "private, max-age=31536000, immutable"}
+    return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)),
+                             media_type=UNDERLAY_TYPES[name.rsplit(".", 1)[1]], headers=headers)
+
+
 # ------------------------------------------------------------------- config ---
 @router.get("/config/default", tags=["config"], summary="Настройки разбора по умолчанию")
 async def default_config(_: Identity = Depends(current_identity)) -> dict:
@@ -248,6 +421,11 @@ async def start_build(drawing_id: UUID, request: Request, body: dict = Body(defa
         d = await _drawing(session, drawing_id, lock=True)        # check and enqueue under the lock: no double builds
         if await store.has_active_build(session, drawing_id):
             raise Problem(409, "busy", BUSY)
+        if d.kind == "sketch":                                    # built as it is saved now; the editor saves first
+            if not any(f["walls"] for f in (d.sketch or {}).get("floors") or []):
+                raise Problem(422, "invalid", "В плане нет ни одной стены")
+            await store.enqueue(session, d, me, sketch=d.sketch)
+            return await store.drawing_json(session, await _drawing(session, drawing_id))
         result = {}
         if d.current_build_id:
             current = select(builds.c.result).where(builds.c.id == d.current_build_id)
@@ -362,11 +540,12 @@ async def export_with_objects(drawing_id: UUID, body: ObjectsExport, request: Re
 
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id)
-        f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
-        b = None
-        if d.current_build_id:
-            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
-    if b is None:
+        f = b = None
+        if d.kind == "file":
+            f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
+            if d.current_build_id:
+                b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one()
+    if b is None and d.kind == "file":
         raise Problem(409, "not_ready", "Чертёж ещё не обработан")
     path, filename, stats = await asyncio.to_thread(drawing_with_objects, d, f, b, body.format, body.objects,
                                                     body.types)
@@ -381,7 +560,7 @@ async def export_with_objects(drawing_id: UUID, body: ObjectsExport, request: Re
 
 # ------------------------------------------------------------------- export ---
 @router.get("/drawings/{drawing_id}/export", tags=["export"], response_class=StreamingResponse,
-            summary="Исходный чертёж с правками 2D-редактора: format=dxf или dwg")
+            summary="Исходный чертёж с правками 2D-редактора, нарисованный план — как он сохранён: format=dxf или dwg")
 async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf",
                          _: Identity = Depends(manages_drawing)) -> StreamingResponse:
     from .export import edited_drawing
@@ -390,6 +569,16 @@ async def export_drawing(drawing_id: UUID, request: Request, format: str = "dxf"
         raise Problem(422, "invalid", "format: dxf или dwg", errors=[{"field": "format", "message": "dxf или dwg"}])
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id)
+    if d.kind == "sketch":                                    # the drawn plan itself, as it is saved now
+        from .export import sketch_drawing
+        path, filename = await asyncio.to_thread(sketch_drawing, d, format)
+        data = await asyncio.to_thread(path.read_bytes)
+        shutil.rmtree(path.parent, ignore_errors=True)
+        from urllib.parse import quote
+        headers = {"Content-Length": str(len(data)),
+                   "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+        return StreamingResponse(iter([data]), media_type=storage.MEDIA[f".{format}"], headers=headers)
+    async with request.app.state.db.begin() as session:
         f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one()
         b = None
         if d.current_build_id:

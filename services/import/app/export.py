@@ -1,4 +1,4 @@
-"""The source drawing with the corrections of the 2D editor drawn in (DXF or DWG)."""
+"""The source drawing with the corrections of the 2D editor drawn in (DXF or DWG); a drawn plan as a drawing."""
 from __future__ import annotations
 
 import hashlib
@@ -57,6 +57,34 @@ def edited_drawing(d, f, b, fmt: str) -> tuple[str, str]:
     return f"{prefix}/edited.{fmt}", name
 
 
+def _sketch_file(d, work: Path, fmt: str) -> tuple[Path, dict]:
+    """A drawn plan written as DXF (and converted to DWG when asked) in `work`; and where each floor lies on it."""
+    from .sketch_dxf import sketch_dxf
+
+    dxf = work / "plan.dxf"
+    try:
+        shifts = sketch_dxf(d.sketch, dxf)
+    except RuntimeError as ex:
+        raise Problem(409, "nothing_to_export", str(ex)) from ex
+    if fmt == "dwg":
+        try:
+            dxf_to_dwg(dxf, work / "plan.dwg")
+        except Exception as ex:
+            log.exception("DWG export failed")
+            raise Problem(502, "conversion_failed", f"Не удалось записать DWG: {ex}. Скачайте DXF.") from ex
+    return work / f"plan.{fmt}", shifts
+
+
+def sketch_drawing(d, fmt: str) -> tuple[Path, str]:
+    """A drawn plan as DXF or DWG, as it is saved now: the file (in a work directory the caller removes) and the
+    name to save it under. Blocking: call in a worker thread."""
+    digest = hashlib.sha1(json.dumps(d.sketch, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+    work = storage.workdir(d.id) / "export" / f"sketch-{digest}"
+    work.mkdir(parents=True, exist_ok=True)
+    path, _ = _sketch_file(d, work, fmt)
+    return path, f"{d.name or 'План'}.{fmt}"
+
+
 # ------------------------------------------------------- with objects ---
 OBJECT_LAYER = "Объекты"
 ATTRIBUTES = ("NAME", "INVENTORY_NO", "STATE", "RESPONSIBLE", "ROOM", "NOTE")
@@ -109,6 +137,8 @@ def drawing_with_objects(d, f, b, fmt: str, objects: list[dict], types: dict[str
     Blocking: call in a worker thread."""
     import ezdxf
 
+    if d.kind == "sketch":
+        return _sketch_with_objects(d, fmt, objects, types)
     bucket = storage.bucket()
     stem = Path(f.filename).stem
     source_key = f.storage_key if f.filename.lower().endswith(".dxf") else f"{b.out_prefix}/{stem}.dxf"
@@ -122,7 +152,27 @@ def drawing_with_objects(d, f, b, fmt: str, objects: list[dict], types: dict[str
     edited = work / "edited.dxf"
     export_edited_dxf(source, edited, d.config or {}, None)
     floors, scale = _floors_of(source, d.config or {})
-    doc = ezdxf.readfile(str(edited))
+    return _draw_objects(ezdxf.readfile(str(edited)), floors, scale, work, fmt, objects, types, stem)
+
+
+def _sketch_with_objects(d, fmt: str, objects: list[dict], types: dict[str, dict]) -> tuple[Path, str, dict]:
+    """A drawn plan with the objects: its floors are where sketch_dxf laid them, in meters."""
+    from types import SimpleNamespace
+
+    import ezdxf
+
+    digest = hashlib.sha1(json.dumps([d.sketch, objects], sort_keys=True, default=str).encode()).hexdigest()[:12]
+    work = storage.workdir(d.id) / "objects" / f"sketch-{digest}"
+    work.mkdir(parents=True, exist_ok=True)
+    source, shifts = _sketch_file(d, work, "dxf")
+    # the objects are placed at (x − offset) / scale: a floor moved by (dx, dy) has the offset (−dx, −dy)
+    floors = {fid: SimpleNamespace(space="Model", offset=(-dx, -dy)) for fid, (dx, dy) in shifts.items()}
+    return _draw_objects(ezdxf.readfile(str(source)), floors, 1.0, work, fmt, objects, types, d.name or "План")
+
+
+def _draw_objects(doc, floors: dict, scale: float, work: Path, fmt: str, objects: list[dict], types: dict[str, dict],
+                  stem: str) -> tuple[Path, str, dict]:
+    """The objects drawn into the document on their floors as blocks with attributes; the file written."""
     if OBJECT_LAYER not in doc.layers:
         doc.layers.add(OBJECT_LAYER, color=150)
     stats = {"drawn": 0, "skipped": 0}

@@ -93,9 +93,16 @@ export type Building = {
 export type Build = {
   id: string; n: number; status: 'queued' | 'running' | 'done' | 'error'; stage: string; progress: number
   message: string; error: string | null
+  /** what was built: an uploaded file, or a drawn plan (a drawing turned into a plan keeps its file builds) */
+  of?: 'file' | 'sketch'
 }
 export type Drawing = {
-  id: string; building_id: string; name: string; filename: string | null; size: number | null; file_n: number | null
+  id: string; building_id: string; name: string
+  /** file: an uploaded DWG/DXF; sketch: a plan drawn in the 2D editor */
+  kind: 'file' | 'sketch'
+  /** the number of the sketch's last save */
+  sketch_version: number | null
+  filename: string | null; size: number | null; file_n: number | null
   build: Build | null; current_build_id: string | null; updated_at: string; unchanged?: boolean
 }
 /** A drawing as the building has taken it in: the build that is shown. */
@@ -162,6 +169,26 @@ export const patchFloor = (floor: TreeFloor, patch: { name?: string; level?: num
 export const patchRoom = (room: Room, patch: { name?: string; type?: string | null }) =>
   api<Room>(`${BUILDINGS}/rooms/${room.id}`, { method: 'PATCH', json: { ...patch, version: room.version } })
 export const getDrawing = (id: string) => api<Drawing>(`${IMPORT}/drawings/${id}`)
+/** The kinds of rooms a build tells apart (its default settings): type → its name and colour. */
+export const getRoomTypes = () =>
+  api<{ room_types: Record<string, { label: string; color: string }> }>(`${IMPORT}/config/default`).then(c => c.room_types)
+/** A new plan drawn from scratch in the building: an empty sheet of the 2D editor. */
+export const createSketch = (building: string, name?: string) =>
+  api<Drawing>(`${IMPORT}/sketches`, { method: 'POST', json: { building_id: building, name: name ?? '' } })
+/**
+ * The uploaded drawing turned into a drawn plan from its last build: the same drawing, edited in the 2D editor from
+ * now on; its floors and rooms go on. `notes` — what did not come over (an opening that found no wall).
+ */
+export const drawingToSketch = (drawing: string) =>
+  api<Drawing & { notes: string[] }>(`${IMPORT}/drawings/${drawing}/to-sketch`, { method: 'POST' })
+export const getSketch = (drawing: string) => api<{ sketch: unknown; version: number }>(`${IMPORT}/drawings/${drawing}/sketch`)
+/** A picture to draw the plan over: stored with the drawn plan, its name goes into the floor's underlay. */
+export const uploadUnderlay = (drawing: string, file: File) =>
+  api<{ id: string; size: number }>(`${IMPORT}/drawings/${drawing}/underlays`, { method: 'POST', body: fileForm(file) })
+export const underlayUrl = (drawing: string, image: string) => `${IMPORT}/drawings/${drawing}/underlays/${image}`
+/** Saves over the save `version` the edits started from; another save made meanwhile — ApiError 409 «conflict». */
+export const saveSketch = (drawing: string, sketch: unknown, version: number) =>
+  api<{ version: number }>(`${IMPORT}/drawings/${drawing}/sketch`, { method: 'PUT', json: { sketch, version } })
 
 // ---- people and rights (the building's administrators)
 
@@ -349,6 +376,9 @@ async function download(path: string, init: RequestInit & { json?: unknown }, fa
 }
 export const labelsSheet = (body: { asset_ids?: string[]; building_id?: string; floor_id?: string; room_id?: string; size?: number }) =>
   download(`${ASSETS}/labels`, { method: 'POST', json: body }, 'метки.pdf')
+/** A drawn plan as a DXF (or DWG) drawing, as it is saved now. */
+export const downloadSketch = (drawing: string, format: 'dxf' | 'dwg' = 'dxf') =>
+  download(`${IMPORT}/drawings/${drawing}/export?format=${format}`, { method: 'GET' }, `plan.${format}`)
 export const drawingWithObjects = (building: string, drawing_id: string, format: 'dxf' | 'dwg') =>
   download(`/api/reports/buildings/${building}/drawing`, { method: 'POST', json: { drawing_id, format } }, `drawing.${format}`)
 

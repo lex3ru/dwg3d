@@ -24,6 +24,7 @@ def iso(t: datetime | None) -> str | None:
 def build_json(b) -> dict:
     return {"id": str(b.id), "drawing_id": str(b.drawing_id), "n": b.n, "status": b.status, "stage": b.stage,
             "progress": round(b.progress, 3), "message": b.message, "error": b.error,
+            "of": "file" if b.file_id else "sketch",                # what was built: an uploaded file or a drawn plan
             "created_at": iso(b.created_at), "started_at": iso(b.started_at), "finished_at": iso(b.finished_at)}
 
 
@@ -38,11 +39,14 @@ async def has_active_build(session: AsyncSession, drawing_id: UUID) -> bool:
 
 
 async def drawing_json(session: AsyncSession, d) -> dict:
-    """A drawing as the requests answer: with its current file and the state of its latest build."""
+    """A drawing as the requests answer: with its current file (a sketch has none) and the state of its latest
+    build."""
     f = (await session.execute(select(drawing_files).where(drawing_files.c.id == d.current_file_id))).one_or_none()
     b = await latest_build(session, d.id)
     return {
-        "id": str(d.id), "building_id": str(d.building_id), "name": d.name or (f.filename if f else ""),
+        "id": str(d.id), "building_id": str(d.building_id), "kind": d.kind,
+        "name": d.name or (f.filename if f else "Нарисованный план"),
+        "sketch_version": d.sketch_version if d.kind == "sketch" else None,
         "filename": f.filename if f else None, "size": f.size if f else None, "file_n": f.n if f else None,
         "build": build_json(b) if b else None,
         "current_build_id": str(d.current_build_id) if d.current_build_id else None,
@@ -66,13 +70,15 @@ async def add_file(session: AsyncSession, drawing_id: UUID, *, file_id: UUID, fi
                           .values(current_file_id=file_id, updated_at=func.now()))
 
 
-async def enqueue(session: AsyncSession, d, me: Identity | None, file_id: UUID | None = None) -> UUID:
-    """A new build of the drawing's current file, queued for the worker."""
+async def enqueue(session: AsyncSession, d, me: Identity | None, file_id: UUID | None = None,
+                  sketch: dict | None = None) -> UUID:
+    """A new build of the drawing's current file, or of a copy of its sketch, queued for the worker."""
     n = (await session.execute(select(func.coalesce(func.max(builds.c.n), 0))
                                .where(builds.c.drawing_id == d.id))).scalar_one() + 1
     build_id = uuid7()
     await session.execute(insert(builds).values(
-        id=build_id, drawing_id=d.id, file_id=file_id or d.current_file_id, n=n, message="В очереди",
+        id=build_id, drawing_id=d.id, file_id=None if sketch is not None else file_id or d.current_file_id,
+        sketch=sketch, n=n, message="В очереди",
         requested_by=me.sub if me else ""))
     return build_id
 
