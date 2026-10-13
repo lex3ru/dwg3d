@@ -78,6 +78,6 @@ async def test_room_geometry_and_front_of(app, client, tokens, world, model):
     geo = json.loads([m["content"] for m in model.requests[1]["body"]["messages"] if m["role"] == "tool"][0])
     assert geo["size"] == [4.0, 3.0] and len(geo["walls"]) == 4
     by_side = {w["side"]: w for w in geo["walls"]}
-    assert by_side["юг (нижняя)"]["openings"][0]["kind"] == "door" and by_side["север (верхняя)"]["openings"][0]["kind"] == "window"
-    assert by_side["запад (левая)"]["free"] and by_side["восток (правая)"]["free"]
+    assert by_side["south"]["openings"][0]["kind"] == "door" and by_side["north"]["openings"][0]["kind"] == "window"
+    assert by_side["west"]["free"] and by_side["east"]["free"] and by_side["west"]["side_name"] == "запад (левая)"
     assert world.rules[-1][1]["anchor_asset_id"] == MONITOR and world.rules[-1][1]["where"] == "front_of"

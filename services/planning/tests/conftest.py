@@ -35,7 +35,8 @@ class World:
                       CAMERA: {"id": CAMERA, "name": "Камера", "category_id": "v", "price": None, "currency": "RUB",
                                "size": [0.1, 0.1, 0.1], "elevation": 2.4, "wall_mounted": True, "values": {"cam_fov": 90, "cam_range": 10, "cam_ident": 4}}}
         # the floor: a 6 × 4 room with a door in its bottom wall, and a 6 × 1.5 corridor under it
-        self.plan = {"partitions": [], "columns": [],
+        # the office is walled by partitions on its north and east sides, as a drawn plan has them (flush with the room)
+        self.plan = {"partitions": [[[[0, 4], [6, 4], [6, 4.12], [0, 4.12]]], [[[6, -1.6], [6.12, -1.6], [6.12, 4], [6, 4]]]], "columns": [],
                      "openings": [{"kind": "door", "width": 0.9, "center": [3, 0], "poly": [[2.55, -0.1], [3.45, -0.1], [3.45, 0.1], [2.55, 0.1]], "leaves": [[[2.55, 0.1], [2.55, 1.0]]]}],
                      "rooms": [{"id": ROOM, "name": "Кабинет", "poly": [[[0, 0], [6, 0], [6, 4], [0, 4]]]},
                                {"id": ROOM2, "name": "Коридор", "poly": [[[0, -1.6], [6, -1.6], [6, -0.1], [0, -0.1]]]},

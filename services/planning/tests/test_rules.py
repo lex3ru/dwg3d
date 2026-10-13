@@ -122,3 +122,40 @@ async def test_lights_are_spread_over_the_room(client, tokens, world):
     # six of them: three columns, two rows
     r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": LIGHT, "room_ids": [ROOM], "count": 6, "where": "grid"})).json()
     assert len({p["x"] for p in r["places"]}) == 3 and len({p["y"] for p in r["places"]}) == 2
+
+
+async def test_desks_with_chairs_in_one_call_and_a_virtual_anchor(client, tokens, world):
+    boss = tokens.bearer("boss")
+    r = await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "count": 2, "where": "along_wall", "companion_type_id": CHAIR})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    desks = [p for p in body["places"] if p["type_id"] == DESK]
+    chairs = [p for p in body["places"] if p["type_id"] == CHAIR]
+    assert body["companion"]["id"] == CHAIR and len(desks) == 2 and len(chairs) == 2
+    for c in chairs:
+        d = min(desks, key=lambda d: (d["x"] - c["x"]) ** 2 + (d["y"] - c["y"]) ** 2)
+        assert ((d["x"] - c["x"]) ** 2 + (d["y"] - c["y"]) ** 2) ** 0.5 < 1.3 and abs((c["angle"] - d["angle"]) % 360 - 180) < 1
+    # a chair before a desk that is only proposed: the anchor is given as a point
+    r = await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "count": 1, "where": "front_of",
+                                                                    "anchor": {"type_id": DESK, "x": 3, "y": 3.5, "angle": 0}, "room_ids": [ROOM]})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["places"]) == 1 and r.json()["places"][0]["angle"] == 180.0
+
+
+async def test_a_wall_may_be_named(client, tokens, world):
+    boss = tokens.bearer("boss")
+    for side, test in (("west", lambda p: p["x"] < 0.6), ("north", lambda p: p["y"] > 3.4), ("east", lambda p: p["x"] > 5.4)):
+        r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "count": 2, "where": "along_wall", "side": side})).json()
+        assert r["rooms"][0]["placed"] == 2 and all(test(p) for p in r["places"]), (side, r["places"])
+
+
+async def test_a_cabinet_stands_against_a_partition_as_against_a_wall(client, tokens, world):
+    boss = tokens.bearer("boss")
+    STORAGE = "cabinet-type"
+    world.types[STORAGE] = {"id": STORAGE, "name": "Шкаф для документов", "category_id": "c", "price": None, "currency": "RUB", "size": [0.8, 0.4, 1.9]}
+    for side in ("north", "east"):                       # the partition sides of the office
+        r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": STORAGE, "room_ids": [ROOM], "count": 1, "where": "corners", "side": side})).json()
+        assert r["rooms"][0]["placed"] == 1, (side, r["rooms"][0]["notes"])
+    # but not through the partition or the door
+    p = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": STORAGE, "room_ids": [ROOM], "count": 6, "where": "along_wall", "side": "north"})).json()["places"]
+    assert all(3.4 < q["y"] < 4 for q in p)

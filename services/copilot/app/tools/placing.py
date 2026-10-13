@@ -18,24 +18,30 @@ class PlaceByRules(BaseModel):
     room_ids: list[str] | None = Field(None, max_length=100, description="или только эти помещения")
     count: int = Field(1, ge=1, le=200, description="сколько в каждом помещении")
     where: Literal["along_wall", "center", "corners", "grid", "front_of"] = Field("along_wall", description="along_wall — вдоль стен спиной к ним; corners — по углам; grid / center — рядами по помещению; front_of — перед объектом-опорой лицом к нему (кресла к столу)")
-    anchor_asset_id: str | None = Field(None, description="для front_of: id объекта, перед которым ставить (например, стола)")
+    side: Literal["north", "south", "east", "west"] | None = Field(None, description="для along_wall / corners: только стены этой стороны (side из room_geometry)")
+    anchor_asset_id: str | None = Field(None, description="для front_of: id объекта в учёте, перед которым ставить")
+    anchor: dict | None = Field(None, description="для front_of перед предметом, которого ещё нет в учёте (только предложен): {type_id, x, y, angle}")
+    companion_type_id: str | None = Field(None, description="к каждому поставленному предмету — спутник перед ним лицом к нему: кресло к каждому столу, стул к каждому месту за стойкой. Один вызов вместо двух.")
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
     summary: str | None = Field(None, max_length=2000)
     then: Literal["return", "propose"] = Field("propose", description="return — только показать места; propose — сразу предложение")
 
 
 @tool("place_by_rules", """Расставить предметы типа по правилам (считает код): внутри контура, не на других предметах, не в дверях
-и проходах, не на перегородках; настенное (экраны, доски) — только на стену и не над проёмами. Как обставлять кабинет:
-столы — along_wall (лучше у окна, спиной к стене); кресла к столу — where=front_of с anchor_asset_id стола (по одному
-вызову на стол); шкафы — along_wall или corners; стол для совещаний — center, стулья к нему — front_of; экран — на стену
-напротив столов. Сначала узнай room_geometry. Результат — предложение (или только места при then=return).""", kind="propose")
+и проходах, не на перегородках; настенное (экраны, доски) — только на стену и не над проёмами. Рабочие места одним вызовом:
+type_id стола, where=along_wall, companion_type_id кресла — кресло встанет перед каждым столом лицом к нему. Стол для
+совещаний — center с companion стульев; шкафы — along_wall или corners; экран — на стену без проёмов напротив столов.
+front_of ставит перед объектом учёта (anchor_asset_id) или перед только предложенным (anchor {type_id, x, y, angle}).
+Стену выбирай по room_geometry и передавай side (north/south/east/west) — так экран попадёт на свободную стену, а столы к окну.
+Результат — предложение (или только места при then=return).""", kind="propose")
 async def place_by_rules(ctx: Ctx, args: PlaceByRules) -> dict:
     b = _building(ctx, None)
-    if args.where == "front_of" and not args.anchor_asset_id:
-        raise ToolError("front_of: укажите anchor_asset_id — объект, перед которым ставить")
+    if args.where == "front_of" and not (args.anchor_asset_id or args.anchor):
+        raise ToolError("front_of: укажите anchor_asset_id (объект учёта) или anchor {type_id, x, y, angle} (предложенный предмет)")
     got = await ctx.call("POST", "planning", "/placements", json={
         "building_id": b, "type_id": args.type_id, "floor_id": args.floor_id, "room_ids": args.room_ids,
-        "count": args.count, "where": args.where, "gap": args.gap, "anchor_asset_id": args.anchor_asset_id})
+        "count": args.count, "where": args.where, "gap": args.gap, "anchor_asset_id": args.anchor_asset_id,
+        "anchor": args.anchor, "companion_type_id": args.companion_type_id, "side": args.side})
     places = got.get("places", [])
     out = {"item": got.get("item"), "rooms": got.get("rooms"), "placed": len(places)}
     if args.then == "return" or not places:
@@ -44,9 +50,11 @@ async def place_by_rules(ctx: Ctx, args: PlaceByRules) -> dict:
         out["places"] = places[:200]
         return out
     item = got.get("item") or {}
+    mate = got.get("companion") or {}
+    what = item.get("name", "") + (f" с {mate['name']}" if mate else "")
     v = await propose_objects(ctx, ProposeObjects(
-        summary=args.summary or f"Поставить {len(places)} × {item.get('name', '')} ({args.where}) в {len(got.get('rooms', []))} помещениях",
-        places=[Place(type_id=args.type_id, floor_id=p["floor_id"], x=p["x"], y=p["y"], angle=p.get("angle")) for p in places]))
+        summary=args.summary or f"Поставить {len(places)} предметов: {what} ({args.where}) в {len(got.get('rooms', []))} помещениях",
+        places=[Place(type_id=p.get("type_id") or args.type_id, floor_id=p["floor_id"], x=p["x"], y=p["y"], angle=p.get("angle")) for p in places]))
     return {**out, **v}
 
 

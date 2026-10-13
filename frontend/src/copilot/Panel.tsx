@@ -190,7 +190,14 @@ function Item({ item, building, canDecide, editor }: { item: Shown; building: st
   }
   if (item.type === 'assistant') {
     // thinking aloud before the tools is kept small and grey; the answer is what comes after
-    if (item.interim) return <div className="mr-4 text-xs text-muted-foreground italic" data-testid="copilot-interim"><Answer text={item.text} building={building} /></div>
+    if (item.interim) {
+      return (
+        <details className="mr-4 text-xs text-muted-foreground" data-testid="copilot-interim">
+          <summary className="cursor-pointer select-none">ход мыслей…</summary>
+          <div className="mt-1 italic"><Answer text={item.text} building={building} /></div>
+        </details>
+      )
+    }
     return <div className="mr-4"><Answer text={item.text} building={building} /></div>
   }
   if (item.type === 'tool') {

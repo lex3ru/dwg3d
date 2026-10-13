@@ -82,7 +82,10 @@ class PlacementIn(BaseModel):
     count: int = Field(1, ge=1, le=placing.MAX_ITEMS, description="сколько в каждом помещении")
     where: Literal["along_wall", "center", "corners", "grid", "front_of"] = "along_wall"
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
+    side: Literal["north", "south", "east", "west"] | None = Field(None, description="для along_wall / corners: только стены этой стороны помещения")
     anchor_asset_id: str | None = Field(None, description="для front_of: объект, перед которым ставить (кресла к столу)")
+    anchor: dict | None = Field(None, description="для front_of без объекта в учёте: {type_id, x, y, angle, floor_id} — например, стол, который только предлагается")
+    companion_type_id: str | None = Field(None, description="к каждому поставленному предмету — ещё один перед ним лицом к нему (кресло к каждому столу)")
 
 
 @router.post("/placements", summary="Места для предметов типа в помещениях: у стен, в углах, сеткой, от центра (ничего не ставит)")
@@ -91,14 +94,23 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
     t = await _type(request, body.type_id)
     anchor = None
     if body.where == "front_of":
-        if not body.anchor_asset_id:
-            raise Problem(422, "invalid", "front_of: укажите anchor_asset_id")
-        r = await request.app.state.client.get("assets", f"/assets/{body.anchor_asset_id}", token=_token(request))
-        if r.status_code != 200:
-            raise Problem(404, "not_found", "Объект-опора не найден")
-        anchor = r.json()
+        if body.anchor_asset_id:
+            r = await request.app.state.client.get("assets", f"/assets/{body.anchor_asset_id}", token=_token(request))
+            if r.status_code != 200:
+                raise Problem(404, "not_found", "Объект-опора не найден")
+            anchor = r.json()
+        elif body.anchor and body.anchor.get("x") is not None and body.anchor.get("y") is not None:
+            anchor = {"type_id": body.anchor.get("type_id"), "x": float(body.anchor["x"]), "y": float(body.anchor["y"]),
+                      "angle": float(body.anchor.get("angle") or 0), "floor_id": body.anchor.get("floor_id") or body.floor_id, "room_id": None}
+        else:
+            raise Problem(422, "invalid", "front_of: укажите anchor_asset_id или anchor {type_id, x, y, angle}")
         if not body.room_ids and not body.floor_id:
+            if not anchor.get("room_id"):
+                raise Problem(422, "invalid", "front_of: укажите room_ids или floor_id")
             body.room_ids = [anchor["room_id"]]
+    companion = (await types(request)).get(body.companion_type_id) if body.companion_type_id else None
+    if body.companion_type_id and companion is None:
+        raise Problem(404, "not_found", "Нет такого типа-спутника в каталоге")
     scope = Scope(await _tree(request, body.building_id), body.floor_id, body.room_ids)
     all_types = await types(request)
     rooms_out, places = [], []
@@ -110,17 +122,32 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
                 continue
             if ids is None and (scope.room_type.get(r["id"]) or "other") in placing.NOT_FURNISHED:
                 continue
-            if anchor and r["id"] != anchor.get("room_id"):
+            if anchor and anchor.get("room_id") and r["id"] != anchor.get("room_id"):
+                continue
+            if anchor and not anchor.get("room_id") and not r["poly"].buffer(0.05).contains(placing.Point(anchor["x"], anchor["y"])):
                 continue
             try:
-                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap, anchor)
+                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap, anchor, body.side)
             except placing.PlanError as ex:
                 raise Problem(422, "invalid", str(ex)) from ex
             rooms_out.append({"room_id": r["id"], "name": r["name"], "floor_id": floor_id, "placed": len(got), "notes": notes})
-            places += [{"floor_id": floor_id, "room_id": r["id"], "x": at[0], "y": at[1], "angle": angle} for at, angle in got]
+            places += [{"floor_id": floor_id, "room_id": r["id"], "type_id": body.type_id, "x": at[0], "y": at[1], "angle": angle} for at, angle in got]
             assets = assets + [{"x": at[0], "y": at[1], "angle": angle, "type_id": body.type_id} for at, angle in got]
+            if companion is not None:
+                for at, angle in got:
+                    mate = {"type_id": body.type_id, "x": at[0], "y": at[1], "angle": angle, "floor_id": floor_id, "room_id": r["id"]}
+                    try:
+                        c_got, _ = placing.place_in_room(r["poly"], plan, assets, all_types, companion, 1, "front_of", body.gap, mate)
+                    except placing.PlanError:
+                        c_got = []
+                    if c_got:
+                        places += [{"floor_id": floor_id, "room_id": r["id"], "type_id": companion["id"], "x": p[0], "y": p[1], "angle": a} for p, a in c_got]
+                        assets = assets + [{"x": p[0], "y": p[1], "angle": a, "type_id": companion["id"]} for p, a in c_got]
+                    else:
+                        notes.append(f"перед предметом в ({at[0]}, {at[1]}) не нашлось места для «{companion['name']}»")
     w, d, h = placing.size_of(t)
-    return {"item": {"id": t["id"], "name": t["name"], "size": [w, d, h]}, "rooms": rooms_out, "places": places}
+    return {"item": {"id": t["id"], "name": t["name"], "size": [w, d, h]}, "companion": {"id": companion["id"], "name": companion["name"]} if companion else None,
+            "rooms": rooms_out, "places": places}
 
 
 class DetectorsIn(BaseModel):
