@@ -18,7 +18,7 @@ from app.main import SERVICE, build
 API = "/api/copilot/v1"
 BUILDING, FLOOR, ROOM214, ROOM215, OTHER_BUILDING, OTHER_ROOM = (str(uuid4()) for _ in range(6))
 MONITOR, PRINTER = str(uuid4()), str(uuid4())
-PETROV, SKETCH, NEW_SKETCH = str(uuid4()), str(uuid4()), str(uuid4())
+PETROV, SKETCH, NEW_SKETCH, FILE_DRAWING = str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
 TODAY = date.today()
 SOON, LATER, FAR = ((TODAY + timedelta(days=d)).isoformat() for d in (7, 12, 90))
 
@@ -107,6 +107,10 @@ class World:
                                              "differences": [{"kind": "new", "name": "Склад"}, {"kind": "same", "name": "Кабинет"}, {"kind": "retired", "name": "Архив"}],
                                              "warnings": ["Правки 2D-редактора не перенесены: этаж «Подвал» не найден"]})
         if "/import/v1/" in path:
+            if path.endswith(f"/drawings/{SKETCH}") and request.method == "GET":
+                return httpx.Response(200, json={"id": SKETCH, "name": "План", "kind": "sketch"})
+            if path.endswith(f"/drawings/{FILE_DRAWING}") and request.method == "GET":
+                return httpx.Response(200, json={"id": FILE_DRAWING, "name": "Корпус А.dwg", "kind": "file"})
             if path.endswith("/sketch-templates"):
                 self.templates.append(body)
                 if body.get("params", {}).get("rooms") == "много":

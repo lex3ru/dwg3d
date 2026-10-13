@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import API, BUILDING, SKETCH, configure
+from conftest import API, BUILDING, FILE_DRAWING, SKETCH, configure
 from test_chat import ask, new_chat
 
 UI = {"section": "рисование плана", "building": {"id": BUILDING, "name": "Корпус А"}, "drawing": {"id": SKETCH, "name": "План"}}
@@ -70,6 +70,10 @@ async def test_summary_and_no_drawing(app, client, tokens, world, model):
     told = [m["content"] for m in model.requests[1]["body"]["messages"] if m["role"] == "tool"]
     assert json.loads(told[1])["drawings"][0]["kind"] == "sketch"
     assert json.loads(told[2])["floors"][0]["unnamed"] == 1
+    # a drawing uploaded from a file has no drawn plan to check: the model is told where to look instead
+    model.script = [{"calls": [("check_plan", {})]}, {"text": "."}]
+    got = await ask(client, me, chat, "проверь план", ui={"building": {"id": BUILDING, "name": "Корпус А"}, "drawing": {"id": FILE_DRAWING}})
+    assert "загружен из файла" in next(e["error"] for e in got if e["type"] == "tool")
     # a reader cannot propose the repair
     model.script = [{"calls": [("propose_plan_fixes", {"drawing_id": SKETCH})]}, {"text": "."}]
     got = await ask(client, me, chat, "почини")

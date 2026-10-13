@@ -9,11 +9,16 @@ from . import Ctx, ToolError, tool
 from .reading import BuildingArg, _building
 
 
-def _drawing(ctx: Ctx, given: str | None) -> str:
+async def _drawing(ctx: Ctx, given: str | None) -> str:
     d = ctx.ui.get("drawing")
     did = given or (d.get("id") if isinstance(d, dict) else None)
     if not did:
         raise ToolError("Не задан чертёж: укажите drawing_id (список — drawings) или откройте план в редакторе")
+    info = await ctx.get("import", f"/drawings/{did}")
+    if info.get("kind") != "sketch":
+        raise ToolError(f"Чертёж «{info.get('name') or did}» загружен из файла, а не нарисован: проверка и починка плана — только для "
+                        "нарисованных планов. Помещения и объекты этого чертежа смотри через building_overview, room, find_assets; "
+                        "расстановку — check_placement.")
     return did
 
 
@@ -31,7 +36,7 @@ class DrawingArg(BaseModel):
 
 @tool("plan_summary", "Нарисованный план в числах: этажи, стены, проёмы, колонны, лестницы, помещения с названиями и площадями, сколько без названия.")
 async def plan_summary(ctx: Ctx, args: DrawingArg) -> dict:
-    did = _drawing(ctx, args.drawing_id)
+    did = await _drawing(ctx, args.drawing_id)
     got = await ctx.get("import", f"/drawings/{did}/sketch/check")
     return {"drawing_id": did, "version": got.get("version"), **got.get("summary", {}),
             "errors": got.get("errors"), "warnings": got.get("warnings")}
@@ -46,7 +51,7 @@ class CheckArg(DrawingArg):
 помещения без названия, названия вне помещений, повторяющиеся номера, двери уже 80 см, несущие стены не на несущих ниже.
 `fixable` — что чинится автоматически (propose_plan_fixes).""")
 async def check_plan(ctx: Ctx, args: CheckArg) -> dict:
-    did = _drawing(ctx, args.drawing_id)
+    did = await _drawing(ctx, args.drawing_id)
     got = await ctx.get("import", f"/drawings/{did}/sketch/check")
     issues = got.get("issues", [])
     by: dict[str, int] = {}
@@ -66,7 +71,7 @@ class FixArg(DrawingArg):
 вдвинуть и развести проёмы, понизить проёмы выше стены, убрать названия вне помещений. Пользователь применит в редакторе
 (с отменой) или кнопкой. Пересечения стен, названия и номера помещений автоматически не чинятся — предлагай словами.""", kind="propose")
 async def propose_plan_fixes(ctx: Ctx, args: FixArg) -> dict:
-    did = _drawing(ctx, args.drawing_id)
+    did = await _drawing(ctx, args.drawing_id)
     got = await ctx.call("POST", "import", f"/drawings/{did}/sketch/repair", json={"codes": args.codes, "floor_id": args.floor_id})
     fixed = got.get("fixed", [])
     if not fixed:
