@@ -257,6 +257,43 @@ def _front_of(fit: Fitter, room: Polygon, anchor: dict, types: dict[str, dict], 
     return out
 
 
+def _even(fit: Fitter, room: Polygon, count: int) -> list[tuple[XY, float]]:
+    """`count` places spread evenly over the room (lights, detectors, cameras under the ceiling): rows and columns
+    by the room's proportions in its own frame, each item in the middle of its cell; a cell outside the outline
+    (an L-shaped room) is left out and the gap filled by the farthest free point."""
+    main, _ = _frame(room)
+    angle = round((main + 180) % 360, 2)
+    (ux, uy), (fx, fy) = axes(angle)
+    pts = list(room.exterior.coords)
+    us = [p[0] * ux + p[1] * uy for p in pts]
+    vs = [p[0] * fx + p[1] * fy for p in pts]
+    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+    width, depth = max(u1 - u0, 0.1), max(v1 - v0, 0.1)
+    cols = max(1, min(count, round(math.sqrt(count * width / depth)) or 1))
+    rows = max(1, math.ceil(count / cols))
+    while cols * rows < count:
+        cols += 1
+    cands: list[XY] = []
+    for j in range(rows):
+        for i in range(cols):
+            u = u0 + width * (i + 0.5) / cols
+            v = v0 + depth * (j + 0.5) / rows
+            cands.append((round(u * ux + v * fx, 3), round(u * uy + v * fy, 3)))
+    out: list[tuple[XY, float]] = []
+    for at in cands:
+        if len(out) >= count:
+            break
+        if room.contains(Point(at)) and fit.fits(at, angle):
+            fit.take(at, angle)
+            out.append((at, angle))
+    if len(out) < count:
+        for at in spread(room, [p for p, _ in out], count - len(out), max(0.5, math.sqrt(room.area / max(count, 1)) * 0.7)):
+            if fit.fits(at, angle):
+                fit.take(at, angle)
+                out.append((at, angle))
+    return out
+
+
 def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: dict[str, dict], t: dict,
                   count: int, where: str, gap: float, anchor: dict | None = None) -> tuple[list[tuple[XY, float]], list[str]]:
     """Places for `count` items of type `t` in the room: ([(at, angle)], notes). A wall-mounted thing goes along the
@@ -284,6 +321,8 @@ def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: di
         places = _along_wall(fit, room, count)
     elif where == "corners":
         places = _along_wall(fit, room, count, corners_only=True)
+    elif high:
+        places = _even(fit, room, count)                       # under the ceiling: spread over the whole room
     else:
         places = _grid(fit, room, count, from_center=where == "center")
     if len(places) < count:
