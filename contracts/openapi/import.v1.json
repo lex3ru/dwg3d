@@ -962,6 +962,51 @@
         ]
       }
     },
+    "/api/import/v1/drawings/{drawing_id}/to-sketch": {
+      "post": {
+        "operationId": "to_sketch_api_import_v1_drawings__drawing_id__to_sketch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response To Sketch Api Import V1 Drawings  Drawing Id  To Sketch Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Перевести загруженный чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
     "/api/import/v1/drawings/{drawing_id}/underlays": {
       "post": {
         "operationId": "upload_underlay_api_import_v1_drawings__drawing_id__underlays_post",

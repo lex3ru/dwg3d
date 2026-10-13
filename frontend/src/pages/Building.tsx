@@ -1,7 +1,7 @@
 import { Box, DraftingCompass, FileDown, PencilRuler, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  createSketch, drawingWithObjects,
+  createSketch, drawingToSketch, drawingWithObjects,
   deleteDrawing, getBuilding, getTree, listDrawings, listPlaced, patchFloor, placeDrawing, rebuildDrawing, uploadDrawing, uploadDrawingFile,
   type Building as BuildingInfo, type Drawing, type PlacedDrawing, type Placement, type TreeFloor,
 } from '../api'
@@ -155,6 +155,20 @@ export function Building({ id, review }: { id: string; review?: string }) {
                       hint="Скачать DXF этого чертежа, где объекты учёта стоят блоками с атрибутами: номер, состояние, ответственный, помещение"
                       onClick={() => act(drawingWithObjects(id, d.id, 'dxf'))}>
                       <FileDown className="size-4" /> <span className="max-sm:hidden">С объектами</span>
+                    </Button>
+                  )}
+                  {!drawn && b?.status === 'done' && (
+                    <Button variant="outline" size="sm" disabled={busy || running} data-testid="to-sketch"
+                      hint="Перевести чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы его последней сборки — в 2D-редактор. Дальше чертёж меняется там, а не файлом; этажи и помещения здания сохраняются"
+                      onClick={() => {
+                        if (!confirm(`Перевести «${d.name}» в нарисованный план? Стены, проёмы и помещения последней сборки станут планом 2D-редактора, и дальше чертёж меняется в нём, а не новым файлом. Загруженные файлы останутся в истории.`)) return
+                        setBusy(true)
+                        drawingToSketch(d.id).then(r => {
+                          if (r.notes.length) alert(`Перенесено не всё:\n${r.notes.join('\n')}`)
+                          location.hash = to.sketch(d.id)
+                        }, (e: Error) => { setError(e.message); setBusy(false) })
+                      }}>
+                      <PencilRuler className="size-4" /> <span className="max-sm:hidden">В план</span>
                     </Button>
                   )}
                   {!drawn && (

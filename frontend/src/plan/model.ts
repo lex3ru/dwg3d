@@ -105,6 +105,16 @@ export interface Floor {
   underlay?: Underlay | null
   columns?: Record<string, Column>
   stairs?: Record<string, Stair>
+  /** the sheet of the drawing the floor was taken from: its next build continues that floor of the building */
+  source?: FloorSource | null
+}
+
+/** Where a floor taken from an uploaded drawing was in it (services/import app/to_sketch.py). */
+export interface FloorSource {
+  space: string
+  owner: string | null
+  bbox: [number, number, number, number]
+  offset: XY
 }
 
 export interface Sketch {
@@ -243,6 +253,16 @@ function readFloor(v: unknown, path: string): Floor {
       angle: num(c.angle, `${p}.angle`), steps: Math.round(num(c.steps, `${p}.steps`, 2)),
     }
   })
+  if (o.source != null) {
+    const r = obj(o.source, `${path}.source`), p = `${path}.source`
+    if (!Array.isArray(r.bbox) || r.bbox.length !== 4) fail(`${p}.bbox`, 'ожидалось [x0, y0, x1, y1]')
+    const b = r.bbox as unknown[]
+    f.source = {
+      space: str(r.space, `${p}.space`), owner: r.owner == null ? null : str(r.owner, `${p}.owner`),
+      bbox: [num(b[0], `${p}.bbox[0]`), num(b[1], `${p}.bbox[1]`), num(b[2], `${p}.bbox[2]`), num(b[3], `${p}.bbox[3]`)],
+      offset: xy(r.offset, `${p}.offset`),
+    }
+  }
   for (const [id, w] of Object.entries(f.walls)) {
     if (!(w.a in f.nodes) || !(w.b in f.nodes)) fail(`${path}.walls.${id}`, 'конец стены ссылается на несуществующий узел')
     if (w.a === w.b) fail(`${path}.walls.${id}`, 'стена начинается и кончается в одном узле')

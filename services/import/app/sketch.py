@@ -129,6 +129,16 @@ def _floor(v, path: str) -> dict:
             "hidden": u.get("hidden") is True}
     else:
         f["underlay"] = None
+    if o.get("source") is not None:                             # the sheet of the drawing the floor was taken from
+        src, p = _obj(o["source"], f"{path}.source"), f"{path}.source"
+        bbox = src.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            _fail(f"{p}.bbox", "ожидалось [x0, y0, x1, y1]")
+        f["source"] = {
+            "space": _str(src.get("space"), f"{p}.space", 200),
+            "owner": None if src.get("owner") is None else _str(src.get("owner"), f"{p}.owner", 200),
+            "bbox": [_num(v, f"{p}.bbox[{i}]") for i, v in enumerate(bbox)],
+            "offset": list(_xy(src.get("offset"), f"{p}.offset"))}
     for wid, w in f["walls"].items():
         if w["a"] not in f["nodes"] or w["b"] not in f["nodes"]:
             _fail(f"{path}.walls.{wid}", "конец стены ссылается на несуществующий узел")
@@ -494,8 +504,11 @@ def run(sketch: dict, out_dir: Path, progress: Progress = _noop) -> dict:
         if not plan.rooms:
             warnings.append(f"{f['name']}: стены не замыкают ни одного помещения")
         x0, y0, x1, y1 = plan.footprint.bounds if not plan.footprint.is_empty else plan.walls.bounds
+        # a floor taken from a drawing stays its sheet, for the building to know it (app/to_sketch.py)
+        src = f.get("source") or {"space": "Sketch", "owner": f["id"], "bbox": (x0, y0, x1, y1), "offset": (0.0, 0.0)}
         floors.append(FloorCandidate(
-            id=f["id"], source="sketch", bbox=(x0, y0, x1, y1), space="Sketch", owner=f["id"], name=f["name"],
+            id=f["id"], source="sketch", bbox=tuple(src["bbox"]), space=src["space"], owner=src["owner"],
+            offset=tuple(src["offset"]), name=f["name"],
             title_source="sketch", level=f["level"], elevation=f["elevation"], height=f["height"],
             elevation_source="sketch", height_source="sketch", alignment="reference", n_shapes=len(f["walls"])))
         plans.append(plan)

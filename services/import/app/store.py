@@ -24,6 +24,7 @@ def iso(t: datetime | None) -> str | None:
 def build_json(b) -> dict:
     return {"id": str(b.id), "drawing_id": str(b.drawing_id), "n": b.n, "status": b.status, "stage": b.stage,
             "progress": round(b.progress, 3), "message": b.message, "error": b.error,
+            "of": "file" if b.file_id else "sketch",                # what was built: an uploaded file or a drawn plan
             "created_at": iso(b.created_at), "started_at": iso(b.started_at), "finished_at": iso(b.finished_at)}
 
 
@@ -76,7 +77,8 @@ async def enqueue(session: AsyncSession, d, me: Identity | None, file_id: UUID |
                                .where(builds.c.drawing_id == d.id))).scalar_one() + 1
     build_id = uuid7()
     await session.execute(insert(builds).values(
-        id=build_id, drawing_id=d.id, file_id=file_id or d.current_file_id, sketch=sketch, n=n, message="В очереди",
+        id=build_id, drawing_id=d.id, file_id=None if sketch is not None else file_id or d.current_file_id,
+        sketch=sketch, n=n, message="В очереди",
         requested_by=me.sub if me else ""))
     return build_id
 

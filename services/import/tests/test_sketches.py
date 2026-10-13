@@ -8,7 +8,7 @@ import pytest
 from app.dwg.config import load_config
 from app.sketch import SketchError, SketchScene, plan_of, read_sketch
 
-from .conftest import BUILDING
+from .conftest import BUILDING, upload
 from .test_drawings import events
 
 API = "/api/import/v1"
@@ -367,3 +367,73 @@ def test_the_roof_leaves_a_terrace_in_low_walls_open():
     assert len(plan.rooms) == 3                                      # the terrace is a room on the plan
     assert abs(plan.roof_footprint.area - 4.25 * 3.25) < 0.01        # the roof only over the walls up to the ceiling
     assert plan.footprint.area > plan.roof_footprint.area + 5
+
+
+# ------------------------------------------------------- a drawing turned into a plan ---
+def test_walls_of_a_built_plan_come_back_as_centre_lines(tmp_path):
+    """The sample's two floors: the outline of 30 cm walls and a 12 cm partition with a door, a window; the plan
+    drawn of it closes the same rooms, of the same areas."""
+    import json
+
+    from app.dwg.pipeline import run
+    from app.to_sketch import sketch_of
+
+    from .make_sample import make
+
+    meta = run(make(tmp_path / "sample.dxf"), tmp_path / "build", {}, debug_png=False)
+    plans = {f["id"]: json.loads((tmp_path / "build" / f["plan"]).read_text()) for f in meta["floors"]}
+    cfg = load_config({})
+    sketch, notes = sketch_of(meta, plans, cfg)
+    sketch = read_sketch(sketch)
+    assert notes == [] and [f["level"] for f in sketch["floors"]] == [1, 2]
+    for f in sketch["floors"]:
+        built = next(m for m in meta["floors"] if m["id"] == f["id"])
+        assert f["source"] == {"space": built["space"], "owner": built["owner"], "bbox": built["bbox"],
+                               "offset": built["offset"]}
+        assert sorted((w["kind"], w["thickness"]) for w in f["walls"].values()).count(("partition", 0.12)) == 1
+        assert {w["thickness"] for w in f["walls"].values() if w["kind"] == "bearing"} <= {0.3, 0.4}
+        assert sorted((o["kind"], round(o["width"], 1)) for o in f["openings"].values()) == [("door", 0.9),
+                                                                                             ("window", 1.5)]
+        door = next(o for o in f["openings"].values() if o["kind"] == "door")
+        assert (door["hinge"], door["side"]) == ("a", "right")       # hinged at the lower jamb, into the office
+        assert [r["name"] for r in f["rooms"].values()] == ["Кабинет"]
+        assert len(f["stairs"]) == 1
+        drawn = sorted(round(r.area, 1) for r in plan_of(f, cfg).rooms)
+        assert drawn == sorted(round(r["area"], 1) for r in plans[f["id"]]["rooms"])
+
+
+async def test_a_drawing_turned_into_a_plan_goes_on_as_the_same_drawing(client, app, worker, tokens, grants, sample):
+    admin = tokens.admin()
+    d = (await upload(client, tokens, sample)).json()
+    # not built yet: nothing to take
+    r = await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)
+    assert r.status_code == 409 and r.json()["code"] == "not_ready"
+    assert await worker.run_once() is True
+    first = (await client.get(f"{API}/drawings/{d['id']}", headers=admin)).json()["build"]
+    before = (await client.get(f"{API}/builds/{first['id']}/result", headers=admin)).json()["result"]["floors"]
+    assert first["of"] == "file"
+
+    grants["viewer"] = [{"role": "viewer", "scope": {"kind": "building", "id": BUILDING}, "building_id": BUILDING}]
+    viewer = tokens.bearer("viewer")
+    assert (await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=viewer)).status_code == 403
+    r = await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "sketch" and r.json()["id"] == d["id"] and r.json()["notes"] == []
+    # once it is a plan, it is not taken again
+    assert (await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)).json()["code"] == "sketch"
+    got = (await client.get(f"{API}/drawings/{d['id']}/sketch", headers=admin)).json()
+    assert [f["id"] for f in got["sketch"]["floors"]] == [f["id"] for f in sorted(before, key=lambda f: f["level"])]
+    assert all(f["walls"] and f["openings"] for f in got["sketch"]["floors"])
+    drawn = [e for e in await events(app) if e["type"] == "import.drawing.drawn"]
+    assert drawn[-1]["data"] == {"drawing_id": d["id"], "name": r.json()["name"], "from_file": True}
+
+    # its build is of the same sheets: the building takes its floors for the ones it has
+    assert (await client.post(f"{API}/drawings/{d['id']}/builds", json={}, headers=admin)).status_code == 202
+    assert await worker.run_once() is True
+    b = (await client.get(f"{API}/drawings/{d['id']}", headers=admin)).json()["build"]
+    assert b["status"] == "done" and b["of"] == "sketch", b
+    after = (await client.get(f"{API}/builds/{b['id']}/result", headers=admin)).json()["result"]["floors"]
+    key = lambda f: (f["id"], f["space"], f["owner"], [round(v, 3) for v in f["bbox"]], f["offset"])  # noqa: E731
+    assert sorted(map(key, after)) == sorted(map(key, before))
+    areas = lambda fs: sorted(round(r["area"], 1) for f in fs for r in f["rooms"])  # noqa: E731
+    assert areas(after) == areas(before)

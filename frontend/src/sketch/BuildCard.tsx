@@ -36,7 +36,9 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
   const empty = !(st.sketch?.floors ?? []).some(f => Object.keys(f.walls).length)
   const b = d?.build
   const running = b?.status === 'queued' || b?.status === 'running'
-  const built = b?.status === 'done' && d?.current_build_id === b.id
+  const built = b?.status === 'done' && d?.current_build_id === b.id && b.of !== 'file'
+  // a drawing turned into a plan: the building shows the drawing's last build until the plan is built
+  const fromFile = b?.status === 'done' && b.of === 'file'
 
   const build = () => {
     setBusy(true)
@@ -74,6 +76,7 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
       )}
       {b?.status === 'error' && <p className="text-xs text-destructive" role="alert">Сборка {b.n} не удалась: {b.error}</p>}
       {refused && <p className="text-xs text-destructive" role="alert">{refused}</p>}
+      {fromFile && !running && <p className="text-xs text-muted-foreground" data-testid="sketch-from-file">План взят из сборки {b.n} загруженного чертежа. Соберите его, когда поправите: здание продолжит те же этажи и помещения.</p>}
       {built && !running && <p className="text-xs text-muted-foreground" data-testid="sketch-built">Собрана сборка {b.n}: здание взяло этажи и помещения плана.</p>}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy || running || empty || errors.length > 0 || st.status === 'conflict'} onClick={build} data-testid="sketch-build-button"

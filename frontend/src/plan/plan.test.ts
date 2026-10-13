@@ -446,6 +446,13 @@ describe('reading a sketch', () => {
     assert.deepEqual(parseSketch(json), s)
   })
 
+  test('a floor taken from a drawing keeps its sheet', () => {
+    const source = { space: 'Model', owner: null, bbox: [30, 5, 42, 13] as [number, number, number, number], offset: [-30, -5] as [number, number] }
+    const s = { ...emptySketch(), floors: [{ ...box(4, 3), source }] }
+    assert.deepEqual(parseSketch(JSON.parse(JSON.stringify(s))).floors[0].source, source)
+    assert.throws(() => parseSketch({ ...s, floors: [{ ...s.floors[0], source: { ...source, bbox: [1, 2] } }] }), /bbox/)
+  })
+
   test('broken references and wrong values are refused', () => {
     const s = JSON.parse(JSON.stringify({ ...emptySketch(), floors: [box(4, 3)] }))
     const f = s.floors[0]

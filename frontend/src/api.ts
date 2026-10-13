@@ -93,6 +93,8 @@ export type Building = {
 export type Build = {
   id: string; n: number; status: 'queued' | 'running' | 'done' | 'error'; stage: string; progress: number
   message: string; error: string | null
+  /** what was built: an uploaded file, or a drawn plan (a drawing turned into a plan keeps its file builds) */
+  of?: 'file' | 'sketch'
 }
 export type Drawing = {
   id: string; building_id: string; name: string
@@ -173,6 +175,12 @@ export const getRoomTypes = () =>
 /** A new plan drawn from scratch in the building: an empty sheet of the 2D editor. */
 export const createSketch = (building: string, name?: string) =>
   api<Drawing>(`${IMPORT}/sketches`, { method: 'POST', json: { building_id: building, name: name ?? '' } })
+/**
+ * The uploaded drawing turned into a drawn plan from its last build: the same drawing, edited in the 2D editor from
+ * now on; its floors and rooms go on. `notes` — what did not come over (an opening that found no wall).
+ */
+export const drawingToSketch = (drawing: string) =>
+  api<Drawing & { notes: string[] }>(`${IMPORT}/drawings/${drawing}/to-sketch`, { method: 'POST' })
 export const getSketch = (drawing: string) => api<{ sketch: unknown; version: number }>(`${IMPORT}/drawings/${drawing}/sketch`)
 /** A picture to draw the plan over: stored with the drawn plan, its name goes into the floor's underlay. */
 export const uploadUnderlay = (drawing: string, file: File) =>

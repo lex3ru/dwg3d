@@ -199,3 +199,40 @@ function twoPagePdf(): Buffer {
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
   return Buffer.from(pdf, 'latin1')
 }
+
+// An uploaded drawing turned into a drawn plan: the same drawing, its walls, openings and rooms in the 2D editor;
+// built from there, the building goes on with the same floors and rooms.
+test('an uploaded drawing turned into a plan keeps the building\'s floors and rooms', async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.setViewportSize({ width: 1360, height: 900 })
+  await signIn(page, 'admin')
+  await page.getByRole('button', { name: 'Создать здание' }).click()
+  await page.getByLabel('Название').fill(`Из чертежа ${Date.now()}`)
+  await page.getByRole('button', { name: 'Создать', exact: true }).click()
+  await page.waitForURL(/#\/p\//)
+  const building = page.url().split('#/p/')[1]
+  await page.getByTestId('file').setInputFiles('fixtures/sample.dxf')
+  const row = page.locator('[data-drawing="sample.dxf"]')
+  await expect(row).toHaveAttribute('data-status', 'done', { timeout: 60_000 })
+  const rooms = async () => {
+    const tree = await (await page.request.get(`/api/buildings/v1/buildings/${building}/tree`)).json()
+    return (tree.floors as { id: string; rooms: { id: string }[] }[]).flatMap(f => f.rooms.map(r => `${f.id}/${r.id}`)).sort()
+  }
+  const before = await rooms()
+  expect(before).toHaveLength(4)
+
+  page.once('dialog', d => d.accept())
+  await row.getByTestId('to-sketch').click()
+  await page.waitForURL(/#\/sketch\//)
+  await expect(page.getByTestId('sketch-summary')).toHaveText(/^Стен: \d+ · помещений: 2 · 83,4\d м²$/)
+  await expect(page.getByTestId('sketch-from-file')).toBeVisible()
+  await expect(page.locator('[data-testid=sketch-canvas] .room-name')).toContainText(['Кабинет'])
+
+  await page.getByTestId('sketch-build-button').click()
+  await expect(page.getByTestId('sketch-built')).toBeVisible({ timeout: 90_000 })
+  // published: the building shows the plan's build, with the rooms it had
+  await page.goto(`/#/p/${building}`)
+  await expect(row).toContainText('нарисованный план · сборка 2')
+  await expect(row).toHaveAttribute('data-status', 'done', { timeout: 30_000 })
+  expect(await rooms()).toEqual(before)
+})

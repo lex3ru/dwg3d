@@ -268,6 +268,51 @@ async def save_sketch(drawing_id: UUID, body: SketchSave, request: Request,
         return {"version": d.sketch_version + 1}
 
 
+@router.post("/drawings/{drawing_id}/to-sketch", tags=["sketches"],
+             summary="Перевести загруженный чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы "
+                     "его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются")
+async def to_sketch(drawing_id: UUID, request: Request, _: Identity = Depends(manages_drawing)) -> dict:
+    from .to_sketch import sketch_of
+
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        _file_only(d)
+        b = None
+        if d.current_build_id:
+            b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one_or_none()
+    if b is None or b.status != "done" or not b.out_prefix:
+        raise Problem(409, "not_ready", "Чертёж ещё не собран: в план переводится его последняя сборка")
+    result = b.result or {}
+
+    def convert() -> tuple[dict, list[str]]:
+        plans = {}
+        for f in result.get("floors") or []:
+            path = f.get("plan") or f"plans/floor_{f['id']}.json"
+            data = storage.bucket().get_bytes(f"{b.out_prefix}/{path}")
+            if data is not None:
+                plans[f["id"]] = json.loads(data)
+        return sketch_of(result, plans, load_config(b.config or d.config or {}))
+
+    sketch, notes = await asyncio.to_thread(convert)
+    try:
+        sketch = read_sketch(sketch)
+    except SketchError as ex:                                # never expected: the converter makes what it reads
+        raise Problem(422, "invalid", f"План не получился: {ex}") from ex
+    if not any(f["walls"] for f in sketch["floors"]):
+        raise Problem(422, "invalid", "В сборке чертежа не нашлось стен, которые можно перевести в план")
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id, lock=True)
+        _file_only(d)
+        if d.current_build_id != b.id:
+            raise Problem(409, "conflict", "Чертёж успели пересобрать: переведите его ещё раз")
+        name = (await store.drawing_json(session, d))["name"]          # the file's, when it was not named
+        await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(
+            kind="sketch", name=name, sketch=sketch, sketch_version=d.sketch_version + 1, updated_at=func.now()))
+        await emit(session, "import.drawing.drawn", ("drawing", drawing_id),
+                   {"drawing_id": str(drawing_id), "name": name, "from_file": True}, building_id=d.building_id)
+        return {**await store.drawing_json(session, await _drawing(session, drawing_id)), "notes": notes}
+
+
 # a picture of a plan to draw over, kept with the drawn plan
 UNDERLAY_MAX = 20 * 1024 * 1024
 UNDERLAY_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
