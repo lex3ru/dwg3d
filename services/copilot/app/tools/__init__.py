@@ -37,6 +37,7 @@ class Ctx:
     chat_id: str | None = None
     public_url: str = ""
     events: list[dict] = field(default_factory=list)   # ui commands and other things the panel gets
+    db: Any = None                                    # the service's database (proposals are written there)
 
     @property
     def building_id(self) -> str | None:
@@ -143,4 +144,4 @@ async def run(ctx: Ctx, name: str, raw: str) -> tuple[str, bool, Any]:
     return text, False, data
 
 
-from . import reading  # noqa: E402,F401  (registers the tools)
+from . import checks, proposing, reading  # noqa: E402,F401  (registers the tools)

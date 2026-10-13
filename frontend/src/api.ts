@@ -520,7 +520,7 @@ export type CopilotChat = { id: string; building_id: string | null; title: strin
 /** What the panel shows: the user's words, the answer, a tool used, a thing shown, a proposal, a failure. */
 export type CopilotItem =
   | { type: 'user'; text: string } | { type: 'assistant'; text: string } | { type: 'tool'; name: string; error?: string }
-  | { type: 'ui'; href: string; label: string } | { type: 'proposal'; proposal: Record<string, unknown> }
+  | { type: 'ui'; href: string; label: string } | { type: 'proposal'; proposal: CopilotProposal }
   | { type: 'error'; message: string }
 /** Events of an answer as it streams (the items above plus the stream's own). */
 export type CopilotEvent = CopilotItem | { type: 'chat'; id: string; mode: 'read' | 'propose' }
@@ -574,3 +574,14 @@ export async function askCopilot(chat: string, text: string, ui: CopilotUI, onEv
     }
   }
 }
+
+/** A proposal of the copilot: actions the user applies with a click, or a variant made in planning. */
+export type CopilotProposal = {
+  kind: 'proposal'; id: string; building_id: string | null; summary: string; status: 'open' | 'applied' | 'rejected' | 'stale'
+  count: number; labels: string[]; result: { done?: { label: string }[]; failed?: { label: string; status: number; detail: string } | null; reason?: string } | null
+  sketch: { drawing_id: string; version: number } | null
+} | { kind: 'variant'; variant_id: string; name: string; summary: string; building_id: string; counts: Record<string, number> }
+export const getProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }> & { actions: Record<string, unknown>[] }>(`${COPILOT}/proposals/${id}`)
+export const applyProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply`, { method: 'POST' })
+export const rejectProposal = (id: string, reason: string) =>
+  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/reject`, { method: 'POST', json: { reason } })

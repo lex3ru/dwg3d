@@ -3,7 +3,7 @@ the chat kept, limits, refusals passed on, who may talk to the copilot."""
 from __future__ import annotations
 
 import httpx
-from conftest import API, BUILDING, FLOOR, MONITOR, OTHER_BUILDING, ROOM214, configure, events
+from conftest import API, BUILDING, FLOOR, LATER, MONITOR, OTHER_BUILDING, ROOM214, configure, events
 
 UI = {"section": "rooms", "building": {"id": BUILDING, "name": "Корпус А"}, "floor": {"id": FLOOR, "name": "2 этаж"}}
 
@@ -77,7 +77,7 @@ async def test_property_filters_and_show(client, tokens, world, model):
     me = tokens.bearer("user-1")
     chat = await new_chat(client, me)
     model.script = [
-        {"calls": [("find_assets", {"props": {"service_due.lte": "2026-10-31"}, "room_id": ROOM214})]},
+        {"calls": [("find_assets", {"props": {"service_due.lte": LATER}, "room_id": ROOM214})]},
         {"calls": [("show", {"what": "asset", "id": MONITOR, "label": "Монитор 00123"})]},
         {"text": "Показал монитор."},
     ]

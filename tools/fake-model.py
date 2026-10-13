@@ -21,14 +21,26 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
     last = messages[-1]
     user = next((m for m in reversed(messages) if m["role"] == "user"), None)
     text = (user or {}).get("content") or ""
-    question = text.split("\n\n", 1)[-1].lower()
+    asked = text.split("\n\n", 1)[-1]
+    question = asked.lower()
+    rename = re.search(r"переимен\w*\s+(?:помещение\s+)?(.+?)\s+в\s+«([^»]+)»", asked, re.I)
     if last["role"] == "tool":
         try:
             data = json.loads(last.get("content") or "{}")
         except ValueError:
             data = {}
+        if isinstance(data, dict) and isinstance(data.get("proposal"), dict):
+            p = data["proposal"]
+            return {"text": f"Предложил: {p.get('summary') or p.get('name')}. Примените, если согласны."}
+        if isinstance(data, dict) and data.get("counts") and data.get("legend"):
+            legend = data["legend"]
+            parts = [f"{legend[k]}: {v}" for k, v in data["counts"].items() if v]
+            return {"text": f"Проверил {data['scanned']} объектов. " + ("; ".join(parts) + "." if parts else "Замечаний нет.")}
         if isinstance(data, dict) and data.get("rooms"):
             rooms = data["rooms"]
+            if len(rooms) == 1 and rename and "propose_rooms" in names:
+                return {"calls": [("propose_rooms", {"summary": f"Переименовать помещение {rooms[0].get('number') or rooms[0].get('name') or ''} в «{rename.group(2)}»",
+                                                     "changes": [{"room_id": rooms[0]["id"], "name": rename.group(2)}]})]}
             if len(rooms) == 1 and "room" in names and not any(m["role"] == "tool" and '"assets"' in (m.get("content") or "") for m in messages):
                 return {"calls": [("room", {"room_id": rooms[0]["id"]})]}
             return {"text": "Нашёл помещения: " + ", ".join(
@@ -53,8 +65,12 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
         return {"calls": [("buildings", {})]}
     if room_id and "room" in names and any(w in question for w in ("здесь", "этом помещении", "тут", "в нём")):
         return {"calls": [("room", {"room_id": room_id})]}
+    if rename and "find_rooms" in names:
+        return {"calls": [("find_rooms", {"q": rename.group(1)[:40]})]}
     if number and "find_rooms" in names:
         return {"calls": [("find_rooms", {"q": number.group(1)})]}
+    if any(w in question for w in ("аудит", "проверь учёт", "проверь учет")) and "audit_assets" in names:
+        return {"calls": [("audit_assets", {})]}
     if any(w in question for w in ("объект", "оборудован", "мебел", "принтер", "монитор")) and "find_assets" in names:
         args = {"limit": 20}
         if "неисправ" in question:

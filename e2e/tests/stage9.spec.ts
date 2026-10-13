@@ -86,6 +86,28 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
   expect(answer.tools.map(t => t.name)).toContain('find_assets')
   await other.close()
 
+  // a change is a proposal: the administrator sees what will be done and applies it with their own hand
+  const tree = (await (await page.request.get(`/api/buildings/v1/buildings/${building}/tree`)).json()).floors as { rooms: { id: string; version: number }[] }[]
+  const target = tree.flatMap(f => f.rooms)[0]
+  const named = await page.request.patch(`/api/buildings/v1/rooms/${target.id}`, { data: { name: `Переговорная ${stamp}`, version: target.version } })
+  expect(named.status(), await named.text()).toBe(200)
+  await page.goto(`/#/b/${building}`)
+  const pane2 = page.getByTestId('copilot')
+  await pane2.getByLabel('Вопрос помощнику').fill(`переименуй помещение Переговорная ${stamp} в «Приёмная»`)
+  await pane2.getByLabel('Вопрос помощнику').press('Enter')
+  const card = pane2.getByTestId('copilot-proposal')
+  await expect(card).toHaveAttribute('data-status', 'open', { timeout: 20_000 })
+  await expect(card).toContainText('Приёмная')
+  const rooms = async () => (await (await page.request.get(`/api/buildings/v1/rooms?building_id=${building}&q=Приёмная`)).json()).items as unknown[]
+  expect(await rooms()).toHaveLength(0)
+  await card.getByRole('button', { name: 'Применить' }).click()
+  await expect(card).toHaveAttribute('data-status', 'applied')
+  expect(await rooms()).toHaveLength(1)
+  // the journal names the person, not the copilot
+  const journal = (await (await page.request.get(`/api/journal/v1/events?building_id=${building}&type=buildings.room.changed`)).json()).items as { actor: { id: string } }[]
+  expect(journal.length).toBeGreaterThanOrEqual(1)
+  expect(journal[0].actor.id).not.toContain('copilot')
+
   // switched off, the copilot is not on screen at all; the rest works
   await configure(page, false)
   await page.reload()

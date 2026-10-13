@@ -238,3 +238,69 @@ async def post_message(chat_id: UUID, body: MessageIn, request: Request, me: Ide
                 task.cancel()
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers=STREAM_HEADERS)
+
+
+# ----------------------------------------------------------------- proposals ---
+from . import proposals as props  # noqa: E402
+
+
+class RejectIn(BaseModel):
+    reason: str | None = Field(None, max_length=2000)
+
+
+async def _proposal(request: Request, pid: UUID, me: Identity, *, decide: bool = False, session=None):
+    """One's own proposal, or any of a building one administers; `decide` — only an administrator of the building."""
+    row = await props.one(session, pid, lock=decide) if session is not None else None
+    if session is None:
+        async with request.app.state.db.begin() as s:
+            row = await props.one(s, pid)
+    if row is None:
+        raise Problem(404, "not_found", "Предложение не найдено")
+    building = str(row.building_id) if row.building_id else None
+    manages = (await _mode(request, me, building)) == "propose"
+    if row.user_sub != me.sub and not manages:
+        raise Problem(404, "not_found", "Предложение не найдено")
+    if decide and not manages:
+        raise Problem(403, "forbidden", "Применяет и отклоняет предложения администратор здания")
+    return row
+
+
+@router.get("/proposals", summary="Предложения копилота: свои, а администратору здания — все по зданию")
+async def list_proposals(request: Request, building_id: UUID | None = None, status: str | None = None,
+                         me: Identity = Depends(forbid_guests)) -> dict:
+    from sqlalchemy import or_
+
+    from .models import proposals as table
+    where = []
+    if building_id is not None:
+        where.append(table.c.building_id == building_id)
+    if status:
+        where.append(table.c.status == status)
+    manages = building_id is not None and (await _mode(request, me, str(building_id))) == "propose"
+    if not manages:
+        where.append(or_(table.c.user_sub == me.sub, table.c.id.is_(None)))
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(table).where(*where).order_by(table.c.created_at.desc()).limit(100))).all()
+    return {"items": [props.as_json(r) for r in rows]}
+
+
+@router.get("/proposals/{proposal_id}", summary="Предложение: действия и состояние")
+async def get_proposal(proposal_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
+    row = await _proposal(request, proposal_id, me)
+    return {**props.as_json(row), "actions": [{k: v for k, v in a.items() if k != "sketch"} for a in row.actions or []]}
+
+
+@router.post("/proposals/{proposal_id}/apply", summary="Применить предложение: действия выполняются с токеном применяющего")
+async def apply_proposal(proposal_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
+    await _proposal(request, proposal_id, me, decide=True)
+    async with request.app.state.db.begin() as session:
+        row = await _proposal(request, proposal_id, me, decide=True, session=session)
+        return await props.apply(session, request.app.state.client, row, me, _token(request))
+
+
+@router.post("/proposals/{proposal_id}/reject", summary="Отклонить предложение с причиной")
+async def reject_proposal(proposal_id: UUID, body: RejectIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
+    await _proposal(request, proposal_id, me, decide=True)
+    async with request.app.state.db.begin() as session:
+        row = await _proposal(request, proposal_id, me, decide=True, session=session)
+        return await props.reject(session, row, me, body.reason)

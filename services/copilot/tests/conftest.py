@@ -4,6 +4,7 @@ with rooms, objects and people, rights by `World.admins`) and a fake OpenAI-comp
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from uuid import uuid4
 
 import httpx
@@ -18,6 +19,8 @@ API = "/api/copilot/v1"
 BUILDING, FLOOR, ROOM214, ROOM215, OTHER_BUILDING, OTHER_ROOM = (str(uuid4()) for _ in range(6))
 MONITOR, PRINTER = str(uuid4()), str(uuid4())
 PETROV = str(uuid4())
+TODAY = date.today()
+SOON, LATER, FAR = ((TODAY + timedelta(days=d)).isoformat() for d in (7, 12, 90))
 
 
 class World:
@@ -31,15 +34,20 @@ class World:
             ROOM214: {"id": ROOM214, "building_id": BUILDING, "floor_id": FLOOR, "number": "214", "name": "Кабинет",
                       "type": "office", "area": 18.4, "status": "active"},
             ROOM215: {"id": ROOM215, "building_id": BUILDING, "floor_id": FLOOR, "number": "215", "name": "Серверная",
-                      "type": "technical", "area": 12.0, "status": "active"},
+                      "type": "technical", "area": 12.0, "status": "active", "polygon": [[0, 0], [4, 0], [4, 3], [0, 3]], "version": 1},
         }
+        self.rooms[ROOM214]["version"] = 1
+        self.variants: dict[str, dict] = {}
+        self.grants: list[dict] = []
+        self.comments: list[dict] = []
+        self.assignments: list[tuple[str, str]] = []
         self.assets = {
             MONITOR: {"id": MONITOR, "type_name": "Монитор 24\"", "inventory_no": "00123", "state": "in_use",
                       "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": PETROV,
-                      "props": {"warranty_until": "2026-10-20", "service_due": "2026-10-25"}, "version": 1},
+                      "props": {"warranty_until": SOON, "service_due": LATER}, "version": 1, "updated_at": f"{TODAY.isoformat()}T10:00:00Z"},
             PRINTER: {"id": PRINTER, "type_name": "Принтер лазерный", "inventory_no": "00124", "state": "faulty",
                       "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": None,
-                      "props": {"service_due": "2027-01-10"}, "version": 2},
+                      "props": {"service_due": FAR}, "version": 2, "updated_at": "2024-01-01T10:00:00Z"},
         }
 
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -62,7 +70,46 @@ class World:
             return httpx.Response(200, json={"items": [self.rooms[i] for i in body["ids"] if i in self.rooms]})
         if "/buildings/v1/rooms/" in path:
             r = self.rooms.get(path.rsplit("/", 1)[-1])
-            return httpx.Response(200, json=r) if r else httpx.Response(404, json={"code": "not_found", "detail": "Нет такого помещения"})
+            if r is None:
+                return httpx.Response(404, json={"code": "not_found", "detail": "Нет такого помещения"})
+            if request.method == "PATCH":
+                if me.sub not in self.admins and not me.is_admin:
+                    return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+                if body.get("version") != r["version"]:
+                    return httpx.Response(409, json={"code": "version_conflict", "detail": "Помещение изменил кто-то другой"})
+                r.update({k: v for k, v in body.items() if k in ("name", "number", "type")})
+                r["version"] += 1
+            return httpx.Response(200, json=r)
+        if path.endswith("/comments") and request.method == "POST":
+            self.comments.append(body)
+            return httpx.Response(201, json={"id": str(uuid4()), **body})
+        if "/planning/v1/" in path:
+            if path.endswith("/variants") and request.method == "POST":
+                v = {"id": str(uuid4()), "building_id": body["building_id"], "name": body["name"], "based_on": body.get("based_on"),
+                     "status": "draft", "stale": False, "ops": [], "counts": {"add": 0, "move": 0, "change": 0, "remove": 0}, "version": 1}
+                self.variants[v["id"]] = v
+                return httpx.Response(201, json=v)
+            vid = path.split("/variants/")[-1].split("/")[0]
+            v = self.variants.get(vid)
+            if v is None:
+                return httpx.Response(404, json={"code": "not_found"})
+            if path.endswith("/edits"):
+                for e in body["edits"]:
+                    v["ops"].append({"id": str(uuid4()), "op": {"place": "add", "move": "move", "remove": "remove", "note": "change"}[e["kind"]],
+                                     "asset_id": e.get("asset_id"), "base_version": e.get("version"), "data": e})
+                    v["counts"][{"place": "add", "move": "move", "remove": "remove", "note": "change"}[e["kind"]]] += 1
+                return httpx.Response(200, json={"results": [{"op_id": o["id"]} for o in v["ops"]]})
+            return httpx.Response(200, json=v)
+        if path.endswith("/grants") and request.method == "POST":
+            self.grants.append(body)
+            return httpx.Response(201, json={"id": str(uuid4()), **body})
+        if "/people/v1/people/" in path and "/assignments/" in path:
+            pair = (path.split("/people/")[-1].split("/")[0], path.rsplit("/", 1)[-1])
+            if request.method == "PUT":
+                self.assignments.append(pair)
+                return httpx.Response(200, json={"person_id": pair[0], "room_id": pair[1]})
+            self.assignments = [p for p in self.assignments if p != pair]
+            return httpx.Response(204)
         if path.endswith("/assets") and request.method == "GET":
             p = request.url.params
             items = [a for a in self.assets.values()
@@ -80,6 +127,17 @@ class World:
                 return httpx.Response(404, json={"code": "not_found", "detail": "Объект не найден"})
             if path.endswith("/history"):
                 return httpx.Response(200, json={"items": [{"at": "2026-10-01T10:00:00Z", "action": "created"}]})
+            if request.method in ("POST", "PATCH"):
+                if body.get("version") != a["version"]:
+                    return httpx.Response(409, json={"code": "version_conflict", "detail": "Объект изменил кто-то другой"})
+                if path.endswith("/state"):
+                    a["state"] = body["state"]
+                elif path.endswith("/responsible"):
+                    a["responsible_id"] = body["person_id"]
+                else:
+                    a["note"] = body.get("note", a.get("note"))
+                a["version"] += 1
+                return httpx.Response(200, json=a)
             return httpx.Response(200, json={**a, "schema": {"properties": [
                 {"key": "warranty_until", "title": "Гарантия до", "kind": "date"},
                 {"key": "service_due", "title": "Срок ТО", "kind": "date"}]}, "can": {"edit": False}})

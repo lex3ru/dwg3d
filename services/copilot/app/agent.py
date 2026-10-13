@@ -107,7 +107,7 @@ class Turn:
         await self._append(user)
         history.append(user)
         ctx = tools.Ctx(self.app.state.client, self.me, self.token, self.mode, ui or {}, str(self.chat_id),
-                        public_url=self.app.state.settings.public_url or "")
+                        public_url=self.app.state.settings.public_url or "", db=self.app.state.db)
         system = {"role": "system", "content": prompt.system(self.mode)}
         specs = tools.specs(self.mode)
         http = self.app.state.model_http

@@ -1,16 +1,22 @@
-import { Bot, History, Plus, Send, Square, Trash2, Wrench, X } from 'lucide-react'
+import { Bot, Check, History, Plus, Send, Square, Trash2, Wrench, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  askCopilot, createCopilotChat, deleteCopilotChat, getCopilotChat, listCopilotChats,
-  type CopilotChat, type CopilotEvent, type CopilotItem, type CopilotStatus, type CopilotUI,
+  applyProposal, askCopilot, createCopilotChat, deleteCopilotChat, getCopilotChat, listCopilotChats, rejectProposal,
+  type CopilotChat, type CopilotEvent, type CopilotItem, type CopilotProposal, type CopilotStatus, type CopilotUI,
 } from '../api'
+import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { cn } from '../lib/utils'
+import { to } from '../shell/route'
 import { hrefOf } from './links'
 import { Answer } from './render'
 
 const TOOL_LABEL: Record<string, string> = {
+  propose_variant: 'вариант расстановки', move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
+  propose_state: 'предложение: состояние', propose_responsible: 'предложение: ответственные', propose_notes: 'предложение: примечания',
+  propose_assignments: 'предложение: привязки', propose_grants: 'предложение: права', propose_comment: 'предложение: комментарий',
+  audit_assets: 'аудит учёта',
   buildings: 'здания', building_overview: 'обзор здания', find_rooms: 'поиск помещений', room: 'помещение',
   find_assets: 'поиск объектов', asset: 'карточка объекта', search_catalog: 'каталог', type_schema: 'схема свойств',
   people: 'люди', person: 'человек', grants: 'права', my_rights: 'мои права', journal: 'журнал', variants: 'варианты',
@@ -151,7 +157,7 @@ function Chat({ ui, building, status, onClose }: { ui: CopilotUI; building: stri
             </div>
           </div>
         )}
-        {items.map((it, i) => <Item key={i} item={it} building={building} />)}
+        {items.map((it, i) => <Item key={i} item={it} building={building} canDecide={status.can_propose} />)}
         {busy && <p className="text-xs text-muted-foreground" data-testid="copilot-busy">{busy}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div ref={bottom} />
@@ -169,7 +175,7 @@ function Chat({ ui, building, status, onClose }: { ui: CopilotUI; building: stri
   )
 }
 
-function Item({ item, building }: { item: Shown; building: string | null }) {
+function Item({ item, building, canDecide }: { item: Shown; building: string | null; canDecide: boolean }) {
   if (item.type === 'user') {
     return <div className="ml-8 rounded-lg bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{item.text}</div>
   }
@@ -188,6 +194,65 @@ function Item({ item, building }: { item: Shown; building: string | null }) {
     return <a href={href} className="block text-xs text-primary underline underline-offset-2">Показано: {item.label || 'на экране'}</a>
   }
   if (item.type === 'error') return <p role="alert" className="text-sm text-destructive">{item.message}</p>
-  if (item.type === 'proposal') return <div className="rounded-md border px-3 py-2 text-sm">Предложение: {String((item.proposal as { summary?: string }).summary ?? '')}</div>
+  if (item.type === 'proposal') return <ProposalCard proposal={item.proposal} building={building} canDecide={canDecide} />
   return null
+}
+
+const STATUS: Record<string, [string, 'default' | 'success' | 'destructive' | 'warning']> = {
+  open: ['ждёт решения', 'default'], applied: ['применено', 'success'], rejected: ['отклонено', 'destructive'], stale: ['устарело', 'warning'],
+}
+
+/** What the copilot proposes: a variant to look at in «Варианты», or actions to apply or reject here. */
+function ProposalCard({ proposal, building, canDecide }: { proposal: CopilotProposal; building: string | null; canDecide: boolean }) {
+  const [state, setState] = useState(proposal)
+  const [busy, setBusy] = useState(false)
+  const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  if (state.kind === 'variant') {
+    const c = state.counts ?? {}
+    return (
+      <div className="rounded-md border bg-background px-3 py-2 text-sm" data-testid="copilot-proposal">
+        <div className="font-medium">Вариант «{state.name}»</div>
+        <p className="text-muted-foreground">{state.summary}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {[c.add && `+${c.add} поставить`, c.move && `${c.move} переставить`, c.remove && `−${c.remove} убрать`, c.change && `${c.change} изменить`].filter(Boolean).join(' · ')}
+        </p>
+        <a href={to.variants(state.building_id || building || '', state.variant_id)} className="mt-1 inline-block text-primary underline underline-offset-2">Открыть вариант</a>
+      </div>
+    )
+  }
+  const [label, variant] = STATUS[state.status] ?? [state.status, 'default']
+  const act = (what: () => Promise<Extract<CopilotProposal, { kind: 'proposal' }>>) => {
+    setBusy(true); setError(null)
+    what().then(p => { setState(p); setAsking(false) }, (e: Error) => setError(e.message)).finally(() => setBusy(false))
+  }
+  return (
+    <div className="rounded-md border bg-background px-3 py-2 text-sm" data-testid="copilot-proposal" data-status={state.status}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 font-medium">{state.summary}</div>
+        <Badge variant={variant}>{label}</Badge>
+      </div>
+      <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
+        {state.labels.slice(0, 8).map((l, i) => <li key={i}>{l}</li>)}
+        {state.count > 8 && <li>… всего {state.count}</li>}
+      </ul>
+      {state.result?.failed && <p className="mt-1 text-xs text-destructive">Остановилось на «{state.result.failed.label}»: {state.result.failed.detail}</p>}
+      {state.result?.reason && <p className="mt-1 text-xs text-muted-foreground">Причина: {state.result.reason}</p>}
+      {state.status === 'open' && canDecide && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={busy} onClick={() => act(() => applyProposal(state.id))}
+            hint="Выполнить перечисленные действия от вашего имени; в журнале они будут записаны на вас"><Check className="size-4" /> Применить</Button>
+          {!asking
+            ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setAsking(true)} hint="Отклонить предложение; причину увидит помощник">Отклонить</Button>
+            : <form className="flex flex-1 gap-1" onSubmit={e => { e.preventDefault(); act(() => rejectProposal(state.id, reason)) }}>
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Причина" aria-label="Причина отклонения" maxLength={2000}
+                className="h-8 min-w-0 flex-1 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <Button size="sm" variant="outline" type="submit" disabled={busy} hint="Отклонить с этой причиной">Ок</Button>
+            </form>}
+        </div>
+      )}
+      {error && <p role="alert" className="mt-1 text-xs text-destructive">{error}</p>}
+    </div>
+  )
 }
