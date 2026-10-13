@@ -108,6 +108,17 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
   expect(journal.length).toBeGreaterThanOrEqual(1)
   expect(journal[0].actor.id).not.toContain('copilot')
 
+  // detectors by area: the copilot makes a variant of the places, opened from its card
+  await page.goto(`/#/b/${building}/plan/${floors.find(f => f.level === 1)!.id}`)
+  const pane4 = page.getByTestId('copilot')
+  await pane4.getByLabel('Вопрос помощнику').fill('поставь извещатели на этаже')
+  await pane4.getByLabel('Вопрос помощнику').press('Enter')
+  const variantCard = pane4.getByTestId('copilot-proposal').last()
+  await expect(variantCard).toContainText('Извещатели', { timeout: 20_000 })
+  await variantCard.getByRole('link', { name: 'Открыть вариант' }).click()
+  await expect(page).toHaveURL(/\/variants\//)
+  await expect(page.getByRole('main')).toContainText('Извещатель пожарный дымовой')
+
   // a drawn plan with mistakes: the copilot proposes the repair, the open editor takes it — with undo — and saves
   const made = await page.request.post('/api/import/v1/sketches', { data: { building_id: building, name: 'План с ошибками' } })
   expect(made.status(), await made.text()).toBe(201)

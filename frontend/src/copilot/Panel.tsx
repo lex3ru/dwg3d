@@ -15,6 +15,7 @@ import { hrefOf } from './links'
 import { Answer } from './render'
 
 const TOOL_LABEL: Record<string, string> = {
+  place_by_rules: 'расстановка по правилам', place_detectors: 'извещатели по площади', coverage: 'обзор камер', check_placement: 'проверка расстановки',
   drawings: 'чертежи', plan_summary: 'сводка плана', check_plan: 'проверка плана', propose_plan_fixes: 'предложение: починка плана',
   propose_variant: 'вариант расстановки', move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
   propose_state: 'предложение: состояние', propose_responsible: 'предложение: ответственные', propose_notes: 'предложение: примечания',

@@ -1,6 +1,52 @@
 {
   "components": {
     "schemas": {
+      "DetectorsIn": {
+        "properties": {
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Id"
+          },
+          "room_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Ids"
+          },
+          "type_id": {
+            "description": "тип извещателя (с радиусом контроля detect_radius в каталоге)",
+            "title": "Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "building_id",
+          "type_id"
+        ],
+        "title": "DetectorsIn",
+        "type": "object"
+      },
       "Edit": {
         "properties": {
           "angle": {
@@ -183,6 +229,78 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "PlacementIn": {
+        "properties": {
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "count": {
+            "default": 1,
+            "description": "сколько в каждом помещении",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "floor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Id"
+          },
+          "gap": {
+            "default": 0.2,
+            "description": "м между предметами",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Gap",
+            "type": "number"
+          },
+          "room_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Ids"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          },
+          "where": {
+            "default": "along_wall",
+            "enum": [
+              "along_wall",
+              "center",
+              "corners",
+              "grid"
+            ],
+            "title": "Where",
+            "type": "string"
+          }
+        },
+        "required": [
+          "building_id",
+          "type_id"
+        ],
+        "title": "PlacementIn",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -285,6 +403,70 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/planning/v1/checks": {
+      "get": {
+        "operationId": "checks_api_planning_v1_checks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "floor_id",
+            "required": true,
+            "schema": {
+              "title": "Floor Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Checks Api Planning V1 Checks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Что стоит не так на этаже: в проходах и дверях, на перегородках, друг на друге, вне стен; пустые помещения; плохо просматриваемые; узкие двери",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
     "/api/planning/v1/compare": {
       "get": {
         "operationId": "compare_api_planning_v1_compare_get",
@@ -346,6 +528,146 @@
         "summary": "Сравнить два состояния (факт или вариант): что добавлено, убрано, перемещено, изменено; спецификации",
         "tags": [
           "variants"
+        ]
+      }
+    },
+    "/api/planning/v1/coverage": {
+      "get": {
+        "operationId": "coverage_api_planning_v1_coverage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "building_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Building Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "floor_id",
+            "required": true,
+            "schema": {
+              "title": "Floor Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Coverage Api Planning V1 Coverage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Что видят камеры этажа: доля площади каждого помещения, где лицо различимо, крупнейшие слепые места",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/planning/v1/detectors": {
+      "post": {
+        "operationId": "detectors_api_planning_v1_detectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectorsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Detectors Api Planning V1 Detectors Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Извещатели по площади: сколько есть, сколько нужно, где добавить (ничего не ставит)",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/planning/v1/placements": {
+      "post": {
+        "operationId": "placements_api_planning_v1_placements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlacementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Placements Api Planning V1 Placements Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Места для предметов типа в помещениях: у стен, в углах, сеткой, от центра (ничего не ставит)",
+        "tags": [
+          "rules"
         ]
       }
     },

@@ -1,0 +1,344 @@
+# ruff: noqa: E501
+"""Placing by rules and checks of what stands where — the code that counts, so the copilot only explains.
+
+Conventions of the viewer (frontend/src/scene …/geom.ts, as the old planning.py):
+  u = (cos a, sin a) — the item's width axis; f = (sin a, −cos a) — its front; footprint w along u, d along f, centred at (x, y).
+An item stands inside its room (the room's outline stands for the walls), clear of other items standing on the floor,
+of partitions and columns, and of the doors (the way through an opening with DOOR_CLEAR in front on both sides, and the
+swing of each leaf). Items mounted at 1 m or higher (cameras, detectors, lights) are "high": they neither block nor are
+blocked by the furniture. Detectors protect about 0.7·π·r² of floor each; cameras see a sector cut by their own room.
+"""
+from __future__ import annotations
+
+import math
+
+from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry.polygon import orient
+from shapely.ops import unary_union
+from shapely.validation import make_valid
+
+WHERE = ("along_wall", "center", "corners", "grid")
+WALL_GAP = 0.01
+DOOR_CLEAR = 0.6
+MAX_ITEMS = 200
+MAX_ROOMS = 100
+NOT_FURNISHED = {"stair", "lift", "corridor", "wc", "technical"}
+NO_CAMERAS_NEEDED = {"stair", "lift", "wc"}
+NARROW_DOOR = 0.8
+
+XY = tuple[float, float]
+
+
+class PlanError(ValueError):
+    """Cannot plan this (bad room, item…); the message is for the user."""
+
+
+# -------------------------------------------------------------- geometry ---
+def polygon(rings) -> Polygon | None:
+    try:
+        p = Polygon(rings[0], rings[1:])
+        p = p if p.is_valid else make_valid(p)
+        if p.geom_type == "MultiPolygon":
+            p = max(p.geoms, key=lambda g: g.area)
+        return p if p.geom_type == "Polygon" else None
+    except Exception:
+        return None
+
+
+def axes(angle: float) -> tuple[XY, XY]:
+    a = math.radians(angle)
+    return (math.cos(a), math.sin(a)), (math.sin(a), -math.cos(a))
+
+
+def facing(nx: float, ny: float) -> float:
+    return round(math.degrees(math.atan2(nx, -ny)) % 360, 2)
+
+
+def _rect(cx: float, cy: float, angle: float, hu: float, hf: float) -> Polygon:
+    (ux, uy), (fx, fy) = axes(angle)
+    return Polygon([(cx + ux * hu * su + fx * hf * sf, cy + uy * hu * su + fy * hf * sf)
+                    for su, sf in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+
+
+def footprint(at, angle: float, w: float, d: float) -> Polygon:
+    return _rect(at[0], at[1], angle, w / 2, d / 2)
+
+
+def _swing(hinge, tip, center) -> Polygon:
+    r = math.dist(hinge, tip)
+    a0 = math.atan2(tip[1] - hinge[1], tip[0] - hinge[0])
+    da = math.atan2(center[1] - hinge[1], center[0] - hinge[0]) - a0
+    da = (da + math.pi) % (2 * math.pi) - math.pi
+    return Polygon([tuple(hinge)] + [(hinge[0] + r * math.cos(a0 + da * i / 6), hinge[1] + r * math.sin(a0 + da * i / 6)) for i in range(7)])
+
+
+def obstacles(plan: dict) -> tuple[list[Polygon], list[Polygon]]:
+    """(partitions and columns, door ways and swings) of a floor's plan (import's plans/floor_<id>.json)."""
+    solids = [g for rings in (plan.get("partitions") or []) + (plan.get("columns") or [])
+              if (g := polygon(rings)) is not None and not g.is_empty]
+    doors = []
+    for o in plan.get("openings") or []:
+        if o.get("kind") == "window":
+            continue
+        ring = o.get("poly") or []
+        if len(ring) >= 4:
+            a, b2, c = ring[0], ring[1], ring[2]
+            e1, e2 = math.dist(a, b2), math.dist(b2, c)
+            along, across = ((b2[0] - a[0], b2[1] - a[1]), (c[0] - b2[0], c[1] - b2[1])) if e1 >= e2 else \
+                ((c[0] - b2[0], c[1] - b2[1]), (b2[0] - a[0], b2[1] - a[1]))
+            la, lc = math.hypot(*along) or 1, math.hypot(*across) or 1
+            ang = math.degrees(math.atan2(along[1], along[0]))
+            doors.append(_rect(o["center"][0], o["center"][1], ang, max(0.05, la / 2 - 0.02), lc / 2 + DOOR_CLEAR))
+        for hinge, tip in o.get("leaves") or []:
+            doors.append(_swing(hinge, tip, o["center"]))
+    return solids, [g for g in doors if g.is_valid and g.area > 1e-4]
+
+
+# -------------------------------------------------------------- the data ---
+def size_of(t: dict | None) -> tuple[float, float, float]:
+    s = (t or {}).get("size") or [0.5, 0.5, 0.5]
+    return float(s[0] or 0.5), float(s[1] or 0.5), float(s[2] or 0.5)
+
+
+def is_high(t: dict | None, elevation: float | None = None) -> bool:
+    e = elevation if elevation is not None else (t or {}).get("elevation")
+    return bool((t or {}).get("ceiling_mounted")) or (e or 0) >= 1
+
+
+def value(t: dict | None, key: str) -> float | None:
+    v = ((t or {}).get("values") or {}).get(key)
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def rooms_of(plan: dict) -> list[dict]:
+    """The rooms of a floor plan with outlines: [{id, name, poly}] — without an id (retired, not matched) left out."""
+    out = []
+    for r in plan.get("rooms") or []:
+        p = polygon(r.get("poly") or [])
+        if r.get("id") and p is not None and not p.is_empty and p.area >= 0.5:
+            out.append({"id": r["id"], "name": r.get("name") or "", "poly": p})
+    return out
+
+
+def standing(assets: list[dict], types: dict[str, dict]) -> list[tuple[dict, Polygon, bool]]:
+    """(asset, footprint, high) of the objects on a floor."""
+    out = []
+    for a in assets:
+        if a.get("x") is None or a.get("y") is None:
+            continue
+        t = types.get(a.get("type_id"))
+        w, d, _ = size_of(t)
+        out.append((a, footprint((a["x"], a["y"]), float(a.get("angle") or 0), w, d), is_high(t, a.get("elevation"))))
+    return out
+
+
+# -------------------------------------------------------------- placing ---
+class Fitter:
+    def __init__(self, room: Polygon, taken: list[Polygon], w: float, d: float, gap: float):
+        self.room = room.buffer(0.02)
+        self.taken = [t for t in taken if t.intersects(self.room)]
+        self.w, self.d, self.gap = w, d, gap
+
+    def fits(self, at, angle: float) -> bool:
+        fp = footprint(at, angle, self.w, self.d)
+        if not self.room.contains(fp):
+            return False
+        grown = fp.buffer(self.gap / 2) if self.gap else fp
+        return not any(grown.intersection(t).area > 1e-4 for t in self.taken)
+
+    def take(self, at, angle: float) -> None:
+        fp = footprint(at, angle, self.w, self.d)
+        self.taken.append(fp.buffer(self.gap / 2) if self.gap else fp)
+
+
+def _frame(poly: Polygon) -> tuple[float, XY]:
+    rect = poly.minimum_rotated_rectangle
+    pts = list(rect.exterior.coords)[:4]
+    sides = [(pts[i], pts[(i + 1) % 4]) for i in range(4)]
+    (ax, ay), (bx, by) = max(sides, key=lambda e: math.dist(*e))
+    c = poly.representative_point()
+    return math.degrees(math.atan2(by - ay, bx - ax)), (c.x, c.y)
+
+
+def _along_wall(fit: Fitter, room: Polygon, count: int, corners_only: bool = False) -> list[tuple[XY, float]]:
+    out: list[tuple[XY, float]] = []
+    inset = room.buffer(-(fit.d / 2 + WALL_GAP), join_style=2)
+    rings = [g for g in getattr(inset, "geoms", [inset]) if not g.is_empty]
+    for ring in rings:
+        ring = orient(ring, 1.0)
+        pts = list(ring.exterior.coords)[:-1]
+        n = len(pts)
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            length = math.dist(a, b)
+            if length < 1e-6:
+                continue
+            tx, ty = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+            angle = facing(-ty, tx)
+            first = max(fit.w / 2 - fit.d / 2, 0) + 0.005
+            cands = [first] if corners_only else [first + k * (fit.w + fit.gap) for k in range(int((length - first + fit.w / 2) // (fit.w + fit.gap)) + 1)]
+            for s in cands:
+                if s > length + 1e-6:
+                    break
+                at = (round(a[0] + tx * s, 3), round(a[1] + ty * s, 3))
+                if fit.fits(at, angle):
+                    fit.take(at, angle)
+                    out.append((at, angle))
+                    if len(out) >= count:
+                        return out
+    return out
+
+
+def _grid(fit: Fitter, room: Polygon, count: int, from_center: bool) -> list[tuple[XY, float]]:
+    main, (cx, cy) = _frame(room)
+    angle = round((main + 180) % 360, 2)
+    (ux, uy), (fx, fy) = axes(angle)
+    su, sf = fit.w + fit.gap, fit.d + fit.gap
+    minx, miny, maxx, maxy = room.bounds
+    reach = math.hypot(maxx - minx, maxy - miny)
+    cands = []
+    for i in range(-int(reach / su) - 1, int(reach / su) + 2):
+        for j in range(-int(reach / sf) - 1, int(reach / sf) + 2):
+            x, y = cx + ux * su * i + fx * sf * j, cy + uy * su * i + fy * sf * j
+            if room.contains(Point(x, y)):
+                cands.append((math.hypot(x - cx, y - cy) if from_center else (j, i), (round(x, 3), round(y, 3))))
+    out: list[tuple[XY, float]] = []
+    for _, at in sorted(cands):
+        if fit.fits(at, angle):
+            fit.take(at, angle)
+            out.append((at, angle))
+            if len(out) >= count:
+                break
+    return out
+
+
+def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: dict[str, dict], t: dict,
+                  count: int, where: str, gap: float) -> tuple[list[tuple[XY, float]], list[str]]:
+    """Places for `count` items of type `t` in the room: ([(at, angle)], notes)."""
+    if where not in WHERE:
+        raise PlanError(f"where: {', '.join(WHERE)}")
+    if not 1 <= count <= MAX_ITEMS:
+        raise PlanError(f"count: от 1 до {MAX_ITEMS}")
+    w, d, _ = size_of(t)
+    high = is_high(t)
+    taken = [fp for _, fp, h in standing(floor_assets, types) if h == high]
+    solids, doors = obstacles(plan)
+    fit = Fitter(room, taken + solids + ([] if high else doors), w, d, max(gap, 0.0))
+    if where == "along_wall":
+        places = _along_wall(fit, room, count)
+    elif where == "corners":
+        places = _along_wall(fit, room, count, corners_only=True)
+    else:
+        places = _grid(fit, room, count, from_center=where == "center")
+    notes = []
+    if len(places) < count:
+        notes.append(f"поместилось {len(places)} из {count}: в помещении нет места" + (" у стен" if where in ("along_wall", "corners") else ""))
+    return places, notes
+
+
+# ------------------------------------------------------------ detectors ---
+def detectors_needed(area: float, radius: float) -> int:
+    return max(1, math.ceil(area / (0.7 * math.pi * radius ** 2)))
+
+
+def spread(poly: Polygon, have: list[XY], n: int, step: float) -> list[XY]:
+    inner = poly.buffer(-0.5)
+    inner = inner if not inner.is_empty else poly
+    minx, miny, maxx, maxy = inner.bounds
+    cands = [(minx + step / 2 + i * step, miny + step / 2 + j * step)
+             for i in range(int((maxx - minx) / step) + 1) for j in range(int((maxy - miny) / step) + 1)]
+    cands = [c for c in cands if inner.contains(Point(c))] or [inner.representative_point().coords[0]]
+    chosen: list[XY] = []
+    for _ in range(n):
+        ref = have + chosen
+        best = max(cands, key=lambda c: min((math.dist(c, h) for h in ref), default=0.0) if ref else -math.dist(c, inner.centroid.coords[0]))
+        chosen.append(best)
+        cands = [c for c in cands if c != best] or cands
+    return [(round(x, 2), round(y, 2)) for x, y in chosen]
+
+
+def detectors_in_room(room: Polygon, floor_assets: list[dict], types: dict[str, dict], radius: float) -> dict:
+    """How many detectors the room has (any type with a detect_radius standing in it), needs, and where to add."""
+    have = [(a["x"], a["y"]) for a in floor_assets if a.get("x") is not None and value(types.get(a.get("type_id")), "detect_radius")
+            and room.buffer(0.05).contains(Point(a["x"], a["y"]))]
+    need = detectors_needed(room.area, radius)
+    add = spread(room, have, max(0, need - len(have)), radius * math.sqrt(2) * 0.9) if len(have) < need else []
+    return {"area": round(room.area, 1), "has": len(have), "need": need, "add": add}
+
+
+# -------------------------------------------------------------- cameras ---
+def sector(apex, angle: float, fov: float, r: float) -> Polygon:
+    _, (fx, fy) = axes(angle)
+    if fov >= 360:
+        return Point(apex).buffer(r, 64)
+    a0 = math.atan2(fy, fx) - math.radians(fov) / 2
+    n = max(8, int(fov))
+    pts = [tuple(apex)] + [(apex[0] + r * math.cos(a0 + math.radians(fov) * i / n), apex[1] + r * math.sin(a0 + math.radians(fov) * i / n)) for i in range(n + 1)]
+    return Polygon(pts)
+
+
+def camera_params(a: dict, t: dict | None) -> tuple[float, float, float] | None:
+    fov = value(t, "cam_fov")
+    if fov is None:
+        return None
+    rng = value(t, "cam_range") or 10.0
+    ident = min(rng, value(t, "cam_ident") or rng)
+    return fov, rng, ident
+
+
+def cameras_in_rooms(rooms: list[dict], floor_assets: list[dict], types: dict[str, dict]) -> list[dict]:
+    cams = [(a, prm) for a in floor_assets if a.get("x") is not None and (prm := camera_params(a, types.get(a.get("type_id")))) is not None]
+    out = []
+    for r in rooms:
+        poly = r["poly"]
+        mine = [(a, prm) for a, prm in cams if poly.buffer(0.05).contains(Point(a["x"], a["y"]))]
+        seen = unary_union([sector((a["x"], a["y"]), float(a.get("angle") or 0), prm[0], prm[1]).intersection(poly) for a, prm in mine]) if mine else Polygon()
+        ident = unary_union([sector((a["x"], a["y"]), float(a.get("angle") or 0), prm[0], prm[2]).intersection(poly) for a, prm in mine]) if mine else Polygon()
+        gaps = poly.difference(seen)
+        parts = sorted(getattr(gaps, "geoms", [gaps]), key=lambda g: -g.area)
+        area = poly.area or 1.0
+        out.append({"room_id": r["id"], "name": r["name"], "area": round(poly.area, 2), "cameras": [a["id"] for a, _ in mine],
+                    "seen": round(seen.area / area * 100, 1), "identify": round(ident.area / area * 100, 1),
+                    "unseen": [{"area": round(g.area, 2), "bbox": [round(v, 2) for v in g.bounds]} for g in parts[:3] if g.area >= 0.5]})
+    return out
+
+
+# -------------------------------------------------------------- checks ---
+def check_floor(rooms: list[dict], room_types: dict[str, str], plan: dict, floor_assets: list[dict], types: dict[str, dict], limit: int = 50) -> dict:
+    """blocked — items in door ways, on partitions or columns, on each other, out of the walls; cameras — rooms poorly
+    seen (when the floor has cameras); empty — rooms meant for use with nothing in them; doors — narrower than 80 cm."""
+    solids, doors = obstacles(plan)
+    name = {r["id"]: r["name"] or "без названия" for r in rooms}
+    low = [(a, fp) for a, fp, high in standing(floor_assets, types) if not high]
+    blocked = []
+    for i, (a, fp) in enumerate(low):
+        why = []
+        if any(fp.intersection(g).area > 0.01 for g in doors):
+            why.append("мешает двери или проходу")
+        if any(fp.intersection(g).area > 0.01 for g in solids):
+            why.append("стоит на перегородке или колонне")
+        others = [f"{b.get('type_name') or ''} {b.get('inventory_no') or ''}".strip() for b, fp2 in low[i + 1:] if fp.intersection(fp2).area > 0.01]
+        if others:
+            why.append("налезает на " + ", ".join(others[:3]))
+        if rooms and not any(r["poly"].buffer(0.05).contains(fp) for r in rooms):
+            why.append("выходит за стены помещения")
+        if why:
+            blocked.append({"asset_id": a["id"], "name": f"{a.get('type_name') or ''} {a.get('inventory_no') or ''}".strip(),
+                            "room_id": a.get("room_id"), "room": name.get(a.get("room_id"), ""), "at": [round(a["x"], 2), round(a["y"], 2)], "problems": why})
+    cams = [c for c in cameras_in_rooms(rooms, floor_assets, types) if c["seen"] < 50 and room_types.get(c["room_id"], "other") not in NO_CAMERAS_NEEDED] \
+        if any(camera_params(a, types.get(a.get("type_id"))) for a in floor_assets) else []
+    used = {a.get("room_id") for a in floor_assets}
+    empty = [{"room_id": r["id"], "name": name[r["id"]], "type": room_types.get(r["id"]), "area": round(r["poly"].area, 1)}
+             for r in rooms if r["id"] not in used and (room_types.get(r["id"]) or "other") not in NOT_FURNISHED]
+    narrow = [{"center": o.get("center"), "width": o.get("width")} for o in plan.get("openings") or []
+              if o.get("kind") == "door" and (o.get("width") or 1) < NARROW_DOOR]
+    out = {"blocked": blocked[:limit], "cameras": cams[:limit], "empty": empty[:limit], "doors": narrow[:limit]}
+    return out | {"counts": {k: len(v) for k, v in (("blocked", blocked), ("cameras", cams), ("empty", empty), ("doors", narrow))}}
+
+
+def line_crosses(a: XY, b: XY, faces) -> int:
+    seg = LineString([a, b])
+    return sum(1 for f in faces if seg.intersects(f))

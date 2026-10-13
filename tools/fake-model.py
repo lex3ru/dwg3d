@@ -38,6 +38,10 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
                 return {"calls": [("propose_plan_fixes", {"drawing_id": data["drawing_id"]})]}
             parts = [f"{i['message']} ({', '.join(i['ids']) or 'этаж ' + str(i['floor_id'])})" for i in data["issues"][:10]]
             return {"text": f"Ошибок: {data['errors']}, предупреждений: {data['warnings']}. " + "; ".join(parts) + "."}
+        if isinstance(data, dict) and "blocked" in data and "counts" in data:
+            parts = [f"{b['name']}: {', '.join(b['problems'])}" for b in data["blocked"][:10]]
+            empty = [e["name"] for e in data.get("empty", [])[:10]]
+            return {"text": f"Мешают: {len(data['blocked'])}; пустых помещений: {len(data.get('empty', []))}. " + "; ".join(parts) + (" Пустые: " + ", ".join(empty) + "." if empty else "")}
         if isinstance(data, dict) and data.get("counts") and data.get("legend"):
             legend = data["legend"]
             parts = [f"{legend[k]}: {v}" for k, v in data["counts"].items() if v]
@@ -75,6 +79,11 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
         return {"calls": [("find_rooms", {"q": rename.group(1)[:40]})]}
     if number and "find_rooms" in names:
         return {"calls": [("find_rooms", {"q": number.group(1)})]}
+    if "извещател" in question and "place_detectors" in names:
+        floor_id = (re.search(r"этаж «[^»]*» \(id ([0-9a-f-]{36})\)", ui) or [None, None])[1]
+        return {"calls": [("place_detectors", {"floor_id": floor_id} if floor_id else {})]}
+    if "расстанов" in question and "провер" in question and "check_placement" in names:
+        return {"calls": [("check_placement", {})]}
     if "план" in question and any(w in question for w in ("провер", "ошибк", "исправ", "почин")) and "check_plan" in names:
         return {"calls": [("check_plan", {})]}
     if any(w in question for w in ("аудит", "проверь учёт", "проверь учет")) and "audit_assets" in names:

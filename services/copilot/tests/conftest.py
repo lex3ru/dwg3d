@@ -42,6 +42,7 @@ class World:
         self.comments: list[dict] = []
         self.assignments: list[tuple[str, str]] = []
         self.sketch, self.sketch_version, self.repairs = {"version": 1, "floors": []}, 3, []
+        self.rules: list[tuple[str, dict]] = []
         self.issues = [{"floor_id": "f1", "level": "error", "code": "short-wall", "message": "Стена короче 5 мм", "ids": ["s"]},
                        {"floor_id": "f1", "level": "warning", "code": "unnamed-room", "message": "Помещение без названия", "ids": [], "at": [1, 1]}]
         self.assets = {
@@ -111,6 +112,19 @@ class World:
                      "status": "draft", "stale": False, "ops": [], "counts": {"add": 0, "move": 0, "change": 0, "remove": 0}, "version": 1}
                 self.variants[v["id"]] = v
                 return httpx.Response(201, json=v)
+            if path.endswith("/placements") or path.endswith("/detectors"):
+                if me.sub not in self.admins and not me.is_admin:
+                    return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+                self.rules.append((path.rsplit("/", 1)[-1], body))
+                item = {"id": body["type_id"], "name": "Извещатель" if path.endswith("/detectors") else "Стол", "radius": 5}
+                places = [{"floor_id": FLOOR, "room_id": ROOM214, "x": 1 + i, "y": 1.5, "angle": 0.0} for i in range(2)]
+                rooms = [{"room_id": ROOM214, "name": "Кабинет", "floor_id": FLOOR, "placed": 2, "notes": [], "has": 0, "need": 2, "add": 2, "area": 18.4}]
+                return httpx.Response(200, json={"item": item, "rooms": rooms, "places": places, "rule": "0,7·π·r²"})
+            if path.endswith("/checks"):
+                return httpx.Response(200, json={"floor_id": request.url.params.get("floor_id"), "blocked": [{"asset_id": PRINTER, "name": "Принтер 00124", "problems": ["мешает двери или проходу"]}],
+                                                 "cameras": [], "empty": [], "doors": [], "counts": {"blocked": 1, "cameras": 0, "empty": 0, "doors": 0}})
+            if path.endswith("/coverage"):
+                return httpx.Response(200, json={"floor_id": request.url.params.get("floor_id"), "cameras": 0, "rooms": []})
             vid = path.split("/variants/")[-1].split("/")[0]
             v = self.variants.get(vid)
             if v is None:
@@ -163,6 +177,13 @@ class World:
             return httpx.Response(200, json={**a, "schema": {"properties": [
                 {"key": "warranty_until", "title": "Гарантия до", "kind": "date"},
                 {"key": "service_due", "title": "Срок ТО", "kind": "date"}]}, "can": {"edit": False}})
+        if "/catalog/v1/" in path:
+            if path.endswith("/types"):
+                return httpx.Response(200, json={"items": [{"id": "t-desk", "name": "Стол", "size": [1.4, 0.7, 0.75], "values": {}},
+                                                           {"id": "t-smoke", "name": "Извещатель дымовой", "size": [0.1, 0.1, 0.05], "values": {"detect_radius": 5}}]})
+            if path.endswith("/categories"):
+                return httpx.Response(200, json={"items": [{"id": "c1", "name": "Мебель", "parent_id": None}]})
+            return httpx.Response(404, json={"code": "not_found", "detail": f"stub: {path}"})
         if path.endswith("/people/batch-get"):
             return httpx.Response(200, json={"items": [{"id": PETROV, "full_name": "Петров П. П.", "position": "врач"}]
                                              if PETROV in body["ids"] else []})

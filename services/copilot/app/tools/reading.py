@@ -208,8 +208,8 @@ async def search_catalog(ctx: Ctx, args: SearchCatalog) -> dict:
     if args.q or args.category_id:
         got = await ctx.get("catalog", "/types", q=args.q, category_id=args.category_id, active="true")
         types = got.get("items", [])[: args.limit]
-        out["types"] = [{k: t.get(k) for k in ("id", "name", "category_id", "w", "d", "h", "price", "currency",
-                                               "portable", "container", "wall_mounted", "ceiling_mounted")}
+        out["types"] = [{k: t.get(k) for k in ("id", "name", "category_id", "size", "elevation", "price", "currency",
+                                               "portable", "container", "wall_mounted", "ceiling_mounted", "values")}
                         for t in types]
         if args.with_products:
             for t in out["types"]:

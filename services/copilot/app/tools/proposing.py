@@ -78,7 +78,6 @@ async def propose_variant(ctx: Ctx, args: ProposeVariant) -> dict:
     v = await ctx.get("planning", f"/variants/{v['id']}")
     prop = {"kind": "variant", "variant_id": v["id"], "name": v["name"], "summary": args.summary, "counts": v.get("counts"),
             "building_id": b}
-    ctx.events.append({"type": "proposal", "proposal": prop})
     return {"proposal": prop, "edits": res, "next": "Вариант создан как черновик; пользователь посмотрит его в разделе «Варианты» и применит сам."}
 
 

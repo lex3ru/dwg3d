@@ -183,7 +183,7 @@ services:
       <<: *service-env
       TWIN_DATABASE_URL: postgresql+psycopg://planning:${TWIN_DB_PASSWORD_PLANNING:-planning}@db:5432/planning
       # objects and the catalog are asked with the user's own token; nothing on its own behalf
-      TWIN_SERVICES: access=http://access:8000,assets=http://assets:8000,catalog=http://catalog:8000
+      TWIN_SERVICES: access=http://access:8000,assets=http://assets:8000,catalog=http://catalog:8000,buildings=http://buildings:8000
 
   copilot:
     <<: *service
