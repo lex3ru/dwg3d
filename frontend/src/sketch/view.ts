@@ -38,6 +38,17 @@ export function fitView(box: [number, number, number, number] | null, size: XY):
   return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, scale }
 }
 
+/**
+ * The view going to the box [x0, y0, x1, y1] (an object of the plan, the walls of a problem): centred on it,
+ * at the scale it has if the box fits the screen at it and it is not too far out, otherwise closer or further.
+ */
+export function focusView(v: View, box: [number, number, number, number], size: XY): View {
+  const fit = fitView(box, size)
+  return { cx: fit.cx, cy: fit.cy, scale: Math.min(fit.scale, Math.max(v.scale, FOCUS_SCALE)) }
+}
+/** px per m the view comes up to, at least, when going to an object: a door is 2 cm wide at less */
+export const FOCUS_SCALE = 60
+
 /** Grid steps for the scale: thin lines at least 12 px apart, every tenth bolder. */
 export function gridSteps(scale: number): { minor: number; major: number } {
   const minor = [0.1, 0.5, 1, 5, 10, 50].find(m => m * scale >= 12) ?? 100

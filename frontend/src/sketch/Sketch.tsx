@@ -15,7 +15,7 @@ import {
 } from '@/plan'
 import { dist, type XY } from '@/plan/vec'
 import { getRoomTypes, underlayUrl, uploadUnderlay } from '@/api'
-import { Canvas, type Tool } from './Canvas'
+import { Canvas, type Focus, type Tool } from './Canvas'
 import { wallsSelection, type Selection } from './selection'
 import { areaText } from './format'
 import { openPdf, type Pdf } from './pdf'
@@ -112,6 +112,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   const [lastTool, setLastTool] = useState(tool)
   if (tool !== lastTool) { setLastTool(tool); setCal(null) }
   const [fitSignal, setFitSignal] = useState(0)
+  // a problem clicked: the drawing goes to its objects
+  const [focus, setFocus] = useState<Focus | null>(null)
 
   const issues = useMemo(() => checkFloor(floor), [floor])
   const bad = useMemo(() => new Set(issues.filter(i => i.level === 'error').flatMap(i => i.ids)), [issues])
@@ -151,7 +153,7 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
     <div className="relative h-full w-full" data-testid="sketch">
       <Canvas floor={floor} below={below} tool={tool} drawBy={drawBy} wallProps={wallProps} stairWidth={stairWidth} selection={sel} onSelect={setSelection}
         openingProps={{ kind: opening, width: openingWidth[opening] }}
-        onCommit={commit} fitSignal={fitSignal} bad={bad}
+        onCommit={commit} fitSignal={fitSignal} bad={bad} focus={focus}
         underlayUrl={floor.underlay ? underlayUrl(drawing, floor.underlay.image) : null}
         onCalibrate={(a, b) => setCal([a, b])} clipboard={clipboard} onCopy={setClipboard} />
 
@@ -246,7 +248,10 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
                       {issues.map((i, n) => (
                         <li key={n}>
                           <button className={cn('text-left underline-offset-2 hover:underline', i.level === 'error' ? 'text-destructive' : 'text-muted-foreground')}
+                            title="Показать на чертеже"
                             onClick={() => {
+                              // the drawing goes to the objects and flashes them; the first is selected, so it can be fixed
+                              setFocus(f => ({ ids: i.ids, n: (f?.n ?? 0) + 1 }))
                               const o = i.ids.find(x => x in floor.openings), w = i.ids.find(x => x in floor.walls)
                               if (o) setSelection({ kind: 'opening', id: o })
                               else if (w) setSelection({ kind: 'wall', id: w })
