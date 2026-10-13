@@ -104,3 +104,21 @@ async def test_wall_mounted_things_avoid_openings_and_chairs_face_the_desk(clien
     for c in body["places"]:
         assert c["angle"] == 180.0 and 2.4 < c["y"] < 3.2 and 2.0 < c["x"] < 4.0
     assert (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "where": "front_of"})).status_code == 422
+
+
+async def test_lights_are_spread_over_the_room(client, tokens, world):
+    boss = tokens.bearer("boss")
+    LIGHT = "light-type"
+    world.types[LIGHT] = {"id": LIGHT, "name": "Светильник", "category_id": "l", "price": None, "currency": "RUB", "size": [0.6, 0.6, 0.05],
+                          "elevation": 2.7, "ceiling_mounted": True, "values": {"light_flux": 3600}}
+    for where in ("grid", "center"):
+        r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": LIGHT, "room_ids": [ROOM], "count": 4, "where": where})).json()
+        assert r["rooms"][0]["placed"] == 4, r
+        xs = sorted({p["x"] for p in r["places"]})
+        ys = sorted({p["y"] for p in r["places"]})
+        # the 6 × 4 room: two columns at a quarter and three quarters of its length, two rows likewise
+        assert len(xs) == 2 and len(ys) == 2
+        assert abs(xs[0] - 1.5) < 0.1 and abs(xs[1] - 4.5) < 0.1 and abs(ys[0] - 1.0) < 0.1 and abs(ys[1] - 3.0) < 0.1
+    # six of them: three columns, two rows
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": LIGHT, "room_ids": [ROOM], "count": 6, "where": "grid"})).json()
+    assert len({p["x"] for p in r["places"]}) == 3 and len({p["y"] for p in r["places"]}) == 2
