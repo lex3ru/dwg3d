@@ -231,6 +231,18 @@
       },
       "PlacementIn": {
         "properties": {
+          "anchor_asset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "для front_of: объект, перед которым ставить (кресла к столу)",
+            "title": "Anchor Asset Id"
+          },
           "building_id": {
             "format": "uuid",
             "title": "Building Id",
@@ -288,7 +300,8 @@
               "along_wall",
               "center",
               "corners",
-              "grid"
+              "grid",
+              "front_of"
             ],
             "title": "Where",
             "type": "string"

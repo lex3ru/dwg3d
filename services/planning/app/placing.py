@@ -17,7 +17,7 @@ from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
-WHERE = ("along_wall", "center", "corners", "grid")
+WHERE = ("along_wall", "center", "corners", "grid", "front_of")
 WALL_GAP = 0.01
 DOOR_CLEAR = 0.6
 MAX_ITEMS = 200
@@ -72,6 +72,18 @@ def _swing(hinge, tip, center) -> Polygon:
     return Polygon([tuple(hinge)] + [(hinge[0] + r * math.cos(a0 + da * i / 6), hinge[1] + r * math.sin(a0 + da * i / 6)) for i in range(7)])
 
 
+def openings(plan: dict) -> list[Polygon]:
+    """The openings themselves — doors and windows — as the wall-mounted things may not hang over them."""
+    out = []
+    for o in plan.get("openings") or []:
+        ring = o.get("poly") or []
+        if len(ring) >= 3:
+            g = Polygon(ring)
+            if g.is_valid and g.area > 1e-4:
+                out.append(g.buffer(0.15))
+    return out
+
+
 def obstacles(plan: dict) -> tuple[list[Polygon], list[Polygon]]:
     """(partitions and columns, door ways and swings) of a floor's plan (import's plans/floor_<id>.json)."""
     solids = [g for rings in (plan.get("partitions") or []) + (plan.get("columns") or [])
@@ -103,6 +115,10 @@ def size_of(t: dict | None) -> tuple[float, float, float]:
 def is_high(t: dict | None, elevation: float | None = None) -> bool:
     e = elevation if elevation is not None else (t or {}).get("elevation")
     return bool((t or {}).get("ceiling_mounted")) or (e or 0) >= 1
+
+
+def is_wall_mounted(t: dict | None) -> bool:
+    return bool((t or {}).get("wall_mounted"))
 
 
 def value(t: dict | None, key: str) -> float | None:
@@ -215,27 +231,64 @@ def _grid(fit: Fitter, room: Polygon, count: int, from_center: bool) -> list[tup
     return out
 
 
+def _front_of(fit: Fitter, room: Polygon, anchor: dict, types: dict[str, dict], count: int) -> list[tuple[XY, float]]:
+    """Items in a row before the anchor's front side, facing it (chairs at a desk, stools at a counter)."""
+    at = anchor.get("x"), anchor.get("y")
+    ta = types.get(anchor.get("type_id"))
+    aw, ad, _ = size_of(ta)
+    a_angle = float(anchor.get("angle") or 0)
+    (ux, uy), (fx, fy) = axes(a_angle)
+    facing_back = round((a_angle + 180) % 360, 2)                  # the items look at the anchor
+    out: list[tuple[XY, float]] = []
+    k = ad / 2 + fit.d / 2 + 0.1                                   # knee room between the anchor and the items
+    span = fit.w + fit.gap
+    for n in range(count):
+        # from the middle outwards: 0, +1, −1, +2, −2 … of the anchor's width
+        i = (n + 1) // 2 * (1 if n % 2 else -1)
+        if n == 0:
+            i = 0
+        off = i * span
+        if abs(off) + fit.w / 2 > aw / 2 + 0.3 and n > 0:
+            break
+        p = (round(at[0] + fx * k + ux * off, 3), round(at[1] + fy * k + uy * off, 3))
+        if fit.fits(p, facing_back):
+            fit.take(p, facing_back)
+            out.append((p, facing_back))
+    return out
+
+
 def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: dict[str, dict], t: dict,
-                  count: int, where: str, gap: float) -> tuple[list[tuple[XY, float]], list[str]]:
-    """Places for `count` items of type `t` in the room: ([(at, angle)], notes)."""
+                  count: int, where: str, gap: float, anchor: dict | None = None) -> tuple[list[tuple[XY, float]], list[str]]:
+    """Places for `count` items of type `t` in the room: ([(at, angle)], notes). A wall-mounted thing goes along the
+    walls whatever is asked, never over a door or a window; `front_of` puts the items before the anchor object."""
     if where not in WHERE:
         raise PlanError(f"where: {', '.join(WHERE)}")
     if not 1 <= count <= MAX_ITEMS:
         raise PlanError(f"count: от 1 до {MAX_ITEMS}")
     w, d, _ = size_of(t)
-    high = is_high(t)
-    taken = [fp for _, fp, h in standing(floor_assets, types) if h == high]
+    high, on_wall = is_high(t), is_wall_mounted(t)
+    taken = [fp for _, fp, h in standing(floor_assets, types) if h == high or on_wall]
     solids, doors = obstacles(plan)
+    notes = []
+    if on_wall:
+        if where != "along_wall":
+            notes.append("настенный предмет: поставлен у стены")
+        where = "along_wall"
+        taken = taken + openings(plan)
     fit = Fitter(room, taken + solids + ([] if high else doors), w, d, max(gap, 0.0))
-    if where == "along_wall":
+    if where == "front_of":
+        if not anchor or anchor.get("x") is None:
+            raise PlanError("front_of: нужен объект-опора (anchor) с местом на плане")
+        places = _front_of(fit, room, anchor, types, count)
+    elif where == "along_wall":
         places = _along_wall(fit, room, count)
     elif where == "corners":
         places = _along_wall(fit, room, count, corners_only=True)
     else:
         places = _grid(fit, room, count, from_center=where == "center")
-    notes = []
     if len(places) < count:
-        notes.append(f"поместилось {len(places)} из {count}: в помещении нет места" + (" у стен" if where in ("along_wall", "corners") else ""))
+        notes.append(f"поместилось {len(places)} из {count}: " + ("перед объектом-опорой нет места" if where == "front_of"
+                     else "в помещении нет места" + (" у стен" if where in ("along_wall", "corners") else "")))
     return places, notes
 
 
