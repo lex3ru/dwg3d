@@ -81,6 +81,42 @@ test('the system administrator makes a property set and a type with it, gives it
   await expect(page.getByText('в архиве')).toBeVisible()
 })
 
+test('a type is hung on the ceiling in the editor, and a save keeps what the form does not show', async ({ page }) => {
+  test.setTimeout(60_000)
+  const name = `Светильник ${Date.now().toString().slice(-6)}`
+  await signIn(page, 'admin')
+  const category = ((await (await page.request.get('/api/catalog/v1/categories')).json()).items as { id: string; name: string }[])
+    .find(c => c.name === 'Освещение')!.id
+  const made = await page.request.post('/api/catalog/v1/types', { data: { category_id: category, name, w: 0.6, d: 0.6, h: 0.04,
+    elevation: 2.7, shape: 'lamp_panel', color: '#fcc419', article: 'LP-600', price: 1000 } })
+  expect(made.status(), await made.text()).toBe(201)
+  const id = (await made.json()).id as string
+  const type = async () => (await (await page.request.get(`/api/catalog/v1/types/${id}`)).json()) as Record<string, unknown>
+
+  await page.goto(`/#/catalog/types/${id}`)
+  await expect(page.getByLabel('Монтаж')).toHaveValue('floor')
+  await expect(page.getByLabel('Высота установки')).toHaveValue('2.7')
+  await page.getByLabel('Монтаж').selectOption({ label: 'на потолке' })
+  await page.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(page.getByTestId('types').getByRole('link', { name: new RegExp(name) })).toContainText('на потолке')
+  // what the form does not show stays: the shape in 3D, the colour, the article, the price, the mounting height
+  expect(await type()).toMatchObject({ ceiling_mounted: true, wall_mounted: false, shape: 'lamp_panel', color: '#fcc419',
+    article: 'LP-600', price: 1000, elevation: 2.7 })
+
+  // on a wall instead: one or the other; both at once are refused
+  await page.goto(`/#/catalog/types/${id}`)
+  await page.getByLabel('Монтаж').selectOption({ label: 'на стене' })
+  await page.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(page.getByTestId('types').getByRole('link', { name: new RegExp(name) })).toContainText('на стене')
+  const t = await type()
+  expect(t).toMatchObject({ ceiling_mounted: false, wall_mounted: true })
+  const { id: _, size, model: _m, active: _a, schema_version: _s, schema: _x, ...rest } = t as Record<string, any>  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const both = await page.request.patch(`/api/catalog/v1/types/${id}`, { data: { ...rest, w: size[0], d: size[1], h: size[2],
+    ceiling_mounted: true } })
+  expect(both.status()).toBe(422)
+  await page.request.post(`/api/catalog/v1/types/${id}/archive`)
+})
+
 test('others read the catalog and do not change it', async ({ page }) => {
   await signIn(page, 'user')
   await expect(page.getByRole('link', { name: 'Каталог' })).toHaveCount(0)

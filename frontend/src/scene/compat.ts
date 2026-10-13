@@ -378,7 +378,7 @@ async function catalog(): Promise<Json> {
   const color = new Map((cats.items as Json[]).map((c) => [c.id, c.color]))
   const items = [...on.items, ...off.items].map((t: Json) => ({
     id: t.id, name: t.name, cat: t.category_id, w: t.size[0], d: t.size[1], h: t.size[2], kind: t.shape || 'device',
-    color: t.color ?? color.get(t.category_id) ?? undefined, wall: t.wall_mounted, elev: t.elevation ?? undefined,
+    color: t.color ?? color.get(t.category_id) ?? undefined, wall: t.wall_mounted, ceiling: t.ceiling_mounted, elev: t.elevation ?? undefined,
     model: t.model?.name, modelUrl: t.model ? `${CATALOG}/types/${t.id}/model.glb?v=${t.version}` : undefined,
     modelRot: t.model?.rotation ?? 0, article: t.article ?? undefined, supplier: t.supplier ?? undefined,
     price: t.price ?? undefined, currency: t.currency ?? undefined, active: t.active, ...systemParams(t.values ?? {}),

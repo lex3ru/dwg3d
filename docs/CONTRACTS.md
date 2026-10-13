@@ -291,7 +291,7 @@
 
 **Сущности**: `Category {id, name, color, sort}`,
 `PropertySet {id, name, properties[], version}`,
-`Type {id, category_id, name, size: [w, d, h], elevation, wall_mounted, shape, color, model, container, portable, sets[], properties[], values{}, article, supplier, price, currency, active, schema_version}`.
+`Type {id, category_id, name, size: [w, d, h], elevation, wall_mounted, ceiling_mounted, shape, color, model, container, portable, sets[], properties[], values{}, article, supplier, price, currency, active, schema_version}`.
 
 **Свойство**: `{key, title, kind, unit, options[], required, stored, editable_by}`
 

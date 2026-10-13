@@ -37,6 +37,10 @@ async def test_what_the_catalog_starts_with(client, tokens, database_url):
     first = ["Аппарат КТ", "Гастроскоп", "Кресло посетителя", "Кушетка", "Рабочий стол"]
     assert set(first) <= set(types) and sorted(types) == sorted(first + [t["name"] for t in seed.MORE_TYPES])
     assert types["Гастроскоп"]["portable"] and types["Аппарат КТ"]["container"] and not types["Кушетка"]["portable"]
+    # a ceiling light hangs under the ceiling, a sconce on the wall
+    panel, sconce = types["Светильник светодиодный, панель 600×600"], types["Светильник настенный (бра)"]
+    assert (panel["ceiling_mounted"], panel["wall_mounted"]) == (True, False)
+    assert (sconce["ceiling_mounted"], sconce["wall_mounted"]) == (False, True)
 
     # the schema: the properties of the sets in their order, then the type's own
     schema = (await client.get(f"{API}/types/{types['Гастроскоп']['id']}/schema", headers=user)).json()
@@ -99,7 +103,8 @@ async def test_a_set_and_a_type_with_it(client, app, tokens):
            ({**body, "properties": [prop("c", kind="choice")]}, 422),                # a choice of nothing
            ({**body, "values": {"method": "fire"}}, 422),                            # not one of the options
            ({**body, "values": {"sterilized": "2026-01-01"}}, 422),                  # kept with objects, not the type
-           ({**body, "sets": [category]}, 422), ({**body, "w": 0}, 422), ({**body, "category_id": sset["id"]}, 422)]
+           ({**body, "sets": [category]}, 422), ({**body, "w": 0}, 422), ({**body, "category_id": sset["id"]}, 422),
+           ({**body, "wall_mounted": True, "ceiling_mounted": True}, 422)]                # on a wall or on the ceiling
     for wrong, status in bad:
         assert (await client.post(f"{API}/types", json=wrong, headers=admin)).status_code == status, wrong
 

@@ -76,7 +76,7 @@ export default function ItemInspector(p: {
       )}
       <fieldset disabled={p.readOnly} className="m-0 grid gap-3 border-0 p-0">
         <Fixed label="Габариты" hint={FROM_CATALOG}>{cm(w)}×{cm(d)}×{cm(h)} см</Fixed>
-        {(c.elev != null || sel.elev != null) && (asset ? (
+        {(c.elev != null || c.ceiling || sel.elev != null) && (asset ? (
           <NumField label="Высота установки, см" value={cm(itemElev(sel, c))} min={0} max={2000} onChange={(v) => p.onUpdate(sel.id, { elev: v / 100 })}
             hint="От пола этажа, 0–2000 см; уходит в учёт вместе с положением объекта" />
         ) : (

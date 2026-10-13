@@ -39,6 +39,7 @@ types = Table(
     Column("h", Float, nullable=False),
     Column("elevation", Float),                    # mounting height by default
     Column("wall_mounted", Boolean, nullable=False, server_default="false"),
+    Column("ceiling_mounted", Boolean, nullable=False, server_default="false"),   # hangs under the ceiling of its floor
     Column("shape", Text, nullable=False, server_default="box"),      # the stand-in figure in 3D
     Column("color", Text),
     Column("model", JSONB),                        # a GLB: its key, size, turn, warnings

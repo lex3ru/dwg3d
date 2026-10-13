@@ -20,6 +20,8 @@ export interface CatalogItem {
   color?: string
   clear?: number
   wall?: boolean
+  /** hangs under the ceiling of its floor (`elev` — for a floor of unknown height) */
+  ceiling?: boolean
   elev?: number
   /** GLB under /catalog/, scaled to w×d×h; `modelRot` turns it (deg) so its front faces +Z */
   model?: string

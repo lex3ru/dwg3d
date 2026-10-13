@@ -243,12 +243,18 @@ export type Prop = {
 export type Category = { id: string; name: string; color: string; sort: number }
 export type PropertySet = { id: string; name: string; description: string; properties: Prop[]; version: number; types?: number }
 export type TypeModel = { name: string; size: number; rotation: number; bounds: number[] | null; warnings: string[] }
-export type CatalogType = {
+/** How objects of a type are mounted and what else the type carries besides its schema. A change of a type
+ * replaces it whole, so the editor keeps all of these — the ones it shows and the ones it does not. */
+export type TypeRest = {
+  elevation: number | null; wall_mounted: boolean; ceiling_mounted: boolean; shape: string; color: string | null
+  article: string | null; supplier: string | null; price: number | null; currency: string; sort: number
+}
+export type CatalogType = TypeRest & {
   id: string; category_id: string; name: string; size: [number, number, number]; container: boolean; portable: boolean
   sets: string[]; properties: Prop[]; values: Record<string, unknown>; model: TypeModel | null; active: boolean
   schema_version: number; version: number; schema?: Prop[]
 }
-export type TypeBody = {
+export type TypeBody = TypeRest & {
   category_id: string; name: string; w: number; d: number; h: number; container: boolean; portable: boolean
   sets: string[]; properties: Prop[]; values: Record<string, unknown>
 }

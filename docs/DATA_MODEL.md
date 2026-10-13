@@ -304,6 +304,7 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 | w, d, h | double | габариты, м |
 | elevation | double null | высота установки по умолчанию |
 | wall_mounted | boolean | |
+| ceiling_mounted | boolean | висит под потолком своего этажа (не вместе с wall_mounted); elevation — для этажа неизвестной высоты |
 | shape | text | условная фигура |
 | color | text null | |
 | model_key, model_rot | | GLB в S3 и поворот |

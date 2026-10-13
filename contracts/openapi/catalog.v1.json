@@ -265,6 +265,12 @@
             "title": "Category Id",
             "type": "string"
           },
+          "ceiling_mounted": {
+            "default": false,
+            "description": "Висит под потолком своего этажа, какой бы высоты он ни был; высота установки — для этажа неизвестной высоты",
+            "title": "Ceiling Mounted",
+            "type": "boolean"
+          },
           "color": {
             "anyOf": [
               {
@@ -434,6 +440,12 @@
             "format": "uuid",
             "title": "Category Id",
             "type": "string"
+          },
+          "ceiling_mounted": {
+            "default": false,
+            "description": "Висит под потолком своего этажа, какой бы высоты он ни был; высота установки — для этажа неизвестной высоты",
+            "title": "Ceiling Mounted",
+            "type": "boolean"
           },
           "color": {
             "anyOf": [

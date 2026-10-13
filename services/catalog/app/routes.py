@@ -198,6 +198,8 @@ class TypeIn(BaseModel):
     h: float = Field(gt=0, le=100, description="Высота, м")
     elevation: float | None = Field(default=None, ge=0, le=100, description="Высота установки по умолчанию, м")
     wall_mounted: bool = False
+    ceiling_mounted: bool = Field(default=False, description=(
+        "Висит под потолком своего этажа, какой бы высоты он ни был; высота установки — для этажа неизвестной высоты"))
     shape: str = Field(default="box", max_length=40)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     container: bool = Field(default=False, description="В объект можно вкладывать другие")
@@ -218,7 +220,8 @@ class TypePatch(TypeIn):
 
 def type_json(t, schema: list[dict] | None = None) -> dict:
     out = {"id": str(t.id), "category_id": str(t.category_id), "name": t.name, "size": [t.w, t.d, t.h],
-           "elevation": t.elevation, "wall_mounted": t.wall_mounted, "shape": t.shape, "color": t.color,
+           "elevation": t.elevation, "wall_mounted": t.wall_mounted, "ceiling_mounted": t.ceiling_mounted,
+           "shape": t.shape, "color": t.color,
            "model": {k: v for k, v in t.model.items() if k != "key"} if t.model else None,
            "container": t.container, "portable": t.portable, "sets": [str(s) for s in t.sets],
            "properties": t.properties, "values": t.values, "article": t.article, "supplier": t.supplier,
@@ -243,6 +246,9 @@ async def _checked(session, body: TypeIn) -> tuple[dict, list[dict]]:
     if missing or len(set(body.sets)) != len(body.sets):
         raise Problem(422, "invalid", "Набор свойств не найден или указан дважды",
                       errors=[{"field": "sets", "message": ", ".join(missing) or "повтор"}])
+    if body.wall_mounted and body.ceiling_mounted:
+        raise Problem(422, "invalid", "Тип висит либо на стене, либо на потолке",
+                      errors=[{"field": "ceiling_mounted", "message": "вместе с wall_mounted"}])
     unique_keys(body.properties, "среди собственных свойств типа")
     values = body.model_dump()
     values["properties"] = [p.model_dump() for p in body.properties]

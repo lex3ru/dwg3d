@@ -15,6 +15,8 @@ const KINDS: Record<Prop['kind'], string> = { text: 'текст', number: 'чи�
 const EDITORS: Record<Prop['editable_by'], string> = { system: 'система (каталог)', admin: 'администратор здания', responsible: 'ответственный' }
 const PORTABLE = 'Перемещать объекты этого типа может и ответственный, а не только администратор здания'
 const CONTAINER = 'В объект этого типа можно вкладывать другие объекты'
+const WALL = 'Объекты этого типа вешают на стену: при расстановке они встают к ближайшей стене'
+const CEILING = 'Объекты этого типа висят под потолком своего этажа, какой бы высоты он ни был'
 
 /** The catalog: types of equipment and furniture, and the property sets their schemas are made of. */
 export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string }) {
@@ -65,6 +67,8 @@ export function Catalog({ kind, item }: { kind?: 'types' | 'sets'; item?: string
                       <span className="min-w-40 flex-1 font-medium">{t.name}</span>
                       {t.portable && <Tip label={PORTABLE}><Badge variant="accent">переносной</Badge></Tip>}
                       {t.container && <Tip label={CONTAINER}><Badge>контейнер</Badge></Tip>}
+                      {t.wall_mounted && <Tip label={WALL}><Badge>на стене</Badge></Tip>}
+                      {t.ceiling_mounted && <Tip label={CEILING}><Badge>на потолке</Badge></Tip>}
                       {t.model && <Tip label="Объекты типа показываются в 3D своей моделью, а не фигурой по габаритам"><Badge variant="success">3D-модель</Badge></Tip>}
                       <span className="text-muted-foreground tabular-nums">{t.size.map(v => v.toLocaleString('ru')).join(' × ')} м</span>
                     </a>
@@ -191,13 +195,18 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
 }) {
   const [existing, setExisting] = useState<CatalogType | null>(null)
   const [body, setBody] = useState<TypeBody | null>(id ? null : {
-    category_id: '', name: '', w: 1, d: 1, h: 1, container: false, portable: false, sets: [], properties: [], values: {} })
+    category_id: '', name: '', w: 1, d: 1, h: 1, container: false, portable: false, sets: [], properties: [], values: {},
+    elevation: null, wall_mounted: false, ceiling_mounted: false, shape: 'box', color: null, article: null, supplier: null,
+    price: null, currency: 'RUB', sort: 0 })
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const adopt = (t: CatalogType) => {
     setExisting(t)
+    // all of the type, also what the form does not show (its shape in 3D, price…): a save replaces the type whole
     setBody({ category_id: t.category_id, name: t.name, w: t.size[0], d: t.size[1], h: t.size[2], container: t.container,
-      portable: t.portable, sets: t.sets, properties: t.properties, values: t.values })
+      portable: t.portable, sets: t.sets, properties: t.properties, values: t.values, elevation: t.elevation,
+      wall_mounted: t.wall_mounted, ceiling_mounted: t.ceiling_mounted, shape: t.shape, color: t.color, article: t.article,
+      supplier: t.supplier, price: t.price, currency: t.currency, sort: t.sort })
   }
   useEffect(() => { if (id) getType(id).then(adopt, (e: Error) => setError(e.message)) }, [id])
   if (!body) return <p className="text-sm text-muted-foreground" role={error ? 'alert' : undefined}>{error ?? 'Загрузка…'}</p>
@@ -233,6 +242,24 @@ function TypeEditor({ id, categories, sets, onDone, onChanged }: {
           </Tip>
         </label>
         {number('w', 'Ширина, м')}{number('d', 'Глубина, м')}{number('h', 'Высота, м')}
+        <label className="grid gap-1 text-sm">Монтаж
+          <Tip label="Где стоят объекты этого типа: на полу, на стене или под потолком этажа">
+            <select className={`${select} h-9`} aria-label="Монтаж" value={body.ceiling_mounted ? 'ceiling' : body.wall_mounted ? 'wall' : 'floor'}
+              onChange={e => patch({ wall_mounted: e.target.value === 'wall', ceiling_mounted: e.target.value === 'ceiling' })}>
+              <option value="floor">на полу</option>
+              <option value="wall">на стене</option>
+              <option value="ceiling">на потолке</option>
+            </select>
+          </Tip>
+        </label>
+        <label className="grid gap-1 text-sm">Высота установки, м
+          <Tip label={body.ceiling_mounted
+            ? 'Низ объекта от пола — для этажа, высота которого не известна; на остальных объект висит под потолком'
+            : 'Низ объекта от пола этажа; пусто — стоит на полу. У объекта на месте её можно изменить'}>
+            <Input className="w-24" type="number" step="0.01" min="0" aria-label="Высота установки" value={body.elevation ?? ''}
+              onChange={e => patch({ elevation: e.target.value === '' ? null : Number(e.target.value) })} />
+          </Tip>
+        </label>
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
         <label className="flex items-center gap-2">

@@ -96,7 +96,8 @@ TYPES = [
 
 # The second portion, added by migration 0003: the furniture and the medical equipment of the old program's catalog
 # (legacy/backend/dwg3d/catalog_seed.yaml). Sizes in metres, shapes are the viewer's procedural models; `elev` is
-# the mounting height of what hangs on a wall. Flags: c — container, p — portable, w — mounted on a wall.
+# the mounting height of what hangs on a wall. Flags: c — container, p — portable, w — mounted on a wall,
+# t — on the ceiling (migration 0004: it hangs under the ceiling of its floor, `elev` is for a floor of unknown height).
 # (number, section, name, (w, d, h), shape, color, elev, flags)
 _OLD = [
     (0x306, FURNITURE, "Стойка регистратуры", (2.0, 0.8, 1.1), "reception", "#d2b48c", None, "c"),
@@ -161,7 +162,7 @@ def _old(row) -> dict:
     n, category, name, size, shape, color, elev, flags = row
     sets = [ACCOUNTING, FURNISHING if category == FURNITURE else DEVICE]
     t = _t(n, category, name, size, sets, [], container="c" in flags, portable="p" in flags, color=color)
-    return {**t, "shape": shape, "elevation": elev, "wall_mounted": "w" in flags}
+    return {**t, "shape": shape, "elevation": elev, "wall_mounted": "w" in flags, "ceiling_mounted": "t" in flags}
 
 
 MORE_TYPES = [_old(row) for row in _OLD]
@@ -225,11 +226,11 @@ _REST = [
     (0x373, ENGINEERING, "Радиатор отопления", (1.0, 0.1, 0.5), "radiator", None, 0.12, "w", NONE),
     (0x374, ENGINEERING, "Огнетушитель", (0.2, 0.2, 0.6), "extinguisher", None, None, "p", NONE),
 
-    (0x380, SECURITY, "Камера купольная (потолок)", (0.14, 0.14, 0.1), "cam_dome", None, 2.6, "", _cam(100, 12, 4)),
+    (0x380, SECURITY, "Камера купольная (потолок)", (0.14, 0.14, 0.1), "cam_dome", None, 2.6, "t", _cam(100, 12, 4)),
     (0x381, SECURITY, "Камера цилиндрическая (настенная)", (0.12, 0.3, 0.14), "cam_bullet", None, 2.5, "w", _cam(90, 20, 6)),
     (0x382, SECURITY, "Камера с узким углом (коридор)", (0.12, 0.35, 0.14), "cam_bullet", None, 2.5, "w", _cam(35, 40, 15)),
-    (0x383, SECURITY, "Камера панорамная 360°", (0.16, 0.16, 0.06), "cam_fisheye", None, 2.6, "", _cam(360, 8, 2.5)),
-    (0x384, SECURITY, "Камера поворотная (PTZ)", (0.22, 0.22, 0.3), "cam_ptz", None, 2.4, "", _cam(60, 50, 20)),
+    (0x383, SECURITY, "Камера панорамная 360°", (0.16, 0.16, 0.06), "cam_fisheye", None, 2.6, "t", _cam(360, 8, 2.5)),
+    (0x384, SECURITY, "Камера поворотная (PTZ)", (0.22, 0.22, 0.3), "cam_ptz", None, 2.4, "t", _cam(60, 50, 20)),
     (0x385, SECURITY, "Видеорегистратор в шкафу", (0.6, 0.6, 1.2), "server", None, None, "c", NONE),
     (0x386, SECURITY, "Пост видеонаблюдения (стол с мониторами)", (1.4, 0.7, 0.75), "desk_pc", "#adb5bd", None, "c", NONE),
 
@@ -239,9 +240,9 @@ _REST = [
     (0x393, NETWORK, "Шкаф телекоммуникационный 19″ 42U", (0.6, 0.6, 2.0), "server", None, None, "c", NONE),
     (0x394, NETWORK, "Щит электрический этажный", (0.5, 0.15, 0.7), "panel", None, 1.2, "w", NONE),
 
-    (0x3A0, FIRE, "Извещатель пожарный дымовой", (0.1, 0.1, 0.05), "cam_dome", "#f8f9fa", 2.7, "",
+    (0x3A0, FIRE, "Извещатель пожарный дымовой", (0.1, 0.1, 0.05), "cam_dome", "#f8f9fa", 2.7, "t",
      ([DETECTOR], {"detect_radius": 5})),
-    (0x3A1, FIRE, "Извещатель пожарный тепловой", (0.1, 0.1, 0.05), "cam_dome", "#fff5f5", 2.7, "",
+    (0x3A1, FIRE, "Извещатель пожарный тепловой", (0.1, 0.1, 0.05), "cam_dome", "#fff5f5", 2.7, "t",
      ([DETECTOR], {"detect_radius": 3.5})),
     (0x3A2, FIRE, "Извещатель пожарный ручной (ИПР)", (0.1, 0.05, 0.12), "device_wall", "#e03131", 1.5, "w", NONE),
     (0x3A3, FIRE, "Оповещатель звуковой", (0.12, 0.06, 0.1), "device_wall", "#e03131", 2.3, "w", NONE),
@@ -254,18 +255,18 @@ _REST = [
     (0x3B3, ACCESS, "Турникет-трипод", (0.9, 0.3, 1.0), "kiosk", None, None, "", NONE),
     (0x3B4, ACCESS, "Контроллер СКУД", (0.3, 0.1, 0.3), "device_wall", None, 1.8, "w", NONE),
 
-    (0x3C0, WIFI, "Точка доступа Wi-Fi потолочная", (0.2, 0.2, 0.04), "cam_dome", "#f8f9fa", 2.8, "",
+    (0x3C0, WIFI, "Точка доступа Wi-Fi потолочная", (0.2, 0.2, 0.04), "cam_dome", "#f8f9fa", 2.8, "t",
      ([RADIO], {"radio_tx": 20, "radio_range": 40})),
     (0x3C1, WIFI, "Точка доступа Wi-Fi настенная", (0.15, 0.04, 0.1), "device_wall", "#f8f9fa", 2.2, "w",
      ([RADIO], {"radio_tx": 17, "radio_range": 30})),
 
-    (0x3D0, LIGHTING, "Светильник светодиодный, панель 600×600", (0.6, 0.6, 0.04), "lamp_panel", None, 2.7, "", _light(3600, 36, 120, 4000)),
-    (0x3D1, LIGHTING, "Светильник медицинский, панель 600×600 (IP54, CRI 90)", (0.6, 0.6, 0.05), "lamp_panel", None, 2.7, "", _light(4400, 40, 110, 4000)),
-    (0x3D2, LIGHTING, "Светильник линейный 1200 мм", (1.2, 0.1, 0.06), "lamp_panel", None, 2.7, "", _light(4000, 36, 120, 4000)),
-    (0x3D3, LIGHTING, "Светильник линейный пылевлагозащищённый (IP65)", (1.27, 0.14, 0.1), "lamp_panel", None, 2.7, "", _light(3800, 38, 120, 5000)),
-    (0x3D4, LIGHTING, "Светильник встраиваемый точечный (даунлайт)", (0.17, 0.17, 0.06), "lamp_round", None, 2.7, "", _light(1500, 15, 90, 4000)),
-    (0x3D5, LIGHTING, "Светильник акцентный, узкий луч", (0.1, 0.1, 0.12), "lamp_round", None, 2.6, "", _light(900, 10, 36, 3000)),
-    (0x3D6, LIGHTING, "Светильник накладной круглый", (0.3, 0.3, 0.08), "lamp_round", None, 2.65, "", _light(1800, 18, 120, 4000)),
+    (0x3D0, LIGHTING, "Светильник светодиодный, панель 600×600", (0.6, 0.6, 0.04), "lamp_panel", None, 2.7, "t", _light(3600, 36, 120, 4000)),
+    (0x3D1, LIGHTING, "Светильник медицинский, панель 600×600 (IP54, CRI 90)", (0.6, 0.6, 0.05), "lamp_panel", None, 2.7, "t", _light(4400, 40, 110, 4000)),
+    (0x3D2, LIGHTING, "Светильник линейный 1200 мм", (1.2, 0.1, 0.06), "lamp_panel", None, 2.7, "t", _light(4000, 36, 120, 4000)),
+    (0x3D3, LIGHTING, "Светильник линейный пылевлагозащищённый (IP65)", (1.27, 0.14, 0.1), "lamp_panel", None, 2.7, "t", _light(3800, 38, 120, 5000)),
+    (0x3D4, LIGHTING, "Светильник встраиваемый точечный (даунлайт)", (0.17, 0.17, 0.06), "lamp_round", None, 2.7, "t", _light(1500, 15, 90, 4000)),
+    (0x3D5, LIGHTING, "Светильник акцентный, узкий луч", (0.1, 0.1, 0.12), "lamp_round", None, 2.6, "t", _light(900, 10, 36, 3000)),
+    (0x3D6, LIGHTING, "Светильник накладной круглый", (0.3, 0.3, 0.08), "lamp_round", None, 2.65, "t", _light(1800, 18, 120, 4000)),
     (0x3D7, LIGHTING, "Светильник настенный (бра)", (0.2, 0.1, 0.25), "device_wall", "#fff3bf", 1.9, "w", _light(800, 9, 180, 3000)),
     (0x3D8, LIGHTING, "Светильник прикроватный настенный (палатный)", (0.9, 0.1, 0.12), "device_wall", "#f8f9fa", 1.7, "w", _light(2000, 24, 150, 4000)),
     (0x3D9, LIGHTING, "Светильник аварийного освещения", (0.35, 0.08, 0.14), "device_wall", "#f8f9fa", 2.3, "w", _light(300, 4, 120, 6000)),
@@ -278,7 +279,7 @@ def _rest(row) -> dict:
     n, category, name, size, shape, color, elev, flags, (sets, values) = row
     t = _t(n, category, name, size, [ACCOUNTING, *sets], [], values=values, container="c" in flags,
            portable="p" in flags, color=color)
-    return {**t, "shape": shape, "elevation": elev, "wall_mounted": "w" in flags}
+    return {**t, "shape": shape, "elevation": elev, "wall_mounted": "w" in flags, "ceiling_mounted": "t" in flags}
 
 
 MORE_TYPES += [_rest(row) for row in _REST]

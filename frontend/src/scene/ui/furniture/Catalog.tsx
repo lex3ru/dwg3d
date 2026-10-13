@@ -77,7 +77,7 @@ export default function Catalog(p: {
               : 'Перетащите на план или щёлкните, а затем место на плане; R и Q поворачивают, Esc отменяет'}>
               <div className="min-w-0 leading-tight">
                 <div className="truncate text-sm">{c.name}</div>
-                <small className="text-[11px] text-muted-foreground">{cm(c.w)}×{cm(c.d)}×{cm(c.h)} см{c.elev ? ` · на высоте ${cm(c.elev)}` : ''}</small>
+                <small className="text-[11px] text-muted-foreground">{cm(c.w)}×{cm(c.d)}×{cm(c.h)} см{c.ceiling ? ' · на потолке' : c.elev ? ` · на высоте ${cm(c.elev)}` : ''}</small>
               </div>
             </Tip>
           </li>

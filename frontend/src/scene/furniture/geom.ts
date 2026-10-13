@@ -296,8 +296,25 @@ function shrinkQuad(q: Quad, s: number): Quad {
 }
 
 // ------------------------------------------------------------ CCTV
-/** Mounting height of an item (per-item override, else the catalog's). */
-export const itemElev = (p: PlacedItem, c: CatalogItem = catalogItem(p.item)) => p.elev ?? c.elev ?? 0
+/** The slab under a floor when the build's config does not say (services/import/app/dwg/default_config.yaml). */
+export const SLAB = 0.22
+/** Clear height of each floor of the build on screen, by floor id: from its floor to the underside of the slab above. */
+const ceilings = new Map<string, number>()
+/** The floors of the build on screen: a floor's slab lies under its elevation, so its ceiling is at height − slab. */
+export function setCeilings(floors: { id: string; height: number | null }[], slab: number) {
+  ceilings.clear()
+  for (const f of floors) if (f.height != null) ceilings.set(f.id, f.height - slab)
+}
+
+/** Mounting height of an item from its floor: its own, else — for a type on the ceiling — right under the
+ * ceiling, else the catalog's. What would rise above the ceiling hangs under it: a light of 2.7 m on a floor
+ * of 2.7 m is not on the next floor. */
+export const itemElev = (p: PlacedItem, c: CatalogItem = catalogItem(p.item)) => {
+  const top = ceilings.get(p.floor)
+  const h = itemSize(p, c)[2]
+  const e = p.elev ?? (c.ceiling && top != null ? top - h : c.elev ?? 0)
+  return top == null ? e : Math.max(0, Math.min(e, top - h))
+}
 
 export interface Coverage {
   apex: XY

@@ -31,6 +31,7 @@ import { useDockState } from './dock/useDockState'
 import ContextBar from './ui/ContextBar'
 import SceneTree, { type TreeObject } from './ui/SceneTree'
 import { catalogItem } from './furniture/catalog'
+import { SLAB, setCeilings } from './furniture/geom'
 import { catColor } from './ui/furniture/parts'
 import ModeMenu from './ui/ModeMenu'
 import { currentMode, MODES, type ModeDef } from './viewmodes'
@@ -124,6 +125,11 @@ export default function App() {
 
   const r = shown?.result
   const floors = useMemo(() => [...(r?.floors ?? [])].sort((a, b) => a.elevation! - b.elevation!), [r])
+  // the floors' ceilings, before anything is drawn: what hangs on a ceiling hangs under it (itemElev)
+  useMemo(() => {
+    const slab = Number((shown?.config?.building as { slab_thickness?: unknown } | undefined)?.slab_thickness ?? SLAB)
+    setCeilings(r?.floors ?? [], Number.isFinite(slab) ? slab : SLAB)
+  }, [r, shown?.config])
   const activeFloor = floors.find((f) => f.id === floor) ?? null
   const entranceFloor = useMemo(() => floors.find((f) => f.id === r?.entrances?.[0]?.floor)
     ?? floors.find((f) => f.elevation! >= -0.5) ?? floors[0] ?? null, [floors, r])
