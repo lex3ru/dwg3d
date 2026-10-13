@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import typing
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ from twin_chassis import Identity, Problem
 from twin_chassis.client import ServiceClient
 
 MAX_RESULT = 20000
+log = logging.getLogger("copilot")
 
 
 class ToolError(Exception):
@@ -138,6 +140,10 @@ async def run(ctx: Ctx, name: str, raw: str) -> tuple[str, bool, Any]:
         data = await t.run(ctx, parsed)
     except ToolError as ex:
         return str(ex), True, None
+    except Exception as ex:                       # a tool crashed: the model is told, the log has the cause
+        log.exception("copilot tool %s failed", name)
+        return (f"Ошибка инструмента {name}: {ex.__class__.__name__} — попробуйте иначе или сообщите пользователю",
+                True, None)
     text = json.dumps(data, ensure_ascii=False, default=str)
     if len(text) > MAX_RESULT:
         text = text[:MAX_RESULT] + "… (обрезано: уточните запрос фильтрами или уменьшите limit)"

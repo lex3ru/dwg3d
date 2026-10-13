@@ -34,7 +34,7 @@ class World:
             ROOM214: {"id": ROOM214, "building_id": BUILDING, "floor_id": FLOOR, "number": "214", "name": "Кабинет",
                       "type": "office", "area": 18.4, "status": "active"},
             ROOM215: {"id": ROOM215, "building_id": BUILDING, "floor_id": FLOOR, "number": "215", "name": "Серверная",
-                      "type": "technical", "area": 12.0, "status": "active", "polygon": [[0, 0], [4, 0], [4, 3], [0, 3]], "version": 1},
+                      "type": "technical", "area": 12.0, "status": "active", "polygon": [[[0, 0], [4, 0], [4, 3], [0, 3]]], "version": 1},
         }
         self.rooms[ROOM214]["version"] = 1
         self.variants: dict[str, dict] = {}
@@ -50,7 +50,7 @@ class World:
                        {"floor_id": "f1", "level": "warning", "code": "unnamed-room", "message": "Помещение без названия", "ids": [], "at": [1, 1]}]
         self.assets = {
             MONITOR: {"id": MONITOR, "type_name": "Монитор 24\"", "inventory_no": "00123", "state": "in_use",
-                      "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": PETROV,
+                      "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "x": 2.5, "y": 1.0, "angle": 90, "responsible_id": PETROV,
                       "props": {"warranty_until": SOON, "service_due": LATER}, "version": 1, "updated_at": f"{TODAY.isoformat()}T10:00:00Z"},
             PRINTER: {"id": PRINTER, "type_name": "Принтер лазерный", "inventory_no": "00124", "state": "faulty",
                       "building_id": BUILDING, "floor_id": FLOOR, "room_id": ROOM214, "responsible_id": None,

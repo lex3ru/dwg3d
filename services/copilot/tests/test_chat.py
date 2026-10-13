@@ -86,6 +86,7 @@ async def test_property_filters_and_show(client, tokens, world, model):
     assert ui == [{"type": "ui", "href": f"#/b/{BUILDING}/assets/{MONITOR}", "label": "Монитор 00123"}]
     result = model.requests[1]["body"]["messages"][-1]["content"]
     assert "00123" in result and "00124" not in result and '"room": "214 Кабинет"' in result
+    assert '"x": 2.5' in result and '"angle": 90' in result          # where it stands: a move needs it
     # the ui command is part of the kept chat
     items = (await client.get(f"{API}/chats/{chat}", headers=me)).json()["items"]
     assert any(i["type"] == "ui" for i in items)
