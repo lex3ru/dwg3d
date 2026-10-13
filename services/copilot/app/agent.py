@@ -72,7 +72,8 @@ def shown(history: list[dict]) -> list[dict]:
             for tc in m.get("tool_calls") or []:
                 out.append({"type": "tool", "name": tc["function"]["name"]})
             if m.get("content"):
-                out.append({"type": "assistant", "text": m["content"], "at": m.get("at"), **({"interim": True} if m.get("tool_calls") else {})})
+                out.append({"type": "assistant", "text": m["content"], "at": m.get("at"),
+                            **({"interim": True} if m.get("tool_calls") else {})})
             if s.get("error"):
                 out.append({"type": "error", "message": s["error"]})
         elif m["role"] == "tool":
@@ -134,7 +135,7 @@ class Turn:
             if not msg.get("tool_calls"):
                 break
             if msg.get("content"):
-                yield {"type": "interim"}             # what was just said was thinking aloud before the tools, not the answer
+                yield {"type": "interim"}             # said before the tools: thinking aloud, not the answer
             for tc in msg["tool_calls"]:
                 name = tc["function"]["name"]
                 ctx.events = []
