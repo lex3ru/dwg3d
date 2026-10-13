@@ -6,6 +6,21 @@ import math
 XY = tuple[float, float]
 
 
+def outer_ring(polygon) -> list[XY]:
+    """The outer ring of a room's polygon as the buildings service gives it: a list of rings (the outer one first,
+    then holes) or, older, a bare list of points."""
+    if not polygon:
+        return []
+    first = polygon[0]
+    if isinstance(first, list | tuple) and first and isinstance(first[0], list | tuple):
+        polygon = first                                   # rings: take the outer one
+    out = []
+    for p in polygon:
+        if isinstance(p, list | tuple) and len(p) >= 2:
+            out.append((float(p[0]), float(p[1])))
+    return out
+
+
 def inside(p: XY, poly: list[XY]) -> bool:
     x, y = p
     hit = False

@@ -9,8 +9,9 @@ from pydantic import BaseModel, Field
 
 from . import Ctx, ToolError, tool
 
-ASSET_FIELDS = ("id", "inventory_no", "type_name", "product_name", "state", "serial_no", "note", "floor_id",
-                "room_id", "responsible_id", "props", "needs_placement", "needs_fill", "container_id", "version")
+ASSET_FIELDS = ("id", "inventory_no", "type_name", "type_id", "product_name", "state", "serial_no", "note", "floor_id",
+                "room_id", "x", "y", "angle", "elevation", "responsible_id", "props", "needs_placement", "needs_fill",
+                "container_id", "version")
 
 
 def _building(ctx: Ctx, given: str | None) -> str:
@@ -123,7 +124,7 @@ async def room(ctx: Ctx, args: RoomArg) -> dict:
 
 # --------------------------------------------------------------------- assets ---
 def _asset_brief(a: dict, *, rooms: dict | None = None, people: dict | None = None) -> dict:
-    out = {k: a.get(k) for k in ASSET_FIELDS if a.get(k) not in (None, "", False, {})}
+    out = {k: a.get(k) for k in ASSET_FIELDS if a.get(k) not in (None, "", False, {}) or k in ("x", "y")}
     if rooms is not None:
         out["room"] = _room_label(rooms.get(a.get("room_id")))
     if people is not None and a.get("responsible_id"):

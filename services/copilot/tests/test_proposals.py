@@ -118,6 +118,19 @@ async def test_objects_go_as_a_variant(app, client, tokens, world, model):
     assert "пуст" in next(e["error"] for e in got if e["type"] == "tool")
 
 
+async def test_a_crashing_tool_is_told_not_fatal(app, client, tokens, world, model, monkeypatch):
+    await configure(client, tokens)
+    world.admins.add("user-1")
+    me = tokens.bearer("user-1")
+    chat = await new_chat(client, me)
+    world.rooms[ROOM215]["polygon"] = "garbage"
+    model.script = [{"calls": [("move_to_room", {"asset_ids": [MONITOR], "room_id": ROOM215})]}, {"text": "Не вышло, скажу словами."}]
+    got = await ask(client, me, chat, "перенеси монитор в 215")
+    tool = next(e for e in got if e["type"] == "tool")
+    assert "error" in tool and got[-1]["type"] == "done"
+    assert "".join(e.get("text", "") for e in got if e["type"] == "text") == "Не вышло, скажу словами."
+
+
 async def test_assignments_and_grants(app, client, tokens, world, model):
     await configure(client, tokens)
     world.admins.add("user-1")

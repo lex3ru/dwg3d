@@ -93,7 +93,7 @@ class MoveToRoom(BaseModel):
 объекты помещения (room), затем вызови это.""", kind="propose")
 async def move_to_room(ctx: Ctx, args: MoveToRoom) -> dict:
     room = await ctx.get("buildings", f"/rooms/{args.room_id}")
-    poly = [(float(x), float(y)) for x, y in (room.get("polygon") or [])]
+    poly = geometry.outer_ring(room.get("polygon"))
     if len(poly) < 3:
         raise ToolError("У помещения нет контура: перенести автоматически нельзя, укажите координаты в propose_variant")
     points = geometry.spread(poly, len(args.asset_ids))
