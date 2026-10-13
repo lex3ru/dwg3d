@@ -132,7 +132,7 @@ export function useLayers(shown: Job | null, projectId: string) {
     return n
   })
   return {
-    lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
+    lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, variantPick, activeLayer, setActiveLayer,
     showVariant, pickVariant, toggleLayer, showLayers, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }

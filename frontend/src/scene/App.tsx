@@ -156,7 +156,7 @@ export default function App() {
   const projectId = shown?.project_id ?? job?.project_id ?? ''
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
-    layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, pickVariant, toggleLayer, setAllLayers,
+    layers, setLayers, kinds, rules, hiddenNow, variantPick, setActiveLayer, showVariant, pickVariant, toggleLayer, setAllLayers,
     targetLayer, layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
@@ -591,7 +591,7 @@ export default function App() {
       onDrawing={() => { setSelRoom(null); setDrawingSel(true) }}
       onPlan={(fid) => { setFloor(fid); if (canEdit()) setEditor(true); else alert(READ_ONLY) }}
       onExport={(fmt) => saveDrawing(fmt, factObjects > 0)} onFloorSettings={() => setSettings('floors')}
-      layers={layers} kinds={kinds} hidden={hiddenNow} editLayer={editLayerId} editable={canEdit()}
+      layers={layers} kinds={kinds} hidden={hiddenNow} picked={variantPick} editLayer={editLayerId} editable={canEdit()}
       onToggle={toggleLayer} onPickVariant={pickVariant} onAll={setAllLayers}
       onLock={(l, locked) => { if (locked && editLayerId === l.id) editLayerTo(null); lockLayer(l, locked) }} onEdit={editLayerTo}
       onAddLayer={addLayer} onCompare={() => setComparing(true)}

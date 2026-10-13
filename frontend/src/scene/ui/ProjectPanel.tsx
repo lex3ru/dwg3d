@@ -76,6 +76,8 @@ export default function ProjectPanel(p: {
   layers: Layer[]
   kinds: LayerKindInfo[]
   hidden: Set<string>
+  /** the layer shown of each group of variants (by the group's id); the first one when none is picked */
+  picked: Record<string, string>
   editLayer: string | null
   editable: boolean
   onToggle: (id: string) => void
@@ -105,9 +107,11 @@ export default function ProjectPanel(p: {
   const s = q.trim().toLowerCase()
   const roomName = (r: RoomMeta) => r.name || types.get(r.type ?? '')?.label || 'Помещение'
 
-  // ---- the legend: one chip per layer of objects; of a group of variants the one on screen
+  // ---- the legend: one chip per layer of objects; of a group of variants the one picked — switched off, it
+  // stays in the legend greyed, as any other layer
   const groups = variantGroups(p.layers)
-  const shown = p.layers.filter((l) => !groups.some((g) => g.some((x) => x.id === l.id)) || !p.hidden.has(l.id))
+  const grouped = new Set(groups.flat().map((l) => l.id))
+  const shown = p.layers.filter((l) => !grouped.has(l.id) || groups.some((g) => (g.find((x) => x.id === p.picked[variantGroup(g[0])]) ?? g[0]).id === l.id))
   // the variants there are, by id, named as their layers are; the one shown by the first group
   const variants = useMemo(() => {
     const m = new Map<string, string>()
