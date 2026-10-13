@@ -54,6 +54,16 @@ export function useLayers(shown: Job | null, projectId: string) {
     setVariantPick((v) => ({ ...v, [variantGroup(l)]: id }))
     setHiddenLayers((h) => { const n = new Set(h); n.delete(id); return n })
   }
+  /** Show a variant (null — the fact) in every group of layers at once, and the layers it picks. */
+  const pickVariant = (vid: string | null) => {
+    const picks: Record<string, string> = {}
+    for (const g of variantGroups(layers)) {
+      const base = variantGroup(g[0])
+      picks[base] = (vid && g.find((l) => l.id.startsWith(`variant:${vid}`))?.id) || base
+    }
+    setVariantPick((v) => ({ ...v, ...picks }))
+    setHiddenLayers((h) => { const n = new Set(h); for (const id of Object.values(picks)) n.delete(id); return n })
+  }
   const toggleLayer = (id: string) => setHiddenLayers((h) => {
     const n = new Set(h)
     if (n.has(id)) n.delete(id)
@@ -100,7 +110,7 @@ export function useLayers(shown: Job | null, projectId: string) {
   }
   const refuseLocked = (it: PlacedItem | undefined) => {
     const l = layers.find((x) => x.id === it?.layer && x.locked)
-    if (l) alert(myLocks.has(l.id) ? `Слой «${l.name}» заблокирован: снимите замок в дереве слева` : `Слой «${l.name}» только для просмотра`)
+    if (l) alert(myLocks.has(l.id) ? `Слой «${l.name}» заблокирован: снимите замок в легенде «На плане» слева` : `Слой «${l.name}» только для просмотра`)
     return !!l
   }
   const reloadLayers = useCallback(() => {
@@ -123,6 +133,6 @@ export function useLayers(shown: Job | null, projectId: string) {
   })
   return {
     lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
-    showVariant, toggleLayer, showLayers, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
+    showVariant, pickVariant, toggleLayer, showLayers, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }

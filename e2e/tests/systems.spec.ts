@@ -44,8 +44,9 @@ test('a camera and a light are objects of their systems\' layers and show their 
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
+  // the legend «На плане»: a chip per layer, with the number of its objects on the floor
   for (const name of ['Мебель и оборудование', 'Видеонаблюдение', 'Освещение', 'Wi-Fi', 'Пожарная сигнализация']) {
-    await expect(page.locator('li', { hasText: name }).first()).toBeVisible()
+    await expect(page.getByRole('listitem', { name })).toBeVisible()
   }
   // «Инженерные системы»: the equipment with the view of the camera and the lit area of the lights
   await page.keyboard.press('3')
@@ -71,6 +72,9 @@ test('a camera and a light are placed from their systems\' layers and stay on sc
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
+  // a chip of the legend «На плане»; the toggle in it says whether the layer is on the plan
+  const layer = (name: string) => page.getByRole('listitem', { name })
+  const onPlan = (name: string) => layer(name).getByRole('button', { name: /^(Скрыть|Показать) слой/ })
   const drop = async (name: string, x: number, y: number) => {
     const item = page.getByText(name, { exact: true }).first()
     await item.scrollIntoViewIfNeeded()
@@ -82,7 +86,7 @@ test('a camera and a light are placed from their systems\' layers and stay on sc
     await page.waitForTimeout(2500)
   }
   // «Мебель и оборудование» does not offer a camera: the search names the layer it is placed in, and goes there
-  await page.locator('li', { hasText: 'Мебель и оборудование' }).locator('button:has(svg.lucide-pencil)').click()
+  await layer('Мебель и оборудование').getByRole('button', { name: 'Редактировать слой' }).click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
   await page.getByPlaceholder('Поиск в каталоге').fill('Камера купольная')
@@ -94,19 +98,18 @@ test('a camera and a light are placed from their systems\' layers and stay on sc
   await expect.poll(async () => (await objects()).length, { timeout: 10_000 }).toBe(1)
   await page.getByRole('button', { name: 'Готово' }).click()
   await page.waitForTimeout(1500)
-  const layer = (name: string) => page.locator('li', { hasText: name }).first()
-  await expect(layer('Видеонаблюдение').locator('svg.lucide-chevron-right')).toHaveCount(1)       // it holds the camera
+  await expect(onPlan('Видеонаблюдение')).toContainText('1')       // it holds the camera
   // «Инженерные системы» hides «Мебель и оборудование», not the camera
   await page.keyboard.press('3')
-  await expect(layer('Мебель и оборудование').locator('svg.lucide-eye-off')).toHaveCount(1)
-  await expect(layer('Видеонаблюдение').locator('svg.lucide-eye')).toHaveCount(1)
+  await expect(onPlan('Мебель и оборудование')).toHaveAttribute('aria-pressed', 'false')
+  await expect(onPlan('Видеонаблюдение')).toHaveAttribute('aria-pressed', 'true')
   // a light in the layer of lighting
-  await layer('Освещение').locator('button:has(svg.lucide-pencil)').click()
+  await layer('Освещение').getByRole('button', { name: 'Редактировать слой' }).click()
   await page.waitForTimeout(1500)
   await drop('Светильник светодиодный, панель 600×600', 3, 3)
   await expect.poll(async () => (await objects()).length, { timeout: 10_000 }).toBe(2)
   await page.getByRole('button', { name: 'Готово' }).click()
-  await expect(layer('Освещение').locator('svg.lucide-chevron-right')).toHaveCount(1)
+  await expect(onPlan('Освещение')).toContainText('1')
   await page.screenshot({ path: 'test-results/systems-placed.png' })
 })
 
@@ -135,7 +138,9 @@ test('a light found while a variant is edited goes to the variant\'s lighting, t
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  await page.locator('li', { hasText: 'Перестановка' }).filter({ hasText: 'Мебель и оборудование' }).locator('button:has(svg.lucide-pencil)').click()
+  // the chip of «Мебель и оборудование» shows the variant (the switch «факт / вариант» says so): its pencil edits the variant
+  await expect(page.getByRole('button', { name: 'Показывать: факт или вариант' })).toContainText('Перестановка')
+  await page.getByRole('listitem', { name: 'Мебель и оборудование' }).getByRole('button', { name: 'Редактировать слой' }).click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
   await page.getByPlaceholder('Поиск в каталоге').fill('панель 600×600')

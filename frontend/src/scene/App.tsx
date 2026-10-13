@@ -29,7 +29,7 @@ import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
 import ContextBar from './ui/ContextBar'
-import SceneTree, { type TreeObject } from './ui/SceneTree'
+import ProjectPanel, { type TreeObject } from './ui/ProjectPanel'
 import { catalogItem } from './furniture/catalog'
 import { SLAB, setCeilings } from './furniture/geom'
 import { catColor } from './ui/furniture/parts'
@@ -156,7 +156,7 @@ export default function App() {
   const projectId = shown?.project_id ?? job?.project_id ?? ''
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
-    layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
+    layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, pickVariant, toggleLayer, setAllLayers,
     targetLayer, layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
@@ -471,7 +471,7 @@ export default function App() {
     const l = layers.find((x) => x.id === id)
     if (!l) return
     if (!canEdit()) { alert(READ_ONLY); return }
-    if (l.locked) { alert(`Слой «${l.name}» заблокирован: снимите замок в дереве слева`); return }
+    if (l.locked) { alert(`Слой «${l.name}» заблокирован: снимите замок в легенде «На плане» слева`); return }
     if (rebuilding) { alert('Идёт перестроение модели: слои можно менять после него'); return }
     if (nav === 'walk') exitWalk()
     else if (nav === 'fly') setNav('orbit')
@@ -586,13 +586,13 @@ export default function App() {
       }}
       onGoLayer={(id) => { setPlacing(null); showVariant(id); editLayerTo(id) }} />
   ) : r ? (
-    <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
+    <ProjectPanel jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
       drawingSelected={drawingSel} onFloor={selectFloor} onRoom={(f, rm) => { setDrawingSel(false); focusRoom(f, rm) }} onOpenJob={openJob}
       onDrawing={() => { setSelRoom(null); setDrawingSel(true) }}
       onPlan={(fid) => { setFloor(fid); if (canEdit()) setEditor(true); else alert(READ_ONLY) }}
       onExport={(fmt) => saveDrawing(fmt, factObjects > 0)} onFloorSettings={() => setSettings('floors')}
       layers={layers} kinds={kinds} hidden={hiddenNow} editLayer={editLayerId} editable={canEdit()}
-      onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers}
+      onToggle={toggleLayer} onPickVariant={pickVariant} onAll={setAllLayers}
       onLock={(l, locked) => { if (locked && editLayerId === l.id) editLayerTo(null); lockLayer(l, locked) }} onEdit={editLayerTo}
       onAddLayer={addLayer} onCompare={() => setComparing(true)}
       objects={treeObjects} selectedObject={tool === 'furniture' ? furnSel : tool === 'shapes' ? shapeSel : null} onObject={onTreeObject} />
@@ -682,7 +682,7 @@ export default function App() {
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
           <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
-            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree, hint: 'Этажи, помещения и слои объектов: видимость и редактирование' },
+            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree, hint: 'Чертёж, что показано на плане — слои и вариант, помещения этажей' },
               ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen, hint: 'Позиции для расстановки: перетащить на план выбранного этажа' }] : [])]}>
             {leftContent}
           </Dock>
