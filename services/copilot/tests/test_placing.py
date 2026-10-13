@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import BUILDING, FLOOR, ROOM214, configure
+from conftest import API, BUILDING, FLOOR, ROOM214, configure
 from test_chat import ask, new_chat
 
 UI = {"section": "plan", "building": {"id": BUILDING, "name": "Корпус А"}, "floor": {"id": FLOOR, "name": "2 этаж"}}
@@ -19,13 +19,14 @@ async def test_detectors_become_a_variant(app, client, tokens, world, model):
     got = await ask(client, me, chat, "поставь извещатели на этаже", ui=UI)
     assert [e for e in got if e["type"] == "tool"] == [{"type": "tool", "name": "place_detectors"}]
     prop = next(e["proposal"] for e in got if e["type"] == "proposal")
-    assert prop["kind"] == "variant" and prop["name"] == "Извещатели: +2" and prop["counts"]["add"] == 2
+    assert prop["status"] == "open" and prop["count"] == 2 and prop["summary"].startswith("Добавить 2 × Извещатель")
     kind, body = world.rules[0]
     assert kind == "detectors" and body["type_id"] == "t-smoke" and body["floor_id"] == FLOOR
-    ops = world.variants[prop["variant_id"]]["ops"]
-    assert [o["data"]["x"] for o in ops] == [1, 2] and all(o["data"]["type_id"] == "t-smoke" for o in ops)
+    assert [s["x"] for s in prop["shows"]] == [1, 2] and all(s["kind"] == "new" for s in prop["shows"])
+    r = await client.post(f"{API}/proposals/{prop['id']}/apply", headers=me)
+    assert r.json()["status"] == "applied" and sum(1 for a in world.assets.values() if a.get("type_id") == "t-smoke") == 2
     told = json.loads([m["content"] for m in model.requests[1]["body"]["messages"] if m["role"] == "tool"][-1])
-    assert told["to_add"] == 2 and told["rooms"][0]["need"] == 2 and "применит сам" in told["next"]
+    assert told["to_add"] == 2 and told["rooms"][0]["need"] == 2 and "применит он сам" in told["next"]
 
 
 async def test_places_shown_or_proposed(app, client, tokens, world, model):
@@ -35,12 +36,12 @@ async def test_places_shown_or_proposed(app, client, tokens, world, model):
     chat = await new_chat(client, me)
     model.script = [
         {"calls": [("place_by_rules", {"type_id": "t-desk", "room_ids": [ROOM214], "count": 2, "then": "return"})]},
-        {"calls": [("place_by_rules", {"type_id": "t-desk", "room_ids": [ROOM214], "count": 2, "where": "grid", "name": "Столы в 214"})]},
+        {"calls": [("place_by_rules", {"type_id": "t-desk", "room_ids": [ROOM214], "count": 2, "where": "grid", "summary": "Столы в 214"})]},
         {"text": "Готово."},
     ]
     got = await ask(client, me, chat, "расставь столы в 214", ui=UI)
     props = [e["proposal"] for e in got if e["type"] == "proposal"]
-    assert len(props) == 1 and props[0]["name"] == "Столы в 214"
+    assert len(props) == 1 and props[0]["summary"] == "Столы в 214"
     shown = json.loads([m["content"] for m in model.requests[1]["body"]["messages"] if m["role"] == "tool"][-1])
     assert shown["placed"] == 2 and len(shown["places"]) == 2 and "proposal" not in shown
     assert world.rules[1][1]["where"] == "grid"

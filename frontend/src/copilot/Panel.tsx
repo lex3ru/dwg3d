@@ -18,7 +18,7 @@ const TOOL_LABEL: Record<string, string> = {
   building_passport: 'паспорт здания', journal_digest: 'сводка журнала', revisions: 'ревизии', revision: 'ревизия', draw_plan: 'план по описанию',
   place_by_rules: 'расстановка по правилам', place_detectors: 'извещатели по площади', coverage: 'обзор камер', check_placement: 'проверка расстановки',
   drawings: 'чертежи', plan_summary: 'сводка плана', check_plan: 'проверка плана', propose_plan_fixes: 'предложение: починка плана',
-  propose_variant: 'вариант расстановки', move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
+  move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
   propose_state: 'предложение: состояние', propose_responsible: 'предложение: ответственные', propose_notes: 'предложение: примечания',
   propose_assignments: 'предложение: привязки', propose_grants: 'предложение: права', propose_comment: 'предложение: комментарий',
   audit_assets: 'аудит учёта',
@@ -216,21 +216,8 @@ function ProposalCard({ proposal, building, canDecide, editor }: { proposal: Cop
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
-  if (state.kind === 'variant') {
-    const c = state.counts ?? {}
-    return (
-      <div className="rounded-md border bg-background px-3 py-2 text-sm" data-testid="copilot-proposal">
-        <div className="font-medium">Вариант «{state.name}»</div>
-        <p className="text-muted-foreground">{state.summary}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {[c.add && `+${c.add} поставить`, c.move && `${c.move} переставить`, c.remove && `−${c.remove} убрать`, c.change && `${c.change} изменить`].filter(Boolean).join(' · ')}
-        </p>
-        <a href={to.variants(state.building_id || building || '', state.variant_id)} className="mt-1 inline-block text-primary underline underline-offset-2">Открыть вариант</a>
-      </div>
-    )
-  }
   const [label, variant] = STATUS[state.status] ?? [state.status, 'default']
-  const act = (what: () => Promise<Extract<CopilotProposal, { kind: 'proposal' }>>) => {
+  const act = (what: () => Promise<CopilotProposal>) => {
     setBusy(true); setError(null)
     what().then(p => { setState(p); setAsking(false) }, (e: Error) => setError(e.message)).finally(() => setBusy(false))
   }
@@ -256,6 +243,10 @@ function ProposalCard({ proposal, building, canDecide, editor }: { proposal: Cop
       </ul>
       {state.result?.failed && <p className="mt-1 text-xs text-destructive">Остановилось на «{state.result.failed.label}»: {state.result.failed.detail}</p>}
       {state.drawing_id && <a href={to.sketch(state.drawing_id)} className="mt-1 inline-block text-xs text-primary underline underline-offset-2">Открыть план в редакторе</a>}
+      {state.shows?.length > 0 && building && (
+        <a href={to.planProposal(building, state.shows[0].floor_id, state.id)} className="mt-1 mr-3 inline-block text-xs text-primary underline underline-offset-2"
+          data-testid="copilot-show-plan">Показать на плане</a>
+      )}
       {state.result?.reason && <p className="mt-1 text-xs text-muted-foreground">Причина: {state.result.reason}</p>}
       {state.status === 'open' && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">

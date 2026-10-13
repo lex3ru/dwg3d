@@ -575,20 +575,25 @@ export async function askCopilot(chat: string, text: string, ui: CopilotUI, onEv
   }
 }
 
-/** A proposal of the copilot: actions the user applies with a click, or a variant made in planning. */
+/** What a proposed change looks like on the plan: a new object, one moved (from where), one written off. */
+export type ProposalShow = { kind: 'new' | 'move' | 'remove'; floor_id: string; x: number | null; y: number | null; title: string
+  from?: { floor_id: string; x: number; y: number } }
+/** A proposal of the copilot: actions the user applies with a click. */
 export type CopilotProposal = {
   kind: 'proposal'; id: string; building_id: string | null; summary: string; status: 'open' | 'applied' | 'rejected' | 'stale'
   count: number; labels: string[]; result: { done?: { label: string }[]; failed?: { label: string; status: number; detail: string } | null; reason?: string } | null
   sketch: { drawing_id: string; version: number } | null
   /** the drawn plan an applied proposal made */
   drawing_id?: string | null
-} | { kind: 'variant'; variant_id: string; name: string; summary: string; building_id: string; counts: Record<string, number> }
+  /** the places it would change, for the plan */
+  shows: ProposalShow[]
+}
 export type ProposalAction = { label: string; kind?: 'sketch'; drawing_id?: string; version?: number; sketch?: unknown
   service?: string; method?: string; path?: string; body?: unknown }
-export const getProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }> & { actions: ProposalAction[] }>(`${COPILOT}/proposals/${id}`)
-export const applyProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply`, { method: 'POST' })
+export const getProposal = (id: string) => api<CopilotProposal & { actions: ProposalAction[] }>(`${COPILOT}/proposals/${id}`)
+export const applyProposal = (id: string) => api<CopilotProposal>(`${COPILOT}/proposals/${id}/apply`, { method: 'POST' })
 /** The editor of the drawn plan applied the proposal's plan itself: only mark it. */
 export const markProposalApplied = (id: string) =>
-  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply?by=editor`, { method: 'POST' })
+  api<CopilotProposal>(`${COPILOT}/proposals/${id}/apply?by=editor`, { method: 'POST' })
 export const rejectProposal = (id: string, reason: string) =>
-  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/reject`, { method: 'POST', json: { reason } })
+  api<CopilotProposal>(`${COPILOT}/proposals/${id}/reject`, { method: 'POST', json: { reason } })

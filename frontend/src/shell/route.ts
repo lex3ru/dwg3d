@@ -74,6 +74,8 @@ export const to = {
   scan: '#/scan',
   plan: (b: string, floor?: string, room?: string) => `#/b/${b}/plan${floor ? `/${floor}` : ''}${floor && room ? `/${room}` : ''}`,
   move: (b: string, floor: string, asset: string) => `#/b/${b}/plan/${floor}?move=${asset}`,
+  /** the plan with the places a proposal of the copilot would change */
+  planProposal: (b: string, floor: string, proposal: string) => `#/b/${b}/plan/${floor}?proposal=${proposal}`,
   /** `review`: the draft revision to open for checking */
   drawings: (b: string, review?: string) => `#/b/${b}/drawings${review ? `?review=${review}` : ''}`,
   people: (b: string) => `#/b/${b}/people`,

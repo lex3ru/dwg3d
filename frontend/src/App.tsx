@@ -233,7 +233,7 @@ function Signed({ me, route, onRights }: { me: Me; route: Route; onRights: () =>
         crumbs.push({ label: 'План', href: to.plan(building.id) })
         if (floor) crumbs.push({ label: floor.name, href: to.plan(building.id, floor.id) })
         if (chosen) crumbs.push({ label: chosen.room.name || 'Без названия' })
-        content = <Plan me={me} building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} move={route.move} />
+        content = <Plan me={me} building={building.id} floors={floors} floor={route.item} room={route.sub} admin={admin} move={route.move} proposal={route.query.proposal} />
         if (chosen) {
           // beside the plan on a wide screen; on a phone the plan stays and the card is one tap away
           panel = <div className="max-md:hidden"><RoomCard key={chosen.room.id + chosen.room.version} me={me} building={building.id} {...chosen} admin={admin} onChanged={reload} /></div>
