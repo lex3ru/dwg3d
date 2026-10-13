@@ -495,14 +495,20 @@ Asset {
 
 ## 10. Копилот (`copilot`) — этап 9
 
+Подробно — [COPILOT.md](COPILOT.md). Работает только запросами остальных сервисов с токеном
+пользователя; сам ничего не меняет — предлагает: изменения объектов вариантом в `planning`,
+остальное — собственным предложением, которое пользователь применяет кнопкой.
+
 | Запрос | Что делает |
 |---|---|
-| `GET` / `POST /chats`, `GET /chats/{id}` | беседы пользователя |
-| `POST /chats/{id}/messages` | сообщение; ответ потоком (SSE) |
-| `GET` / `PUT /settings` | адрес и модель внешнего ИИ — админ системы |
+| `GET /status` | `{enabled, model, used_today, daily_limit, can_propose}` — показывать ли помощника |
+| `GET` / `PUT /settings`, `POST /settings/check` | адрес, модель, ключ (назад не отдаётся), лимиты — админ системы; проверка связи |
+| `GET /chats?building_id=`, `POST /chats`, `GET` / `DELETE /chats/{id}` | беседы пользователя |
+| `POST /chats/{id}/messages` | `{text, ui}`; ответ потоком (SSE): `text`, `thinking`, `tool`, `proposal`, `ui`, `error`, `done` |
+| `GET /proposals?building_id=&status=`, `GET /proposals/{id}` | предложения копилота |
+| `POST /proposals/{id}/apply`, `POST /proposals/{id}/reject` | выполнить действия с токеном применяющего (админ здания); отклонить с причиной |
 
-Работает только через запросы остальных сервисов с токеном пользователя;
-изменения предлагает как вариант в `planning`, сам ничего не меняет.
+События: `copilot.proposal.created` / `.applied` / `.rejected` — `{proposal_id, chat_id, summary, actions}`.
 
 ## 11. Шлюз
 

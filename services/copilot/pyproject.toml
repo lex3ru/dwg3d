@@ -1,0 +1,32 @@
+[project]
+name = "twin-copilot"
+version = "0.1.0"
+description = "Digital twin: the copilot service"
+requires-python = ">=3.12"
+dependencies = ["twin-chassis"]
+
+[dependency-groups]
+dev = ["twin-chassis[testing]", "ruff>=0.8"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+twin-chassis = { path = "../../libs/chassis", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["B008"]      # Depends() in argument defaults is how FastAPI works
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
