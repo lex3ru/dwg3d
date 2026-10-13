@@ -12,7 +12,7 @@ import { extents, faceChain } from './dims'
 import { selectedWalls, wallsSelection, type Selection } from './selection'
 import { clearances, openingShape } from './symbols'
 import { moveUnderlay, onUnderlay, underlayTransform } from './underlay'
-import { fitView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
+import { fitView, focusView, gridSteps, planTransform, toPlan, toScreen, zoomAt, type View } from './view'
 
 /** underlay: drag the picture under the plan; calibrate: pick two points on it to set its scale */
 export type Tool = 'select' | 'wall' | 'opening' | 'column' | 'stair' | 'underlay' | 'calibrate'
@@ -68,6 +68,8 @@ const CSS = `
 .sketch .mark.node { stroke: #e8590c; }
 .sketch .mark.wall, .sketch .mark.cross { stroke: #2b8a3e; }
 .sketch .mark.align, .sketch .mark.straight, .sketch .mark.free { stroke: #1c7ed6; }
+.sketch .flash { fill: #e03131; fill-opacity: .25; stroke: #e03131; stroke-width: 3; stroke-linejoin: round; vector-effect: non-scaling-stroke; animation: sketch-flash .6s ease-in-out 3; }
+@keyframes sketch-flash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
 `
 
 
@@ -83,6 +85,28 @@ function segPoly(a: XY, b: XY, t: number): XY[] {
 
 function bounds(f: Floor): [number, number, number, number] | null {
   const ps = Object.values(f.nodes)
+  if (!ps.length) return null
+  const xs = ps.map(p => p[0]), ys = ps.map(p => p[1])
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+}
+
+/** The outlines of walls, openings, nodes, columns and stairs by id — those still on the floor. */
+function objectRings(f: Floor, ids: string[]): XY[][] {
+  const rings: XY[][] = []
+  const lines = outlines(f)
+  for (const id of ids) {
+    if (id in f.walls) { if (lines[id]) rings.push(lines[id].poly); else rings.push(ends(f, f.walls[id])) }
+    else if (id in f.openings && f.openings[id].wall in f.walls) rings.push(openingRect(f, id))
+    else if (id in f.nodes) rings.push([f.nodes[id]])
+    else if (f.columns?.[id]) rings.push(columnRing(f.columns[id]))
+    else if (f.stairs?.[id]) rings.push(stairRing(f.stairs[id]))
+  }
+  return rings
+}
+
+/** The box round the objects, or null when none of them is on the floor. */
+function objectsBox(f: Floor, ids: string[]): [number, number, number, number] | null {
+  const ps = objectRings(f, ids).flat()
   if (!ps.length) return null
   const xs = ps.map(p => p[0]), ys = ps.map(p => p[1])
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
@@ -108,7 +132,11 @@ type Drag =
   | { kind: 'draw'; start: XY; moved: boolean }
   | { kind: 'click'; start: XY; moved: boolean }
 
-export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, stairWidth, selection, onSelect, onCommit, fitSignal, bad, underlayUrl, onCalibrate, clipboard, onCopy }: {
+/** What the view is asked to go to: the objects of a problem clicked in the list; `n` grows with every ask. */
+export interface Focus { ids: string[]; n: number }
+const FLASH_MS = 1800
+
+export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, stairWidth, selection, onSelect, onCommit, fitSignal, bad, focus, underlayUrl, onCalibrate, clipboard, onCopy }: {
   floor: Floor
   /** the floor below, drawn faintly underneath */
   below: Floor | null
@@ -128,6 +156,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
   fitSignal: number
   /** walls and openings with problems (crossing, an opening off its wall, …): drawn red */
   bad: Set<string>
+  /** the objects the view must go to and flash, when asked (a problem clicked) */
+  focus: Focus | null
   /** where the floor's picture is fetched from */
   underlayUrl: string | null
   /** two points picked on the picture with the «calibrate» tool */
@@ -187,6 +217,19 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
   // fitted once the size is known, then whenever asked
   const [fitted, setFitted] = useState<number | null>(null)
   if (measured && fitted !== fitSignal) { setFitted(fitSignal); setView(fitView(bounds(floor), size)) }
+  // asked to go to objects: the view centres on them and they flash for a moment
+  const [flash, setFlash] = useState<Focus | null>(null)
+  useEffect(() => {
+    if (!focus || !measured) return
+    const box = objectsBox(floor, focus.ids)
+    if (!box) return
+    setView(v => focusView(v, box, measured))
+    setFlash(focus)
+    const t = window.setTimeout(() => setFlash(f => (f === focus ? null : f)), FLASH_MS)
+    return () => window.clearTimeout(t)
+    // the view goes once per ask, not when the floor is edited afterwards
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, measured])
   useEffect(() => {
     const el = svg.current
     if (!el) return
@@ -740,6 +783,13 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
               </g>
             )
           })}
+          {flash && (
+            <g pointerEvents="none" data-testid="sketch-flash">
+              {objectRings(shown, flash.ids).map((ring, i) => (ring.length === 1
+                ? <circle key={i} className="flash" cx={S(ring[0])[0]} cy={S(ring[0])[1]} r={9} />
+                : <path key={i} className="flash" d={'M' + ring.map(p => S(p).join(' ')).join('L') + (ring.length > 2 ? 'Z' : '')} />))}
+            </g>
+          )}
           {band && (() => {
             const [p, q] = [S(band[0]), S(band[1])]
             return <rect className="band" x={Math.min(p[0], q[0])} y={Math.min(p[1], q[1])} width={Math.abs(q[0] - p[0])} height={Math.abs(q[1] - p[1])} />

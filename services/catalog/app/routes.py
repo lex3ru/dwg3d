@@ -16,7 +16,7 @@ from sqlalchemy import delete, func, insert, select, update
 from twin_chassis import Identity, Problem, current_identity, emit, require_admin, uuid7
 
 from . import glb, storage
-from .models import categories, property_sets, types
+from .models import categories, products, property_sets, types
 from .schema import Property, check_resolved, check_values, resolve, unique_keys
 
 router = APIRouter()
@@ -198,6 +198,8 @@ class TypeIn(BaseModel):
     h: float = Field(gt=0, le=100, description="Высота, м")
     elevation: float | None = Field(default=None, ge=0, le=100, description="Высота установки по умолчанию, м")
     wall_mounted: bool = False
+    ceiling_mounted: bool = Field(default=False, description=(
+        "Висит под потолком своего этажа, какой бы высоты он ни был; высота установки — для этажа неизвестной высоты"))
     shape: str = Field(default="box", max_length=40)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     container: bool = Field(default=False, description="В объект можно вкладывать другие")
@@ -216,14 +218,17 @@ class TypePatch(TypeIn):
     version: int
 
 
-def type_json(t, schema: list[dict] | None = None) -> dict:
+def type_json(t, schema: list[dict] | None = None, products: int | None = None) -> dict:
     out = {"id": str(t.id), "category_id": str(t.category_id), "name": t.name, "size": [t.w, t.d, t.h],
-           "elevation": t.elevation, "wall_mounted": t.wall_mounted, "shape": t.shape, "color": t.color,
+           "elevation": t.elevation, "wall_mounted": t.wall_mounted, "ceiling_mounted": t.ceiling_mounted,
+           "shape": t.shape, "color": t.color,
            "model": {k: v for k, v in t.model.items() if k != "key"} if t.model else None,
            "container": t.container, "portable": t.portable, "sets": [str(s) for s in t.sets],
            "properties": t.properties, "values": t.values, "article": t.article, "supplier": t.supplier,
            "price": float(t.price) if t.price is not None else None, "currency": t.currency, "active": t.active,
            "schema_version": t.schema_version, "version": t.version, "sort": t.sort}
+    if products is not None:
+        out["products"] = products                 # makes and models of the type offered (active ones)
     if schema is not None:
         out["schema"] = schema
     return out
@@ -243,6 +248,9 @@ async def _checked(session, body: TypeIn) -> tuple[dict, list[dict]]:
     if missing or len(set(body.sets)) != len(body.sets):
         raise Problem(422, "invalid", "Набор свойств не найден или указан дважды",
                       errors=[{"field": "sets", "message": ", ".join(missing) or "повтор"}])
+    if body.wall_mounted and body.ceiling_mounted:
+        raise Problem(422, "invalid", "Тип висит либо на стене, либо на потолке",
+                      errors=[{"field": "ceiling_mounted", "message": "вместе с wall_mounted"}])
     unique_keys(body.properties, "среди собственных свойств типа")
     values = body.model_dump()
     values["properties"] = [p.model_dump() for p in body.properties]
@@ -266,7 +274,14 @@ async def list_types(request: Request, category_id: UUID | None = None, q: str |
         where.append(types.c.name.ilike(like) | func.coalesce(types.c.article, "").ilike(like))
     async with request.app.state.db.begin() as session:
         rows = (await session.execute(select(types).where(*where).order_by(types.c.sort, types.c.name))).all()
-    return {"items": [type_json(t) for t in rows]}
+        counts = await _product_counts(session)
+    return {"items": [type_json(t, products=counts.get(t.id, 0)) for t in rows]}
+
+
+async def _product_counts(session) -> dict:
+    """how many makes and models each type offers"""
+    q = select(products.c.type_id, func.count()).where(products.c.active).group_by(products.c.type_id)
+    return dict((await session.execute(q)).all())
 
 
 class Ids(BaseModel):
@@ -293,7 +308,7 @@ async def _type(session, type_id: UUID, *, lock: bool = False):
 async def get_type(type_id: UUID, request: Request, _: Identity = Depends(current_identity)) -> dict:
     async with request.app.state.db.begin() as session:
         t = await _type(session, type_id)
-        return type_json(t, resolve(t, await _sets(session)))
+        return type_json(t, resolve(t, await _sets(session)), (await _product_counts(session)).get(t.id, 0))
 
 
 @router.get("/types/{type_id}/schema", tags=["types"],
@@ -398,3 +413,137 @@ async def get_model(type_id: UUID, request: Request, _: Identity = Depends(curre
         raise Problem(404, "not_found", "У типа нет модели")
     return StreamingResponse(iterate_in_threadpool(storage.bucket().stream(key)), media_type="model/gltf-binary",
                              headers={"Content-Length": str(size), "Cache-Control": "private, no-cache"})
+
+
+# ----------------------------------------------------------------- products ---
+# A type says what a thing is — «Монитор 27″», its size, its schema; a product says which make and model an
+# object of it is — Dell P2723DE — with the article, the supplier and the list price. An object may name its
+# product or not; a variant is priced by the product when there is one, else by the type's estimate.
+class ProductIn(BaseModel):
+    vendor: str = Field(default="", max_length=200, description="Производитель")
+    name: str = Field(min_length=1, max_length=200, description="Модель, как её называет производитель")
+    article: str | None = Field(default=None, max_length=100)
+    supplier: str | None = Field(default=None, max_length=200)
+    price: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2, description="Цена по прайсу")
+    currency: str = Field(default="RUB", pattern=r"^[A-Z]{3}$")
+    note: str = Field(default="", max_length=2000)
+    sort: int = 0
+
+
+class ProductPatch(ProductIn):
+    version: int
+
+
+def product_json(p) -> dict:
+    return {"id": str(p.id), "type_id": str(p.type_id), "vendor": p.vendor, "name": p.name, "article": p.article,
+            "supplier": p.supplier, "price": float(p.price) if p.price is not None else None, "currency": p.currency,
+            "note": p.note, "active": p.active, "version": p.version, "sort": p.sort}
+
+
+def _product_event(p) -> dict:
+    return {"product_id": str(p.id), "type_id": str(p.type_id), "vendor": p.vendor, "name": p.name,
+            "article": p.article, "price": float(p.price) if p.price is not None else None, "currency": p.currency,
+            "active": p.active}
+
+
+PRODUCT_ORDER = (products.c.sort, products.c.vendor, products.c.name)
+
+
+async def _product(session, product_id: UUID, *, lock: bool = False):
+    q = select(products).where(products.c.id == product_id)
+    p = (await session.execute(q.with_for_update() if lock else q)).one_or_none()
+    if p is None:
+        raise Problem(404, "not_found", "Модель не найдена")
+    return p
+
+
+async def _unique_product(session, type_id: UUID, body: ProductIn, but: UUID | None = None) -> None:
+    where = [products.c.type_id == type_id, products.c.vendor == body.vendor.strip(),
+             products.c.name == body.name.strip()]
+    if but is not None:
+        where.append(products.c.id != but)
+    if (await session.execute(select(products.c.id).where(*where))).first() is not None:
+        label = f"{body.vendor.strip()} {body.name.strip()}".strip()
+        raise Problem(409, "duplicate", f"У типа уже есть модель «{label}»")
+
+
+@router.get("/products", tags=["products"], summary="Модели типов: все или одного типа")
+async def list_products(request: Request, type_id: UUID | None = None, active: bool | None = None,
+                        _: Identity = Depends(current_identity)) -> dict:
+    where = []
+    if type_id is not None:
+        where.append(products.c.type_id == type_id)
+    if active is not None:
+        where.append(products.c.active == active)
+    async with request.app.state.db.begin() as session:
+        rows = (await session.execute(select(products).where(*where).order_by(*PRODUCT_ORDER))).all()
+    return {"items": [product_json(p) for p in rows]}
+
+
+@router.get("/types/{type_id}/products", tags=["products"], summary="Модели типа, предлагаемые при постановке объекта")
+async def type_products(type_id: UUID, request: Request, active: bool | None = True,
+                        _: Identity = Depends(current_identity)) -> dict:
+    where = [products.c.type_id == type_id]
+    if active is not None:
+        where.append(products.c.active == active)
+    async with request.app.state.db.begin() as session:
+        await _type(session, type_id)
+        rows = (await session.execute(select(products).where(*where).order_by(*PRODUCT_ORDER))).all()
+    return {"items": [product_json(p) for p in rows]}
+
+
+@router.post("/types/{type_id}/products", status_code=201, tags=["products"], summary="Добавить модель типа")
+async def create_product(type_id: UUID, body: ProductIn, request: Request,
+                         _: Identity = Depends(require_admin)) -> dict:
+    async with request.app.state.db.begin() as session:
+        await _type(session, type_id)
+        await _unique_product(session, type_id, body)
+        p = (await session.execute(insert(products).values(
+            id=uuid7(), type_id=type_id, **body.model_dump(exclude={"vendor", "name"}), vendor=body.vendor.strip(),
+            name=body.name.strip(),
+        ).returning(products))).one()
+        await emit(session, "catalog.product.created", ("product", p.id), _product_event(p))
+    return product_json(p)
+
+
+@router.get("/products/{product_id}", tags=["products"], summary="Модель")
+async def get_product(product_id: UUID, request: Request, _: Identity = Depends(current_identity)) -> dict:
+    async with request.app.state.db.begin() as session:
+        return product_json(await _product(session, product_id))
+
+
+@router.patch("/products/{product_id}", tags=["products"], summary="Изменить модель")
+async def patch_product(product_id: UUID, body: ProductPatch, request: Request,
+                        _: Identity = Depends(require_admin)) -> dict:
+    async with request.app.state.db.begin() as session:
+        old = await _product(session, product_id, lock=True)
+        _stale(old, body.version)
+        await _unique_product(session, old.type_id, body, but=product_id)
+        values = {**body.model_dump(exclude={"version"}), "vendor": body.vendor.strip(), "name": body.name.strip()}
+        p = (await session.execute(update(products).where(products.c.id == product_id).values(
+            **values, version=products.c.version + 1, updated_at=func.now()).returning(products))).one()
+        await emit(session, "catalog.product.changed", ("product", p.id), _product_event(p))
+    return product_json(p)
+
+
+async def _set_product_active(request: Request, product_id: UUID, active: bool) -> dict:
+    async with request.app.state.db.begin() as session:
+        old = await _product(session, product_id, lock=True)
+        if old.active == active:
+            return product_json(old)
+        p = (await session.execute(update(products).where(products.c.id == product_id).values(
+            active=active, version=products.c.version + 1, updated_at=func.now()).returning(products))).one()
+        kind = "restored" if active else "archived"
+        await emit(session, f"catalog.product.{kind}", ("product", p.id), _product_event(p))
+    return product_json(p)
+
+
+@router.post("/products/{product_id}/archive", tags=["products"],
+             summary="Убрать модель из выбора; объекты этой модели остаются ею")
+async def archive_product(product_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> dict:
+    return await _set_product_active(request, product_id, False)
+
+
+@router.post("/products/{product_id}/restore", tags=["products"], summary="Вернуть модель в выбор")
+async def restore_product(product_id: UUID, request: Request, _: Identity = Depends(require_admin)) -> dict:
+    return await _set_product_active(request, product_id, True)

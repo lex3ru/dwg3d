@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Tip } from '@/components/ui/tooltip'
 import { CATEGORIES, type CatalogItem } from '@/scene/furniture/catalog'
+import { useThumb } from '@/scene/furniture/thumbs'
 
 export const catColor = (id: string) => CATEGORIES.find((c) => c.id === id)?.color ?? '#868e96'
 export const cm = (m: number) => Math.round(m * 100)
@@ -20,6 +21,13 @@ export function ItemSymbol({ c, size = 36 }: { c: CatalogItem; size?: number }) 
       <line x1={x + 1} x2={x + w - 1} y1={y + d} y2={y + d} stroke={col} strokeWidth="3" />
     </svg>
   )
+}
+
+/** The item's own model, pictured three-quarters from the front; its top view until the picture is drawn (or if it cannot be). */
+export function ItemThumb({ c, size = 36 }: { c: CatalogItem; size?: number }) {
+  const url = useThumb(c)
+  if (!url) return <ItemSymbol c={c} size={size} />
+  return <img src={url} width={size} height={size} alt="" aria-hidden draggable={false} className="shrink-0 object-contain" />
 }
 
 /** A number typed in and applied on Enter or leaving the field (an invalid one is dropped); `hint` — what it changes. */

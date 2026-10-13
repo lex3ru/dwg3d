@@ -39,7 +39,7 @@ export function Variants({ building, selected, editor }: { building: string; sel
       <h1 className="text-xl font-semibold">Варианты расстановки</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
         Вариант — предполагаемые перестановки, новые и убранные объекты; пока он не применён, учёт прежний. Правится в редакторе:
-        слой «Объекты учёта» показывает факт или выбранный вариант.
+        слой «Мебель и оборудование» показывает факт или выбранный вариант.
       </p>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       <form onSubmit={make} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border bg-card p-3" data-testid="variant-form">
@@ -115,7 +115,7 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
         <h2 className="flex-1 text-base font-semibold">{v.name}</h2>
         {v.status === 'draft' && editor && (
           <Button size="sm" variant="outline" onClick={open}
-            hint="Слой «Объекты учёта» в редакторе покажет этот вариант: перестановки правятся там, учёт не меняется">Открыть в редакторе</Button>
+            hint="Слой «Мебель и оборудование» в редакторе покажет этот вариант: перестановки правятся там, учёт не меняется">Открыть в редакторе</Button>
         )}
         {v.status === 'draft' && <Button size="sm" disabled={busy || !(v.ops ?? []).length} onClick={apply}
           hint={(v.ops ?? []).length ? 'Перенести изменения варианта в учёт от вашего имени: объекты переставятся, в их истории появятся записи; устаревшие операции будут отклонены'
@@ -172,8 +172,9 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
             <th className="text-right">Цена</th><th className="text-right">Сумма варианта</th></tr></thead>
           <tbody>
             {cmp.items.map(i => (
-              <tr key={i.type_id} className="border-t" data-type={i.name}>
-                <td className="py-1">{i.name}</td><td className="text-right tabular-nums">{i.qty_a}</td><td className="text-right tabular-nums">{i.qty_b}</td>
+              <tr key={`${i.type_id}|${i.product_id ?? ''}`} className="border-t" data-type={i.name}>
+                <td className="py-1">{i.name}{i.product && <span className="ml-1 text-muted-foreground">{i.product}</span>}</td>
+                <td className="text-right tabular-nums">{i.qty_a}</td><td className="text-right tabular-nums">{i.qty_b}</td>
                 <td className="text-right tabular-nums">{signed(i.delta)}</td><td className="text-right tabular-nums">{money(i.price, i.currency)}</td>
                 <td className="text-right tabular-nums">{money(i.sum_b, i.currency)}</td>
               </tr>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listTypes, moveAsset,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, listAllAssets, listComments, listProducts, listTypes, moveAsset,
+  productLabel, type Product,
   type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type TreeFloor,
 } from '../api'
 import { CommentList } from '../components/Comments'
@@ -48,7 +49,7 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
   useEvents(event => { if (event.type.startsWith('assets.')) loadAssets() })
   // placing: a type and a number, then a click on the plan
   const [types, setTypes] = useState<CatalogType[]>([])
-  const [placing, setPlacing] = useState<{ type: string; number: string } | null>(null)
+  const [placing, setPlacing] = useState<{ type: string; number: string; product: string } | null>(null)
   // several of a kind: the points are clicked one by one, the numbers go in a row
   const [series, setSeries] = useState<{ type: string; prefix: string; start: string; width: string; points: [number, number][] } | null>(null)
   // comments to points of the floor: marks on the plan; a new one — a click, then the text
@@ -83,9 +84,12 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
     }, (e: Error) => setError(e.message))
   }
   useEffect(() => { if (admin) listTypes(true).then(setTypes, () => {}) }, [admin])
+  // the makes and models of the type being placed, to name one
+  const [products, setProducts] = useState<Product[]>([])
+  useEffect(() => { if (placing?.type) listProducts(placing.type).then(setProducts, () => setProducts([])); else setProducts([]) }, [placing?.type])
   const place = (x: number, y: number) => {
     if (!placing?.type || !placing.number.trim() || !active) return setError('Выберите тип и введите инвентарный номер')
-    createAsset({ type_id: placing.type, floor_id: active.id, x, y, inventory_no: placing.number.trim() }).then(a => {
+    createAsset({ type_id: placing.type, product_id: placing.product || null, floor_id: active.id, x, y, inventory_no: placing.number.trim() }).then(a => {
       setPlacing(null); setError(null); loadAssets(); location.hash = to.assets(building, a.id)
     }, (e: Error) => setError(e.message))
   }
@@ -183,6 +187,17 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
               </select>
             </Tip>
           </label>
+          {products.length > 0 && (
+            <label className="grid gap-0.5 text-xs text-muted-foreground">Марка и модель
+              <Tip label="Какой именно модели объект; можно оставить «не указана» и выбрать в карточке потом">
+                <select className="h-8 rounded-md border bg-card px-2 text-sm" value={placing.product} aria-label="Марка и модель"
+                  onChange={e => setPlacing({ ...placing, product: e.target.value })}>
+                  <option value="">не указана</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+                </select>
+              </Tip>
+            </label>
+          )}
           <label className="grid gap-0.5 text-xs text-muted-foreground">Инвентарный номер
             <Tip label="Не повторяется никогда: номер даже списанного объекта занят">
               <Input className="h-8 w-40" value={placing.number} onChange={e => setPlacing({ ...placing, number: e.target.value })} />
@@ -194,7 +209,7 @@ export function Plan({ me, building, floors, floor, room, admin, move }: {
       ) : (
         <div className="mt-2 flex flex-wrap gap-2">
           <Button variant="outline" size="sm" hint="Поставить на учёт один объект: тип, инвентарный номер и щелчок по месту на плане"
-            onClick={() => setPlacing({ type: '', number: '' })}>Поставить объект</Button>
+            onClick={() => setPlacing({ type: '', number: '', product: '' })}>Поставить объект</Button>
           <Button variant="outline" size="sm" hint="Несколько объектов одного типа: места отмечаются щелчками, номера идут подряд"
             onClick={() => setSeries({ type: '', prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
           {!noting && <Button variant="outline" size="sm" hint={NOTE_HINT} onClick={() => setNoting('pick')}>Комментарий к точке</Button>}

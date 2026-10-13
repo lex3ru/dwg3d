@@ -27,6 +27,8 @@ assets = Table(
     Column("type_id", Uuid, nullable=False, index=True),              # -> catalog
     Column("type_name", Text, nullable=False, server_default=""),     # a copy, for search and lists
     Column("category_id", Uuid),
+    Column("product_id", Uuid, index=True),                             # -> catalog.products: the make and model, if named
+    Column("product_name", Text, nullable=False, server_default=""),  # a copy, «vendor name», for lists and search
     Column("schema_version", Integer, nullable=False, server_default="0"),
     Column("building_id", Uuid, nullable=False, index=True),          # -> buildings
     Column("floor_id", Uuid, nullable=False, index=True),

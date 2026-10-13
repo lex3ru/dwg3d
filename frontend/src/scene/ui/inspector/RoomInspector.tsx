@@ -4,7 +4,7 @@ import type { FloorMeta, Layer, Result, RoomMeta } from '@/scene/api'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { TreeObject } from '../SceneTree'
+import type { TreeObject } from '../ProjectPanel'
 
 /**
  * The selected room: type, area, floor, what stands in it (objects of all

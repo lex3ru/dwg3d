@@ -48,8 +48,11 @@ export default async function globalSetup() {
   })
   if (!response.ok) throw new Error(`Не удалось войти в Keycloak администратором (${response.status}); стек запущен?`)
   const { access_token: token } = await response.json() as { access_token: string }
-  process.env.E2E_ADMIN_PASSWORD = await ensureUser(token, 'e2e-admin', 'Проверка', 'Администратор', true)
-  process.env.E2E_USER_PASSWORD = await ensureUser(token, 'e2e-user', 'Проверка', 'Пользователь', false)
+  // E2E_TAG gives these two accounts names of their own (e2e-admin-<tag>), for a run beside another one on the
+  // same stack: every run sets new passwords, so two runs sharing an account sign each other out
+  const tag = process.env.E2E_TAG ? `-${process.env.E2E_TAG}` : ''
+  process.env.E2E_ADMIN_PASSWORD = await ensureUser(token, `e2e-admin${tag}`, 'Проверка', 'Администратор', true)
+  process.env.E2E_USER_PASSWORD = await ensureUser(token, `e2e-user${tag}`, 'Проверка', 'Пользователь', false)
   // people of the directory in the scenarios of rights: new accounts on every run, since what
   // a run does to a person (rights, «выбыл») stays in the directory
   const run = Date.now().toString(36)
@@ -59,4 +62,7 @@ export default async function globalSetup() {
   process.env.E2E_KEEPER_PASSWORD = await ensureUser(token, `e2e-keeper-${run}`, 'Проверка', 'Хранитель', false)
   process.env.E2E_TENANT_PASSWORD = await ensureUser(token, `e2e-tenant-${run}`, 'Проверка', 'Жилец', false)
   process.env.E2E_WORKER_PASSWORD = await ensureUser(token, `e2e-worker-${run}`, 'Проверка', 'Работник', false)
+  // the people of the role scenarios (tests/scenarios.spec.ts): who keeps a room, who belongs to another building
+  process.env.E2E_STEWARD_PASSWORD = await ensureUser(token, `e2e-steward-${run}`, 'Проверка', 'Завхоз', false)
+  process.env.E2E_OUTSIDER_PASSWORD = await ensureUser(token, `e2e-outsider-${run}`, 'Проверка', 'Посторонний', false)
 }

@@ -22,7 +22,7 @@ export function useFurniture(p: {
   rebuilding: boolean
   reload: () => void
   hiddenNow: Set<string>
-  layerFor: (c: CatalogItem) => string | undefined
+  layerFor: (c: CatalogItem) => string | null | undefined
   refuseLocked: (it: PlacedItem | undefined) => boolean
   syncLayers: (items: { layer?: string }[]) => void
   tool: Tool
@@ -95,9 +95,15 @@ export function useFurniture(p: {
       const res = await batchRows(id, 'objects', build, ops)
       for (const it of res.items) furnSaved.current.set(it.id, it)
       for (const d of res.deleted) furnSaved.current.delete(d)
-      // the server chose the layer of items placed without one (and may have created it)
-      const got = new Map(res.items.map((it) => [it.id, it.layer]))
-      setView((v) => ({ ...v, furniture: (v.furniture ?? []).map((it) => (!it.layer && got.get(it.id) ? { ...it, layer: got.get(it.id) } : it)) }))
+      // the server chose the layer of items placed without one (and may have created it), and knows what an
+      // object of the records got on placing: its make and model
+      const got = new Map(res.items.map((it) => [it.id, it]))
+      setView((v) => ({ ...v, furniture: (v.furniture ?? []).map((it) => {
+        const s = got.get(it.id)
+        if (!s) return it
+        const layer = !it.layer && s.layer ? s.layer : it.layer
+        return layer === it.layer && s.product === it.product ? it : { ...it, layer, ...(s.product ? { product: s.product } : {}) }
+      }) }))
       p.syncLayers(res.items)
     } catch (e) {
       const was = (i: string) => furnSaved.current.get(i) as unknown as Record<string, unknown> | undefined
@@ -170,7 +176,9 @@ export function useFurniture(p: {
   }
   const placeItem = (c: CatalogItem, pose: Pose) => {
     if (!furnFloor) return
-    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle, layer: p.layerFor(c) }
+    const layer = p.layerFor(c)
+    if (layer === null) return
+    const it: PlacedItem = { id: newId(), floor: furnFloor.id, item: c.id, at: pose.at, angle: pose.angle, layer }
     if (p.refuseLocked(it)) return
     setFurniture([...furniture, it])
     setFurnSel(it.id)

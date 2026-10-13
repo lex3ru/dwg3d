@@ -114,7 +114,7 @@ export default function Toolbar(p: Props) {
         <DropdownMenuLabel>Мебель и оборудование</DropdownMenuLabel>
         <DropdownMenuCheckboxItem checked={d.furniture} onSelect={keep} onCheckedChange={(v) => p.set({ furniture: v })}>Показывать</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={d.camViews} onSelect={keep} onCheckedChange={(v) => p.set({ camViews: v })}>Обзор камер, покрытие Wi-Fi, извещателей и освещения</DropdownMenuCheckboxItem>
-        <Note>Что именно показывать, задают слои в дереве слева.</Note>
+        <Note>Что именно показывать, задаёт легенда «На плане» слева.</Note>
       </Group>
       )}
       <Group icon={MessageCircle} active={d.comments || p.tool === 'comment'} title="Комментарии" onClick={() => p.set({ comments: !d.comments })}

@@ -30,13 +30,22 @@ async def named(client, headers, path: str) -> dict[str, dict]:
 async def test_what_the_catalog_starts_with(client, tokens, database_url):
     user = tokens.bearer("user-1")                       # reading is open to anyone signed in
     assert sorted(await named(client, user, "categories")) == sorted(
-        ["Мебель", "Медицинская техника"] + [c["name"] for c in seed.EXTRA_CATEGORIES])
+        ["Мебель", "Медицинская техника"] + [c["name"] for c in seed.EXTRA_CATEGORIES + seed.OFFICE_CATEGORIES])
     assert sorted(await named(client, user, "property-sets")) == sorted(
-        ["Мебель", "Медицинское изделие", "Учёт"] + [x["name"] for x in seed.EXTRA_SETS])
+        ["Мебель", "Медицинское изделие", "Учёт"] + [x["name"] for x in seed.EXTRA_SETS + seed.OFFICE_SETS])
     types = await named(client, user, "types")
     first = ["Аппарат КТ", "Гастроскоп", "Кресло посетителя", "Кушетка", "Рабочий стол"]
-    assert set(first) <= set(types) and sorted(types) == sorted(first + [t["name"] for t in seed.MORE_TYPES])
+    seeded = first + [t["name"] for t in seed.MORE_TYPES + seed.OFFICE_TYPES]
+    assert set(first) <= set(types) and sorted(types) == sorted(seeded)
+    # the office: a projector hangs on the ceiling, a monitor stands on the desk, the equipment has its own set
+    assert types["Проектор потолочный"]["ceiling_mounted"] and types["Монитор 27″"]["elevation"] == 0.75
+    shredder = (await client.get(f"{API}/types/{types['Шредер']['id']}/schema", headers=user)).json()
+    assert [p["set"] for p in shredder["properties"]][-1] == "Оргтехника"
     assert types["Гастроскоп"]["portable"] and types["Аппарат КТ"]["container"] and not types["Кушетка"]["portable"]
+    # a ceiling light hangs under the ceiling, a sconce on the wall
+    panel, sconce = types["Светильник светодиодный, панель 600×600"], types["Светильник настенный (бра)"]
+    assert (panel["ceiling_mounted"], panel["wall_mounted"]) == (True, False)
+    assert (sconce["ceiling_mounted"], sconce["wall_mounted"]) == (False, True)
 
     # the schema: the properties of the sets in their order, then the type's own
     schema = (await client.get(f"{API}/types/{types['Гастроскоп']['id']}/schema", headers=user)).json()
@@ -56,7 +65,7 @@ async def test_what_the_catalog_starts_with(client, tokens, database_url):
     assert (await client.patch(f"{API}/types/{couch['id']}", json=body, headers=admin)).status_code == 200
     upgrade(database_url, "migrations")
     assert "Кушетка смотровая" in await named(client, user, "types")
-    assert len(await named(client, user, "types")) == 5 + len(seed.MORE_TYPES)
+    assert len(await named(client, user, "types")) == 5 + len(seed.MORE_TYPES) + len(seed.OFFICE_TYPES)
 
 
 async def test_only_the_system_administrator_changes(client, tokens):
@@ -99,7 +108,8 @@ async def test_a_set_and_a_type_with_it(client, app, tokens):
            ({**body, "properties": [prop("c", kind="choice")]}, 422),                # a choice of nothing
            ({**body, "values": {"method": "fire"}}, 422),                            # not one of the options
            ({**body, "values": {"sterilized": "2026-01-01"}}, 422),                  # kept with objects, not the type
-           ({**body, "sets": [category]}, 422), ({**body, "w": 0}, 422), ({**body, "category_id": sset["id"]}, 422)]
+           ({**body, "sets": [category]}, 422), ({**body, "w": 0}, 422), ({**body, "category_id": sset["id"]}, 422),
+           ({**body, "wall_mounted": True, "ceiling_mounted": True}, 422)]                # on a wall or on the ceiling
     for wrong, status in bad:
         assert (await client.post(f"{API}/types", json=wrong, headers=admin)).status_code == status, wrong
 
@@ -194,3 +204,37 @@ async def test_property_with_values_at_objects_stays(client, tokens, used):
     # a property nobody has filled in goes freely; a new one comes freely
     used.clear()
     assert (await client.patch(f"{API}/property-sets/{sset['id']}", json=without, headers=admin)).status_code == 200
+
+
+async def test_products_of_a_type(client, app, tokens):
+    """A make and model of a type: offered with the type, priced by its list price; one of a kind per type."""
+    admin, user = tokens.admin(), tokens.bearer("user-1")
+    monitor = (await named(client, user, "types"))["Монитор 27″"]
+    url = f"{API}/types/{monitor['id']}/products"
+    dell = {"vendor": "Dell", "name": "P2723DE", "article": "210-BDDW", "supplier": "ООО «Сервер»", "price": 32990}
+    r = await client.post(url, json=dell, headers=admin)
+    assert r.status_code == 201
+    made = r.json()
+    assert (made["type_id"], made["vendor"], made["price"], made["active"]) == (monitor["id"], "Dell", 32990.0, True)
+    assert (await events(app))[-1]["type"] == "catalog.product.created"
+    # the same make and model twice is refused; the user reads, the administrator writes
+    assert (await client.post(url, json={**dell, "name": " P2723DE "}, headers=admin)).status_code == 409
+    assert (await client.post(url, json={"vendor": "LG", "name": "27UL550"}, headers=user)).status_code == 403
+    assert (await client.post(url, json={"vendor": "LG", "name": "27UL550"}, headers=admin)).status_code == 201
+    assert (await client.post(f"{API}/types/{made['id']}/products", json=dell, headers=admin)).status_code == 404
+    # listed with the type, counted on it
+    assert [p["vendor"] for p in (await client.get(url, headers=user)).json()["items"]] == ["Dell", "LG"]
+    assert (await client.get(f"{API}/types/{monitor['id']}", headers=user)).json()["products"] == 2
+    assert (await named(client, user, "types"))["Монитор 27″"]["products"] == 2
+    # a change against a stale version is refused; archived — out of the type's offer, still read by id
+    patch = {**dell, "price": 29990, "version": made["version"]}
+    assert (await client.patch(f"{API}/products/{made['id']}", json=patch, headers=admin)).json()["price"] == 29990.0
+    assert (await client.patch(f"{API}/products/{made['id']}", json=patch, headers=admin)).status_code == 409
+    gone = await client.post(f"{API}/products/{made['id']}/archive", headers=admin)
+    assert gone.json()["active"] is False and (await events(app))[-1]["type"] == "catalog.product.archived"
+    assert [p["vendor"] for p in (await client.get(url, headers=user)).json()["items"]] == ["LG"]
+    assert (await client.get(f"{API}/products/{made['id']}", headers=user)).json()["name"] == "P2723DE"
+    assert len((await client.get(f"{API}/products?type_id={monitor['id']}", headers=user)).json()["items"]) == 2
+    # the office set no longer keeps a vendor and a model with the type
+    office = (await named(client, user, "property-sets"))["Оргтехника"]
+    assert [p["key"] for p in office["properties"]][:1] == ["consumables"]

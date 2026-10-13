@@ -5,7 +5,20 @@ list: a property is never looked up apart from the schema it belongs to.
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, Table, Text, Uuid, func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    Table,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from twin_chassis import metadata
 
@@ -39,6 +52,7 @@ types = Table(
     Column("h", Float, nullable=False),
     Column("elevation", Float),                    # mounting height by default
     Column("wall_mounted", Boolean, nullable=False, server_default="false"),
+    Column("ceiling_mounted", Boolean, nullable=False, server_default="false"),   # hangs under the ceiling of its floor
     Column("shape", Text, nullable=False, server_default="box"),      # the stand-in figure in 3D
     Column("color", Text),
     Column("model", JSONB),                        # a GLB: its key, size, turn, warnings
@@ -56,4 +70,22 @@ types = Table(
     Column("version", Integer, nullable=False, server_default="1"),
     Column("sort", Integer, nullable=False, server_default="0"),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=NOW),
+)
+
+products = Table(
+    "products", metadata,                          # a make and model of a type: «Монитор 27″» → Dell P2723DE
+    Column("id", Uuid, primary_key=True),
+    Column("type_id", Uuid, ForeignKey("types.id"), nullable=False, index=True),
+    Column("vendor", Text, nullable=False, server_default=""),
+    Column("name", Text, nullable=False),          # the model as the vendor names it
+    Column("article", Text),
+    Column("supplier", Text),
+    Column("price", Numeric(12, 2)),               # the list price; the type's price is the estimate without a model
+    Column("currency", Text, nullable=False, server_default="RUB"),
+    Column("note", Text, nullable=False, server_default=""),
+    Column("active", Boolean, nullable=False, server_default="true"),
+    Column("version", Integer, nullable=False, server_default="1"),
+    Column("sort", Integer, nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=NOW),
+    UniqueConstraint("type_id", "vendor", "name", name="uq_products_type_vendor_name"),
 )

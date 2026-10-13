@@ -11,10 +11,10 @@ async function editVariantLayer(page: Page, name: string) {
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  // a variant is a variant of each layer of objects; this one is of «Объекты учёта»
-  const layer = page.locator('li', { hasText: name }).filter({ hasText: 'Объекты учёта' })
-  await expect(layer).toBeVisible()
-  await layer.locator('button:has(svg.lucide-pencil)').click()
+  // a variant is a variant of each layer of objects: the switch «факт / вариант» of the legend shows it in all of
+  // them (the variants' page chose it), and the pencil of «Мебель и оборудование» edits the variant
+  await expect(page.getByRole('button', { name: 'Показывать: факт или вариант' })).toContainText(name)
+  await page.getByRole('listitem', { name: 'Мебель и оборудование' }).getByRole('button', { name: 'Редактировать слой' }).click()
   await expect(page.getByText('Кресло посетителя').first()).toBeVisible()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2000)
@@ -136,7 +136,7 @@ test('a variant is made, edited in the editor, compared and priced, goes stale a
     await page.goto(`/#/f/${drawings[0].id}`)
     await expect(page.getByText('объектов на чертеже: 3')).toBeVisible({ timeout: 30_000 })
     await page.locator('button').first().click()
-    await expect(page.locator('li', { hasText: 'Объекты учёта' }).first()).toBeVisible()
+    await expect(page.getByRole('listitem', { name: 'Мебель и оборудование' })).toBeVisible()
     await expect(page.locator('li', { hasText: 'Перестановка' })).toHaveCount(0)
   } finally {
     execSync('docker compose -f ../deploy/docker-compose.yml up -d --wait planning', { stdio: 'ignore' })

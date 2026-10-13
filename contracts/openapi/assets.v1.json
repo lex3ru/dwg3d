@@ -60,6 +60,19 @@
             "title": "Note",
             "type": "string"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Марка и модель из каталога, если известна",
+            "title": "Product Id"
+          },
           "props": {
             "additionalProperties": true,
             "title": "Props",
@@ -143,6 +156,19 @@
             ],
             "title": "Note"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Марка и модель из каталога; null — не названа",
+            "title": "Product Id"
+          },
           "props": {
             "anyOf": [
               {
@@ -216,6 +242,19 @@
             "maxLength": 40,
             "title": "Prefix",
             "type": "string"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Марка и модель всех объектов ряда",
+            "title": "Product Id"
           },
           "start": {
             "description": "С какого числа считать",
@@ -639,6 +678,23 @@
                 }
               ],
               "title": "Category Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
             }
           },
           {

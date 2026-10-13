@@ -8,6 +8,7 @@ from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote
 from uuid import UUID
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -144,15 +145,16 @@ def _sheet(building: dict, floor: dict, room: dict, items: list[dict], names: di
     body = ParagraphStyle("body", fontName=pdf.FONT, fontSize=9, leading=12)
     small = ParagraphStyle("small", fontName=pdf.FONT, fontSize=8, leading=10, textColor=colors.grey)
     parts = (building.get("name"), floor.get("name"), room.get("name") or "помещение без названия")
-    where = " · ".join(x for x in parts if x)
+    # a Paragraph reads its text as markup: names people typed go in as text, «<1>» and «&» included
+    where = escape(" · ".join(x for x in parts if x))
     story = [Paragraph("Ведомость объектов помещения", h1), Paragraph(where, body),
              Paragraph(f"Составлена {datetime.now():%d.%m.%Y %H:%M} · объектов: {len(items)}", small),
              Spacer(1, 6 * mm)]
     rows = [["№", "Тип", "Инвентарный №", "Серийный №", "Состояние", "Ответственный", "Отметка"]]
     for n, a in enumerate(items, start=1):
-        rows.append([str(n), Paragraph(a["type_name"], body), a["inventory_no"], a.get("serial_no") or "",
+        rows.append([str(n), Paragraph(escape(a["type_name"]), body), a["inventory_no"], a.get("serial_no") or "",
                      STATES.get(a["state"], a["state"]),
-                     Paragraph(names.get(a.get("responsible_id") or "", "—"), body), ""])
+                     Paragraph(escape(names.get(a.get("responsible_id") or "", "—")), body), ""])
     table = Table(rows, colWidths=[9 * mm, 45 * mm, 30 * mm, 28 * mm, 22 * mm, 36 * mm, 10 * mm], repeatRows=1)
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), pdf.BOLD), ("FONTNAME", (0, 1), (-1, -1), pdf.FONT),

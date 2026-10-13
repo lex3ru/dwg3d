@@ -38,6 +38,13 @@ def register(bus: Bus, client: ServiceClient) -> None:
     async def type_changed(session: AsyncSession, event: dict) -> None:
         await refresh(session, UUID(event["data"]["type_id"]))
 
+    @bus.consumer("catalog.product.*", name="product-changed")
+    async def product_changed(session: AsyncSession, event: dict) -> None:
+        """The copy of the make and model's name follows the catalog."""
+        d = event["data"]
+        await session.execute(update(assets).where(assets.c.product_id == UUID(d["product_id"]))
+                              .values(product_name=core.product_label(d), updated_at=func.now()))
+
     @bus.consumer("catalog.property_set.changed", name="set-changed")
     async def set_changed(session: AsyncSession, event: dict) -> None:
         for type_id in event["data"]["type_ids"]:

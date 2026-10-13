@@ -3,13 +3,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { setNumberAsker, type NumberQuestion } from '../compat'
+import { Tip } from '@/components/ui/tooltip'
+import { Select } from '@/components/ui/select'
+import { setNumberAsker, type NumberAnswer, type NumberQuestion } from '../compat'
 
 /** The editor's own question about the inventory number of a new object (instead of the browser's prompt, which a
- * browser may be told to stop showing): the next number in the building is suggested. */
+ * browser may be told to stop showing): the next number in the building is suggested; a type with makes and models
+ * asks which one, if known. */
 export default function NumberAsk() {
   const [q, setQ] = useState<NumberQuestion | null>(null)
   const [value, setValue] = useState('')
+  const [product, setProduct] = useState('')
   const [making, setMaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const generate = () => {
@@ -17,19 +21,21 @@ export default function NumberAsk() {
     setMaking(true); setError(null)
     q.generate().then((n) => setValue(n), () => setError('Не удалось получить номер: сервис объектов не ответил')).finally(() => setMaking(false))
   }
-  const answer = useRef<((v: string | null) => void) | null>(null)
+  const answer = useRef<((v: NumberAnswer | null) => void) | null>(null)
   useEffect(() => setNumberAsker((question) => new Promise((resolve) => {
     answer.current?.(null)
     answer.current = resolve
     setValue(question.suggestion)
+    setProduct('')
     setError(null)
     setQ(question)
   })), [])
   const close = (v: string | null) => {
-    answer.current?.(v)
+    answer.current?.(v == null ? null : { number: v, product: product || null })
     answer.current = null
     setQ(null)
   }
+  const money = (p: NumberQuestion['products'][number]) => (p.price != null ? ` — ${p.price.toLocaleString('ru')} ${p.currency}` : '')
   const ready = q?.optional || value.trim() !== ''
   return (
     <Dialog open={!!q} onOpenChange={(open) => { if (!open) close(null) }}>
@@ -47,6 +53,16 @@ export default function NumberAsk() {
               <Sparkles className="size-4" /> Сгенерировать
             </Button>
           </div>
+          {q && q.products.length > 0 && (
+            <label className="grid gap-1 text-sm text-muted-foreground">Марка и модель
+              <Tip label="Какой именно модели этот объект: по ней считается цена варианта и заполняется карточка; можно оставить «не указана» и выбрать в карточке потом">
+                <Select className="h-9" value={product} aria-label="Марка и модель" onChange={(e) => setProduct(e.target.value)}>
+                  <option value="">не указана</option>
+                  {q.products.map((p) => <option key={p.id} value={p.id}>{p.label}{money(p)}</option>)}
+                </Select>
+              </Tip>
+            </label>
+          )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => close(null)}

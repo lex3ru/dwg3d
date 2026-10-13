@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { layerKinds, listLayers, type Job, type Layer, type LayerKindInfo, type PlacedItem } from '../api'
 import type { CatalogItem } from '../furniture/catalog'
 import { variantGroup, variantGroups } from '../furniture/layers'
+import { layerSet } from '../systems'
 import type { Rules } from '../viewer/routing'
 
 /**
@@ -53,37 +54,63 @@ export function useLayers(shown: Job | null, projectId: string) {
     setVariantPick((v) => ({ ...v, [variantGroup(l)]: id }))
     setHiddenLayers((h) => { const n = new Set(h); n.delete(id); return n })
   }
+  /** Show a variant (null — the fact) in every group of layers at once, and the layers it picks. */
+  const pickVariant = (vid: string | null) => {
+    const picks: Record<string, string> = {}
+    for (const g of variantGroups(layers)) {
+      const base = variantGroup(g[0])
+      picks[base] = (vid && g.find((l) => l.id.startsWith(`variant:${vid}`))?.id) || base
+    }
+    setVariantPick((v) => ({ ...v, ...picks }))
+    setHiddenLayers((h) => { const n = new Set(h); for (const id of Object.values(picks)) n.delete(id); return n })
+  }
   const toggleLayer = (id: string) => setHiddenLayers((h) => {
     const n = new Set(h)
     if (n.has(id)) n.delete(id)
     else n.add(id)
     return n
   })
+  /** Show or hide these layers at once (of a group of variants the chosen one shows: hiddenNow). */
+  const showLayers = (ids: string[], show: boolean) => setHiddenLayers((h) => {
+    const n = new Set(h)
+    for (const id of ids) if (show) n.delete(id); else n.add(id)
+    return n
+  })
   /** Show only the layers of these kinds. */
   const showOnlyKinds = (kinds: string[]) => setHiddenLayers(new Set(layers.filter((l) => !kinds.includes(l.kind)).map((l) => l.id)))
   const setAllLayers = (show: boolean) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))
-  /** The layer for a new catalog item: the chosen one if it takes the item, else the first that does. */
-  const layerFor = (c: CatalogItem): string | undefined => {
-    const takes = (l: Layer) => {
-      const k = kinds.find((x) => x.kind === l.kind)
-      return !!k && k.geoms.includes('point') && (k.categories == null || k.categories.includes(c.cat))
+  const takes = (l: Layer, c: CatalogItem) => {
+    const k = kinds.find((x) => x.kind === l.kind)
+    return !!k && k.geoms.includes('point') && (k.categories == null || k.categories.includes(c.cat))
+  }
+  /** The layer a new catalog item belongs in: the active one if it takes the item; else the layer of the
+   * item's own kind (a system's: CCTV, lighting…) in the same set as the active one — the fact for the
+   * fact, the same variant for a variant, never one for the other. null: none takes it. */
+  const targetLayer = (c: CatalogItem): Layer | null => {
+    const act = layers.find((l) => l.id === activeLayer)
+    if (act && takes(act, c)) return act
+    const own = kinds.find((k) => k.categories?.includes(c.cat))
+    const mine = layers.filter((l) => (own ? l.kind === own.kind : true) && takes(l, c))
+    if (act) return mine.find((l) => layerSet(l.id) === layerSet(act.id)) ?? null
+    return mine.find((l) => !hiddenNow.has(l.id)) ?? mine[0] ?? null
+  }
+  /** The layer for a new catalog item (targetLayer), shown if it is hidden, so that what is placed does not
+   * vanish the moment it is put down. undefined: no layers yet — the server picks (and may create) one;
+   * null: the active layer's set has no layer for it — not placed, and the user is told. */
+  const layerFor = (c: CatalogItem): string | null | undefined => {
+    const t = targetLayer(c)
+    if (t) {
+      if (hiddenNow.has(t.id)) showVariant(t.id)
+      return t.id
     }
     const act = layers.find((l) => l.id === activeLayer)
-    if (act && takes(act)) return act.id
-    // a kind made for this category (CCTV, fire alarm, Wi-Fi...): its layer, or none yet — the server creates it.
-    // Of its layers the one on the screen (the fact or the variant shown); a hidden one is shown, so that what
-    // is placed does not vanish the moment it is put down
-    const own = kinds.find((k) => k.categories?.includes(c.cat))
-    const mine = layers.filter((l) => (own ? l.kind === own.kind : true) && takes(l))
-    const seen = mine.find((l) => !hiddenNow.has(l.id))
-    if (seen) return seen.id
-    const pick = mine.find((l) => hiddenLayers.has(l.id))
-    if (pick) setHiddenLayers((h) => { const n = new Set(h); n.delete(pick.id); return n })
-    return pick?.id ?? mine[0]?.id
+    if (!act) return undefined
+    alert(`«${c.name}» не ставится: рядом со слоем «${act.name}» нет слоя для раздела этого типа`)
+    return null
   }
   const refuseLocked = (it: PlacedItem | undefined) => {
     const l = layers.find((x) => x.id === it?.layer && x.locked)
-    if (l) alert(myLocks.has(l.id) ? `Слой «${l.name}» заблокирован: снимите замок в дереве слева` : `Слой «${l.name}» только для просмотра`)
+    if (l) alert(myLocks.has(l.id) ? `Слой «${l.name}» заблокирован: снимите замок в легенде «На плане» слева` : `Слой «${l.name}» только для просмотра`)
     return !!l
   }
   const reloadLayers = useCallback(() => {
@@ -105,7 +132,7 @@ export function useLayers(shown: Job | null, projectId: string) {
     return n
   })
   return {
-    lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
-    showVariant, toggleLayer, setAllLayers, layerFor, refuseLocked, syncLayers, reloadLayers,
+    lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, variantPick, activeLayer, setActiveLayer,
+    showVariant, pickVariant, toggleLayer, showLayers, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }

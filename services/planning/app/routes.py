@@ -100,6 +100,12 @@ async def types(request: Request) -> dict[str, dict]:
     return out
 
 
+async def products(request: Request) -> dict[str, dict]:
+    """The makes and models of the catalog's types with their list prices; without the catalog — none."""
+    r = await request.app.state.client.request("GET", "catalog", "/products", token=_token(request))
+    return {p["id"]: p for p in r.json()["items"]} if r.status_code == 200 else {}
+
+
 def _rows(ops: list) -> list[dict]:
     return [{"id": o.id, "op": o.op, "asset_id": o.asset_id, "base_version": o.base_version, "data": o.data,
              "sort": o.sort} for o in ops]
@@ -205,6 +211,7 @@ class Edit(BaseModel):
     op_id: UUID | None = Field(default=None, description="Или объект, добавленный этим вариантом")
     version: int | None = Field(default=None, description="Версия объекта, против которой сделана правка")
     type_id: UUID | None = None
+    product_id: UUID | None = Field(default=None, description="Марка и модель нового объекта, если известна")
     floor_id: UUID | None = None
     x: float | None = None
     y: float | None = None
@@ -268,6 +275,7 @@ async def edit_variant(variant_id: UUID, body: Edits, request: Request, me: Iden
                 await session.execute(insert(variant_ops).values(
                     id=oid, variant_id=variant_id, op="add", sort=top,
                     data={"type_id": str(e.type_id), **_place(e), "angle": e.angle or 0,
+                          **({"product_id": str(e.product_id)} if e.product_id else {}),
                           "inventory_no": (e.inventory_no or "").strip() or None, "note": e.note or ""}))
                 results.append({"op_id": str(oid)})
             elif e.op_id is not None:                       # an object this variant adds
@@ -281,6 +289,8 @@ async def edit_variant(variant_id: UUID, body: Edits, request: Request, me: Iden
                     data["note"] = e.note or ""
                 if e.inventory_no is not None:
                     data["inventory_no"] = e.inventory_no.strip() or None
+                if e.product_id is not None:
+                    data["product_id"] = str(e.product_id)
                 await session.execute(update(variant_ops).where(variant_ops.c.id == o.id).values(data=data))
                 results.append({"op_id": str(o.id)})
             elif e.asset_id is not None:                    # an object of the fact
@@ -335,9 +345,9 @@ async def _side(request: Request, me: Identity, building_id: UUID, side: str) ->
 async def compare(request: Request, building_id: UUID, a: str = Query(FACT), b: str = Query(...),
                   me: Identity = Depends(current_identity)) -> dict:
     await _manages(request, me, building_id)
-    (left, name_a), (right, name_b), kinds = await asyncio.gather(
-        _side(request, me, building_id, a), _side(request, me, building_id, b), types(request))
-    return {"a": {"id": a, "name": name_a}, "b": {"id": b, "name": name_b}, **overlay.compare(left, right, kinds)}
+    (left, name_a), (right, name_b), kinds, makes = await asyncio.gather(
+        _side(request, me, building_id, a), _side(request, me, building_id, b), types(request), products(request))
+    return {"a": {"id": a, "name": name_a}, "b": {"id": b, "name": name_b}, **overlay.compare(left, right, kinds, makes)}
 
 
 @router.get("/variants/{variant_id}/spec", tags=["variants"],
@@ -382,7 +392,7 @@ async def apply(variant_id: UUID, request: Request, me: Identity = Depends(curre
                 continue
             r = await _assets(request, "POST", "/assets", json={
                 "type_id": d["type_id"], "floor_id": d["floor_id"], "x": d["x"], "y": d["y"], "angle": d.get("angle") or 0,
-                "inventory_no": d["inventory_no"], "note": d.get("note") or ""})
+                "product_id": d.get("product_id"), "inventory_no": d["inventory_no"], "note": d.get("note") or ""})
         else:
             version = versions.get(o.asset_id, o.base_version)
             if version is None:

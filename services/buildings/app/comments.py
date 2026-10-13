@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import delete, func, insert, select, update
 from twin_chassis import Identity, Problem, current_identity, emit, forbid_guests, uuid7
 from twin_chassis.access import decide
@@ -58,6 +58,10 @@ async def _scopes(request: Request, me: Identity, *, reading: bool = True) -> di
     return await request.app.state.rights.scopes(request, me, reading=reading)
 
 
+# a comment of spaces only says nothing
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+
+
 class CommentIn(BaseModel):
     building_id: UUID
     target_kind: Kind
@@ -65,11 +69,11 @@ class CommentIn(BaseModel):
     floor_id: UUID | None = Field(default=None, description="Для точки")
     x: float | None = None
     y: float | None = None
-    body: str = Field(min_length=1, max_length=4000)
+    body: Text
 
 
 class CommentPatch(BaseModel):
-    body: str = Field(min_length=1, max_length=4000)
+    body: Text
     version: int
 
 

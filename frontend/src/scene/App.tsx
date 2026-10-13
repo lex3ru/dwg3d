@@ -29,8 +29,9 @@ import Dock from './dock/Dock'
 import StatusBar from './dock/StatusBar'
 import { useDockState } from './dock/useDockState'
 import ContextBar from './ui/ContextBar'
-import SceneTree, { type TreeObject } from './ui/SceneTree'
+import ProjectPanel, { type TreeObject } from './ui/ProjectPanel'
 import { catalogItem } from './furniture/catalog'
+import { SLAB, setCeilings } from './furniture/geom'
 import { catColor } from './ui/furniture/parts'
 import ModeMenu from './ui/ModeMenu'
 import { currentMode, MODES, type ModeDef } from './viewmodes'
@@ -124,6 +125,11 @@ export default function App() {
 
   const r = shown?.result
   const floors = useMemo(() => [...(r?.floors ?? [])].sort((a, b) => a.elevation! - b.elevation!), [r])
+  // the floors' ceilings, before anything is drawn: what hangs on a ceiling hangs under it (itemElev)
+  useMemo(() => {
+    const slab = Number((shown?.config?.building as { slab_thickness?: unknown } | undefined)?.slab_thickness ?? SLAB)
+    setCeilings(r?.floors ?? [], Number.isFinite(slab) ? slab : SLAB)
+  }, [r, shown?.config])
   const activeFloor = floors.find((f) => f.id === floor) ?? null
   const entranceFloor = useMemo(() => floors.find((f) => f.id === r?.entrances?.[0]?.floor)
     ?? floors.find((f) => f.elevation! >= -0.5) ?? floors[0] ?? null, [floors, r])
@@ -150,8 +156,8 @@ export default function App() {
   const projectId = shown?.project_id ?? job?.project_id ?? ''
   const { cx, cy, toPlan, planToGltf, loadPlan, loadGrid, clearCaches } = usePlans(shown, view)
   const {
-    layers, setLayers, kinds, rules, hiddenNow, setActiveLayer, showVariant, toggleLayer, setAllLayers,
-    layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
+    layers, setLayers, kinds, rules, hiddenNow, variantPick, setActiveLayer, showVariant, pickVariant, toggleLayer, setAllLayers,
+    targetLayer, layerFor, refuseLocked, syncLayers, lockLayer, showOnlyKinds, reloadLayers,
   } = useLayers(shown, projectId)
   const [comparing, setComparing] = useState(false)
   const { route, routeView, setRouteEnd, routeRoom, clearRoute } = useRoute({ setFloor, loadGrid, toPlan, planToGltf })
@@ -465,7 +471,7 @@ export default function App() {
     const l = layers.find((x) => x.id === id)
     if (!l) return
     if (!canEdit()) { alert(READ_ONLY); return }
-    if (l.locked) { alert(`Слой «${l.name}» заблокирован: снимите замок в дереве слева`); return }
+    if (l.locked) { alert(`Слой «${l.name}» заблокирован: снимите замок в легенде «На плане» слева`); return }
     if (rebuilding) { alert('Идёт перестроение модели: слои можно менять после него'); return }
     if (nav === 'walk') exitWalk()
     else if (nav === 'fly') setNav('orbit')
@@ -570,18 +576,23 @@ export default function App() {
     else setShapeSel(o.id)
   }
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
-    // «Объекты учёта» offers the whole catalog: what belongs to a system (a camera, a light) goes to that system's layer
-    <Catalog categories={editKind?.kind === 'furniture' ? null : editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
+    // a layer offers its own sections only: a camera or a light is placed in its system's layer, not from «Мебель и оборудование»
+    <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
-      locked={rebuilding} />
+      locked={rebuilding} layerOf={(c) => {
+        // a variant's layer is named by its variant: «Освещение · Перестановка»
+        const t = targetLayer(c), k = t && kinds.find((x) => x.kind === t.kind)
+        return t && { id: t.id, name: k && k.name !== t.name ? `${k.name} · ${t.name}` : t.name }
+      }}
+      onGoLayer={(id) => { setPlacing(null); showVariant(id); editLayerTo(id) }} />
   ) : r ? (
-    <SceneTree jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
+    <ProjectPanel jobId={jobId ?? ''} projectId={projectId} result={r} active={floor} selectedRoom={selRoom?.room.node ?? null}
       drawingSelected={drawingSel} onFloor={selectFloor} onRoom={(f, rm) => { setDrawingSel(false); focusRoom(f, rm) }} onOpenJob={openJob}
       onDrawing={() => { setSelRoom(null); setDrawingSel(true) }}
       onPlan={(fid) => { setFloor(fid); if (canEdit()) setEditor(true); else alert(READ_ONLY) }}
       onExport={(fmt) => saveDrawing(fmt, factObjects > 0)} onFloorSettings={() => setSettings('floors')}
-      layers={layers} kinds={kinds} hidden={hiddenNow} editLayer={editLayerId} editable={canEdit()}
-      onToggle={toggleLayer} onVariant={showVariant} onAll={setAllLayers}
+      layers={layers} kinds={kinds} hidden={hiddenNow} picked={variantPick} editLayer={editLayerId} editable={canEdit()}
+      onToggle={toggleLayer} onPickVariant={pickVariant} onAll={setAllLayers}
       onLock={(l, locked) => { if (locked && editLayerId === l.id) editLayerTo(null); lockLayer(l, locked) }} onEdit={editLayerTo}
       onAddLayer={addLayer} onCompare={() => setComparing(true)}
       objects={treeObjects} selectedObject={tool === 'furniture' ? furnSel : tool === 'shapes' ? shapeSel : null} onObject={onTreeObject} />
@@ -671,7 +682,7 @@ export default function App() {
         <div className="flex min-h-0 flex-1">
         {r && !presenting && (
           <Dock side="left" label="Проект" state={leftDock} tab={catalogOpen ? leftTab : 'tree'} onTab={(t) => setLeftTab(t as 'tree' | 'catalog')}
-            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree, hint: 'Этажи, помещения и слои объектов: видимость и редактирование' },
+            tabs={[{ id: 'tree', label: 'Здание', icon: ListTree, hint: 'Чертёж, что показано на плане — слои и вариант, помещения этажей' },
               ...(catalogOpen ? [{ id: 'catalog', label: 'Каталог', icon: BookOpen, hint: 'Позиции для расстановки: перетащить на план выбранного этажа' }] : [])]}>
             {leftContent}
           </Dock>

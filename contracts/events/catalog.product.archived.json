@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "catalog.product.archived",
+  "description": "Модель убрана из выбора; объекты этой модели остаются ею. subject — модель.",
+  "type": "object",
+  "required": [
+    "product_id",
+    "type_id",
+    "vendor",
+    "name",
+    "article",
+    "price",
+    "currency",
+    "active"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "type_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Производитель; пусто, если не важен"
+    },
+    "name": {
+      "type": "string",
+      "description": "Модель, как её называет производитель"
+    },
+    "article": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "price": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Цена по прайсу"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "active": {
+      "type": "boolean"
+    }
+  }
+}

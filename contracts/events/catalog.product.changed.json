@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "catalog.product.changed",
+  "description": "Изменена марка и модель типа: название, артикул, поставщик, цена. subject — модель; сервис объектов обновляет копию названия у объектов.",
+  "type": "object",
+  "required": [
+    "product_id",
+    "type_id",
+    "vendor",
+    "name",
+    "article",
+    "price",
+    "currency",
+    "active"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "type_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Производитель; пусто, если не важен"
+    },
+    "name": {
+      "type": "string",
+      "description": "Модель, как её называет производитель"
+    },
+    "article": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "price": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Цена по прайсу"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "active": {
+      "type": "boolean"
+    }
+  }
+}

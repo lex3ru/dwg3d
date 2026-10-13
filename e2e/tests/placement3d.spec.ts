@@ -38,7 +38,7 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  await page.locator('li', { hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
+  await page.getByRole('listitem', { name: 'Мебель и оборудование' }).getByRole('button', { name: 'Редактировать слой' }).click()
   await expect(page.getByText('Кресло посетителя')).toBeVisible()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
@@ -64,7 +64,7 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  await page.locator('li', { hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
+  await page.getByRole('listitem', { name: 'Мебель и оборудование' }).getByRole('button', { name: 'Редактировать слой' }).click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
   await drop(8.5, 4, `КР-${stamp}`)
@@ -120,7 +120,7 @@ test('a type is dragged from the catalog onto the floor and becomes an object; t
   expect(dxf).toContain(`${stamp}-02`)
 
   // a layer locked against a slip of the hand stays locked for this viewer after a reload
-  const assetsLayer = page.locator('li', { hasText: 'Объекты учёта' }).first()
+  const assetsLayer = page.getByRole('listitem', { name: 'Мебель и оборудование' })
   await assetsLayer.getByRole('button', { name: 'Блокировка' }).click()
   await expect(assetsLayer.getByRole('button', { name: 'Редактировать слой' })).toBeDisabled()
   await page.reload()

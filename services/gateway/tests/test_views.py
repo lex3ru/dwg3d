@@ -133,6 +133,18 @@ async def test_room_sheet_is_a_pdf(signed_in):
     assert r.content.startswith(b"%PDF") and "attachment" in r.headers["content-disposition"]
 
 
+async def test_room_sheet_takes_names_as_text(signed_in, world):
+    """Names with «<», «>» and «&» are text in the sheet: neither a failure nor markup reportlab would act on."""
+    # the image of the old sheet: reportlab opened the file named in it
+    evil = '<img src="/etc/passwd"/> Рога & Копыта'
+    world.answers[("GET", f"/api/buildings/v1/buildings/{B}")] = {"id": B, "name": evil}
+    world.answers[("GET", f"/api/buildings/v1/rooms/{R1}")] = {"id": R1, "name": "Кабинет <1>", "number": "101",
+                                                               "floor_id": F, "building_id": B}
+    world.answers[("POST", "/api/people/v1/people/batch-get")] = {"items": [{"id": P, "full_name": "Иван <b>Иванов"}]}
+    r = await signed_in.get(f"/api/reports/rooms/{R1}/sheet.pdf")
+    assert r.status_code == 200 and r.content.startswith(b"%PDF")
+
+
 async def test_drawing_with_objects_goes_through_import(signed_in, world):
     r = await signed_in.post(f"/api/reports/buildings/{B}/drawing", json={"drawing_id": D, "format": "dxf"})
     assert r.status_code == 200 and r.content.startswith(b"0\nSECTION") and r.headers["x-objects-drawn"] == "1"

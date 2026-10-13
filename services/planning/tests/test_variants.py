@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from twin_chassis.events import envelope
 
-from .conftest import API, BUILDING, CHAIR, DESK, FLOOR
+from .conftest import API, BUILDING, CHAIR, DELTA, DESK, FLOOR
 
 
 async def test_a_variant_from_making_to_applying(client, app, tokens, world):
@@ -118,3 +118,24 @@ async def test_a_guest_by_a_link_has_no_variants(client, app, tokens, world):
         assert (r.status_code, r.json()["code"]) == (403, "guest"), (method, path, r.text)
     # the variant is as it was
     assert (await client.get(f"{API}/variants/{v['id']}", headers=boss)).json()["name"] == "Перестановка"
+
+
+async def test_priced_by_the_make_and_model_when_named(client, tokens, world):
+    """A line of the specification per type and make and model: the product's list price when it is named, the
+    type's estimate when not; the object placed by applying the variant names its product."""
+    boss = tokens.bearer("boss")
+    world.put(DESK, "СТ-1", 1.0)                                                   # a desk of no named model
+    r = await client.post(f"{API}/variants", json={"building_id": BUILDING, "name": "Столы"}, headers=boss)
+    v = r.json()
+    edits = [{"kind": "place", "type_id": DESK, "product_id": DELTA, "floor_id": FLOOR, "x": 4.0, "y": 1.0, "inventory_no": "СТ-2"},
+             {"kind": "place", "type_id": DESK, "floor_id": FLOOR, "x": 6.0, "y": 1.0, "inventory_no": "СТ-3"}]
+    assert (await client.post(f"{API}/variants/{v['id']}/edits", json={"edits": edits}, headers=boss)).status_code == 200
+    cmp = (await client.get(f"{API}/compare", params={"building_id": BUILDING, "a": "fact", "b": v["id"]}, headers=boss)).json()
+    rows = {(i["name"], i["product"]): i for i in cmp["items"]}
+    assert rows[("Рабочий стол", "")] == {**rows[("Рабочий стол", "")], "qty_a": 1, "qty_b": 2, "price": 12000.0, "sum_b": 24000.0}
+    assert rows[("Рабочий стол", "Дельта СП-1600")] == {**rows[("Рабочий стол", "Дельта СП-1600")], "product_id": DELTA,
+                                                         "qty_a": 0, "qty_b": 1, "price": 15000.0, "sum_b": 15000.0}
+    assert cmp["totals"]["RUB"] == {"a": 12000.0, "b": 39000.0, "delta": 27000.0}
+    applied = (await client.post(f"{API}/variants/{v['id']}/apply", headers=boss)).json()
+    assert applied["status"] == "applied"
+    assert {a["inventory_no"]: a["product_name"] for a in world.assets.values()} == {"СТ-1": "", "СТ-2": "Дельта СП-1600", "СТ-3": ""}
