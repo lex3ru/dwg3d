@@ -5,6 +5,7 @@
  * The graph stays planar: a new wall is cut where it crosses or touches other
  * walls and those are cut there too, so walls only meet at nodes.
  */
+import { bulgeThrough, curveChain, curveJoints, curveThrough, fitCurves } from './arc.ts'
 import { newId, type Floor, type Wall } from './model.ts'
 import { EPS, dist, lerp, lineHit, perp, project, sub, unit, add, mul, type XY } from './vec.ts'
 
@@ -104,7 +105,7 @@ function resolve(d: Floor, p: XY, tol: number): string {
 }
 
 function sameRun(x: Wall, y: Wall): boolean {
-  return x.kind === y.kind && x.height === y.height && Math.abs(x.thickness - y.thickness) < EPS
+  return x.curve === y.curve && x.kind === y.kind && x.height === y.height && Math.abs(x.thickness - y.thickness) < EPS
 }
 
 /** Joins the two walls meeting at the node into one when they are in line and alike. */
@@ -146,6 +147,10 @@ function mergeNodes(d: Floor, from: string, into: string): void {
     d.walls[id] = w.a === from ? { ...w, a: into } : { ...w, b: into }
   }
   if (from in d.nodes && wallsAt(d, from).length === 0) delete d.nodes[from]
+  if (Object.values(d.curves ?? {}).some(c => c.a === from || c.b === from)) {
+    d.curves = Object.fromEntries(Object.entries(d.curves!).map(([id, c]) =>
+      [id, { ...c, a: c.a === from ? into : c.a, b: c.b === from ? into : c.b }]))
+  }
 }
 
 // ------------------------------------------------------------ operations
@@ -212,7 +217,13 @@ export function addChain(f: Floor, points: XY[], props: Omit<Wall, 'a' | 'b'>, c
 export function removeWall(f: Floor, id: string): Floor {
   if (!(id in f.walls)) return f
   const d = draft(f)
-  dropWall(d, id)
+  const curve = f.walls[id].curve
+  if (curve) {
+    // a face of a curved wall goes with the whole wall
+    for (const w of Object.keys(f.walls)) if (f.walls[w].curve === curve && w in d.walls) dropWall(d, w)
+    d.curves = { ...d.curves }
+    delete d.curves[curve]
+  } else dropWall(d, id)
   return d
 }
 
@@ -221,10 +232,17 @@ export function moveNode(f: Floor, id: string, p: XY, join = false, tol = JOIN_T
   if (!(id in f.nodes)) return f
   const d = draft(f)
   d.nodes[id] = p
-  if (join) {
+  // a node inside a curved wall bends it through where it is put
+  const bent = curveThrough(d, id)
+  const chain = bent ? curveChain(d, bent) : null
+  if (bent && chain && !curveJoints(d, chain).length) {
+    const c = d.curves![bent]
+    d.curves = { ...d.curves, [bent]: { ...c, bulge: bulgeThrough(d.nodes[c.a], d.nodes[c.b], p) } }
+  } else if (join) {
     const other = Object.keys(d.nodes).find(n => n !== id && dist(d.nodes[n], p) <= tol)
     if (other) mergeNodes(d, id, other)
   }
+  fitCurves(d)
   return d
 }
 
@@ -233,8 +251,10 @@ export function moveWall(f: Floor, id: string, delta: XY): Floor {
   const w = f.walls[id]
   if (!w) return f
   const d = draft(f)
-  d.nodes[w.a] = add(d.nodes[w.a], delta)
-  d.nodes[w.b] = add(d.nodes[w.b], delta)
+  // a face of a curved wall moves the whole wall
+  const nodes = w.curve ? new Set(Object.values(f.walls).filter(x => x.curve === w.curve).flatMap(x => [x.a, x.b])) : [w.a, w.b]
+  for (const n of nodes) d.nodes[n] = add(d.nodes[n], delta)
+  fitCurves(d)
   return d
 }
 
@@ -259,7 +279,9 @@ export function setWallLength(f: Floor, id: string, length: number, keep: 'a' | 
 export function setWall(f: Floor, id: string, patch: Partial<Pick<Wall, 'thickness' | 'height' | 'kind'>>): Floor {
   if (!(id in f.walls)) return f
   const d = draft(f)
-  d.walls[id] = { ...d.walls[id], ...patch }
+  // the faces of a curved wall are one wall
+  const curve = f.walls[id].curve
+  for (const w of curve ? Object.keys(f.walls).filter(x => f.walls[x].curve === curve) : [id]) d.walls[w] = { ...d.walls[w], ...patch }
   return d
 }
 

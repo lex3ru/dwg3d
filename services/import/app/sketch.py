@@ -98,7 +98,9 @@ def _floor(v, path: str) -> dict:
             "a": _str(_obj(x, p).get("a"), f"{p}.a", 64), "b": _str(x.get("b"), f"{p}.b", 64),
             "thickness": _num(x.get("thickness"), f"{p}.thickness", 0.01),
             "height": None if x.get("height") is None else _num(x.get("height"), f"{p}.height", 0.1),
-            "kind": _one(x.get("kind"), f"{p}.kind", WALL_KINDS)}),
+            "kind": _one(x.get("kind"), f"{p}.kind", WALL_KINDS),
+            # a face of a curved wall (the faces are walls; the curve only keeps them on their arc in the editor)
+            **({} if x.get("curve") is None else {"curve": _str(x.get("curve"), f"{p}.curve", 64)})}),
         "openings": _map(o.get("openings"), f"{path}.openings", lambda x, p: {
             "wall": _str(_obj(x, p).get("wall"), f"{p}.wall", 64),
             "kind": _one(x.get("kind"), f"{p}.kind", OPENING_KINDS),
@@ -129,6 +131,10 @@ def _floor(v, path: str) -> dict:
             "hidden": u.get("hidden") is True}
     else:
         f["underlay"] = None
+    f["curves"] = {} if o.get("curves") is None else _map(o.get("curves"), f"{path}.curves", lambda x, p: {
+        "a": _str(_obj(x, p).get("a"), f"{p}.a", 64), "b": _str(x.get("b"), f"{p}.b", 64),
+        "bulge": _num(x.get("bulge"), f"{p}.bulge"),
+        "segments": int(round(_num(x.get("segments"), f"{p}.segments", 2)))})
     if o.get("source") is not None:                             # the sheet of the drawing the floor was taken from
         src, p = _obj(o["source"], f"{path}.source"), f"{path}.source"
         bbox = src.get("bbox")
@@ -144,6 +150,12 @@ def _floor(v, path: str) -> dict:
             _fail(f"{path}.walls.{wid}", "конец стены ссылается на несуществующий узел")
         if w["a"] == w["b"]:
             _fail(f"{path}.walls.{wid}", "стена начинается и кончается в одном узле")
+    for cid, c in f["curves"].items():
+        if c["a"] not in f["nodes"] or c["b"] not in f["nodes"]:
+            _fail(f"{path}.curves.{cid}", "конец дуги ссылается на несуществующий узел")
+    for wid, w in f["walls"].items():
+        if "curve" in w and w["curve"] not in f["curves"]:
+            _fail(f"{path}.walls.{wid}.curve", "стена ссылается на несуществующую дугу")
     for oid, op in f["openings"].items():
         if op["wall"] not in f["walls"]:
             _fail(f"{path}.openings.{oid}", "проём ссылается на несуществующую стену")

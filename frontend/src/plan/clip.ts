@@ -4,7 +4,8 @@
  * floor or another. A piece put down joins the walls it meets, as walls drawn
  * there would.
  */
-import { addWall, draft, ends, JOIN_TOL, removeWall, wallAt } from './graph.ts'
+import { fitCurves } from './arc.ts'
+import { addWall, draft, ends, JOIN_TOL, nodeAt, removeWall, wallAt } from './graph.ts'
 import type { Floor, Opening, RoomLabel, Wall } from './model.ts'
 import { newId } from './model.ts'
 import { addOpening } from './openings.ts'
@@ -17,6 +18,8 @@ export interface Piece {
   /** each opening by where its middle is and its wall's direction there */
   openings: { at: XY; props: Omit<Opening, 'wall' | 'at'> }[]
   rooms: RoomLabel[]
+  /** the curved walls all of whose faces are in the piece, by their ends */
+  curves: { id: string; a: XY; b: XY; bulge: number; segments: number }[]
   /** the middle of the piece, to put it down by, and its width and depth */
   center: XY
   size: XY
@@ -30,8 +33,12 @@ export function takePiece(f: Floor, wallIds: string[]): Piece | null {
   const walls = ids.map(id => {
     const w = f.walls[id]
     const [a, b] = ends(f, w)
-    return { a, b, props: { thickness: w.thickness, height: w.height, kind: w.kind } }
+    return { a, b, props: { thickness: w.thickness, height: w.height, kind: w.kind, ...(w.curve ? { curve: w.curve } : {}) } }
   })
+  const curves = Object.entries(f.curves ?? {})
+    .filter(([id]) => Object.entries(f.walls).every(([w, x]) => x.curve !== id || set.has(w)) && ids.some(w => f.walls[w].curve === id))
+    .map(([id, c]) => ({ id, a: f.nodes[c.a], b: f.nodes[c.b], bulge: c.bulge, segments: c.segments }))
+  for (const w of walls) if (w.props.curve && !curves.some(c => c.id === w.props.curve)) delete w.props.curve
   const openings = Object.values(f.openings).filter(o => set.has(o.wall)).map(o => {
     const [a, b] = ends(f, f.walls[o.wall])
     return { at: lerp(a, b, o.at / dist(a, b)), props: { kind: o.kind, width: o.width, height: o.height, sill: o.sill, hinge: o.hinge, side: o.side } }
@@ -41,7 +48,7 @@ export function takePiece(f: Floor, wallIds: string[]): Piece | null {
   const ps = walls.flatMap(w => [w.a, w.b])
   const xs = ps.map(p => p[0]), ys = ps.map(p => p[1])
   return {
-    walls, openings, rooms,
+    walls, openings, rooms, curves,
     center: [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2],
     size: [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)],
   }
@@ -52,8 +59,21 @@ export function putPiece(f: Floor, piece: Piece, at: XY): { floor: Floor; walls:
   const shift: XY = [at[0] - piece.center[0], at[1] - piece.center[1]]
   let floor = f
   const made: string[] = []
+  // a curved wall put down is a new curve
+  const renamed: Record<string, string> = {}
+  if (piece.curves?.length) {
+    const d = draft(floor)
+    d.curves = { ...f.curves }
+    for (const c of piece.curves) {
+      const id = newId(d.curves)
+      renamed[c.id] = id
+      d.curves[id] = { a: '', b: '', bulge: c.bulge, segments: c.segments }
+    }
+    floor = d
+  }
   for (const w of piece.walls) {
-    const r = addWall(floor, add(w.a, shift), add(w.b, shift), w.props)
+    const props = w.props.curve ? { ...w.props, curve: renamed[w.props.curve] } : w.props
+    const r = addWall(floor, add(w.a, shift), add(w.b, shift), props)
     floor = r.floor
     made.push(...r.walls)
   }
@@ -65,6 +85,20 @@ export function putPiece(f: Floor, piece: Piece, at: XY): { floor: Floor; walls:
     const [a, b] = ends(floor, floor.walls[on.id])
     const r = addOpening(floor, on.id, on.t * dist(a, b), o.props.kind, o.props)
     if (r) { floor = r.floor; openings.push(r.id) }
+  }
+  if (piece.curves?.length) {
+    const d = draft(floor)
+    d.curves = { ...floor.curves }
+    for (const c of piece.curves) {
+      const id = renamed[c.id]
+      const a = nodeAt(d, add(c.a, shift)), b = nodeAt(d, add(c.b, shift))
+      if (a && b) d.curves[id] = { ...d.curves[id], a, b }
+      else {
+        delete d.curves[id]
+        for (const [w, x] of Object.entries(d.walls)) if (x.curve === id) { const { curve: _, ...rest } = x; d.walls[w] = rest }
+      }
+    }
+    floor = d
   }
   if (piece.rooms.length) {
     const d = draft(floor)
@@ -78,6 +112,7 @@ export function putPiece(f: Floor, piece: Piece, at: XY): { floor: Floor; walls:
 export function moveNodes(f: Floor, nodes: string[], delta: XY): Floor {
   const d = draft(f)
   for (const n of nodes) if (n in d.nodes) d.nodes[n] = add(d.nodes[n], delta)
+  fitCurves(d)
   return d
 }
 

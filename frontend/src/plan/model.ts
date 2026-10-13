@@ -27,6 +27,21 @@ export interface Wall {
   /** null: the floor's height */
   height: number | null
   kind: WallKind
+  /** a face of a curved wall: the curve it belongs to (Floor.curves) */
+  curve?: string
+}
+
+/**
+ * A curved wall: a chain of straight faces from node `a` to node `b` along an
+ * arc. The faces are walls like any other (rooms, outlines and the build take
+ * them as they are); the curve keeps them on the arc when its ends move.
+ */
+export interface Curve {
+  a: string
+  b: string
+  /** how far the middle of the arc stands off the chord a→b; positive: to the left of a→b */
+  bulge: number
+  segments: number
 }
 
 export interface Opening {
@@ -105,6 +120,7 @@ export interface Floor {
   underlay?: Underlay | null
   columns?: Record<string, Column>
   stairs?: Record<string, Stair>
+  curves?: Record<string, Curve>
   /** the sheet of the drawing the floor was taken from: its next build continues that floor of the building */
   source?: FloorSource | null
 }
@@ -210,6 +226,7 @@ function readFloor(v: unknown, path: string): Floor {
         thickness: num(w.thickness, `${p}.thickness`, 0.01),
         height: w.height === null ? null : num(w.height, `${p}.height`, 0.1),
         kind: oneOf(w.kind, `${p}.kind`, WALL_KINDS),
+        ...(w.curve != null ? { curve: str(w.curve, `${p}.curve`) } : {}),
       }
     }),
     openings: map(o.openings, `${path}.openings`, (x, p) => {
@@ -253,6 +270,13 @@ function readFloor(v: unknown, path: string): Floor {
       angle: num(c.angle, `${p}.angle`), steps: Math.round(num(c.steps, `${p}.steps`, 2)),
     }
   })
+  if (o.curves != null) f.curves = map(o.curves, `${path}.curves`, (x, p) => {
+    const c = obj(x, p)
+    return {
+      a: str(c.a, `${p}.a`), b: str(c.b, `${p}.b`), bulge: num(c.bulge, `${p}.bulge`),
+      segments: Math.round(num(c.segments, `${p}.segments`, 2)),
+    }
+  })
   if (o.source != null) {
     const r = obj(o.source, `${path}.source`), p = `${path}.source`
     if (!Array.isArray(r.bbox) || r.bbox.length !== 4) fail(`${p}.bbox`, 'ожидалось [x0, y0, x1, y1]')
@@ -267,6 +291,10 @@ function readFloor(v: unknown, path: string): Floor {
     if (!(w.a in f.nodes) || !(w.b in f.nodes)) fail(`${path}.walls.${id}`, 'конец стены ссылается на несуществующий узел')
     if (w.a === w.b) fail(`${path}.walls.${id}`, 'стена начинается и кончается в одном узле')
   }
+  for (const [id, c] of Object.entries(f.curves ?? {}))
+    if (!(c.a in f.nodes) || !(c.b in f.nodes)) fail(`${path}.curves.${id}`, 'конец дуги ссылается на несуществующий узел')
+  for (const [id, w] of Object.entries(f.walls))
+    if (w.curve !== undefined && !(w.curve in (f.curves ?? {}))) fail(`${path}.walls.${id}.curve`, 'стена ссылается на несуществующую дугу')
   for (const [id, d] of Object.entries(f.openings))
     if (!(d.wall in f.walls)) fail(`${path}.openings.${id}`, 'проём ссылается на несуществующую стену')
   return f

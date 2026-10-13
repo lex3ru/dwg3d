@@ -200,6 +200,48 @@ function twoPagePdf(): Buffer {
   return Buffer.from(pdf, 'latin1')
 }
 
+// A curved wall: a wall of the room bent into an arc outwards, kept as such on the server, and straight again.
+test('a wall bent into an arc enlarges its room and stays an arc', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1360, height: 900 })
+  await signIn(page, 'admin')
+  await page.getByRole('button', { name: 'Создать здание' }).click()
+  await page.getByLabel('Название').fill(`Дуга ${Date.now()}`)
+  await page.getByRole('button', { name: 'Создать', exact: true }).click()
+  await page.waitForURL(/#\/p\//)
+  await page.getByTestId('new-sketch').click()
+  await page.waitForURL(/#\/sketch\//)
+  const summary = page.getByTestId('sketch-summary')
+  for (const [x, y] of [[-6, -3], [0, -3], [0, 1], [-6, 1], [-6, -3]]) await click(page, x, y)
+  await expect(summary).toHaveText('Стен: 4 · помещений: 1 · 21,56 м²')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('v')
+
+  // the wall along the bottom: bent (to the left of its start — into the room), then the other way, outwards
+  await click(page, -3, -3)
+  await page.getByTestId('wall-bend').click()
+  await expect(page.getByTestId('curve-size')).toContainText('хорда 6,00 м')
+  await expect(page.getByTestId('curve-bulge')).toHaveValue('150')
+  await page.getByRole('button', { name: 'В другую сторону' }).click()
+  await expect(page.getByTestId('curve-bulge')).toHaveValue('-150')
+  const area = async () => Number((await summary.textContent())!.match(/([\d,]+) м²/)![1].replace(',', '.'))
+  // the room's summary is the floor's, shown when nothing is picked
+  await page.keyboard.press('Escape')
+  await expect.poll(area).toBeGreaterThan(27)
+  const bent = await summary.textContent()
+  // the arc is on the server: it comes back after a reload
+  await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
+  await page.reload()
+  await expect(summary).toHaveText(bent!)
+  await page.keyboard.press('v')
+  await click(page, -3, -4.5)
+  await expect(page.getByTestId('curve-size')).toBeVisible()
+  // and straight again
+  await page.getByTestId('curve-straighten').click()
+  await page.keyboard.press('Escape')
+  await expect(summary).toHaveText('Стен: 4 · помещений: 1 · 21,56 м²')
+})
+
 // An uploaded drawing turned into a drawn plan: the same drawing, its walls, openings and rooms in the 2D editor;
 // built from there, the building goes on with the same floors and rooms.
 test('an uploaded drawing turned into a plan keeps the building\'s floors and rooms', async ({ page }) => {

@@ -121,6 +121,16 @@ def test_broken_sketches_are_refused_with_the_place():
     with pytest.raises(SketchError, match="kind"):
         read_sketch(bad)
 
+    # a curved wall: its faces name the curve, the curve its ends
+    curved = copy.deepcopy(s)
+    curved["floors"][0]["curves"] = {"k": {"a": "a", "b": "e", "bulge": -0.5, "segments": 2}}
+    curved["floors"][0]["walls"]["w1"]["curve"] = "k"
+    f = read_sketch(curved)["floors"][0]
+    assert f["curves"]["k"]["bulge"] == -0.5 and f["walls"]["w1"]["curve"] == "k" and "curve" not in f["walls"]["w2"]
+    curved["floors"][0]["walls"]["w2"]["curve"] = "nope"
+    with pytest.raises(SketchError, match=r"walls\.w2\.curve"):
+        read_sketch(curved)
+
 
 # --------------------------------------------------------------- requests ---
 async def test_draw_save_build(client, app, worker, tokens):

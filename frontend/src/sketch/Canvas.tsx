@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   addChain, addOpening, addWall, allSides, ends, findRooms, moveNode, moveOpening, moveWall, offsetWall, wallsFromFaces, openingRect, outlines, removeOpening, removeWall, wallsAt,
-  moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox,
+  moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox, withCurves, arcCircle, arcLength,
   addColumn, addStair, columnRing, removeColumn, removeStair, setColumn, setStair, stairEnds, stairRing, stairTreads,
   type Floor, type Opening, type OpeningKind, type Piece, type Room, type Wall, type XY,
 } from '@/plan'
@@ -163,6 +163,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
   const drag = useRef<Drag | null>(null)
 
   const shown = preview ?? floor
+  // a face of a curved wall picked: the whole wall is
+  const picked = new Set(withCurves(shown, selectedWalls(selection)))
   const lines = useMemo(() => outlines(shown), [shown])
   const bearingLines = useMemo(() => outlines({ ...shown, walls: Object.fromEntries(Object.entries(shown.walls).filter(([, w]) => w.kind === 'bearing')) }), [shown])
   const sides = useMemo(() => allSides(shown, lines), [shown, lines])
@@ -481,7 +483,7 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
       if (typing(e)) return
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         // copy, cut, put down, duplicate — by the keys' places, whatever the layout
-        const picked = selectedWalls(selection)
+        const picked = withCurves(floor, selectedWalls(selection))
         const piece = picked.length ? takePiece(floor, picked) : null
         const put = (p: Piece, at: XY) => { const r = putPiece(floor, p, at); onCommit(r.floor); onSelect(wallsSelection(r.walls)) }
         if (e.code === 'KeyC' && piece) onCopy(piece)
@@ -639,10 +641,10 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
           <path className="wall partition"
             d={polyPath(Object.entries(shown.walls).filter(([id, w]) => w.kind === 'partition' && lines[id]).map(([id]) => lines[id].poly))} />
           <path className="wall" d={polyPath(Object.values(bearingLines).map(o => o.poly))} />
-          {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || selectedWalls(selection).includes(id))).map(id => (
+          {Object.keys(shown.walls).filter(id => lines[id] && (bad.has(id) || picked.has(id))).map(id => (
             // the wall's own body, without the junction it shares with the walls it meets
             <path key={id} d={polyPath([[lines[id].aMinus, lines[id].bMinus, lines[id].bPlus, lines[id].aPlus]])}
-              className={selectedWalls(selection).includes(id) ? 'wall sel' : 'wall bad'} />
+              className={picked.has(id) ? 'wall sel' : 'wall bad'} />
           ))}
           {Object.entries(shown.columns ?? {}).map(([id, c]) => (
             <path key={id} className={selection?.kind === 'column' && selection.id === id ? 'column sel' : 'column'} d={polyPath([columnRing(c)])} />
@@ -675,7 +677,8 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
             const s = sides[id], o = lines[id]
             if (!s || !o) return null
             const [a, b] = ends(shown, w).map(S)
-            if (dist(a, b) < 60) return null
+            // a face of a curved wall has no sizes of its own, unless an opening is in it (the arc's size is below)
+            if (dist(a, b) < 60 || (w.curve && !Object.values(shown.openings).some(op => op.wall === id))) return null
             const n = unit(perp(sub(b, a)))   // on screen: perp of a screen vector points to the plan's minus side
             const label = (p0: XY, p1: XY, value: number, sign: number, off: number, cls = 'dim', key?: string) => {
               const m0 = S(p0), m1 = S(p1)
@@ -707,6 +710,24 @@ export function Canvas({ floor, below, tool, drawBy, wallProps, openingProps, st
                 {face('plus', 1)}
                 {face('minus', -1)}
               </g>
+            )
+          })}
+          {Object.entries(shown.curves ?? {}).map(([id, c]) => {
+            // a curved wall: its length along the arc and its radius, off the middle of the arc, outside the bulge
+            if (!(c.a in shown.nodes) || !(c.b in shown.nodes)) return null
+            const A = shown.nodes[c.a], B = shown.nodes[c.b]
+            const circle = arcCircle(A, B, c.bulge)
+            if (!circle) return null
+            const top = add(lerp(A, B, 0.5), mul(perp(unit(sub(B, A))), c.bulge))
+            const out = unit(sub(top, circle.center))
+            const t = Object.values(shown.walls).find(w => w.curve === id)?.thickness ?? 0
+            const [x, y] = S(add(top, mul(out, t / 2)))
+            const [ox, oy] = [out[0] * 16, -out[1] * 16]
+            return (
+              <text key={`curve-${id}`} className="dim" x={x + ox} y={y + oy} textAnchor="middle" dominantBaseline="middle"
+                transform={`rotate(${along(S(A), S(B))} ${x + ox} ${y + oy})`}>
+                {cmText(arcLength(A, B, c.bulge))} · R {cmText(circle.r)}
+              </text>
             )
           })}
           {rooms.map(r => {

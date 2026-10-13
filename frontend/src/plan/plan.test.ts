@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { arcCircle, arcLength, arcPoints, bulgeThrough, curveChain } from './arc.ts'
 import { checkFloor } from './check.ts'
+import { bendWall } from './curves.ts'
 import { offsetPolyline, wallsFromFaces } from './faces.ts'
 import { moveNodes, nodesOf, putPiece, removeWalls, takePiece, wallsInBox } from './clip.ts'
 import { addColumn, addStair, stairEnds, stairTreads, stepsFor } from './elements.ts'
-import { addChain, addWall, bearingOnly, moveNode, removeWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
+import { addChain, addWall, bearingOnly, moveNode, removeWall, setWall, setWallLength, splitWall, wallLength, wallsAt } from './graph.ts'
 import { emptyFloor, emptySketch, parseSketch, WALL_DEFAULTS, type Floor } from './model.ts'
 import { addOpening, fitOpening, moveOpening, openingRect, setOpening } from './openings.ts'
 import { allSides, outlines } from './outline.ts'
@@ -461,5 +463,94 @@ describe('reading a sketch', () => {
     assert.throws(() => parseSketch({ ...s, floors: [{ ...f, walls: { ...f.walls, [w]: { ...f.walls[w], a: 'nope' } } }] }), /узел/)
     assert.throws(() => parseSketch({ ...s, floors: [{ ...f, walls: { ...f.walls, [w]: { ...f.walls[w], thickness: 0 } } }] }), /thickness/)
     assert.throws(() => parseSketch({ ...s, floors: [{ ...f, openings: { x: { wall: 'nope' } } }] }), /kind|wall/)
+  })
+})
+
+describe('curved walls', () => {
+  const bottom = (f: Floor) => Object.keys(f.walls).find(id => {
+    const [a, b] = [f.nodes[f.walls[id].a], f.nodes[f.walls[id].b]]
+    return a[1] === 0 && b[1] === 0
+  })!
+
+  test('the arc: points on its circle, and the bulge through a point', () => {
+    const pts = arcPoints([0, 0], [4, 0], 2, 4)
+    assert.equal(pts.length, 5)
+    for (const p of pts) near(Math.hypot(p[0] - 2, p[1]), 2)
+    nearXY(pts[2], [2, 2])
+    near(bulgeThrough([0, 0], [4, 0], [2, 2]), 2)
+    near(bulgeThrough([0, 0], [4, 0], [2, -1]), -1)
+    near(bulgeThrough([0, 0], [4, 0], arcPoints([0, 0], [4, 0], -0.7, 6)[1]), -0.7)
+    near(arcLength([0, 0], [4, 0], 2), 2 * Math.PI)
+  })
+
+  test('a wall bent outwards adds the segment of the circle to its room; its window stays in it', () => {
+    const f0 = box(4, 3, B)
+    const w = bottom(f0)
+    const area0 = findRooms(f0)[0].area
+    const plain = bendWall(f0, w, -1)!.floor
+    // R = 2.5; the room gains about the segment of the circle inside the arc's inner face (r = 2.375, cut 1.375 off
+    // its centre), less what the straight faces cut off
+    const inner = 2.375 ** 2 * Math.acos(1.375 / 2.375) - 1.375 * Math.sqrt(2.375 ** 2 - 1.375 ** 2)
+    const gained = findRooms(plain)[0].area - area0
+    assert.ok(gained > inner * 0.9 && gained < inner, `${gained} of ${inner}`)
+    // with a window the faces are as wide as it needs
+    const withWindow = addOpening(f0, w, 1, 'window', { width: 1.2 })!.floor
+    const r = bendWall(withWindow, w, -1)!
+    assert.equal(r.lost, 0)
+    const f = r.floor
+    const [id, curve] = Object.entries(f.curves!)[0]
+    const faces = Object.keys(f.walls).filter(x => f.walls[x].curve === id)
+    assert.equal(faces.length, curve.segments)
+    assert.ok(faces.every(x => f.walls[x].thickness === B.thickness))
+    const [op] = Object.values(f.openings)
+    assert.ok(faces.includes(op.wall))
+    assert.deepEqual(checkFloor(f).filter(i => i.level === 'error'), [])
+    // and straight again: one wall, the window back where it was
+    const s = bendWall(f, r.wall, 0)!.floor
+    assert.equal(s.curves, undefined)
+    assert.deepEqual(count(s), [4, 4])
+    const [back] = Object.values(s.openings)
+    near(back.at, 1, 0.1)
+    near(findRooms(s)[0].area, area0)
+  })
+
+  test('the faces follow the arc when its ends move; a node inside bends it', () => {
+    const f0 = box(4, 3, P)
+    const { floor: f } = bendWall(f0, bottom(f0), -1, 6)!
+    const c = Object.values(f.curves!)[0]
+    const moved = moveNode(f, c.b, [5, 0])
+    const circle = arcCircle(moved.nodes[c.a], moved.nodes[c.b], c.bulge)!
+    const id = Object.keys(f.curves!)[0]
+    const chain = curveChain(moved, id)!
+    assert.equal(chain.nodes.length, 7)
+    for (const n of chain.nodes) near(Math.hypot(moved.nodes[n][0] - circle.center[0], moved.nodes[n][1] - circle.center[1]), circle.r)
+    // dragging the middle node through (2.5, −2) makes the arc pass there
+    const bent = moveNode(moved, chain.nodes[3], [2.5, -2])
+    near(bent.curves![id].bulge, -2)
+    nearXY(bent.nodes[chain.nodes[3]], [2.5, -2])
+  })
+
+  test('a face removed takes the whole curved wall; the plan reads back with its curves', () => {
+    const f0 = box(4, 3, P)
+    const { floor: f, wall } = bendWall(f0, bottom(f0), 1)!
+    const s = { ...emptySketch(), floors: [f] }
+    assert.deepEqual(parseSketch(JSON.parse(JSON.stringify(s))).floors[0].curves, f.curves)
+    // the thickness of one face is the whole wall's
+    const thick = setWall(f, wall, { thickness: 0.3 })
+    assert.ok(Object.values(thick.walls).filter(w => w.curve).every(w => w.thickness === 0.3))
+    const gone = removeWall(f, wall)
+    assert.deepEqual(gone.curves, {})
+    assert.deepEqual(count(gone), [4, 3])
+  })
+
+  test('a curved wall copied is a curve of its own', () => {
+    const f0 = box(4, 3, P)
+    const { floor: f } = bendWall(f0, bottom(f0), -1, 4)!
+    const piece = takePiece(f, Object.keys(f.walls))!
+    assert.equal(piece.curves.length, 1)
+    const out = putPiece(f, piece, [piece.center[0] + 10, piece.center[1]]).floor
+    const ids = Object.keys(out.curves!)
+    assert.equal(ids.length, 2)
+    for (const id of ids) assert.equal(curveChain(out, id)!.walls.length, 4)
   })
 })

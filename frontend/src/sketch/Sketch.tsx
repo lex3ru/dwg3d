@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/select'
 import { Tip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
-  allSides, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
+  allSides, bendWall, curveOf, curvedLength, MAX_SEGMENTS, checkFloor, findRooms, labelRoom, moveNode, moveOpening, OPENING_DEFAULTS, removeOpening, removeWall, setOpening, setWall, setWallLength,
   WALL_DEFAULTS, wallLength, wallsAt,
   removeWalls, takePiece, removeColumn, removeStair, setColumn, setStair, STAIR_WIDTH, stepsFor, RISER,
   type Floor, type Opening, type OpeningKind, type Piece, type Sketch as Sketch_, type WallKind,
@@ -228,7 +228,8 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
           : sel?.kind === 'stair' ? <StairPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
           : sel?.kind === 'group' ? <GroupPanel floor={floor} walls={sel.walls} onCommit={commit} onCopy={setClipboard} onDone={() => setSelection(null)} />
           : sel?.kind === 'opening' ? <OpeningPanel key={sel.id} floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
-          : sel?.kind === 'wall' ? <WallPanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
+          : sel?.kind === 'wall' ? <WallPanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)}
+            onWall={id => setSelection({ kind: 'wall', id })} />
           : sel?.kind === 'node' ? <NodePanel floor={floor} id={sel.id} onCommit={commit} onDone={() => setSelection(null)} />
             : sel?.kind === 'room' ? <RoomPanel floor={floor} roomKey={sel.key} rooms={rooms} onCommit={commit} onKey={key => setSelection({ kind: 'room', key })} />
               : (
@@ -268,17 +269,63 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
   )
 }
 
-function WallPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; onCommit: (f: Floor) => void; onDone: () => void }) {
+function WallPanel({ floor, id, onCommit, onDone, onWall }: {
+  floor: Floor; id: string; onCommit: (f: Floor) => void; onDone: () => void; onWall: (id: string) => void
+}) {
   const w = floor.walls[id]
   // left and right looking from the wall's start to its end
   const sides = allSides(floor)[id]
+  const curve = curveOf(floor, id)
+  const [lost, setLost] = useState<{ wall: string; n: number } | null>(null)
+  const bend = (bulge: number, segments?: number) => {
+    const r = bendWall(floor, id, bulge, segments)
+    if (!r) return
+    onCommit(r.floor)
+    onWall(r.wall)
+    setLost({ wall: r.wall, n: r.lost })
+  }
+  const chord = curve ? dist(floor.nodes[curve.curve.a], floor.nodes[curve.curve.b]) : wallLength(floor, id)
   return (
     <>
-      <h2 className="text-sm font-semibold">Стена</h2>
-      <Row label="Длина по оси"><CmField value={wallLength(floor, id)} testid="wall-length" onApply={v => v && onCommit(setWallLength(floor, id, v))} /></Row>
+      <h2 className="text-sm font-semibold">{curve ? 'Дуговая стена' : 'Стена'}</h2>
+      {curve ? (
+        <>
+          <p className="text-sm tabular-nums" data-testid="curve-size">
+            По дуге {(curvedLength(floor, id)).toFixed(2).replace('.', ',')} м · хорда {chord.toFixed(2).replace('.', ',')} м
+          </p>
+          {curve.joints.length ? (
+            <p className="text-xs text-muted-foreground">К дуге примыкают другие стены — чтобы изменить её форму, сначала отсоедините их.</p>
+          ) : (
+            <>
+              <Row label="Стрела дуги"><CmField value={curve.curve.bulge} min={-1e9} testid="curve-bulge" onApply={v => v !== null && bend(v, curve.curve.segments)} /></Row>
+              <Row label="Граней">
+                <Select value={curve.chain.walls.length} data-testid="curve-segments" onChange={e => bend(curve.curve.bulge, Number(e.target.value))}>
+                  {Array.from({ length: MAX_SEGMENTS - 1 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n}</option>)}
+                </Select>
+              </Row>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" hint="Выгнуть дугу в другую сторону" onClick={() => bend(-curve.curve.bulge, curve.curve.segments)}>
+                  <FlipVertical2 className="size-4" />В другую сторону
+                </Button>
+                <Button size="sm" variant="outline" data-testid="curve-straighten" hint="Сделать стену снова прямой: проёмы останутся на своих местах" onClick={() => bend(0)}>
+                  Выпрямить
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Стрела — насколько середина дуги отходит от хорды: со знаком «минус» — вправо, если смотреть от начала стены. Дугу можно и перетащить за любой её внутренний угол.</p>
+            </>
+          )}
+        </>
+      ) : (
+        <Button size="sm" variant="outline" data-testid="wall-bend" hint="Сделать стену дугой, выгнутой влево от её начала на четверть длины; форму потом можно поправить"
+          onClick={() => bend(chord / 4)}>
+          Сделать дугой
+        </Button>
+      )}
+      {lost?.wall === id && lost.n > 0 && <p className="text-xs text-destructive" role="alert">Проёмов не поместилось на гранях: {lost.n}. Уменьшите число граней или верните (Ctrl+Z).</p>}
+      {!curve && <><Row label="Длина по оси"><CmField value={wallLength(floor, id)} testid="wall-length" onApply={v => v && onCommit(setWallLength(floor, id, v))} /></Row>
       {/* the faces: setting one moves the far end so that the face is that long */}
       <Row label="Грань слева"><CmField value={sides.plus} testid="wall-face-left" onApply={v => v && onCommit(setWallLength(floor, id, sides.center + v - sides.plus))} /></Row>
-      <Row label="Грань справа"><CmField value={sides.minus} testid="wall-face-right" onApply={v => v && onCommit(setWallLength(floor, id, sides.center + v - sides.minus))} /></Row>
+      <Row label="Грань справа"><CmField value={sides.minus} testid="wall-face-right" onApply={v => v && onCommit(setWallLength(floor, id, sides.center + v - sides.minus))} /></Row></>}
       <Row label="Толщина"><CmField value={w.thickness} testid="wall-thickness" onApply={v => v && onCommit(setWall(floor, id, { thickness: v }))} /></Row>
       <Row label="Высота"><CmField value={w.height} placeholder={`${Math.round(floor.height * 100)} — как этаж`} min={10} onApply={v => onCommit(setWall(floor, id, { height: v }))} /></Row>
       <Row label="Вид">
@@ -286,7 +333,7 @@ function WallPanel({ floor, id, onCommit, onDone }: { floor: Floor; id: string; 
           {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </Select>
       </Row>
-      <p className="text-xs text-muted-foreground">Длина меняется от начала стены: её конец сдвигается вместе с примыкающими стенами. Грани — «слева» и «справа», если смотреть от начала стены к концу.</p>
+      {!curve && <p className="text-xs text-muted-foreground">Длина меняется от начала стены: её конец сдвигается вместе с примыкающими стенами. Грани — «слева» и «справа», если смотреть от начала стены к концу.</p>}
       <Button size="sm" variant="outline" hint="Убрать стену; Delete делает то же, Ctrl+Z вернёт" onClick={() => { onCommit(removeWall(floor, id)); onDone() }}>
         <Trash2 className="size-4" />Удалить стену
       </Button>

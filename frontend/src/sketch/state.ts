@@ -124,7 +124,7 @@ export function useSketch(drawing: string): SketchState {
     const from = start === 'copy' ? top : start === 'bearing' ? bearingOnly(top) : null
     const f = emptyFloor(top.level + 1, {
       elevation: top.elevation + top.height, height: top.height,
-      ...(from ? { nodes: from.nodes, walls: from.walls, openings: from.openings, rooms: from.rooms } : {}),
+      ...(from ? { nodes: from.nodes, walls: from.walls, openings: from.openings, rooms: from.rooms, curves: from.curves } : {}),
     })
     push(s => ({ ...s, floors: [...s.floors, f] }))
     setFloorId(f.id)
