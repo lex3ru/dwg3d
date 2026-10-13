@@ -63,8 +63,13 @@ async def test_rights(client, tokens, building):
 
 async def test_invalid_data(client, tokens, building):
     admin = tokens.admin()
-    r = await client.post(f"{API}/buildings", json={"name": ""}, headers=admin)
-    assert r.status_code == 422 and r.json()["errors"][0]["field"] == "name"
+    for name in ("", "   "):                                     # spaces only are no name either
+        r = await client.post(f"{API}/buildings", json={"name": name}, headers=admin)
+        assert r.status_code == 422 and r.json()["errors"][0]["field"] == "name"
+    r = await client.post(f"{API}/buildings", json={"name": "  Корпус Г  "}, headers=admin)
+    assert r.status_code == 201 and r.json()["name"] == "Корпус Г"
+    blank = await client.patch(f"{API}/buildings/{building['id']}", json={"name": " ", "version": 1}, headers=admin)
+    assert blank.status_code == 422
     r = await client.put(f"{API}/buildings/{building['id']}/site", json={"lat": 95, "lon": 0}, headers=admin)
     assert r.status_code == 422 and r.json()["errors"][0]["field"] == "lat"
     assert (await client.get(f"{API}/buildings/not-an-id", headers=admin)).status_code == 422

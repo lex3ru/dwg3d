@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 
 const run = () => process.env.E2E_RUN!
+const tag = process.env.E2E_TAG ? `-${process.env.E2E_TAG}` : ''          // see global-setup.ts
 export const users = {
   // made anew for every run (global-setup.ts); their e-mail is <login>@example.test
   boss: { get login() { return `e2e-boss-${run()}` }, name: 'Проверка Начальник', password: () => process.env.E2E_BOSS_PASSWORD! },
@@ -10,9 +11,12 @@ export const users = {
   tenant: { get login() { return `e2e-tenant-${run()}` }, name: 'Проверка Жилец', password: () => process.env.E2E_TENANT_PASSWORD! },
   // the person assigned to a room in the scenario of stage 6
   worker: { get login() { return `e2e-worker-${run()}` }, name: 'Проверка Работник', password: () => process.env.E2E_WORKER_PASSWORD! },
+  // the role scenarios (scenarios.spec.ts): the keeper of a room, a person of another building
+  steward: { get login() { return `e2e-steward-${run()}` }, name: 'Проверка Завхоз', password: () => process.env.E2E_STEWARD_PASSWORD! },
+  outsider: { get login() { return `e2e-outsider-${run()}` }, name: 'Проверка Посторонний', password: () => process.env.E2E_OUTSIDER_PASSWORD! },
   clerk: { get login() { return `e2e-clerk-${run()}` }, name: 'Проверка Сотрудник', password: () => process.env.E2E_CLERK_PASSWORD! },
-  admin: { login: 'e2e-admin', name: 'Проверка Администратор', password: () => process.env.E2E_ADMIN_PASSWORD! },
-  user: { login: 'e2e-user', name: 'Проверка Пользователь', password: () => process.env.E2E_USER_PASSWORD! },
+  admin: { login: `e2e-admin${tag}`, name: 'Проверка Администратор', password: () => process.env.E2E_ADMIN_PASSWORD! },
+  user: { login: `e2e-user${tag}`, name: 'Проверка Пользователь', password: () => process.env.E2E_USER_PASSWORD! },
 }
 
 /** Open the app; it sends an unknown visitor to Keycloak — sign in there. */

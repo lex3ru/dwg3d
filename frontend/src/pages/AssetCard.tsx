@@ -96,9 +96,10 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {a.can.edit && a.state !== 'retired' ? (
-          <Tip label={a.can.manage ? 'Смена запишется в историю объекта; «списан» снимает его с учёта, вложенное останется в помещении без места'
-            : 'Смена запишется в историю объекта; списать может только администратор здания'}>
+        {a.can.edit && (a.state !== 'retired' || a.can.manage) ? (
+          <Tip label={a.state === 'retired' ? 'Объект списан; другое состояние вернёт его на учёт; возврат запишется в историю'
+            : a.can.manage ? 'Смена запишется в историю объекта; «списан» снимает его с учёта, вложенное останется в помещении без места'
+              : 'Смена запишется в историю объекта; списать может только администратор здания'}>
             <select className={select} value={a.state} aria-label="Состояние объекта" onChange={e => act(setAssetState(a, e.target.value as AssetState))}>
               {Object.entries(STATES).filter(([k]) => k !== 'retired' || a.can.manage).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
@@ -147,14 +148,14 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
           </Tip>
         ) : (a.responsible_id ? names[a.responsible_id] ?? '…' : 'не назначен')}</dd>
         {a.schema.map(p => (
-          <Field key={p.key + a.version} p={p} value={a.props[p.key]} editable={editable(p) && a.state !== 'retired'}
+          <Field key={p.key} p={p} value={a.props[p.key]} editable={editable(p) && a.state !== 'retired'}
             onSave={v => act(patchAsset(a, { props: { [p.key]: v } }))} />
         ))}
         {a.type_props.filter(p => p.value != null && p.value !== '').map(p => (
           <Field key={`type.${p.key}`} p={p} value={p.value} editable={false} onSave={() => {}} />
         ))}
         <dt className="text-muted-foreground">Примечание</dt>
-        <dd>{a.can.edit ? <Text key={a.version} value={a.note} label="Примечание" onSave={v => act(patchAsset(a, { note: v }))} /> : show(a.note)}</dd>
+        <dd>{a.can.edit ? <Text value={a.note} label="Примечание" onSave={v => act(patchAsset(a, { note: v }))} /> : show(a.note)}</dd>
       </dl>
       {a.children.length > 0 && (
         <div>
@@ -207,9 +208,12 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
                 )}
               </div>
               {Object.entries(h.changes).map(([field, [was, now]]) => {
-                const title = field.startsWith('props.') ? a.schema.find(p => `props.${p.key}` === field)?.title ?? field
+                const prop = field.startsWith('props.') ? a.schema.find(p => `props.${p.key}` === field) : undefined
+                const title = field.startsWith('props.') ? prop?.title ?? field
                   : field === 'state' ? 'Состояние' : field === 'note' ? 'Примечание' : null
-                const value = (v: unknown) => (field === 'state' ? STATES[v as AssetState] ?? show(v) : show(v))
+                // a choice in the words of its options, as the field shows it: «изношен», not «worn»
+                const value = (v: unknown) => (field === 'state' ? STATES[v as AssetState] ?? show(v)
+                  : prop?.options?.find(o => o.value === v)?.title ?? show(v))
                 return title && <div key={field} className="text-xs">{title}: {value(was)} → {value(now)}</div>
               })}
               {h.reason && <div className="text-xs">{h.reason}</div>}
@@ -225,21 +229,32 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
   )
 }
 
+/** What is in a field: the saved value, and as it changes — someone else's change comes in live — the new one;
+ * but not while the person is typing there: what they began stays until they leave the field. */
+function useDraft(saved: string) {
+  const [draft, setDraft] = useState(saved)
+  const [base, setBase] = useState(saved)
+  const [typing, setTyping] = useState(false)
+  if (saved !== base && !typing) { setBase(saved); setDraft(saved) }
+  return { draft, setDraft, focus: () => setTyping(true), blur: () => setTyping(false) }
+}
+
 function Text({ value, label, onSave }: { value: string; label: string; onSave: (v: string) => void }) {
-  const [v, setV] = useState(value)
+  const { draft, setDraft, focus, blur } = useDraft(value)
   return (
     <Tip label="Сохраняется по Enter или при уходе из поля; прежний текст останется в истории">
-      <Input className="h-8" value={v} aria-label={label} onChange={e => setV(e.target.value)}
-        onBlur={() => { if (v !== value) onSave(v) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+      <Input className="h-8" value={draft} aria-label={label} onChange={e => setDraft(e.target.value)} onFocus={focus}
+        onBlur={() => { blur(); if (draft !== value) onSave(draft) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
     </Tip>
   )
 }
 
 /** A property by the schema of the type: a field for whoever may edit it, text for the rest. */
 function Field({ p, value, editable, onSave }: { p: Prop; value: unknown; editable: boolean; onSave: (v: unknown) => void }) {
-  const [v, setV] = useState(value == null ? '' : String(value))
+  const { draft: v, setDraft: setV, focus, blur } = useDraft(value == null ? '' : String(value))
   const label = `${p.title}${p.unit ? `, ${p.unit}` : ''}`
   const commit = () => {
+    blur()
     const next = v === '' ? null : p.kind === 'number' ? Number(v.replace(',', '.')) : v
     if (next !== (value ?? null)) onSave(next)
   }
@@ -251,7 +266,7 @@ function Field({ p, value, editable, onSave }: { p: Prop; value: unknown; editab
   } else if (p.kind === 'choice') {
     control = (
       <Tip label={SAVED_AT_ONCE}>
-        <select className={`${select} max-w-full`} aria-label={label} value={v} onChange={e => onSave(e.target.value || null)}>
+        <select className={`${select} max-w-full`} aria-label={label} value={value == null ? '' : String(value)} onChange={e => onSave(e.target.value || null)}>
           <option value="">—</option>{p.options?.map(o => <option key={o.value} value={o.value}>{o.title}</option>)}
         </select>
       </Tip>
@@ -261,7 +276,7 @@ function Field({ p, value, editable, onSave }: { p: Prop; value: unknown; editab
       <Tip label={p.kind === 'number' ? 'Число, дробная часть — через запятую или точку; сохраняется по Enter или при уходе из поля'
         : 'Сохраняется по Enter или при уходе из поля; прежнее значение останется в истории'}>
         <Input className="h-8" aria-label={label} type={p.kind === 'date' ? 'date' : 'text'} inputMode={p.kind === 'number' ? 'decimal' : undefined}
-          value={v} onChange={e => setV(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+          value={v} onChange={e => setV(e.target.value)} onFocus={focus} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
       </Tip>
     )
   }

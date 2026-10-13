@@ -3,14 +3,13 @@
   "configurations": [
     {
       "name": "twin-web",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "sh",
       "runtimeArgs": [
-        "--prefix",
-        "frontend",
-        "run",
-        "dev"
+        "-c",
+        "cd frontend && exec npx vite --port \"${PORT:-5180}\" --strictPort"
       ],
-      "port": 5180
+      "port": 5180,
+      "autoPort": true
     },
     {
       "name": "api",

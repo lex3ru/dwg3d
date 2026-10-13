@@ -6,12 +6,13 @@ administrators, creating and deleting buildings for the system administrator (ri
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.concurrency import iterate_in_threadpool
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import delete, func, insert, select, update
 from twin_chassis import Identity, Problem, current_identity, emit, require_admin, uuid7
 
@@ -37,13 +38,17 @@ def iso(t) -> str | None:
 
 
 # ---------------------------------------------------------------- buildings ---
+# a name is what is left of it without the spaces around: one of spaces only is no name
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
 class BuildingIn(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: Name
     address: str = Field(default="", max_length=500)
 
 
 class BuildingPatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: Name | None = None
     address: str | None = Field(default=None, max_length=500)
     version: int = Field(description="Версия, которую видел клиент")
 
@@ -381,7 +386,7 @@ async def floor_plan(floor_id: UUID, request: Request, _: Identity = Depends(rea
 
 
 class FloorPatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: Name | None = None
     level: int | None = Field(default=None, ge=-10, le=300, description="Номер этажа: подвал — отрицательный")
     version: int
 
@@ -478,7 +483,7 @@ async def get_room(room_id: UUID, request: Request, _: Identity = Depends(reads_
 
 
 class RoomPatch(BaseModel):
-    name: str | None = Field(default=None, max_length=200)
+    name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
     number: str | None = Field(default=None, max_length=40)
     type: str | None = Field(default=None, max_length=40)
     version: int
