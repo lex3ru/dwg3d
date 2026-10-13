@@ -66,6 +66,7 @@ import { useRoute } from './hooks/useRoute'
 import { useShapes } from './hooks/useShapes'
 import { useExpiring } from './hooks/useExpiring'
 import { useUIContext } from './hooks/useUIContext'
+import { publishScene } from '../copilot/scene'
 
 const introKey = (id: string) => `dwg3d.intro.${id}`
 const seenIntro = (id: string | null) => {
@@ -244,6 +245,18 @@ export default function App() {
     drawing: shown?.id ?? null, floor, view: proj, selected: [furnSel, shapeSel].filter((x): x is string => !!x),
     room: selRoom?.room.id ?? null, proposal: proposal?.id ?? null, tool,
   })
+  // the shell's copilot pane learns what is on screen: the floor, the room clicked, the objects selected
+  useEffect(() => {
+    const sel = [furnSel, shapeSel].filter((x): x is string => !!x)
+      .map((id) => (id.includes('~') ? { kind: 'variant' as const, id } : { kind: 'asset' as const, id }))
+    publishScene({
+      drawing: shown?.id ?? null,
+      floor: activeFloor ? { candidate: activeFloor.id, id: (activeFloor as { floor_id?: string }).floor_id ?? null, name: activeFloor.name } : null,
+      room: selRoom ? { name: selRoom.room.name, area: selRoom.room.area } : null,
+      selected: sel, view: proj,
+    })
+    return () => publishScene(null)
+  }, [shown?.id, activeFloor, selRoom, furnSel, shapeSel, proj])
   // a command for another drawing waits until it opens
   useEffect(() => {
     const p = pendingCommand.current
