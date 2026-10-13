@@ -519,12 +519,13 @@ export type CopilotCheck = { ok: true; models?: string[]; answer?: string; promp
 export type CopilotChat = { id: string; building_id: string | null; title: string; created_at: string; updated_at: string }
 /** What the panel shows: the user's words, the answer, a tool used, a thing shown, a proposal, a failure. */
 export type CopilotItem =
-  | { type: 'user'; text: string } | { type: 'assistant'; text: string } | { type: 'tool'; name: string; error?: string }
+  | { type: 'user'; text: string } | { type: 'assistant'; text: string; /** said before tool calls: thinking aloud, not the answer */ interim?: boolean }
+  | { type: 'tool'; name: string; error?: string }
   | { type: 'ui'; href: string; label: string } | { type: 'proposal'; proposal: CopilotProposal }
   | { type: 'error'; message: string }
 /** Events of an answer as it streams (the items above plus the stream's own). */
 export type CopilotEvent = CopilotItem | { type: 'chat'; id: string; mode: 'read' | 'propose' }
-  | { type: 'text'; text: string } | { type: 'thinking'; chars: number } | { type: 'done' }
+  | { type: 'text'; text: string } | { type: 'interim' } | { type: 'thinking'; chars: number } | { type: 'done' }
 /** What the user has open, sent with every message so «здесь» and «это» mean something. */
 export type CopilotUI = {
   section?: string; building?: { id: string; name: string }; floor?: { id: string; name: string }

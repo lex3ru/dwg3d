@@ -23,7 +23,7 @@ async def test_a_question_answered_with_tools(client, tokens, world, model):
     me = tokens.bearer("user-1")
     chat = await new_chat(client, me)
     model.script = [
-        {"reasoning": 2, "calls": [("find_rooms", {"q": "214"})]},
+        {"reasoning": 2, "text": "Посмотрю помещение.", "calls": [("find_rooms", {"q": "214"})]},
         {"calls": [("room", {"room_id": ROOM214})]},
         {"text": f"В [Кабинете 214](room:{ROOM214}) ТО в октябре требует [Монитор 00123](asset:{MONITOR})."},
     ]
@@ -32,6 +32,8 @@ async def test_a_question_answered_with_tools(client, tokens, world, model):
     assert kinds[0] == "chat" and got[0]["id"] == chat and got[0]["mode"] == "read"
     assert kinds.count("thinking") >= 1
     assert [e["name"] for e in got if e["type"] == "tool"] == ["find_rooms", "room"]
+    # words said before a tool call are thinking aloud: the panel is told so, and keeps them apart afterwards
+    assert kinds.count("interim") == 1 and kinds.index("interim") < kinds.index("tool")
     assert "error" not in [k for e in got if e["type"] == "tool" for k in e]
     assert kinds[-1] == "done"
 
@@ -55,7 +57,8 @@ async def test_a_question_answered_with_tools(client, tokens, world, model):
     # the chat is kept and shown
     full = (await client.get(f"{API}/chats/{chat}", headers=me)).json()
     kinds = [i["type"] for i in full["items"]]
-    assert kinds == ["user", "tool", "tool", "assistant"]
+    assert kinds == ["user", "tool", "assistant", "tool", "assistant"]
+    assert full["items"][2]["interim"] is True and "interim" not in full["items"][4]
     assert full["items"][0]["text"] == "какое оборудование в кабинете 214 требует ТО в этом месяце"
     assert "Монитор 00123" in full["items"][-1]["text"]
     chats = (await client.get(f"{API}/chats", headers=me, params={"building_id": BUILDING})).json()["items"]

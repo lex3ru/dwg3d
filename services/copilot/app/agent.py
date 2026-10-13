@@ -1,6 +1,7 @@
 """Answering a message: the loop model → tools → model, as events for the panel.
 
-Events: {"type": "text", "text"} (deltas), {"type": "thinking", "chars"}, {"type": "tool", "name", "error"?},
+Events: {"type": "text", "text"} (deltas), {"type": "interim"} (the text so far was said before tool calls),
+{"type": "thinking", "chars"}, {"type": "tool", "name", "error"?},
 {"type": "ui", "href", "label"}, {"type": "proposal", "proposal"}, {"type": "error", "message"}, {"type": "done"}.
 The conversation is kept in `messages` as it goes; a turn that fails midway leaves what was said and the error."""
 from __future__ import annotations
@@ -71,7 +72,7 @@ def shown(history: list[dict]) -> list[dict]:
             for tc in m.get("tool_calls") or []:
                 out.append({"type": "tool", "name": tc["function"]["name"]})
             if m.get("content"):
-                out.append({"type": "assistant", "text": m["content"], "at": m.get("at")})
+                out.append({"type": "assistant", "text": m["content"], "at": m.get("at"), **({"interim": True} if m.get("tool_calls") else {})})
             if s.get("error"):
                 out.append({"type": "error", "message": s["error"]})
         elif m["role"] == "tool":
@@ -132,6 +133,8 @@ class Turn:
             history.append(msg)
             if not msg.get("tool_calls"):
                 break
+            if msg.get("content"):
+                yield {"type": "interim"}             # what was just said was thinking aloud before the tools, not the answer
             for tc in msg["tool_calls"]:
                 name = tc["function"]["name"]
                 ctx.events = []
