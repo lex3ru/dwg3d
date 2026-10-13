@@ -76,7 +76,7 @@ services:
       TWIN_OIDC_CLIENT_SECRET: ${TWIN_OIDC_CLIENT_SECRET:-dev-client-secret}
       TWIN_SECRET: ${TWIN_SECRET:-dev-secret-change-me}
       # the services requests are passed on to: name=address, comma-separated
-      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000,catalog=http://catalog:8000,assets=http://assets:8000,journal=http://journal:8000,planning=http://planning:8000}
+      TWIN_SERVICES: ${TWIN_SERVICES:-ping=http://ping:8000,import=http://import:8000,buildings=http://buildings:8000,access=http://access:8000,people=http://people:8000,catalog=http://catalog:8000,assets=http://assets:8000,journal=http://journal:8000,planning=http://planning:8000,copilot=http://copilot:8000}
 
   ping:
     <<: *service
@@ -183,7 +183,21 @@ services:
       <<: *service-env
       TWIN_DATABASE_URL: postgresql+psycopg://planning:${TWIN_DB_PASSWORD_PLANNING:-planning}@db:5432/planning
       # objects and the catalog are asked with the user's own token; nothing on its own behalf
-      TWIN_SERVICES: access=http://access:8000,assets=http://assets:8000,catalog=http://catalog:8000
+      TWIN_SERVICES: access=http://access:8000,assets=http://assets:8000,catalog=http://catalog:8000,buildings=http://buildings:8000
+
+  copilot:
+    <<: *service
+    build: {context: .., dockerfile: deploy/service.Dockerfile, args: {SERVICE: copilot}}
+    image: twin-copilot:${TWIN_TAG:-dev}
+    environment:
+      <<: *service-env
+      TWIN_DATABASE_URL: postgresql+psycopg://copilot:${TWIN_DB_PASSWORD_COPILOT:-copilot}@db:5432/copilot
+      # everything is asked with the user's own token; nothing on its own behalf
+      TWIN_SERVICES: access=http://access:8000,buildings=http://buildings:8000,import=http://import:8000,catalog=http://catalog:8000,assets=http://assets:8000,people=http://people:8000,journal=http://journal:8000,planning=http://planning:8000
+      # encrypts the model's API key at rest (docs/COPILOT.md)
+      TWIN_COPILOT_SECRET: ${TWIN_COPILOT_SECRET:-dev-copilot-secret}
+    # a model served on this machine (Ollama, vLLM) is reachable as http://host.docker.internal:<port>/v1
+    extra_hosts: ["host.docker.internal:host-gateway"]
 
   # -- new services go above this line (tools/new-service adds them) --
 
@@ -215,7 +229,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-twin}
       PGDATABASE: postgres
       # a database and a role of the same name for each; the password of <name> is TWIN_DB_PASSWORD_<NAME>
-      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people catalog assets journal planning}
+      TWIN_DATABASES: ${TWIN_DATABASES:-keycloak gateway ping import buildings access people catalog assets journal planning copilot}
       TWIN_DB_PASSWORD_KEYCLOAK: ${TWIN_DB_PASSWORD_KEYCLOAK:-keycloak}
       TWIN_DB_PASSWORD_GATEWAY: ${TWIN_DB_PASSWORD_GATEWAY:-gateway}
       TWIN_DB_PASSWORD_PING: ${TWIN_DB_PASSWORD_PING:-ping}
@@ -227,6 +241,7 @@ services:
       TWIN_DB_PASSWORD_ASSETS: ${TWIN_DB_PASSWORD_ASSETS:-assets}
       TWIN_DB_PASSWORD_JOURNAL: ${TWIN_DB_PASSWORD_JOURNAL:-journal}
       TWIN_DB_PASSWORD_PLANNING: ${TWIN_DB_PASSWORD_PLANNING:-planning}
+      TWIN_DB_PASSWORD_COPILOT: ${TWIN_DB_PASSWORD_COPILOT:-copilot}
       # -- passwords of new databases go above this line --
     volumes:
       - ./postgres/ensure-databases.sh:/ensure-databases.sh:ro

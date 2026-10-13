@@ -268,6 +268,68 @@ async def save_sketch(drawing_id: UUID, body: SketchSave, request: Request,
         return {"version": d.sketch_version + 1}
 
 
+@router.get("/drawings/{drawing_id}/sketch/check", tags=["sketches"],
+            summary="Проблемы нарисованного плана (ошибки и предупреждения по этажам) и его сводка")
+async def check_sketch(drawing_id: UUID, request: Request, me: Identity = Depends(reads_drawing)) -> dict:
+    """The server's twin of the editor's checks, with more: loose ends, rooms without a name, labels in no room,
+    numbers given twice, narrow doors, bearing walls off the ones below (app/sketch_check.py)."""
+    from . import sketch_check
+
+    _no_guest(me)
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        _sketch_only(d)
+    sketch = read_sketch(d.sketch)
+    issues = await asyncio.to_thread(sketch_check.check, sketch)
+    return {"version": d.sketch_version, "issues": issues, **sketch_check.issue_counts(issues),
+            "fixable": sorted({i["code"] for i in issues if i["code"] in sketch_check.FIXABLE}),
+            "summary": await asyncio.to_thread(sketch_check.summary, sketch)}
+
+
+class RepairIn(BaseModel):
+    codes: list[str] | None = Field(default=None, description="Какие проблемы чинить; пусто — все исправимые")
+    floor_id: str | None = None
+
+
+@router.post("/drawings/{drawing_id}/sketch/repair", tags=["sketches"],
+             summary="Починенный план (не сохраняется): что исправлено и что осталось; "
+                     "сохранить — PUT /sketch с version")
+async def repair_sketch(drawing_id: UUID, body: RepairIn, request: Request,
+                        _: Identity = Depends(manages_drawing)) -> dict:
+    from . import sketch_check
+
+    async with request.app.state.db.begin() as session:
+        d = await _drawing(session, drawing_id)
+        _sketch_only(d)
+    sketch = read_sketch(d.sketch)
+    fixed_sketch, fixed = await asyncio.to_thread(sketch_check.repair, sketch, body.codes, body.floor_id)
+    left = await asyncio.to_thread(sketch_check.check, fixed_sketch)
+    return {"version": d.sketch_version, "sketch": fixed_sketch, "fixed": fixed, "left": left,
+            **sketch_check.issue_counts(left)}
+
+
+class TemplateIn(BaseModel):
+    template: str = Field(description="corridor | rooms_row | open_space")
+    params: dict | None = Field(default=None, description="Параметры шаблона (app/sketch_templates.py)")
+
+
+@router.post("/sketch-templates", tags=["sketches"],
+             summary="План по шаблону: коридор с помещениями, ряд помещений, открытое пространство (не сохраняется)")
+async def sketch_from_template(body: TemplateIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    """The plan as the editor opens it, with its summary and check; to keep it: POST /sketches, then PUT …/sketch."""
+    from . import sketch_check, sketch_templates
+
+    _no_guest(me)
+    try:
+        sketch, made = sketch_templates.make(body.template, body.params)
+        sketch = read_sketch(sketch)
+    except (sketch_templates.TemplateError, SketchError) as ex:
+        raise Problem(422, "invalid", f"План по шаблону не получился: {ex}") from ex
+    issues = await asyncio.to_thread(sketch_check.check, sketch)
+    return {"sketch": json.loads(json.dumps(sketch)), "made": made, "issues": issues,
+            **sketch_check.issue_counts(issues), "summary": await asyncio.to_thread(sketch_check.summary, sketch)}
+
+
 @router.post("/drawings/{drawing_id}/to-sketch", tags=["sketches"],
              summary="Перевести загруженный чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы "
                      "его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются")

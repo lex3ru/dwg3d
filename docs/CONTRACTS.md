@@ -236,6 +236,9 @@
 | `POST /drawings/{id}/underlays`, `GET /drawings/{id}/underlays/{name}` | картинка-подложка нарисованного плана (PNG, JPEG, WebP до 20 МБ) | запись — manage; чтение — кто видит план |
 | `POST /drawings/{id}/to-sketch` | загруженный чертёж с готовой сборкой → нарисованный план из неё, тот же чертёж; его сборки дают те же листы, этажи и помещения здания продолжаются | manage чертежа |
 | `GET` / `PUT /drawings/{id}/sketch` | нарисованный план и номер сохранения; сохранение поверх чужого — `409 conflict` с текущим номером | чтение — кто видит план; запись — manage |
+| `GET /drawings/{id}/sketch/check` | проблемы нарисованного плана (ошибки редактора и больше: свободные концы, помещения без названия, повторы номеров, узкие двери, несущие не на несущих) и его сводка | кто видит план |
+| `POST /drawings/{id}/sketch/repair` | `{codes?, floor_id?}` → починенный план (не сохраняется), что исправлено и что осталось | manage |
+| `POST /sketch-templates` | `{template: corridor|rooms_row|open_space, params}` → план по шаблону (не сохраняется), сводка и проверка | вошедший |
 | `GET` / `PUT /drawings/{id}/config` | настройки разбора | manage |
 | `GET` / `PUT /drawings/{id}/edits` | правки 2D-редактора | manage |
 | `GET /drawings/{id}/source` | исходная геометрия для 2D-редактора | manage |
@@ -475,6 +478,10 @@ Asset {
 | `GET /compare?building_id=&a=fact\|<id>&b=fact\|<id>` | что добавлено, убрано, перемещено, изменено; спецификации обеих сторон с ценами каталога |
 | `GET /variants/{id}/spec` | спецификация варианта и разница с фактом |
 | `POST /variants/{id}/apply` | выполнить операции через `assets`; выполненные уходят из варианта, отклонённые остаются с причиной (`last_result`) |
+| `POST /placements` | `{building_id, type_id, floor_id|room_ids, count, where: along_wall|center|corners|grid, gap}` → места в помещениях (внутри контура, не на других предметах, не в дверях и проходах, не на перегородках); ничего не ставит |
+| `POST /detectors` | `{building_id, type_id, floor_id|room_ids}` → по помещениям: есть, нужно (0,7·π·r² на извещатель), где добавить |
+| `GET /coverage?building_id=&floor_id=` | обзор камер: доля площади помещения в обзоре, где различимо лицо, слепые места |
+| `GET /checks?building_id=&floor_id=` | что стоит не так: в проходах и дверях, на перегородках, друг на друге, вне стен; пустые помещения; плохо просматриваемые; узкие двери |
 
 Первоначальные границы:
 
@@ -495,14 +502,20 @@ Asset {
 
 ## 10. Копилот (`copilot`) — этап 9
 
+Подробно — [COPILOT.md](COPILOT.md). Работает только запросами остальных сервисов с токеном
+пользователя; сам ничего не меняет — предлагает: изменения объектов вариантом в `planning`,
+остальное — собственным предложением, которое пользователь применяет кнопкой.
+
 | Запрос | Что делает |
 |---|---|
-| `GET` / `POST /chats`, `GET /chats/{id}` | беседы пользователя |
-| `POST /chats/{id}/messages` | сообщение; ответ потоком (SSE) |
-| `GET` / `PUT /settings` | адрес и модель внешнего ИИ — админ системы |
+| `GET /status` | `{enabled, model, used_today, daily_limit, can_propose}` — показывать ли помощника |
+| `GET` / `PUT /settings`, `POST /settings/check` | адрес, модель, ключ (назад не отдаётся), лимиты — админ системы; проверка связи |
+| `GET /chats?building_id=`, `POST /chats`, `GET` / `DELETE /chats/{id}` | беседы пользователя |
+| `POST /chats/{id}/messages` | `{text, ui}`; ответ потоком (SSE): `text`, `thinking`, `tool`, `proposal`, `ui`, `error`, `done` |
+| `GET /proposals?building_id=&status=`, `GET /proposals/{id}` | предложения копилота |
+| `POST /proposals/{id}/apply`, `POST /proposals/{id}/reject` | выполнить действия с токеном применяющего (админ здания); отклонить с причиной |
 
-Работает только через запросы остальных сервисов с токеном пользователя;
-изменения предлагает как вариант в `planning`, сам ничего не меняет.
+События: `copilot.proposal.created` / `.applied` / `.rejected` — `{proposal_id, chat_id, summary, actions}`.
 
 ## 11. Шлюз
 

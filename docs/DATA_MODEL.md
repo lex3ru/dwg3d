@@ -498,9 +498,13 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 
 ## 10. Копилот (`copilot`) и шлюз
 
-- copilot: **chats** (`id`, `user_sub`, `building_id`, `title`), **messages**
-  (`chat_id`, `role`, `content`, `tool_calls`, `at`), **settings** (адрес,
-  модель; ключ зашифрован).
+- copilot: **settings** (одна строка: адрес, модель, ключ — зашифрован ключом
+  `TWIN_COPILOT_SECRET`, лимит в день, шагов на вопрос, температура, `enabled`),
+  **chats** (`id`, `user_sub`, `building_id`, `title`, `created_at`, `updated_at`),
+  **messages** (`chat_id`, `n`, `role`, `content`, `tool_calls`, `tool_call_id`, `name`, `at`),
+  **usage** (`user_sub`, `day`, `requests`, `prompt_tokens`, `completion_tokens`),
+  **proposals** (`id`, `chat_id`, `user_sub`, `building_id`, `summary`, `actions`,
+  `status open|applied|rejected|stale`, `result`, `created_at`, `decided_at`, `decided_by`).
 - шлюз: **sessions** (`token_hash PK`, `user_sub`, зашифрованные токены
   Keycloak, `user_agent`, `created_at`, `last_seen_at`).
 

@@ -58,7 +58,7 @@ function menu(route: Route, me: Me, building: Building | null, editor: string | 
  * one is and the search on top, the section in the middle, the card of what is chosen on the right.
  * In the editor the menu folds to icons and the section takes the whole height.
  */
-export function Shell({ me, route, building, several, editor, crumbs, panel, onClosePanel, keepMain, children }: {
+export function Shell({ me, route, building, several, editor, crumbs, panel, onClosePanel, keepMain, side, children }: {
   me: Me; route: Route; building: Building | null
   /** more than one building is open to the user: the name on top leads to the list */
   several: boolean
@@ -67,6 +67,8 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
   crumbs: Crumb[]; panel?: ReactNode; onClosePanel?: () => void
   /** on a phone the card replaces the section — unless the section must stay (the plan) */
   keepMain?: boolean
+  /** the copilot's pane: a column to the right of everything, on every screen */
+  side?: ReactNode
   children: ReactNode
 }) {
   const { main, manage, system } = menu(route, me, building, editor)
@@ -125,6 +127,7 @@ export function Shell({ me, route, building, several, editor, crumbs, panel, onC
               <div className="px-4 pb-5">{panel}</div>
             </aside>
           )}
+          {side}
         </div>
         {/* in the editor too: on a phone the menu is hidden, and the tabs are the only way out */}
         <Tabs route={route} building={building} />

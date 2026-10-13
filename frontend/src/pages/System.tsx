@@ -5,6 +5,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { useEvents, useStreamConnected } from '../stream'
+import { CopilotSettings } from './CopilotSettings'
 
 const mark = (value: boolean | null) =>
   value === null ? <span className="text-muted-foreground">—</span>
@@ -61,6 +62,7 @@ export function System() {
         )}
       </div>
       <Delivery />
+      <CopilotSettings />
     </section>
   )
 }

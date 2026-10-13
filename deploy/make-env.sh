@@ -43,6 +43,8 @@ set_var TWIN_DB_PASSWORD_CATALOG "$(rand 16)"
 set_var TWIN_DB_PASSWORD_ASSETS "$(rand 16)"
 set_var TWIN_DB_PASSWORD_JOURNAL "$(rand 16)"
 set_var TWIN_DB_PASSWORD_PLANNING "$(rand 16)"
+set_var TWIN_DB_PASSWORD_COPILOT "$(rand 16)"
+set_var TWIN_COPILOT_SECRET "$(rand 32)"
 # -- passwords of new databases go above this line --
 set_var TWIN_SVC_SECRET_BUILDINGS "$(rand 24)"
 set_var TWIN_SVC_SECRET_ASSETS "$(rand 24)"

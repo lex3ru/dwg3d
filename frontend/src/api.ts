@@ -506,3 +506,89 @@ export const compareWithFact = (building: string, id: string) =>
 export const numberAdded = (id: string, op_id: string, inventory_no: string) =>
   api<unknown>(`${PLANNING}/variants/${id}/edits`, { method: 'POST', json: { edits: [{ kind: 'move', op_id, inventory_no }] } })
 export const applyVariant = (id: string) => api<Variant & { result: NonNullable<Variant['last_result']> }>(`${PLANNING}/variants/${id}/apply`, { method: 'POST' })
+
+// ---- stage 9: the copilot
+
+const COPILOT = '/api/copilot/v1'
+export type CopilotStatus = { enabled: boolean; model: string; daily_limit: number; used_today: number; can_propose: boolean }
+export type CopilotSettings = {
+  enabled: boolean; base_url: string; model: string; daily_limit: number; max_steps: number; temperature: number | null
+  context_tokens: number; api_key_set: boolean; api_key_hint: string
+}
+export type CopilotCheck = { ok: true; models?: string[]; answer?: string; prompt_tokens: number } | { ok: false; error: string }
+export type CopilotChat = { id: string; building_id: string | null; title: string; created_at: string; updated_at: string }
+/** What the panel shows: the user's words, the answer, a tool used, a thing shown, a proposal, a failure. */
+export type CopilotItem =
+  | { type: 'user'; text: string } | { type: 'assistant'; text: string } | { type: 'tool'; name: string; error?: string }
+  | { type: 'ui'; href: string; label: string } | { type: 'proposal'; proposal: CopilotProposal }
+  | { type: 'error'; message: string }
+/** Events of an answer as it streams (the items above plus the stream's own). */
+export type CopilotEvent = CopilotItem | { type: 'chat'; id: string; mode: 'read' | 'propose' }
+  | { type: 'text'; text: string } | { type: 'thinking'; chars: number } | { type: 'done' }
+/** What the user has open, sent with every message so «здесь» and «это» mean something. */
+export type CopilotUI = {
+  section?: string; building?: { id: string; name: string }; floor?: { id: string; name: string }
+  room?: { id: string; name: string }; asset?: { id: string; name?: string }; variant?: { id: string; name?: string }
+  drawing?: { id: string; name?: string }; selected?: { kind: string; id: string; name?: string }[]
+}
+
+/** null — the service is not there at all (the section is hidden then, as for a disabled model). */
+export const copilotStatus = (building?: string | null) =>
+  api<CopilotStatus>(`${COPILOT}/status${building ? `?building_id=${building}` : ''}`).catch(() => null)
+export const getCopilotSettings = () => api<CopilotSettings>(`${COPILOT}/settings`)
+export const putCopilotSettings = (change: Partial<CopilotSettings & { api_key: string }>) =>
+  api<CopilotSettings>(`${COPILOT}/settings`, { method: 'PUT', json: change })
+export const checkCopilot = (change: { base_url?: string; model?: string; api_key?: string }) =>
+  api<CopilotCheck>(`${COPILOT}/settings/check`, { method: 'POST', json: change })
+export const listCopilotChats = (building?: string | null) =>
+  api<{ items: CopilotChat[] }>(`${COPILOT}/chats${building ? `?building_id=${building}` : ''}`).then(r => r.items)
+export const createCopilotChat = (building_id: string | null) =>
+  api<CopilotChat>(`${COPILOT}/chats`, { method: 'POST', json: { building_id } })
+export const getCopilotChat = (id: string) => api<CopilotChat & { items: CopilotItem[] }>(`${COPILOT}/chats/${id}`)
+export const deleteCopilotChat = (id: string) => api<void>(`${COPILOT}/chats/${id}`, { method: 'DELETE' })
+
+/** Send a message and read the answer as it comes: `onEvent` for every event of the stream (SSE over a POST). */
+export async function askCopilot(chat: string, text: string, ui: CopilotUI, onEvent: (e: CopilotEvent) => void, signal?: AbortSignal) {
+  const response = await fetch(`${COPILOT}/chats/${chat}/messages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ui }), signal,
+  })
+  if (!response.ok || !response.body) {
+    let problem: { code?: string; detail?: string } = {}
+    try { problem = await response.json() } catch { /* not JSON */ }
+    throw new ApiError(response.status, problem.code ?? 'error', problem.detail ?? `Ошибка ${response.status}`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let at: number
+    while ((at = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, at)
+      buffer = buffer.slice(at + 2)
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('data:')) onEvent(JSON.parse(line.slice(5)) as CopilotEvent)
+      }
+    }
+  }
+}
+
+/** A proposal of the copilot: actions the user applies with a click, or a variant made in planning. */
+export type CopilotProposal = {
+  kind: 'proposal'; id: string; building_id: string | null; summary: string; status: 'open' | 'applied' | 'rejected' | 'stale'
+  count: number; labels: string[]; result: { done?: { label: string }[]; failed?: { label: string; status: number; detail: string } | null; reason?: string } | null
+  sketch: { drawing_id: string; version: number } | null
+  /** the drawn plan an applied proposal made */
+  drawing_id?: string | null
+} | { kind: 'variant'; variant_id: string; name: string; summary: string; building_id: string; counts: Record<string, number> }
+export type ProposalAction = { label: string; kind?: 'sketch'; drawing_id?: string; version?: number; sketch?: unknown
+  service?: string; method?: string; path?: string; body?: unknown }
+export const getProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }> & { actions: ProposalAction[] }>(`${COPILOT}/proposals/${id}`)
+export const applyProposal = (id: string) => api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply`, { method: 'POST' })
+/** The editor of the drawn plan applied the proposal's plan itself: only mark it. */
+export const markProposalApplied = (id: string) =>
+  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/apply?by=editor`, { method: 'POST' })
+export const rejectProposal = (id: string, reason: string) =>
+  api<Extract<CopilotProposal, { kind: 'proposal' }>>(`${COPILOT}/proposals/${id}/reject`, { method: 'POST', json: { reason } })

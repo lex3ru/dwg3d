@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "copilot.proposal.applied",
+  "description": "Предложение копилота применено пользователем. subject — предложение.",
+  "type": "object",
+  "required": [
+    "proposal_id",
+    "chat_id",
+    "summary",
+    "actions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "proposal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "chat_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "actions": {
+      "type": "integer"
+    }
+  }
+}
