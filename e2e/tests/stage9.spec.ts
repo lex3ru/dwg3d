@@ -150,6 +150,22 @@ test('the copilot answers from the user\'s data, links into it, remembers the ta
     return [s.version, Object.keys(s.sketch.floors[0].walls).sort().join()]
   }, { timeout: 10_000 }).toEqual([v0 + 2, 'p,w1,w2,w3,w4,w5,w6'])
 
+  // a plan from a few words: a new drawn plan of the building, proposed, applied and opened in the editor
+  await page.goto(`/#/b/${building}`)
+  const pane5 = page.getByTestId('copilot')
+  await pane5.getByLabel('Вопрос помощнику').fill('нарисуй коридор с 6 кабинетами')
+  await pane5.getByLabel('Вопрос помощнику').press('Enter')
+  const drawn = pane5.getByTestId('copilot-proposal').last()
+  await expect(drawn).toHaveAttribute('data-status', 'open', { timeout: 20_000 })
+  await expect(drawn).toContainText('7 помещений')
+  await drawn.getByRole('button', { name: 'Применить' }).click()
+  await expect(drawn).toHaveAttribute('data-status', 'applied')
+  await drawn.getByRole('link', { name: 'Открыть план в редакторе' }).click()
+  await expect(page).toHaveURL(/#\/sketch\//)
+  await expect(page.getByText('Коридор', { exact: true })).toBeVisible({ timeout: 15_000 })
+  const drawings = (await (await page.request.get(`/api/import/v1/drawings?building_id=${building}`)).json()).items as { name: string; kind: string }[]
+  expect(drawings.some(d => d.kind === 'sketch' && d.name === 'Коридор с 6 кабинетами')).toBe(true)
+
   // switched off, the copilot is not on screen at all; the rest works
   await configure(page, false)
   await page.goto(`/#/b/${building}`)

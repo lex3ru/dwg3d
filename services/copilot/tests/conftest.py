@@ -18,7 +18,7 @@ from app.main import SERVICE, build
 API = "/api/copilot/v1"
 BUILDING, FLOOR, ROOM214, ROOM215, OTHER_BUILDING, OTHER_ROOM = (str(uuid4()) for _ in range(6))
 MONITOR, PRINTER = str(uuid4()), str(uuid4())
-PETROV, SKETCH = str(uuid4()), str(uuid4())
+PETROV, SKETCH, NEW_SKETCH = str(uuid4()), str(uuid4()), str(uuid4())
 TODAY = date.today()
 SOON, LATER, FAR = ((TODAY + timedelta(days=d)).isoformat() for d in (7, 12, 90))
 
@@ -43,6 +43,9 @@ class World:
         self.assignments: list[tuple[str, str]] = []
         self.sketch, self.sketch_version, self.repairs = {"version": 1, "floors": []}, 3, []
         self.rules: list[tuple[str, dict]] = []
+        self.templates: list[dict] = []
+        self.new_sketches: list[dict] = []
+        self.new_sketch_body: dict | None = None
         self.issues = [{"floor_id": "f1", "level": "error", "code": "short-wall", "message": "Стена короче 5 мм", "ids": ["s"]},
                        {"floor_id": "f1", "level": "warning", "code": "unnamed-room", "message": "Помещение без названия", "ids": [], "at": [1, 1]}]
         self.assets = {
@@ -70,6 +73,10 @@ class World:
             q = (request.url.params.get("q") or "").lower()
             items = [r for r in self.rooms.values() if q in r["number"].lower() or q in r["name"].lower()]
             return httpx.Response(200, json={"items": items, "next": None})
+        if path.endswith("/tree"):
+            return httpx.Response(200, json={"building": {"id": BUILDING, "name": "Корпус А", "address": "ул. Ленина, 1"},
+                                             "floors": [{"id": FLOOR, "name": "2 этаж", "level": 2, "rooms": [
+                                                 {**self.rooms[ROOM214]}, {**self.rooms[ROOM215]}]}]})
         if path.endswith("/rooms/batch-get"):
             return httpx.Response(200, json={"items": [self.rooms[i] for i in body["ids"] if i in self.rooms]})
         if "/buildings/v1/rooms/" in path:
@@ -84,7 +91,39 @@ class World:
                 r.update({k: v for k, v in body.items() if k in ("name", "number", "type")})
                 r["version"] += 1
             return httpx.Response(200, json=r)
+        if "/journal/v1/events" in path:
+            items = [{"id": "e1", "type": "assets.asset.state_changed", "time": f"{TODAY.isoformat()}T09:00:00Z", "actor": {"kind": "user", "id": "user-2", "person_id": PETROV},
+                      "subject": {"kind": "asset", "id": PRINTER}, "asset_id": PRINTER, "data": {"asset_id": PRINTER, "from": "in_use", "to": "faulty"}},
+                     {"id": "e2", "type": "assets.asset.moved", "time": f"{TODAY.isoformat()}T10:00:00Z", "actor": {"kind": "user", "id": "user-1"},
+                      "subject": {"kind": "asset", "id": MONITOR}, "asset_id": MONITOR, "data": {"asset_id": MONITOR, "from_room_id": ROOM215, "to_room_id": ROOM214}},
+                     {"id": "e3", "type": "buildings.comment.created", "time": f"{TODAY.isoformat()}T11:00:00Z", "actor": {"kind": "user", "id": "user-1"},
+                      "subject": {"kind": "comment", "id": "c1"}, "data": {}}]
+            self.asked_journal = dict(request.url.params)
+            return httpx.Response(200, json={"items": items, "next": None})
+        if path.endswith("/revisions") and request.method == "GET":
+            return httpx.Response(200, json={"items": [{"id": "rev-1", "drawing_id": SKETCH, "n": 2, "status": "draft", "summary": "2 новых"}]})
+        if "/revisions/" in path:
+            return httpx.Response(200, json={"id": "rev-1", "drawing_id": SKETCH, "n": 2, "status": "draft", "summary": "2 новых",
+                                             "differences": [{"kind": "new", "name": "Склад"}, {"kind": "same", "name": "Кабинет"}, {"kind": "retired", "name": "Архив"}],
+                                             "warnings": ["Правки 2D-редактора не перенесены: этаж «Подвал» не найден"]})
         if "/import/v1/" in path:
+            if path.endswith("/sketch-templates"):
+                self.templates.append(body)
+                if body.get("params", {}).get("rooms") == "много":
+                    return httpx.Response(422, json={"code": "invalid", "detail": "План по шаблону не получился: rooms: число помещений или список ширин"})
+                return httpx.Response(200, json={"sketch": {"version": 1, "floors": [{"id": "f1", "template": body["template"]}]},
+                                                 "made": {"template": body["template"], "length": 16, "depth": 12, "rooms": 4}, "issues": [], "errors": 0, "warnings": 0,
+                                                 "summary": {"floors": [{"id": "f1", "rooms": [{"name": f"Кабинет {n}", "number": str(n), "area": 18.0} for n in range(101, 105)]}]}})
+            if path.endswith("/sketches") and request.method == "POST":
+                if me.sub not in self.admins and not me.is_admin:
+                    return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+                self.new_sketches.append(body)
+                return httpx.Response(201, json={"id": NEW_SKETCH, "name": body["name"], "kind": "sketch"})
+            if path.endswith(f"/drawings/{NEW_SKETCH}/sketch"):
+                if request.method == "PUT":
+                    self.new_sketch_body = body
+                    return httpx.Response(200, json={"version": 2})
+                return httpx.Response(200, json={"sketch": {"version": 1, "floors": []}, "version": 1})
             if path.endswith("/drawings") and request.method == "GET":
                 return httpx.Response(200, json={"items": [{"id": SKETCH, "name": "План", "kind": "sketch", "status": "done"}]})
             if path.endswith("/sketch/check"):

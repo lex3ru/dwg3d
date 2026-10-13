@@ -208,6 +208,33 @@
         "title": "SketchSave",
         "type": "object"
       },
+      "TemplateIn": {
+        "properties": {
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Параметры шаблона (app/sketch_templates.py)",
+            "title": "Params"
+          },
+          "template": {
+            "description": "corridor | rooms_row | open_space",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template"
+        ],
+        "title": "TemplateIn",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1235,6 +1262,50 @@
           }
         },
         "summary": "Картинка-подложка нарисованного плана",
+        "tags": [
+          "sketches"
+        ]
+      }
+    },
+    "/api/import/v1/sketch-templates": {
+      "post": {
+        "description": "The plan as the editor opens it, with its summary and check; to keep it: POST /sketches, then PUT …/sketch.",
+        "operationId": "sketch_from_template_api_import_v1_sketch_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sketch From Template Api Import V1 Sketch Templates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "План по шаблону: коридор с помещениями, ряд помещений, открытое пространство (не сохраняется)",
         "tags": [
           "sketches"
         ]

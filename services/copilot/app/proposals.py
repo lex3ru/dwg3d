@@ -39,7 +39,8 @@ def as_json(row) -> dict:
             "status": m["status"], "result": m.get("result"), "created_at": _iso(m.get("created_at")), "decided_at": _iso(m.get("decided_at")),
             "decided_by": m.get("decided_by"), "count": len(acts),
             "labels": [a.get("label") for a in acts][:50],
-            "sketch": next(({"drawing_id": a["drawing_id"], "version": a["version"]} for a in acts if a.get("kind") == "sketch"), None)}
+            "sketch": next(({"drawing_id": a["drawing_id"], "version": a["version"]} for a in acts if a.get("kind") == "sketch"), None),
+            "drawing_id": next((d.get("drawing_id") for d in ((m.get("result") or {}).get("done") or []) if d.get("drawing_id")), None)}
 
 
 async def create(session: AsyncSession, *, chat_id: str, me: Identity, building_id: str | None, summary: str,
@@ -81,6 +82,19 @@ async def apply(session: AsyncSession, client: ServiceClient, row, me: Identity,
             if a.get("kind") == "sketch":
                 r = await client.request("PUT", "import", f"/drawings/{a['drawing_id']}/sketch", token=token,
                                          json={"sketch": a["sketch"], "version": a["version"]})
+            elif a.get("kind") == "sketch_new":
+                # a new drawn plan: the drawing first, then its plan over the empty one it starts with
+                r = await client.request("POST", "import", "/sketches", token=token,
+                                         json={"building_id": a["building_id"], "name": a["name"]})
+                if r.status_code < 300:
+                    made = r.json()
+                    v = await client.request("GET", "import", f"/drawings/{made['id']}/sketch", token=token)
+                    version = v.json().get("version", 0) if v.status_code == 200 else 0
+                    r = await client.request("PUT", "import", f"/drawings/{made['id']}/sketch", token=token,
+                                             json={"sketch": a["sketch"], "version": version})
+                    if r.status_code < 300:
+                        done.append({"index": i, "label": a.get("label"), "status": r.status_code, "drawing_id": made["id"]})
+                        continue
             else:
                 kw = {"json": a["body"]} if a.get("body") is not None else {}
                 r = await client.request(a["method"], a["service"], a["path"], token=token, **kw)

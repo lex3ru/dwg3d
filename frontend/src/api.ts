@@ -580,6 +580,8 @@ export type CopilotProposal = {
   kind: 'proposal'; id: string; building_id: string | null; summary: string; status: 'open' | 'applied' | 'rejected' | 'stale'
   count: number; labels: string[]; result: { done?: { label: string }[]; failed?: { label: string; status: number; detail: string } | null; reason?: string } | null
   sketch: { drawing_id: string; version: number } | null
+  /** the drawn plan an applied proposal made */
+  drawing_id?: string | null
 } | { kind: 'variant'; variant_id: string; name: string; summary: string; building_id: string; counts: Record<string, number> }
 export type ProposalAction = { label: string; kind?: 'sketch'; drawing_id?: string; version?: number; sketch?: unknown
   service?: string; method?: string; path?: string; body?: unknown }

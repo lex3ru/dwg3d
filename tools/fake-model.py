@@ -38,6 +38,12 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
                 return {"calls": [("propose_plan_fixes", {"drawing_id": data["drawing_id"]})]}
             parts = [f"{i['message']} ({', '.join(i['ids']) or 'этаж ' + str(i['floor_id'])})" for i in data["issues"][:10]]
             return {"text": f"Ошибок: {data['errors']}, предупреждений: {data['warnings']}. " + "; ".join(parts) + "."}
+        if isinstance(data, dict) and "rooms_total" in data:
+            b = data["building"]
+            return {"text": f"**{b.get('name')}**{', ' + b['address'] if b.get('address') else ''}: этажей {len(data['floors'])}, помещений {data['rooms_total']} "
+                            f"общей площадью {data['area_total']} м². Объектов учёта: {data['assets_total']}" + (f", без ответственного: {data['without_responsible']}" if data.get("without_responsible") else "") + "."}
+        if isinstance(data, dict) and "became_faulty" in data:
+            return {"text": f"За {data['days']} дн.: событий {data['events']}, стали неисправными {data['became_faulty']}, перемещений {data['moved']}, новых объектов {data['created']}."}
         if isinstance(data, dict) and "blocked" in data and "counts" in data:
             parts = [f"{b['name']}: {', '.join(b['problems'])}" for b in data["blocked"][:10]]
             empty = [e["name"] for e in data.get("empty", [])[:10]]
@@ -79,6 +85,15 @@ def plan(messages: list[dict], tools: list[dict]) -> dict:
         return {"calls": [("find_rooms", {"q": rename.group(1)[:40]})]}
     if number and "find_rooms" in names:
         return {"calls": [("find_rooms", {"q": number.group(1)})]}
+    if any(w in question for w in ("паспорт", "опиши здание", "расскажи о здании")) and "building_passport" in names:
+        return {"calls": [("building_passport", {})]}
+    if any(w in question for w in ("что произошло", "дайджест", "сводка журнала", "за неделю")) and "journal_digest" in names:
+        return {"calls": [("journal_digest", {"days": 7})]}
+    if "нарисуй" in question and "draw_plan" in names:
+        n = re.search(r"(\d+)\s*(кабинет|помещен|комнат)", question)
+        count = int(n.group(1)) if n else 4
+        return {"calls": [("draw_plan", {"template": "corridor", "params": {"rooms_top": (count + 1) // 2, "rooms_bottom": count // 2},
+                                         "name": f"Коридор с {count} кабинетами"})]}
     if "извещател" in question and "place_detectors" in names:
         floor_id = (re.search(r"этаж «[^»]*» \(id ([0-9a-f-]{36})\)", ui) or [None, None])[1]
         return {"calls": [("place_detectors", {"floor_id": floor_id} if floor_id else {})]}

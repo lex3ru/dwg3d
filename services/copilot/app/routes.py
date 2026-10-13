@@ -287,7 +287,7 @@ async def list_proposals(request: Request, building_id: UUID | None = None, stat
 @router.get("/proposals/{proposal_id}", summary="Предложение: действия и состояние (с планом, если он в нём)")
 async def get_proposal(proposal_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     row = await _proposal(request, proposal_id, me)
-    return {**props.as_json(row), "actions": list(row.actions or [])}
+    return {**props.as_json(row), "actions": [{k: v for k, v in a.items() if k != "sketch" or a.get("kind") == "sketch"} for a in row.actions or []]}
 
 
 @router.post("/proposals/{proposal_id}/apply", summary="Применить предложение: действия выполняются с токеном применяющего")

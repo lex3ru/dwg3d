@@ -15,6 +15,7 @@ import { hrefOf } from './links'
 import { Answer } from './render'
 
 const TOOL_LABEL: Record<string, string> = {
+  building_passport: 'паспорт здания', journal_digest: 'сводка журнала', revisions: 'ревизии', revision: 'ревизия', draw_plan: 'план по описанию',
   place_by_rules: 'расстановка по правилам', place_detectors: 'извещатели по площади', coverage: 'обзор камер', check_placement: 'проверка расстановки',
   drawings: 'чертежи', plan_summary: 'сводка плана', check_plan: 'проверка плана', propose_plan_fixes: 'предложение: починка плана',
   propose_variant: 'вариант расстановки', move_to_room: 'перенос в помещение', propose_rooms: 'предложение: помещения',
@@ -254,6 +255,7 @@ function ProposalCard({ proposal, building, canDecide, editor }: { proposal: Cop
         {state.count > 8 && <li>… всего {state.count}</li>}
       </ul>
       {state.result?.failed && <p className="mt-1 text-xs text-destructive">Остановилось на «{state.result.failed.label}»: {state.result.failed.detail}</p>}
+      {state.drawing_id && <a href={to.sketch(state.drawing_id)} className="mt-1 inline-block text-xs text-primary underline underline-offset-2">Открыть план в редакторе</a>}
       {state.result?.reason && <p className="mt-1 text-xs text-muted-foreground">Причина: {state.result.reason}</p>}
       {state.status === 'open' && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
