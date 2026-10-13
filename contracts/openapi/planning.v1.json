@@ -231,6 +231,19 @@
       },
       "PlacementIn": {
         "properties": {
+          "anchor": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "для front_of без объекта в учёте: {type_id, x, y, angle, floor_id} — например, стол, который только предлагается",
+            "title": "Anchor"
+          },
           "anchor_asset_id": {
             "anyOf": [
               {
@@ -247,6 +260,18 @@
             "format": "uuid",
             "title": "Building Id",
             "type": "string"
+          },
+          "companion_type_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "к каждому поставленному предмету — ещё один перед ним лицом к нему (кресло к каждому столу)",
+            "title": "Companion Type Id"
           },
           "count": {
             "default": 1,
@@ -289,6 +314,24 @@
               }
             ],
             "title": "Room Ids"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "enum": [
+                  "north",
+                  "south",
+                  "east",
+                  "west"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "для along_wall / corners: только стены этой стороны помещения",
+            "title": "Side"
           },
           "type_id": {
             "title": "Type Id",

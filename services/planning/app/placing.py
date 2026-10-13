@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon  # noqa: F401  (Point is used by rules.py too)
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 from shapely.validation import make_valid
@@ -153,21 +153,28 @@ def standing(assets: list[dict], types: dict[str, dict]) -> list[tuple[dict, Pol
 
 # -------------------------------------------------------------- placing ---
 class Fitter:
-    def __init__(self, room: Polygon, taken: list[Polygon], w: float, d: float, gap: float):
+    """Free places in a room: inside the outline, clear of the items standing there (with the gap between items) and
+    of the hard things — partitions, columns, door ways — which the item may touch but not cross (no gap: a cabinet
+    stands against a partition as it stands against a bearing wall)."""
+
+    def __init__(self, room: Polygon, items: list[Polygon], hard: list[Polygon], w: float, d: float, gap: float):
         self.room = room.buffer(0.02)
-        self.taken = [t for t in taken if t.intersects(self.room)]
+        self.items = [t for t in items if t.intersects(self.room)]
+        self.hard = [t for t in hard if t.intersects(self.room)]
         self.w, self.d, self.gap = w, d, gap
 
     def fits(self, at, angle: float) -> bool:
         fp = footprint(at, angle, self.w, self.d)
         if not self.room.contains(fp):
             return False
+        if any(fp.intersection(t).area > 1e-4 for t in self.hard):
+            return False
         grown = fp.buffer(self.gap / 2) if self.gap else fp
-        return not any(grown.intersection(t).area > 1e-4 for t in self.taken)
+        return not any(grown.intersection(t).area > 1e-4 for t in self.items)
 
     def take(self, at, angle: float) -> None:
         fp = footprint(at, angle, self.w, self.d)
-        self.taken.append(fp.buffer(self.gap / 2) if self.gap else fp)
+        self.items.append(fp.buffer(self.gap / 2) if self.gap else fp)
 
 
 def _frame(poly: Polygon) -> tuple[float, XY]:
@@ -179,7 +186,19 @@ def _frame(poly: Polygon) -> tuple[float, XY]:
     return math.degrees(math.atan2(by - ay, bx - ax)), (c.x, c.y)
 
 
-def _along_wall(fit: Fitter, room: Polygon, count: int, corners_only: bool = False) -> list[tuple[XY, float]]:
+SIDES = {"north": (0, 1), "south": (0, -1), "east": (1, 0), "west": (-1, 0)}
+
+
+def side_of(dx: float, dy: float) -> str:
+    """The side of the room a counter-clockwise edge lies on: its outward normal is to the right of the walk."""
+    nx, ny = dy, -dx
+    if abs(nx) >= abs(ny):
+        return "east" if nx > 0 else "west"
+    return "north" if ny > 0 else "south"
+
+
+def _along_wall(fit: Fitter, room: Polygon, count: int, corners_only: bool = False, side: str | None = None) -> list[tuple[XY, float]]:
+    """Backs to the walls: along each side of the room (or only the walls on `side`), or into its corners."""
     out: list[tuple[XY, float]] = []
     inset = room.buffer(-(fit.d / 2 + WALL_GAP), join_style=2)
     rings = [g for g in getattr(inset, "geoms", [inset]) if not g.is_empty]
@@ -193,6 +212,8 @@ def _along_wall(fit: Fitter, room: Polygon, count: int, corners_only: bool = Fal
             if length < 1e-6:
                 continue
             tx, ty = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+            if side and side_of(tx, ty) != side:
+                continue
             angle = facing(-ty, tx)
             first = max(fit.w / 2 - fit.d / 2, 0) + 0.005
             cands = [first] if corners_only else [first + k * (fit.w + fit.gap) for k in range(int((length - first + fit.w / 2) // (fit.w + fit.gap)) + 1)]
@@ -295,7 +316,8 @@ def _even(fit: Fitter, room: Polygon, count: int) -> list[tuple[XY, float]]:
 
 
 def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: dict[str, dict], t: dict,
-                  count: int, where: str, gap: float, anchor: dict | None = None) -> tuple[list[tuple[XY, float]], list[str]]:
+                  count: int, where: str, gap: float, anchor: dict | None = None,
+                  side: str | None = None) -> tuple[list[tuple[XY, float]], list[str]]:
     """Places for `count` items of type `t` in the room: ([(at, angle)], notes). A wall-mounted thing goes along the
     walls whatever is asked, never over a door or a window; `front_of` puts the items before the anchor object."""
     if where not in WHERE:
@@ -307,27 +329,28 @@ def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: di
     taken = [fp for _, fp, h in standing(floor_assets, types) if h == high or on_wall]
     solids, doors = obstacles(plan)
     notes = []
+    hard = solids + ([] if high else doors)
     if on_wall:
         if where != "along_wall":
             notes.append("настенный предмет: поставлен у стены")
         where = "along_wall"
-        taken = taken + openings(plan)
-    fit = Fitter(room, taken + solids + ([] if high else doors), w, d, max(gap, 0.0))
+        hard = hard + [o.buffer(0.3) for o in openings(plan)]         # clear of a door or a window, with a margin
+    fit = Fitter(room, taken, hard, w, d, max(gap, 0.0))
     if where == "front_of":
         if not anchor or anchor.get("x") is None:
             raise PlanError("front_of: нужен объект-опора (anchor) с местом на плане")
         places = _front_of(fit, room, anchor, types, count)
     elif where == "along_wall":
-        places = _along_wall(fit, room, count)
+        places = _along_wall(fit, room, count, side=side)
     elif where == "corners":
-        places = _along_wall(fit, room, count, corners_only=True)
+        places = _along_wall(fit, room, count, corners_only=True, side=side)
     elif high:
         places = _even(fit, room, count)                       # under the ceiling: spread over the whole room
     else:
         places = _grid(fit, room, count, from_center=where == "center")
     if len(places) < count:
         notes.append(f"поместилось {len(places)} из {count}: " + ("перед объектом-опорой нет места" if where == "front_of"
-                     else "в помещении нет места" + (" у стен" if where in ("along_wall", "corners") else "")))
+                     else "в помещении нет места" + ((f" у стены {side}" if side else " у стен") if where in ("along_wall", "corners") else "")))
     return places, notes
 
 

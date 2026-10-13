@@ -107,6 +107,9 @@ class Turn:
         note = prompt.ui_note(ui)
         user = {"role": "user", "content": f"{note}\n\n{text}", "shown": {"text": text}}
         await self._append(user)
+        if not history:                               # the first question names the conversation
+            async with self.app.state.db.begin() as session:
+                await session.execute(update(chats).where(chats.c.id == self.chat_id).values(title=text[:80]))
         history.append(user)
         ctx = tools.Ctx(self.app.state.client, self.me, self.token, self.mode, ui or {}, str(self.chat_id),
                         public_url=self.app.state.settings.public_url or "", db=self.app.state.db)

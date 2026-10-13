@@ -62,7 +62,7 @@ async def test_a_question_answered_with_tools(client, tokens, world, model):
     assert full["items"][0]["text"] == "какое оборудование в кабинете 214 требует ТО в этом месяце"
     assert "Монитор 00123" in full["items"][-1]["text"]
     chats = (await client.get(f"{API}/chats", headers=me, params={"building_id": BUILDING})).json()["items"]
-    assert [c["id"] for c in chats] == [chat]
+    assert [c["id"] for c in chats] == [chat] and chats[0]["title"].startswith("какое оборудование в кабинете 214")
 
     # usage: three requests to the model
     assert (await client.get(f"{API}/status", headers=me)).json()["used_today"] == 3

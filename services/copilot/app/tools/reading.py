@@ -443,12 +443,15 @@ async def room_geometry(ctx: Ctx, args: RoomGeometryArg) -> dict:
     plan = plan.get("plan") or {}
     openings = plan.get("openings") or []
 
-    def side_name(dx: float, dy: float) -> str:
+    def side_code(dx: float, dy: float) -> str:
         # the outward normal of a counter-clockwise ring's edge: to the right of the direction of walking
         nx, ny = dy, -dx
         if abs(nx) >= abs(ny):
-            return "восток (правая)" if nx > 0 else "запад (левая)"
-        return "север (верхняя)" if ny > 0 else "юг (нижняя)"
+            return "east" if nx > 0 else "west"
+        return "north" if ny > 0 else "south"
+
+    def side_name(dx: float, dy: float) -> str:
+        return {"east": "восток (правая)", "west": "запад (левая)", "north": "север (верхняя)", "south": "юг (нижняя)"}[side_code(dx, dy)]
 
     area2 = sum(ring[i][0] * ring[(i + 1) % len(ring)][1] - ring[(i + 1) % len(ring)][0] * ring[i][1] for i in range(len(ring)))
     if area2 < 0:
@@ -471,7 +474,7 @@ async def room_geometry(ctx: Ctx, args: RoomGeometryArg) -> dict:
             if math.dist(c, q) <= 0.35:
                 on_wall.append({"kind": o.get("kind"), "width": o.get("width"), "at_m_from_start": round(tt, 2), "center": [round(c[0], 2), round(c[1], 2)]})
         walls.append({"n": len(walls) + 1, "from": [round(a[0], 2), round(a[1], 2)], "to": [round(b[0], 2), round(b[1], 2)],
-                      "length": round(length, 2), "side": side_name(dx, dy), "openings": on_wall,
+                      "length": round(length, 2), "side": side_code(dx, dy), "side_name": side_name(dx, dy), "openings": on_wall,
                       "free": not on_wall})
     try:
         got = await ctx.get("assets", "/assets", room_id=args.room_id, limit=200)
