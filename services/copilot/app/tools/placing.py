@@ -17,20 +17,25 @@ class PlaceByRules(BaseModel):
     floor_id: str | None = Field(None, description="все помещения этажа (кроме коридоров, лестниц, санузлов, технических)")
     room_ids: list[str] | None = Field(None, max_length=100, description="или только эти помещения")
     count: int = Field(1, ge=1, le=200, description="сколько в каждом помещении")
-    where: Literal["along_wall", "center", "corners", "grid"] = Field("along_wall", description="вдоль стен спиной к ним, от центра, по углам, сеткой")
+    where: Literal["along_wall", "center", "corners", "grid", "front_of"] = Field("along_wall", description="along_wall — вдоль стен спиной к ним; corners — по углам; grid / center — рядами по помещению; front_of — перед объектом-опорой лицом к нему (кресла к столу)")
+    anchor_asset_id: str | None = Field(None, description="для front_of: id объекта, перед которым ставить (например, стола)")
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
     summary: str | None = Field(None, max_length=2000)
     then: Literal["return", "propose"] = Field("propose", description="return — только показать места; propose — сразу предложение")
 
 
-@tool("place_by_rules", """Расставить предметы типа по помещениям по правилам (считает код): внутри контура, не на других
-предметах, не в дверях и проходах, не на перегородках; вдоль стен, по углам, сеткой или от центра. Результат — предложение
-(или только места при then=return). Координаты сам не придумывай — этот инструмент их находит.""", kind="propose")
+@tool("place_by_rules", """Расставить предметы типа по правилам (считает код): внутри контура, не на других предметах, не в дверях
+и проходах, не на перегородках; настенное (экраны, доски) — только на стену и не над проёмами. Как обставлять кабинет:
+столы — along_wall (лучше у окна, спиной к стене); кресла к столу — where=front_of с anchor_asset_id стола (по одному
+вызову на стол); шкафы — along_wall или corners; стол для совещаний — center, стулья к нему — front_of; экран — на стену
+напротив столов. Сначала узнай room_geometry. Результат — предложение (или только места при then=return).""", kind="propose")
 async def place_by_rules(ctx: Ctx, args: PlaceByRules) -> dict:
     b = _building(ctx, None)
+    if args.where == "front_of" and not args.anchor_asset_id:
+        raise ToolError("front_of: укажите anchor_asset_id — объект, перед которым ставить")
     got = await ctx.call("POST", "planning", "/placements", json={
         "building_id": b, "type_id": args.type_id, "floor_id": args.floor_id, "room_ids": args.room_ids,
-        "count": args.count, "where": args.where, "gap": args.gap})
+        "count": args.count, "where": args.where, "gap": args.gap, "anchor_asset_id": args.anchor_asset_id})
     places = got.get("places", [])
     out = {"item": got.get("item"), "rooms": got.get("rooms"), "placed": len(places)}
     if args.then == "return" or not places:

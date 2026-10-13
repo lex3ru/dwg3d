@@ -80,14 +80,25 @@ class PlacementIn(BaseModel):
     floor_id: str | None = None
     room_ids: list[str] | None = Field(default=None, max_length=100)
     count: int = Field(1, ge=1, le=placing.MAX_ITEMS, description="сколько в каждом помещении")
-    where: Literal["along_wall", "center", "corners", "grid"] = "along_wall"
+    where: Literal["along_wall", "center", "corners", "grid", "front_of"] = "along_wall"
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
+    anchor_asset_id: str | None = Field(None, description="для front_of: объект, перед которым ставить (кресла к столу)")
 
 
 @router.post("/placements", summary="Места для предметов типа в помещениях: у стен, в углах, сеткой, от центра (ничего не ставит)")
 async def placements(body: PlacementIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
     await _manages(request, me, body.building_id)
     t = await _type(request, body.type_id)
+    anchor = None
+    if body.where == "front_of":
+        if not body.anchor_asset_id:
+            raise Problem(422, "invalid", "front_of: укажите anchor_asset_id")
+        r = await request.app.state.client.get("assets", f"/assets/{body.anchor_asset_id}", token=_token(request))
+        if r.status_code != 200:
+            raise Problem(404, "not_found", "Объект-опора не найден")
+        anchor = r.json()
+        if not body.room_ids and not body.floor_id:
+            body.room_ids = [anchor["room_id"]]
     scope = Scope(await _tree(request, body.building_id), body.floor_id, body.room_ids)
     all_types = await types(request)
     rooms_out, places = [], []
@@ -99,8 +110,10 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
                 continue
             if ids is None and (scope.room_type.get(r["id"]) or "other") in placing.NOT_FURNISHED:
                 continue
+            if anchor and r["id"] != anchor.get("room_id"):
+                continue
             try:
-                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap)
+                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap, anchor)
             except placing.PlanError as ex:
                 raise Problem(422, "invalid", str(ex)) from ex
             rooms_out.append({"room_id": r["id"], "name": r["name"], "floor_id": floor_id, "placed": len(got), "notes": notes})

@@ -81,3 +81,26 @@ async def test_only_the_administrator_asks(client, tokens, world):
     boss = tokens.bearer("boss")
     assert (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK})).status_code == 422
     assert (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": ["nope"]})).status_code == 404
+
+
+async def test_wall_mounted_things_avoid_openings_and_chairs_face_the_desk(client, tokens, world):
+    boss = tokens.bearer("boss")
+    SCREEN = "screen-type"
+    world.types[SCREEN] = {"id": SCREEN, "name": "Экран", "category_id": "o", "price": None, "currency": "RUB", "size": [1.2, 0.1, 0.7],
+                           "elevation": 1.5, "wall_mounted": True, "values": {}}
+    # asked for the centre, a screen still goes to a wall — and not over the door at x 2.55..3.45 of the bottom wall
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": SCREEN, "room_ids": [ROOM], "count": 1, "where": "center"})).json()
+    assert r["rooms"][0]["placed"] == 1 and "настенный" in r["rooms"][0]["notes"][0]
+    p = r["places"][0]
+    assert not (2.3 < p["x"] < 3.7 and p["y"] < 0.5)
+    assert p["y"] < 0.2 or p["y"] > 3.8 or p["x"] < 0.2 or p["x"] > 5.8
+    # chairs in front of a desk, looking at it
+    desk = world.put(DESK, "СТ-9", 3, 3.5)
+    world.touch(desk["id"], angle=0)                       # its front (sin a, −cos a) = (0, −1) points into the room
+    r = await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "count": 2, "where": "front_of", "anchor_asset_id": desk["id"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rooms"] and body["rooms"][0]["room_id"] == ROOM and body["rooms"][0]["placed"] == 2
+    for c in body["places"]:
+        assert c["angle"] == 180.0 and 2.4 < c["y"] < 3.2 and 2.0 < c["x"] < 4.0
+    assert (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "where": "front_of"})).status_code == 422

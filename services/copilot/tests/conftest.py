@@ -73,6 +73,10 @@ class World:
             q = (request.url.params.get("q") or "").lower()
             items = [r for r in self.rooms.values() if q in r["number"].lower() or q in r["name"].lower()]
             return httpx.Response(200, json={"items": items, "next": None})
+        if "/buildings/v1/floors/" in path and path.endswith("/plan"):
+            return httpx.Response(200, json={"floor": {"id": FLOOR}, "plan": {"openings": [
+                {"kind": "door", "width": 0.9, "center": [2.0, 0.0], "poly": [[1.55, -0.1], [2.45, -0.1], [2.45, 0.1], [1.55, 0.1]]},
+                {"kind": "window", "width": 1.5, "center": [2.5, 3.0], "poly": [[1.75, 2.9], [3.25, 2.9], [3.25, 3.1], [1.75, 3.1]]}]}})
         if path.endswith("/tree"):
             return httpx.Response(200, json={"building": {"id": BUILDING, "name": "Корпус А", "address": "ул. Ленина, 1"},
                                              "floors": [{"id": FLOOR, "name": "2 этаж", "level": 2, "rooms": [

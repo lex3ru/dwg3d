@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import API, BUILDING, FLOOR, ROOM214, configure
+from conftest import API, BUILDING, FLOOR, MONITOR, ROOM214, ROOM215, configure
 from test_chat import ask, new_chat
 
 UI = {"section": "plan", "building": {"id": BUILDING, "name": "Корпус А"}, "floor": {"id": FLOOR, "name": "2 этаж"}}
@@ -61,3 +61,23 @@ async def test_checks_and_rights(app, client, tokens, world, model):
     model.script = [{"calls": [("check_placement", {})]}, {"text": "."}]
     got = await ask(client, me, chat, "проверь", ui={"building": {"id": BUILDING, "name": "Корпус А"}})
     assert "Не задан этаж" in next(e["error"] for e in got if e["type"] == "tool")
+
+
+async def test_room_geometry_and_front_of(app, client, tokens, world, model):
+    await configure(client, tokens)
+    world.admins.add("user-1")
+    me = tokens.bearer("user-1")
+    chat = await new_chat(client, me)
+    model.script = [{"calls": [("room_geometry", {"room_id": ROOM215}),
+                               ("place_by_rules", {"type_id": "t-desk", "where": "front_of"}),
+                               ("place_by_rules", {"type_id": "t-desk", "where": "front_of", "anchor_asset_id": MONITOR, "count": 2, "then": "return"})]},
+                    {"text": "."}]
+    got = await ask(client, me, chat, "как устроена серверная?", ui=UI)
+    tools = [e for e in got if e["type"] == "tool"]
+    assert "error" not in tools[0] and "anchor_asset_id" in tools[1]["error"] and "error" not in tools[2]
+    geo = json.loads([m["content"] for m in model.requests[1]["body"]["messages"] if m["role"] == "tool"][0])
+    assert geo["size"] == [4.0, 3.0] and len(geo["walls"]) == 4
+    by_side = {w["side"]: w for w in geo["walls"]}
+    assert by_side["юг (нижняя)"]["openings"][0]["kind"] == "door" and by_side["север (верхняя)"]["openings"][0]["kind"] == "window"
+    assert by_side["запад (левая)"]["free"] and by_side["восток (правая)"]["free"]
+    assert world.rules[-1][1]["anchor_asset_id"] == MONITOR and world.rules[-1][1]["where"] == "front_of"

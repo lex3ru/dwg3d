@@ -420,3 +420,81 @@ async def show(ctx: Ctx, args: ShowArg) -> dict:
     cmd = {"href": href, "label": args.label or ""}
     ctx.events.append({"type": "ui", **cmd})
     return {"shown": cmd}
+
+
+# ------------------------------------------------------------- room geometry ---
+class RoomGeometryArg(BaseModel):
+    room_id: str = Field(description="id помещения")
+
+
+@tool("room_geometry", """Геометрия помещения для расстановки (считает код): габариты и площадь, стены по порядку обхода с длиной
+и направлением (к какой стороне света), какие проёмы — двери и окна — на каждой стене и где, что уже стоит и у какой стены.
+Зови перед расстановкой, чтобы не ставить экран над дверью и столы не окнами.""")
+async def room_geometry(ctx: Ctx, args: RoomGeometryArg) -> dict:
+    import math
+
+    r = await ctx.get("buildings", f"/rooms/{args.room_id}")
+    from ..geometry import outer_ring
+    ring = outer_ring(r.get("polygon"))
+    if len(ring) < 3:
+        raise ToolError("У помещения нет контура")
+    xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+    plan = await ctx.get("buildings", f"/floors/{r['floor_id']}/plan")
+    plan = plan.get("plan") or {}
+    openings = plan.get("openings") or []
+
+    def side_name(dx: float, dy: float) -> str:
+        # the outward normal of a counter-clockwise ring's edge: to the right of the direction of walking
+        nx, ny = dy, -dx
+        if abs(nx) >= abs(ny):
+            return "восток (правая)" if nx > 0 else "запад (левая)"
+        return "север (верхняя)" if ny > 0 else "юг (нижняя)"
+
+    area2 = sum(ring[i][0] * ring[(i + 1) % len(ring)][1] - ring[(i + 1) % len(ring)][0] * ring[i][1] for i in range(len(ring)))
+    if area2 < 0:
+        ring = ring[::-1]
+    walls = []
+    for i in range(len(ring)):
+        a, b = ring[i], ring[(i + 1) % len(ring)]
+        length = math.dist(a, b)
+        if length < 0.3:
+            continue
+        dx, dy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+        on_wall = []
+        for o in openings:
+            c = o.get("center")
+            if not c:
+                continue
+            # distance from the opening's centre to the wall segment
+            tt = max(0.0, min(length, (c[0] - a[0]) * dx + (c[1] - a[1]) * dy))
+            q = (a[0] + dx * tt, a[1] + dy * tt)
+            if math.dist(c, q) <= 0.35:
+                on_wall.append({"kind": o.get("kind"), "width": o.get("width"), "at_m_from_start": round(tt, 2), "center": [round(c[0], 2), round(c[1], 2)]})
+        walls.append({"n": len(walls) + 1, "from": [round(a[0], 2), round(a[1], 2)], "to": [round(b[0], 2), round(b[1], 2)],
+                      "length": round(length, 2), "side": side_name(dx, dy), "openings": on_wall,
+                      "free": not on_wall})
+    try:
+        got = await ctx.get("assets", "/assets", room_id=args.room_id, limit=200)
+        items = []
+        for a in got.get("items", []):
+            if a.get("x") is None:
+                continue
+            near = min(walls, key=lambda w: _dist_to_segment((a["x"], a["y"]), w["from"], w["to"])) if walls else None
+            items.append({"id": a["id"], "type": a.get("type_name"), "inventory_no": a.get("inventory_no"), "x": a["x"], "y": a["y"],
+                          "angle": a.get("angle"), "near_wall": near["n"] if near and _dist_to_segment((a["x"], a["y"]), near["from"], near["to"]) < 1.0 else None})
+    except ToolError as ex:
+        items = str(ex)
+    return {"room": {k: r.get(k) for k in ("id", "number", "name", "type", "area", "floor_id")},
+            "bbox": [round(min(xs), 2), round(min(ys), 2), round(max(xs), 2), round(max(ys), 2)],
+            "size": [round(max(xs) - min(xs), 2), round(max(ys) - min(ys), 2)],
+            "walls": walls, "objects": items,
+            "hint": "координаты — метры плана; угол объекта: 0 — лицом на юг (−y), 90 — на запад, 180 — на север (+y), 270 — на восток; "
+                    "предмет у стены стоит спиной к ней"}
+
+
+def _dist_to_segment(p, a, b) -> float:
+    import math
+    ax, ay, bx, by = a[0], a[1], b[0], b[1]
+    ln = (bx - ax) ** 2 + (by - ay) ** 2
+    tt = 0.0 if ln < 1e-12 else max(0.0, min(1.0, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / ln))
+    return math.dist(p, (ax + (bx - ax) * tt, ay + (by - ay) * tt))
