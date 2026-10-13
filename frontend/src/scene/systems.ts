@@ -1,6 +1,6 @@
 // The objects of engineering systems are objects too, but each system is a layer of its own in the editor:
 // the catalog's section says which (its ids are those of the catalog's starter data). Everything else is
-// in «Объекты учёта». Kept apart from compat.ts so that pages can use it without loading the editor.
+// in «Мебель и оборудование». Kept apart from compat.ts so that pages can use it without loading the editor.
 
 const LAYER = 'assets'
 const VARIANT = 'variant:'
@@ -21,7 +21,7 @@ export function layerOf(category: string | null | undefined): string {
   return x ? `${LAYER}.${x.kind}` : LAYER
 }
 
-/** the suffix of a layer of a system: `.cctv`, or '' for «Объекты учёта» */
+/** the suffix of a layer of a system: `.cctv`, or '' for «Мебель и оборудование» */
 export function systemOf(layer: string): string {
   const i = layer.indexOf('.')
   return i < 0 ? '' : layer.slice(i)

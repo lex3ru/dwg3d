@@ -44,7 +44,7 @@ test('a camera and a light are objects of their systems\' layers and show their 
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  for (const name of ['Объекты учёта', 'Видеонаблюдение', 'Освещение', 'Wi-Fi', 'Пожарная сигнализация']) {
+  for (const name of ['Мебель и оборудование', 'Видеонаблюдение', 'Освещение', 'Wi-Fi', 'Пожарная сигнализация']) {
     await expect(page.locator('li', { hasText: name }).first()).toBeVisible()
   }
   // «Инженерные системы»: the equipment with the view of the camera and the lit area of the lights
@@ -81,8 +81,8 @@ test('a camera and a light are placed from their systems\' layers and stay on sc
     await answerNumber(page, `К-${stamp}-${Math.random().toString(36).slice(2, 5)}`)
     await page.waitForTimeout(2500)
   }
-  // «Объекты учёта» do not offer a camera: the search names the layer it is placed in, and goes there
-  await page.locator('li', { hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
+  // «Мебель и оборудование» does not offer a camera: the search names the layer it is placed in, and goes there
+  await page.locator('li', { hasText: 'Мебель и оборудование' }).locator('button:has(svg.lucide-pencil)').click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
   await page.getByPlaceholder('Поиск в каталоге').fill('Камера купольная')
@@ -96,12 +96,12 @@ test('a camera and a light are placed from their systems\' layers and stay on sc
   await page.waitForTimeout(1500)
   const layer = (name: string) => page.locator('li', { hasText: name }).first()
   await expect(layer('Видеонаблюдение').locator('svg.lucide-chevron-right')).toHaveCount(1)       // it holds the camera
-  // «Инженерные системы» hides «Объекты учёта», not the camera
+  // «Инженерные системы» hides «Мебель и оборудование», not the camera
   await page.keyboard.press('3')
-  await expect(layer('Объекты учёта').locator('svg.lucide-eye-off')).toHaveCount(1)
+  await expect(layer('Мебель и оборудование').locator('svg.lucide-eye-off')).toHaveCount(1)
   await expect(layer('Видеонаблюдение').locator('svg.lucide-eye')).toHaveCount(1)
   // a light in the layer of lighting
-  await page.locator('li', { hasText: 'Освещение' }).first().locator('button:has(svg.lucide-pencil)').click()
+  await layer('Освещение').locator('button:has(svg.lucide-pencil)').click()
   await page.waitForTimeout(1500)
   await drop('Светильник светодиодный, панель 600×600', 3, 3)
   await expect.poll(async () => (await objects()).length, { timeout: 10_000 }).toBe(2)
@@ -127,7 +127,7 @@ test('a light found while a variant is edited goes to the variant\'s lighting, t
   await page.getByRole('button', { name: 'Создать вариант' }).click()
   await expect(page.getByTestId('variant-card').getByRole('heading', { name: 'Перестановка' })).toBeVisible()
   const vid = ((await (await page.request.get(`/api/planning/v1/variants?building_id=${building}`)).json()).items as { id: string }[])[0].id
-  // the variant chosen for «Объекты учёта» only (as the tree does): the lighting still shows the fact
+  // the variant chosen for «Мебель и оборудование» only (as the tree does): the lighting still shows the fact
   await page.evaluate(([b, v]) => localStorage.setItem(`dwg3d.layers.${b}`,
     JSON.stringify({ active: `variant:${v}`, variants: { assets: `variant:${v}` } })), [building, vid])
   await page.goto(`/#/p/${building}`)
@@ -135,7 +135,7 @@ test('a light found while a variant is edited goes to the variant\'s lighting, t
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30_000 })
   await page.locator('button').first().click()
   await page.getByText('План 1-го этажа').first().click()
-  await page.locator('li', { hasText: 'Перестановка' }).filter({ hasText: 'Объекты учёта' }).locator('button:has(svg.lucide-pencil)').click()
+  await page.locator('li', { hasText: 'Перестановка' }).filter({ hasText: 'Мебель и оборудование' }).locator('button:has(svg.lucide-pencil)').click()
   await page.getByRole('button', { name: '2D', exact: true }).click()
   await page.waitForTimeout(2500)
   await page.getByPlaceholder('Поиск в каталоге').fill('панель 600×600')

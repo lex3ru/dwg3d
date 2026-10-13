@@ -576,7 +576,7 @@ export default function App() {
     else setShapeSel(o.id)
   }
   const leftContent = leftTab === 'catalog' && catalogOpen ? (
-    // a layer offers its own sections only: a camera or a light is placed in its system's layer, not from «Объекты учёта»
+    // a layer offers its own sections only: a camera or a light is placed in its system's layer, not from «Мебель и оборудование»
     <Catalog categories={editKind?.categories ?? null} floor={furnFloor} placing={placing?.item ?? null}
       onPick={(c, drag) => { setFurnSel(null); setPlacing({ item: c, angle: placing?.angle ?? 0, drag }) }}
       locked={rebuilding} layerOf={(c) => {

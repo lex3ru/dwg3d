@@ -4,7 +4,7 @@
 // the map, the facade). This module answers the viewer's old requests from the
 // new services, so the viewer itself is carried over unchanged.
 //
-// Furniture and equipment placed in the scene are the objects of the assets service: «Объекты учёта» and a layer
+// Furniture and equipment placed in the scene are the objects of the assets service: «Мебель и оборудование» and a layer
 // for each engineering system (systems.ts); the viewer's catalog is the catalog service, its coverage parameters
 // those of the catalog's property sets. Variants of the planning service are variants of these layers. What is
 // not built yet answers "empty": routes of people, zones, cables (stage 8), the copilot (stage 9).
@@ -205,17 +205,17 @@ const EMPTY_KINDS = { kinds: [], flows: {}, flow_conflicts: [], zone_kinds: {}, 
 const ASSETS = '/api/assets/v1'
 const CATALOG = '/api/catalog/v1'
 const LAYER = 'assets'
-/** The kinds of layers: «Объекты учёта» takes every section of the catalog but those of the systems, which go to
- * their own layers — so a camera placed while «Объекты учёта» is being edited lands in «Видеонаблюдение». */
+/** The kinds of layers: «Мебель и оборудование» takes every section of the catalog but those of the systems, which go to
+ * their own layers — so a camera placed while «Мебель и оборудование» is being edited lands in «Видеонаблюдение». */
 async function layerKinds(): Promise<Json> {
   const systems = new Set(SYSTEMS.map((x) => x.category))
   let rest: string[] | null = null
   try { rest = ((await call('GET', `${CATALOG}/categories`)).items as Json[]).map((c) => c.id).filter((id) => !systems.has(id)) } catch { /* the catalog is down: anything goes */ }
-  return { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Объекты учёта', geoms: ['point'], categories: rest },
+  return { ...EMPTY_KINDS, kinds: [{ kind: 'furniture', name: 'Мебель и оборудование', geoms: ['point'], categories: rest },
     ...SYSTEMS.map((x) => ({ kind: x.kind, name: x.name, geoms: ['point'], categories: [x.category] }))] }
 }
 const assetsLayers = (): Json[] => [
-  { id: LAYER, kind: 'furniture', name: 'Объекты учёта', visible: true, locked: !admin, sort: 0, props: { variant_group: LAYER }, version: 1 },
+  { id: LAYER, kind: 'furniture', name: 'Мебель и оборудование', visible: true, locked: !admin, sort: 0, props: { variant_group: LAYER }, version: 1 },
   ...SYSTEMS.map((x, i) => ({ id: `${LAYER}.${x.kind}`, kind: x.kind, name: x.name, visible: true, locked: !admin, sort: 100 * (i + 1),
     props: { variant_group: `${LAYER}.${x.kind}` }, version: 1 })),
 ]
@@ -245,7 +245,7 @@ async function variantsOf(building: string): Promise<Json[]> {
   } catch { return [] }
 }
 
-/** A variant of the planning service is a variant of each layer of objects: `variant:<id>` of «Объекты учёта»,
+/** A variant of the planning service is a variant of each layer of objects: `variant:<id>` of «Мебель и оборудование»,
  * `variant:<id>.<system>` of a system's layer. */
 const variantLayers = (v: Json, i: number): Json[] => assetsLayers().map((l) => ({ id: VARIANT + v.id + systemOf(l.id), kind: l.kind,
   name: `${v.name}${v.stale ? ' (устарел)' : ''}`, visible: true, locked: !admin, sort: l.sort + i + 1,

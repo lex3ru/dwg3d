@@ -60,6 +60,12 @@ export function useLayers(shown: Job | null, projectId: string) {
     else n.add(id)
     return n
   })
+  /** Show or hide these layers at once (of a group of variants the chosen one shows: hiddenNow). */
+  const showLayers = (ids: string[], show: boolean) => setHiddenLayers((h) => {
+    const n = new Set(h)
+    for (const id of ids) if (show) n.delete(id); else n.add(id)
+    return n
+  })
   /** Show only the layers of these kinds. */
   const showOnlyKinds = (kinds: string[]) => setHiddenLayers(new Set(layers.filter((l) => !kinds.includes(l.kind)).map((l) => l.id)))
   const setAllLayers = (show: boolean) => setHiddenLayers(show ? new Set() : new Set(layers.map((l) => l.id)))
@@ -117,6 +123,6 @@ export function useLayers(shown: Job | null, projectId: string) {
   })
   return {
     lockLayer, showOnlyKinds, layers, setLayers, kinds, rules, hiddenNow, activeLayer, setActiveLayer,
-    showVariant, toggleLayer, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
+    showVariant, toggleLayer, showLayers, setAllLayers, targetLayer, layerFor, refuseLocked, syncLayers, reloadLayers,
   }
 }
