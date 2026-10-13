@@ -30,7 +30,7 @@ const TOOL_LABEL: Record<string, string> = {
 const EXAMPLES = ['Что в этом помещении требует внимания?', 'Сколько объектов на этаже и в каком они состоянии?',
   'У кого истекает гарантия в этом месяце?', 'Кто отвечает за принтеры?']
 
-type Shown = Exclude<CopilotItem, { type: 'assistant' }> | { type: 'assistant'; text: string; live?: boolean }
+type Shown = Exclude<CopilotItem, { type: 'assistant' }> | { type: 'assistant'; text: string; live?: boolean; interim?: boolean }
 
 /** The button in the corner of every screen that opens the copilot. */
 export function CopilotButton({ onOpen }: { onOpen: () => void }) {
@@ -74,6 +74,10 @@ function Chat({ ui, building, status, onClose }: { ui: CopilotUI; building: stri
   const onEvent = useCallback((e: CopilotEvent) => {
     if (e.type === 'chat' || e.type === 'done') return
     if (e.type === 'thinking') { setBusy(`модель рассуждает… (${e.chars} зн.)`); return }
+    if (e.type === 'interim') {
+      setItems(list => list.map((x, i) => (i === list.length - 1 && x.type === 'assistant' ? { ...x, interim: true, live: false } : x)))
+      return
+    }
     if (e.type === 'text') {
       setBusy('думаю…')
       setItems(list => {
@@ -184,7 +188,11 @@ function Item({ item, building, canDecide, editor }: { item: Shown; building: st
   if (item.type === 'user') {
     return <div className="ml-8 rounded-lg bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{item.text}</div>
   }
-  if (item.type === 'assistant') return <div className="mr-4"><Answer text={item.text} building={building} /></div>
+  if (item.type === 'assistant') {
+    // thinking aloud before the tools is kept small and grey; the answer is what comes after
+    if (item.interim) return <div className="mr-4 text-xs text-muted-foreground italic" data-testid="copilot-interim"><Answer text={item.text} building={building} /></div>
+    return <div className="mr-4"><Answer text={item.text} building={building} /></div>
+  }
   if (item.type === 'tool') {
     return (
       <Tip label={item.error ? `Ошибка: ${item.error}` : `Инструмент ${item.name}`} side="left">
