@@ -6,7 +6,7 @@ import { Select } from '@/components/ui/select'
 import { Tip } from '@/components/ui/tooltip'
 import { CATALOG, CATEGORIES, catalogError, type CatalogItem } from '@/scene/furniture/catalog'
 import { cn } from '@/lib/utils'
-import { cm, ItemSymbol } from './parts'
+import { cm, ItemThumb } from './parts'
 
 /**
  * The catalog of the layer being edited (its categories only), in the left
@@ -52,7 +52,7 @@ export default function Catalog(p: {
         {found.map((c) => (
           <li key={c.id} className={cn('flex cursor-grab items-center gap-2 rounded-md px-2 py-1 select-none hover:bg-secondary', p.placing?.id === c.id && 'bg-accent text-accent-foreground')}
             onPointerDown={(e) => { if (e.button === 0 && p.floor && !p.locked) { e.preventDefault(); p.onPick(c, true) } }}>
-            <ItemSymbol c={c} size={30} />
+            <ItemThumb c={c} size={40} />
             {/* the hint on the text, not the row: the row's pointerdown (a drag) would keep it open over the plan */}
             <Tip side="right" label={!p.floor ? 'Сначала выберите этаж в дереве или на ленте этажей'
               : 'Перетащите на план или щёлкните, а затем место на плане; R и Q поворачивают, Esc отменяет'}>
