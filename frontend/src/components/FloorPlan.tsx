@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { FloorPlanData } from '../api'
 import { cn } from '../lib/utils'
+import { glyph } from './glyphs'
 
 type Ring = [number, number][]
 // plan Y goes up, the screen's goes down
@@ -12,13 +13,27 @@ const path = (polygons: Ring[][]) => polygons.map(rings => rings.map(
  * A room can be chosen; the chosen one is highlighted.
  */
 export type Dot = { id: string; x: number; y: number; title: string; tone: 'ok' | 'bad' | 'warn' | 'note'; chosen?: boolean }
+/** an object standing on the floor, drawn from above to its size, turned as it stands: its type's shape names the symbol */
+export type Item = {
+  id: string; x: number; y: number; title: string; tone: Dot['tone']; chosen?: boolean
+  /** degrees counter-clockwise; at 0 the back is towards +Y */
+  angle: number
+  /** width and depth, m */
+  w: number; d: number
+  /** the catalog type's shape (a box when unknown) */
+  shape: string
+}
 /** a change someone proposes: a new object, one moved from somewhere, one to write off */
 export type Mark = { kind: 'new' | 'move' | 'remove'; x: number; y: number; title: string; from?: { x: number; y: number } | null }
 
-export function FloorPlan({ plan, selected, onSelect, dots, onDot, marks, onPoint, className }: {
+const TONE = { ok: 'text-primary', warn: 'text-warning', bad: 'text-destructive', note: 'text-muted-foreground' } as const
+
+export function FloorPlan({ plan, selected, onSelect, dots, items, onDot, marks, onPoint, className }: {
   plan: FloorPlanData; selected?: string | null; onSelect?: (room: string) => void; className?: string
-  /** objects standing on the floor */
+  /** points of interest: comments, places just marked */
   dots?: Dot[]; onDot?: (id: string) => void
+  /** objects standing on the floor: their shapes, to size, turned as they stand */
+  items?: Item[]
   /** proposed changes drawn over the objects: green — new, blue — moved (with a line from where it stands), red — written off */
   marks?: Mark[]
   /** when given, a click anywhere on the plan picks a point (plan coordinates, m) instead of a room */
@@ -59,6 +74,20 @@ export function FloorPlan({ plan, selected, onSelect, dots, onDot, marks, onPoin
           {r.name.length > 22 ? `${r.name.slice(0, 20)}…` : r.name}
         </text>
       ))}
+      {items?.map(it => {
+        // a small thing (a socket, a detector) is drawn no smaller than a dot would be, keeping its proportions
+        const s = Math.max(1, (font * 0.9) / Math.max(it.w, it.d, 0.01))
+        const hw = (it.w * s) / 2, hd = (it.d * s) / 2, k = font * (it.chosen ? 0.12 : 0.06)
+        return (
+          <g key={it.id} transform={`translate(${it.x} ${-it.y}) rotate(${-it.angle})`} data-asset={it.id} data-shape={it.shape}
+            className={cn(TONE[it.tone], onDot && !onPoint && 'cursor-pointer')}
+            fill="currentColor" fillOpacity={it.chosen ? 0.5 : 0.22} stroke="currentColor" strokeWidth={k} strokeLinejoin="round" strokeLinecap="round"
+            onClick={e => { if (!onPoint) { e.stopPropagation(); onDot?.(it.id) } }}>
+            <title>{it.title}</title>
+            {glyph(it.shape, hw, hd, k)}
+          </g>
+        )
+      })}
       {dots?.map(d => (
         <circle key={d.id} cx={d.x} cy={-d.y} r={font * (d.chosen ? 0.85 : 0.6)} data-asset={d.id}
           className={cn('stroke-card', d.tone === 'bad' ? 'fill-destructive' : d.tone === 'warn' ? 'fill-warning' : d.tone === 'note' ? 'fill-muted-foreground' : 'fill-primary',

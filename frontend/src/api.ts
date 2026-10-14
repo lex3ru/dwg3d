@@ -279,6 +279,8 @@ export const saveProduct = (typeId: string, body: ProductBody, existing?: Produc
 export const archiveProduct = (id: string, archive: boolean) =>
   api<Product>(`${CATALOG}/products/${id}/${archive ? 'archive' : 'restore'}`, { method: 'POST' })
 export const listTypes = (active: boolean) => items<CatalogType>(`types?active=${active}`)
+/** Every type, archived ones too: the plan draws objects of types nobody offers any more. */
+export const listAllTypes = () => Promise.all([listTypes(true), listTypes(false)]).then(([a, b]) => [...a, ...b])
 export const getType = (id: string) => api<CatalogType>(`${CATALOG}/types/${id}`)
 export const saveType = (body: TypeBody, existing?: CatalogType) => existing
   ? api<CatalogType>(`${CATALOG}/types/${existing.id}`, { method: 'PATCH', json: { ...body, version: existing.version } })
@@ -302,6 +304,8 @@ export const STATES: Record<AssetState, string> = {
 export type Asset = {
   id: string; type_id: string; type_name: string; building_id: string; floor_id: string; room_id: string
   x: number | null; y: number | null; container_id: string | null; inventory_no: string; serial_no: string | null
+  /** how it is turned, degrees counter-clockwise (at 0 the back is towards +Y of the plan) */
+  angle: number
   /** the make and model named (catalog's product) and a copy of its name */
   product_id: string | null; product_name: string
   state: AssetState; responsible_id: string | null; props: Record<string, unknown>; note: string

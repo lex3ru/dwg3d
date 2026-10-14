@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, getProposal, listAllAssets, listComments, listProducts, listTypes, moveAsset,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, getProposal, listAllAssets, listAllTypes, listComments, listProducts, moveAsset,
   productLabel, type Product,
   type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type ProposalShow, type TreeFloor,
 } from '../api'
 import { CommentList } from '../components/Comments'
 import { FloorPlan, type Dot, type Mark } from '../components/FloorPlan'
+import { itemOf } from '../components/glyphs'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Tip } from '../components/ui/tooltip'
@@ -93,7 +94,9 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
       setSeries(null); setError(null); loadAssets()
     }, (e: Error) => setError(e.message))
   }
-  useEffect(() => { if (admin) listTypes(true).then(setTypes, () => {}) }, [admin])
+  // the catalog's types, archived ones too: the size and shape of every object drawn, the active ones to place more
+  useEffect(() => { listAllTypes().then(setTypes, () => {}) }, [])
+  const byType = useMemo(() => new Map(types.map(t => [t.id, t])), [types])
   // the makes and models of the type being placed, to name one
   const [products, setProducts] = useState<Product[]>([])
   useEffect(() => { if (placing?.type) listProducts(placing.type).then(setProducts, () => setProducts([])); else setProducts([]) }, [placing?.type])
@@ -138,7 +141,7 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
               <select className="h-8 rounded-md border bg-card px-2 text-sm" value={series.type} aria-label="Тип объектов"
                 onChange={e => setSeries({ ...series, type: e.target.value })}>
                 <option value="">— из каталога —</option>
-                {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {types.filter(t => t.active).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Tip>
           </label>
@@ -193,7 +196,7 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
               <select className="h-8 rounded-md border bg-card px-2 text-sm" value={placing.type} aria-label="Тип объекта"
                 onChange={e => setPlacing({ ...placing, type: e.target.value })}>
                 <option value="">— из каталога —</option>
-                {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {types.filter(t => t.active).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Tip>
           </label>
@@ -242,8 +245,8 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
       )}
       {plan?.floor === active.id && (
         <FloorPlan plan={plan.data} selected={room} className="mt-3 max-h-[70vh]" marks={marks}
+          items={assets.filter(a => a.x != null).map(a => itemOf(a, byType, { tone: assetTone(a) as Dot['tone'], chosen: a.id === move }))}
           dots={[
-            ...assets.filter(a => a.x != null).map(a => ({ id: a.id, x: a.x!, y: a.y!, tone: assetTone(a) as Dot['tone'], title: `${a.type_name} · ${a.inventory_no}`, chosen: a.id === move })),
             ...(series?.points ?? []).map(([x, y], i) => ({ id: `new-${i}`, x, y, tone: 'warn' as const, title: number(series!, i), chosen: true })),
             ...notes.filter(n => n.x != null).map(n => ({ id: `note-${n.id}`, x: n.x!, y: n.y!, tone: 'note' as const, title: n.body, chosen: n.id === chosenNote })),
             ...(noting && noting !== 'pick' ? [{ id: 'note-new', x: noting.x, y: noting.y, tone: 'note' as const, title: 'новый комментарий', chosen: true }] : []),

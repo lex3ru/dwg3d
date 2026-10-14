@@ -1,10 +1,11 @@
 import { LogOut, Moon, Sun } from 'lucide-react'
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ApiError, assetTone, endGuest, getFloorPlan, getMe, getModel, getTreeWithBuilding, listAllAssets,
-  type Asset, type Building, type DrawingModel, type FloorPlanData, type GuestMe, type TreeFloor,
+  ApiError, assetTone, endGuest, getFloorPlan, getMe, getModel, getTreeWithBuilding, listAllAssets, listAllTypes,
+  type Asset, type Building, type CatalogType, type DrawingModel, type FloorPlanData, type GuestMe, type TreeFloor,
 } from '../api'
 import { FloorPlan, type Dot } from '../components/FloorPlan'
+import { itemOf } from '../components/glyphs'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { useTheme } from '../lib/theme'
@@ -45,6 +46,10 @@ export function GuestView({ me, onEnded, onLeft }: {
   const [room, setRoom] = useState<string | null>(g.scope.kind === 'room' ? g.scope.id : null)
   const [plan, setPlan] = useState<{ floor: string; data: FloorPlanData } | null>(null)
   const [assets, setAssets] = useState<{ floor: string; items: Asset[] } | null>(null)
+  // the catalog's types: the size and shape of every object drawn (a guest the catalog turns away sees half-metre boxes)
+  const [types, setTypes] = useState<CatalogType[]>([])
+  useEffect(() => { listAllTypes().then(setTypes, () => {}) }, [])
+  const byType = useMemo(() => new Map(types.map(t => [t.id, t])), [types])
   const [leaving, setLeaving] = useState(false)
 
   // a guest has one address
@@ -150,10 +155,7 @@ export function GuestView({ me, onEnded, onLeft }: {
                 <div className="mt-3" data-testid="guest-plan">
                   {plan?.floor === active.id ? (
                     <FloorPlan plan={plan.data} selected={room} className="max-h-[70vh] max-md:max-h-[55vh]"
-                      dots={items.filter(a => a.x != null).map(a => ({
-                        id: a.id, x: a.x!, y: a.y!, tone: assetTone(a) as Dot['tone'], title: `${a.type_name} · ${a.inventory_no}`,
-                        chosen: !!room && a.room_id === room,
-                      }))}
+                      items={items.filter(a => a.x != null).map(a => itemOf(a, byType, { tone: assetTone(a) as Dot['tone'], chosen: !!room && a.room_id === room }))}
                       onSelect={id => setRoom(r => (r === id ? null : id))} />
                   ) : <p className="text-sm text-muted-foreground">Загрузка плана…</p>}
                 </div>

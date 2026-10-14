@@ -94,7 +94,7 @@ test('an object is placed, filled in, given to someone who then keeps it — and
   await expect(card.getByLabel('Дата следующего ТО')).toHaveValue('')
   await root.screenshot({ path: 'screenshots/asset-card.png' })
 
-  // on the plan the object is a dot in its room
+  // on the plan the object is drawn in its room
   await card.getByRole('link', { name: 'На плане' }).click()
   await expect(root.getByTestId('plan').locator(`[data-asset="${asset}"]`)).toBeVisible()
 })
