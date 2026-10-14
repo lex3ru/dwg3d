@@ -165,8 +165,28 @@ class World:
                 self.rules.append((path.rsplit("/", 1)[-1], body))
                 item = {"id": body["type_id"], "name": "Извещатель" if path.endswith("/detectors") else "Стол", "radius": 5}
                 places = [{"floor_id": FLOOR, "room_id": ROOM214, "x": 1 + i, "y": 1.5, "angle": 0.0} for i in range(2)]
-                rooms = [{"room_id": ROOM214, "name": "Кабинет", "floor_id": FLOOR, "placed": 2, "notes": [], "has": 0, "need": 2, "add": 2, "area": 18.4}]
+                notes = []
+                if body.get("where") == "at_point":                 # the stand-in's door: y < 0.5 — the place is moved up and said so
+                    a = body["anchor"]
+                    taken = a["y"] < 0.5
+                    places = [{"floor_id": FLOOR, "room_id": ROOM214, "x": a["x"], "y": 0.6 if taken else a["y"], "angle": a.get("angle") or 0}]
+                    notes = [f"в точке ({a['x']}, {a['y']}) не встаёт: мешает двери или проходу; ближайшее свободное место — ({a['x']}, 0.6), в {round(0.6 - a['y'], 2)} м"] if taken else []
+                elif body.get("where") == "at_wall":
+                    places = [{"floor_id": FLOOR, "room_id": ROOM214, "x": 0.36, "y": 1 + i, "angle": 270.0} for i in range(body.get("count", 1))]
+                rooms = [{"room_id": ROOM214, "name": "Кабинет", "floor_id": FLOOR, "placed": len(places), "notes": notes, "has": 0, "need": 2, "add": 2, "area": 18.4}]
                 return httpx.Response(200, json={"item": item, "rooms": rooms, "places": places, "rule": "0,7·π·r²"})
+            if path.endswith("/layout-check"):
+                if me.sub not in self.admins and not me.is_admin:
+                    return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
+                self.rules.append(("layout-check", body))
+                items = []
+                for i, x in enumerate(body.get("places", []) + body.get("moves", [])):
+                    bad = x["y"] < 0.5                                # the stand-in's door
+                    items.append({"i": i, "what": "Стол" if "type_id" in x else "Монитор 00123", "at": [x["x"], x["y"]], "angle": x.get("angle") or 0,
+                                  "room": {"id": ROOM214, "name": "Кабинет", "type": "office"}, "problems": ["мешает двери или проходу"] if bad else [],
+                                  "wall": "south 0.4 м" if bad else None, "faces": None, **({"fix": [x["x"], 0.6]} if bad else {})})
+                bad = sum(1 for x in items if x["problems"])
+                return httpx.Response(200, json={"floor_id": body["floor_id"], "ok": bad == 0, "problems": bad, "items": items})
             if path.endswith("/checks"):
                 return httpx.Response(200, json={"floor_id": request.url.params.get("floor_id"), "blocked": [{"asset_id": PRINTER, "name": "Принтер 00124", "problems": ["мешает двери или проходу"]}],
                                                  "cameras": [], "empty": [], "doors": [], "counts": {"blocked": 1, "cameras": 0, "empty": 0, "doors": 0}})

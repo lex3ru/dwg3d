@@ -229,8 +229,155 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "LayoutIn": {
+        "properties": {
+          "building_id": {
+            "format": "uuid",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "floor_id": {
+            "title": "Floor Id",
+            "type": "string"
+          },
+          "moves": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutMove"
+            },
+            "maxItems": 200,
+            "title": "Moves",
+            "type": "array"
+          },
+          "places": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutPlace"
+            },
+            "maxItems": 200,
+            "title": "Places",
+            "type": "array"
+          }
+        },
+        "required": [
+          "building_id",
+          "floor_id"
+        ],
+        "title": "LayoutIn",
+        "type": "object"
+      },
+      "LayoutMove": {
+        "properties": {
+          "angle": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angle"
+          },
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Id"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "asset_id",
+          "x",
+          "y"
+        ],
+        "title": "LayoutMove",
+        "type": "object"
+      },
+      "LayoutPlace": {
+        "properties": {
+          "angle": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "title": "Angle"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "помещение, в котором предмет должен оказаться",
+            "title": "Room Id"
+          },
+          "type_id": {
+            "title": "Type Id",
+            "type": "string"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "type_id",
+          "x",
+          "y"
+        ],
+        "title": "LayoutPlace",
+        "type": "object"
+      },
       "PlacementIn": {
         "properties": {
+          "along": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "enum": [
+                  "start",
+                  "middle",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "для at_wall: метры от начала стены (по обходу, как в room_geometry) до края предмета, или start / middle / end",
+            "title": "Along"
+          },
           "anchor": {
             "anyOf": [
               {
@@ -292,6 +439,12 @@
             ],
             "title": "Floor Id"
           },
+          "from_end": {
+            "default": false,
+            "description": "для at_wall: считать along от конца стены (точки to), а не от начала",
+            "title": "From End",
+            "type": "boolean"
+          },
           "gap": {
             "default": 0.2,
             "description": "м между предметами",
@@ -330,7 +483,7 @@
                 "type": "null"
               }
             ],
-            "description": "для along_wall / corners: только стены этой стороны помещения",
+            "description": "для along_wall / corners / at_wall: стена этой стороны помещения",
             "title": "Side"
           },
           "type_id": {
@@ -344,7 +497,9 @@
               "center",
               "corners",
               "grid",
-              "front_of"
+              "front_of",
+              "at_wall",
+              "at_point"
             ],
             "title": "Where",
             "type": "string"
@@ -679,6 +834,49 @@
           }
         },
         "summary": "Извещатели по площади: сколько есть, сколько нужно, где добавить (ничего не ставит)",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/planning/v1/layout-check": {
+      "post": {
+        "operationId": "layout_check_api_planning_v1_layout_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Layout Check Api Planning V1 Layout Check Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Проверить задуманную расстановку до предложения: в каком помещении, что не так, у какой стены, на что смотрит, ближайшее свободное место (ничего не ставит)",
         "tags": [
           "rules"
         ]

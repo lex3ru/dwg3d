@@ -17,7 +17,9 @@ from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
-WHERE = ("along_wall", "center", "corners", "grid", "front_of")
+WHERE = ("along_wall", "center", "corners", "grid", "front_of", "at_wall", "at_point")
+ALONG = ("start", "middle", "end")
+SEARCH_RADIUS = 2.0            # how far from the asked spot a place is looked for when the spot is taken
 WALL_GAP = 0.01
 DOOR_CLEAR = 0.6
 MAX_ITEMS = 200
@@ -155,26 +157,52 @@ def standing(assets: list[dict], types: dict[str, dict]) -> list[tuple[dict, Pol
 class Fitter:
     """Free places in a room: inside the outline, clear of the items standing there (with the gap between items) and
     of the hard things — partitions, columns, door ways — which the item may touch but not cross (no gap: a cabinet
-    stands against a partition as it stands against a bearing wall)."""
+    stands against a partition as it stands against a bearing wall). Items and hard things carry a label, so a
+    refusal can say what is in the way."""
 
-    def __init__(self, room: Polygon, items: list[Polygon], hard: list[Polygon], w: float, d: float, gap: float):
+    def __init__(self, room: Polygon, items: list, hard: list, w: float, d: float, gap: float):
         self.room = room.buffer(0.02)
-        self.items = [t for t in items if t.intersects(self.room)]
-        self.hard = [t for t in hard if t.intersects(self.room)]
+        self.items = [(t, label) for t, label in (self._labelled(x, "предмет") for x in items) if t.intersects(self.room)]
+        self.hard = [(t, label) for t, label in (self._labelled(x, "перегородка или проём") for x in hard) if t.intersects(self.room)]
         self.w, self.d, self.gap = w, d, gap
 
-    def fits(self, at, angle: float) -> bool:
+    @staticmethod
+    def _labelled(x, default: str) -> tuple[Polygon, str]:
+        return x if isinstance(x, tuple) else (x, default)
+
+    def blocker(self, at, angle: float) -> str | None:
+        """Why the item cannot stand at `at`: None when it can."""
         fp = footprint(at, angle, self.w, self.d)
         if not self.room.contains(fp):
-            return False
-        if any(fp.intersection(t).area > 1e-4 for t in self.hard):
-            return False
+            return "выходит за контур помещения"
+        for t, label in self.hard:
+            if fp.intersection(t).area > 1e-4:
+                return label
         grown = fp.buffer(self.gap / 2) if self.gap else fp
-        return not any(grown.intersection(t).area > 1e-4 for t in self.items)
+        for t, label in self.items:
+            if grown.intersection(t).area > 1e-4:
+                return f"налезает на {label}"
+        return None
 
-    def take(self, at, angle: float) -> None:
+    def fits(self, at, angle: float) -> bool:
+        return self.blocker(at, angle) is None
+
+    def take(self, at, angle: float, label: str = "предмет") -> None:
         fp = footprint(at, angle, self.w, self.d)
-        self.items.append(fp.buffer(self.gap / 2) if self.gap else fp)
+        self.items.append((fp.buffer(self.gap / 2) if self.gap else fp, label))
+
+    def nearest(self, at, angle: float, radius: float = SEARCH_RADIUS, step: float = 0.1) -> XY | None:
+        """The free place closest to `at` with the same angle, within `radius`; None when there is none."""
+        if self.fits(at, angle):
+            return (round(at[0], 3), round(at[1], 3))
+        (ux, uy), (fx, fy) = axes(angle)
+        n = int(radius / step)
+        cands = sorted(((math.hypot(i, j), (at[0] + ux * i * step + fx * j * step, at[1] + uy * i * step + fy * j * step))
+                        for i in range(-n, n + 1) for j in range(-n, n + 1) if 0 < math.hypot(i, j) <= n), key=lambda c: c[0])
+        for _, p in cands:
+            if self.fits(p, angle):
+                return (round(p[0], 3), round(p[1], 3))
+        return None
 
 
 def _frame(poly: Polygon) -> tuple[float, XY]:
@@ -195,6 +223,94 @@ def side_of(dx: float, dy: float) -> str:
     if abs(nx) >= abs(ny):
         return "east" if nx > 0 else "west"
     return "north" if ny > 0 else "south"
+
+
+def walls_of(room: Polygon, min_length: float = 0.3) -> list[dict]:
+    """The walls of the room in counter-clockwise order: {from, to, length, side, angle} — angle is the facing of an
+    item standing with its back to that wall."""
+    ring = orient(room, 1.0)
+    pts = list(ring.exterior.coords)[:-1]
+    out = []
+    for i in range(len(pts)):
+        a, b = pts[i], pts[(i + 1) % len(pts)]
+        length = math.dist(a, b)
+        if length < min_length:
+            continue
+        tx, ty = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+        out.append({"from": a, "to": b, "length": length, "side": side_of(tx, ty), "angle": facing(-ty, tx), "t": (tx, ty)})
+    return out
+
+
+def _at_wall(fit: Fitter, room: Polygon, count: int, side: str, along, notes: list[str], from_end: bool = False) -> list[tuple[XY, float]]:
+    """`count` items in a row with their backs to the wall on `side`, the row's near edge at `along` metres from the
+    wall's start (walking counter-clockwise, as room_geometry lists the walls) — or from its end, with `from_end` —
+    or at its start / middle / end; a taken spot is slid along the wall to the nearest free one and the shift is said."""
+    walls = [w for w in walls_of(room) if w["side"] == side]
+    if not walls:
+        raise PlanError(f"у помещения нет стены со стороны {side}")
+    wall = max(walls, key=lambda w: w["length"])
+    (tx, ty), length = wall["t"], wall["length"]
+    nx, ny = -ty, tx                                           # into the room
+    off = fit.d / 2 + WALL_GAP
+    row = count * fit.w + (count - 1) * fit.gap
+    if isinstance(along, str):
+        s0 = {"start": fit.w / 2, "middle": length / 2 - row / 2 + fit.w / 2, "end": length - row + fit.w / 2}.get(along)
+        if s0 is None:
+            raise PlanError(f"along: метры от начала стены или {', '.join(ALONG)}")
+    else:
+        s0 = (length - float(along) - row + fit.w / 2) if from_end else float(along) + fit.w / 2
+    wanted = s0
+    s0 = min(max(s0, fit.w / 2), max(length - row + fit.w / 2, fit.w / 2))
+    if abs(s0 - wanted) > 0.01:
+        notes.append(f"стена {side} длиной {round(length, 2)} м: ряд из {count} ({round(row, 2)} м) сдвинут на {round(abs(s0 - wanted), 2)} м, чтобы поместиться")
+    out: list[tuple[XY, float]] = []
+    shift = None
+    for k in range(count):
+        s = s0 + k * (fit.w + fit.gap)
+        want = (wall["from"][0] + tx * s + nx * off, wall["from"][1] + ty * s + ny * off)
+        at = (round(want[0], 3), round(want[1], 3))
+        if not fit.fits(at, wall["angle"]):
+            why = fit.blocker(at, wall["angle"])
+            # slide along the wall both ways
+            found = None
+            for ds in sorted({i * 0.1 for i in range(1, int(length / 0.1) + 1)}):
+                for sign in (1, -1):
+                    s2 = s + sign * ds
+                    if not fit.w / 2 - 1e-6 <= s2 <= length - fit.w / 2 + 1e-6:
+                        continue
+                    p = (round(wall["from"][0] + tx * s2 + nx * off, 3), round(wall["from"][1] + ty * s2 + ny * off, 3))
+                    if fit.fits(p, wall["angle"]):
+                        found = (p, sign * ds)
+                        break
+                if found:
+                    break
+            if not found:
+                notes.append(f"на стене {side} в {round(s - fit.w / 2, 2)} м нет места: {why}; свободного места на этой стене тоже нет")
+                break
+            at, moved = found
+            shift = (shift or 0) + abs(moved)
+            notes.append(f"место в {round(s - fit.w / 2, 2)} м занято ({why}): сдвинуто на {abs(round(moved, 2))} м {'дальше' if moved > 0 else 'ближе к началу'} вдоль стены")
+        fit.take(at, wall["angle"])
+        out.append((at, wall["angle"]))
+    return out
+
+
+def _at_point(fit: Fitter, anchor: dict, notes: list[str]) -> list[tuple[XY, float]]:
+    """One item at the asked point and angle; when it does not stand there, the nearest free place within
+    SEARCH_RADIUS and why the asked one would not do."""
+    at = (float(anchor["x"]), float(anchor["y"]))
+    angle = float(anchor.get("angle") or 0)
+    why = fit.blocker(at, angle)
+    if why is None:
+        fit.take(at, angle)
+        return [((round(at[0], 3), round(at[1], 3)), angle)]
+    near = fit.nearest(at, angle)
+    if near is None:
+        notes.append(f"в точке ({at[0]}, {at[1]}) не встаёт: {why}; свободного места в {SEARCH_RADIUS} м вокруг нет")
+        return []
+    notes.append(f"в точке ({at[0]}, {at[1]}) не встаёт: {why}; ближайшее свободное место — ({near[0]}, {near[1]}), в {round(math.dist(at, near), 2)} м")
+    fit.take(near, angle)
+    return [(near, angle)]
 
 
 def _along_wall(fit: Fitter, room: Polygon, count: int, corners_only: bool = False, side: str | None = None) -> list[tuple[XY, float]]:
@@ -315,9 +431,26 @@ def _even(fit: Fitter, room: Polygon, count: int) -> list[tuple[XY, float]]:
     return out
 
 
+def _label(a: dict, types: dict[str, dict]) -> str:
+    t = types.get(a.get("type_id")) or {}
+    return " ".join(x for x in (a.get("type_name") or t.get("name") or "предмет", a.get("inventory_no")) if x)
+
+
+def hard_things(plan: dict, high: bool, on_wall: bool) -> list[tuple[Polygon, str]]:
+    """What an item of this kind may not cross: partitions and columns, the door ways (unless it hangs high),
+    and — for a wall-mounted thing — the openings with a margin."""
+    solids, doors = obstacles(plan)
+    hard = [(g, "стоит на перегородке или колонне") for g in solids]
+    if not high:
+        hard += [(g, "мешает двери или проходу") for g in doors]
+    if on_wall:
+        hard += [(o.buffer(0.3), "висит над дверью или окном") for o in openings(plan)]
+    return hard
+
+
 def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: dict[str, dict], t: dict,
                   count: int, where: str, gap: float, anchor: dict | None = None,
-                  side: str | None = None) -> tuple[list[tuple[XY, float]], list[str]]:
+                  side: str | None = None, along=None, from_end: bool = False) -> tuple[list[tuple[XY, float]], list[str]]:
     """Places for `count` items of type `t` in the room: ([(at, angle)], notes). A wall-mounted thing goes along the
     walls whatever is asked, never over a door or a window; `front_of` puts the items before the anchor object."""
     if where not in WHERE:
@@ -326,17 +459,22 @@ def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: di
         raise PlanError(f"count: от 1 до {MAX_ITEMS}")
     w, d, _ = size_of(t)
     high, on_wall = is_high(t), is_wall_mounted(t)
-    taken = [fp for _, fp, h in standing(floor_assets, types) if h == high or on_wall]
-    solids, doors = obstacles(plan)
+    taken = [(fp, _label(a, types)) for a, fp, h in standing(floor_assets, types) if h == high or on_wall]
     notes = []
-    hard = solids + ([] if high else doors)
     if on_wall:
-        if where != "along_wall":
+        if where not in ("along_wall", "at_wall", "corners"):
             notes.append("настенный предмет: поставлен у стены")
-        where = "along_wall"
-        hard = hard + [o.buffer(0.3) for o in openings(plan)]         # clear of a door or a window, with a margin
-    fit = Fitter(room, taken, hard, w, d, max(gap, 0.0))
-    if where == "front_of":
+            where = "along_wall"
+    fit = Fitter(room, taken, hard_things(plan, high, on_wall), w, d, max(gap, 0.0))
+    if where == "at_wall":
+        if not side:
+            raise PlanError("at_wall: укажите side (north/south/east/west) и along (метры от начала стены или start/middle/end)")
+        places = _at_wall(fit, room, count, side, along if along is not None else "middle", notes, from_end)
+    elif where == "at_point":
+        if not anchor or anchor.get("x") is None:
+            raise PlanError("at_point: нужна точка anchor {x, y, angle}")
+        places = _at_point(fit, anchor, notes)
+    elif where == "front_of":
         if not anchor or anchor.get("x") is None:
             raise PlanError("front_of: нужен объект-опора (anchor) с местом на плане")
         places = _front_of(fit, room, anchor, types, count)
@@ -348,10 +486,94 @@ def place_in_room(room: Polygon, plan: dict, floor_assets: list[dict], types: di
         places = _even(fit, room, count)                       # under the ceiling: spread over the whole room
     else:
         places = _grid(fit, room, count, from_center=where == "center")
-    if len(places) < count:
+    if len(places) < count and where not in ("at_wall", "at_point"):
         notes.append(f"поместилось {len(places)} из {count}: " + ("перед объектом-опорой нет места" if where == "front_of"
                      else "в помещении нет места" + ((f" у стены {side}" if side else " у стен") if where in ("along_wall", "corners") else "")))
     return places, notes
+
+
+# ---------------------------------------------------------- layout check ---
+def check_layout(rooms: list[dict], plan: dict, floor_assets: list[dict], types: dict[str, dict],
+                 places: list[dict], moves: list[dict]) -> dict:
+    """A layout someone has in mind, before it is proposed: for each new item ({type_id, x, y, angle, room_id?})
+    and each move ({asset_id, x, y, angle?}) — which room it lands in, what is wrong (out of the rooms, through a
+    partition, in a door way, on another item, a wall thing off the wall or over an opening), the wall it stands
+    at and what it faces, and the nearest free place when the asked one will not do. Nothing is placed."""
+    moved = {m.get("asset_id") for m in moves}
+    by_id = {a["id"]: a for a in floor_assets if a.get("id")}
+    kept = [a for a in floor_assets if a.get("id") not in moved]
+    low_items = [(a, fp) for a, fp, h in standing(kept, types) if not h]
+    fitters: dict[tuple[str, bool, bool], Fitter] = {}
+
+    def fitter(room: dict, high: bool, on_wall: bool, w: float, d: float) -> Fitter:
+        key = (room["id"], high, on_wall)
+        if key not in fitters:
+            taken = [(fp, _label(a, types)) for a, fp, h in standing(kept, types) if h == high or on_wall]
+            fitters[key] = Fitter(room["poly"], taken, hard_things(plan, high, on_wall), w, d, 0.0)
+        f = fitters[key]
+        f.w, f.d = w, d
+        return f
+
+    wanted = []
+    for i, pl in enumerate(places):
+        t = types.get(pl.get("type_id"))
+        wanted.append({"i": i, "what": (t or {}).get("name") or "предмет", "type": t, "at": (float(pl["x"]), float(pl["y"])),
+                       "angle": float(pl.get("angle") or 0), "room_id": pl.get("room_id"), "elevation": None})
+    for m in moves:
+        a = by_id.get(m.get("asset_id")) or {}
+        t = types.get(a.get("type_id"))
+        wanted.append({"i": len(wanted), "what": _label(a, types) if a else "объект", "type": t, "at": (float(m["x"]), float(m["y"])),
+                       "angle": float(m.get("angle") if m.get("angle") is not None else a.get("angle") or 0), "room_id": m.get("room_id"),
+                       "elevation": a.get("elevation")})
+    out, placed_low = [], list(low_items)
+    for w_ in wanted:
+        t, at, angle = w_["type"], w_["at"], w_["angle"]
+        w, d, _ = size_of(t)
+        high, on_wall = is_high(t, w_["elevation"]), is_wall_mounted(t)
+        fp = footprint(at, angle, w, d)
+        room = next((r for r in rooms if r["poly"].buffer(0.05).contains(Point(at))), None)
+        asked = next((r for r in rooms if r["id"] == w_["room_id"]), None) if w_["room_id"] else None
+        problems, fix = [], None
+        if room is None:
+            problems.append("вне помещений")
+        elif asked is not None and asked["id"] != room["id"]:
+            problems.append(f"не в том помещении: попадает в «{room['name'] or 'без названия'}»")
+        target = asked or room
+        wall = None
+        if target is not None:
+            f = fitter(target, high, on_wall, w, d)
+            why = f.blocker(at, angle) if room is target else f.blocker(at, angle) or "выходит за контур помещения"
+            if why:
+                problems.append(why)
+            near = f.nearest(at, angle) if problems else None
+            if near and near != (round(at[0], 3), round(at[1], 3)):
+                fix = [near[0], near[1]]
+            f.take(near if (near and problems) else at, angle, w_["what"])
+            walls = walls_of(target["poly"])
+            if walls:
+                nearest_wall = min(walls, key=lambda ww: LineString([ww["from"], ww["to"]]).distance(Point(at)))
+                dist = LineString([nearest_wall["from"], nearest_wall["to"]]).distance(Point(at))
+                if dist <= 1.0:
+                    wall = f"{nearest_wall['side']} {round(dist, 2)} м" + ("" if abs((angle - nearest_wall["angle"]) % 360) < 1 else ", не спиной к ней")
+                if on_wall and dist > 0.3:
+                    problems.append("настенный предмет не на стене")
+        faces = None
+        if not high:
+            _, (fx, fy) = axes(angle)
+            best = None
+            for a, fp2 in placed_low:
+                c = fp2.centroid
+                dx, dy = c.x - at[0], c.y - at[1]
+                dd = math.hypot(dx, dy)
+                if 0.05 < dd <= 1.5 and (dx * fx + dy * fy) / dd > 0.5 and (best is None or dd < best[0]):
+                    best = (dd, _label(a, types))
+            faces = best[1] if best else None
+            placed_low.append(({"type_name": w_["what"], "type_id": (t or {}).get("id")}, fp))
+        out.append({"i": w_["i"], "what": w_["what"], "at": [round(at[0], 2), round(at[1], 2)], "angle": angle,
+                    "room": {"id": room["id"], "name": room["name"]} if room else None,
+                    "problems": problems, "wall": wall, "faces": faces, **({"fix": fix} if fix else {})})
+    bad = sum(1 for x in out if x["problems"])
+    return {"ok": bad == 0, "problems": bad, "items": out}
 
 
 # ------------------------------------------------------------ detectors ---

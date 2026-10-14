@@ -1,0 +1,1471 @@
+[
+ {
+  "name": "контекст экрана",
+  "prompt": "что у меня сейчас открыто? одной фразой",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "Сейчас у вас открыт план [Этаж 1](floor:01a13926-6e92-75ca-9d82-073b22e1f411) здания «Проверка копилота», помещение [Кабинет 102](room:01a13926-6e99-7175-8750-ad8b394f061a).",
+   "interim": "",
+   "tools": [],
+   "proposals": [],
+   "steps": 0,
+   "seconds": 1
+  }
+ },
+ {
+  "name": "обставить кабинет",
+  "prompt": "обставь кабинет 101: два рабочих места с креслами и шкаф для документов",
+  "ok": false,
+  "failures": [
+   "не больше 10 шагов"
+  ],
+  "notes": [
+   "поставлено: Стол офисный 1600×800, Стол офисный 1600×800, Кресло офисное, Кресло офисное, Шкаф для документов"
+  ],
+  "answer": {
+   "text": "В [Кабинете 101](room:01a13926-6e97-7910-9336-e01bb789e2f6) подготовил два предложения: два рабочих места — офисные столы 1600×800 у западной стены с креслами перед ними, — и шкаф для документов у восточной стены, в стороне от двери. Дверь и окно свободны; примените предложения кнопкой.",
+   "interim": "I'll look at the room geometry and the catalog to place things correctly.\nДверь на северной стене, окно на южной, свободны западная и восточная стены. Ставлю два рабочих места у свободных стен и шкаф для документов в угол.\nШкаф поставлю к восточной стене — там достаточно места и он не попадёт в дверной проём.",
+   "tools": [
+    {
+     "name": "room_geometry"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "place_by_rules"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: point: Input should be a valid dictionary or instance of Point"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: point: Input should be a valid dictionary or instance of Point"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "check_layout"
+    },
+    {
+     "name": "propose_objects"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "6b223f37-d76c-4618-a352-ea2e0f7f7cca",
+     "kind": "proposal",
+     "chat_id": "528dd419-543b-4c7d-8269-0df13d074b20",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Два рабочих места у западной стены: офисные столы 1600×800 с креслами перед ними",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:43:09.145953+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 4,
+     "labels": [
+      "Поставить Стол офисный 1600×800 в (0.535, 4.125)",
+      "Поставить Стол офисный 1600×800 в (0.535, 2.325)",
+      "Поставить Кресло офисное в (1.335, 4.125)",
+      "Поставить Кресло офисное в (1.335, 2.325)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 0.535,
+       "y": 4.125,
+       "title": "Стол офисный 1600×800"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 0.535,
+       "y": 2.325,
+       "title": "Стол офисный 1600×800"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.335,
+       "y": 4.125,
+       "title": "Кресло офисное"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.335,
+       "y": 2.325,
+       "title": "Кресло офисное"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Стол офисный 1600×800 в (0.535, 4.125)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003e0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 0.535,
+       "y": 4.125,
+       "angle": 90,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 0.535,
+        "y": 4.125,
+        "title": "Стол офисный 1600×800"
+       }
+      },
+      {
+       "label": "Поставить Стол офисный 1600×800 в (0.535, 2.325)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003e0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 0.535,
+       "y": 2.325,
+       "angle": 90,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 0.535,
+        "y": 2.325,
+        "title": "Стол офисный 1600×800"
+       }
+      },
+      {
+       "label": "Поставить Кресло офисное в (1.335, 4.125)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003e5",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.335,
+       "y": 4.125,
+       "angle": 270,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 1.335,
+        "y": 4.125,
+        "title": "Кресло офисное"
+       }
+      },
+      {
+       "label": "Поставить Кресло офисное в (1.335, 2.325)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003e5",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.335,
+       "y": 2.325,
+       "angle": 270,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 1.335,
+        "y": 2.325,
+        "title": "Кресло офисное"
+       }
+      }
+     ]
+    },
+    {
+     "id": "e05300fb-dfb3-4cbd-8638-2055e89f3da2",
+     "kind": "proposal",
+     "chat_id": "528dd419-543b-4c7d-8269-0df13d074b20",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Шкаф для документов у восточной стены кабинета 101 — рядом с рабочими местами, в стороне от двери",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:43:18.206255+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "Поставить Шкаф для документов в (4.54, 2.5)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 4.54,
+       "y": 2.5,
+       "title": "Шкаф для документов"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Шкаф для документов в (4.54, 2.5)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-00000000031f",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 4.54,
+       "y": 2.5,
+       "angle": 90,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 4.54,
+        "y": 2.5,
+        "title": "Шкаф для документов"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 13,
+   "seconds": 14
+  }
+ },
+ {
+  "name": "экран на стену",
+  "prompt": "повесь в кабинете 102 экран (информационную панель) на свободную стену",
+  "ok": true,
+  "failures": [],
+  "notes": [
+   "поставлено: Телевизор настенный 55″"
+  ],
+  "answer": {
+   "text": "Экран-панель (телевизор настенный 55″) предложен на свободную западную стену [Кабинет 102](room:01a13926-6e99-7175-8750-ad8b394f061a) — предложение на плане, примените кнопкой.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "room_geometry"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_by_rules"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "98ec125e-96d8-4cb4-84d8-c30a442b29f5",
+     "kind": "proposal",
+     "chat_id": "93bd0d65-c5ab-496b-8d83-af8834b67251",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Повесить информационную панель (телевизор настенный 55″) на свободную западную стену кабинета 102.",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:43:30.372417+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "Поставить Телевизор настенный 55″ в (5.11, 4.3)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5.11,
+       "y": 4.3,
+       "title": "Телевизор настенный 55″"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Телевизор настенный 55″ в (5.11, 4.3)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003f8",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5.11,
+       "y": 4.3,
+       "angle": 90,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 5.11,
+        "y": 4.3,
+        "title": "Телевизор настенный 55″"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 9,
+   "seconds": 12
+  }
+ },
+ {
+  "name": "точное место у стены",
+  "prompt": "поставь в кабинете 102 шкаф для документов к северной стене, в метре от угла",
+  "ok": false,
+  "failures": [
+   "около метра от угла (0,8–2 м до ближнего угла)",
+   "не больше 6 шагов"
+  ],
+  "notes": [
+   "поставлено: Шкаф для документов"
+  ],
+  "answer": {
+   "text": "Остановился: слишком много шагов на один вопрос. Уточните, что сделать дальше.",
+   "interim": "Проверю расстановку точечным способом.",
+   "tools": [
+    {
+     "name": "room_geometry"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "check_layout"
+    },
+    {
+     "name": "propose_objects"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "4577cc77-23df-4682-a590-de00e4a33c39",
+     "kind": "proposal",
+     "chat_id": "1382d595-01c0-4819-9091-221ecaf6bd15",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Шкаф для документов у северной стены кабинета 102, в метре от западного угла (спиной к стене).",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:43:53.479971+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "Поставить Шкаф для документов в (5.8, 4.72)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5.8,
+       "y": 4.72,
+       "title": "Шкаф для документов"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Шкаф для документов в (5.8, 4.72)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-00000000031f",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5.8,
+       "y": 4.72,
+       "angle": 180,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 5.8,
+        "y": 4.72,
+        "title": "Шкаф для документов"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 13,
+   "seconds": 22
+  }
+ },
+ {
+  "name": "точка в дверях",
+  "prompt": "поставь в кабинете 103 тумбу или шкаф в точку (2.41, 7.59)",
+  "ok": false,
+  "failures": [
+   "ничего не стоит в дверях (>0,6 м от проёма)"
+  ],
+  "notes": [
+   "поставлено: Тумба медицинская (1.61, 7.59)"
+  ],
+  "answer": {
+   "text": "В [кабинете 103](room:01a13926-6e9a-779a-a3a2-bf75a860ba5e) подготовлено предложение: тумба медицинская у южной стены. Указанная точка попадала в дверной проём, поэтому тумба сдвинута на 0.8 м в сторону — примените предложение кнопкой.",
+   "interim": "Точка (2.41, 7.59) пришлась прямо у двери в южной стене, поэтому тумба сдвинута на 0.8 м в сторону от проёма.",
+   "tools": [
+    {
+     "name": "room_geometry"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "check_layout"
+    },
+    {
+     "name": "check_layout"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: point: Input should be a valid dictionary or instance of Point"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: point: Input should be a valid dictionary or instance of Point"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: point: Input should be a valid dictionary or instance of Point"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "place_at",
+     "error": "Неверные аргументы: wall: Input should be a valid dictionary or instance of Wall"
+    },
+    {
+     "name": "propose_objects"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "101998b6-01ab-4243-8ce8-50c32487309f",
+     "kind": "proposal",
+     "chat_id": "a789d009-eed7-43ec-9caf-ac3534626d2a",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Тумба медицинская в кабинете 103 у южной стены; сдвинута на 0.8 м от указанной точки, так как та попадала в зону двери.",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:06.438606+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "Поставить Тумба медицинская в (1.61, 7.59)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.61,
+       "y": 7.59,
+       "title": "Тумба медицинская"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Тумба медицинская в (1.61, 7.59)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-00000000031a",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 1.61,
+       "y": 7.59,
+       "angle": 180,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 1.61,
+        "y": 7.59,
+        "title": "Тумба медицинская"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 11,
+   "seconds": 14
+  }
+ },
+ {
+  "name": "освещение",
+  "prompt": "освети кабинет 104 светильниками по норме для офиса",
+  "ok": true,
+  "failures": [],
+  "notes": [
+   "светильников: 2"
+  ],
+  "answer": {
+   "text": "Для [Кабинета 104](room:01a13926-6e9a-7f65-84db-a850f44e6c22) (23,2 м², офис) по норме рабочего освещения 500 лк нужно ≈7000 лм: предлагаю два светодиодных светильника-панели 600×600 (по 3600 лм) на потолке двумя рядами по центру помещения — предложение уже показано на плане, примените его. Существующих объектов в кабинете нет, так что норма добирается полностью новыми.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "search_catalog"
+    },
+    {
+     "name": "room_geometry"
+    },
+    {
+     "name": "room"
+    },
+    {
+     "name": "place_by_rules"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "826a2c0d-19f7-4785-9c11-70c118461926",
+     "kind": "proposal",
+     "chat_id": "071eb677-16bd-4987-a46c-788fab7d3434",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Кабинет 104: два светодиодных светильника 600×600 на потолке — рабочее освещение офиса (500 лк, 300 лм/м²)",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:11.407656+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 2,
+     "labels": [
+      "Поставить Светильник светодиодный, панель 600×600 в (7.467, 8.464)",
+      "Поставить Светильник светодиодный, панель 600×600 в (7.467, 10.871)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 7.467,
+       "y": 8.464,
+       "title": "Светильник светодиодный, панель 600×600"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 7.467,
+       "y": 10.871,
+       "title": "Светильник светодиодный, панель 600×600"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Светильник светодиодный, панель 600×600 в (7.467, 8.464)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003d0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 7.467,
+       "y": 8.464,
+       "angle": 180,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 7.467,
+        "y": 8.464,
+        "title": "Светильник светодиодный, панель 600×600"
+       }
+      },
+      {
+       "label": "Поставить Светильник светодиодный, панель 600×600 в (7.467, 10.871)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003d0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 7.467,
+       "y": 10.871,
+       "angle": 180,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 7.467,
+        "y": 10.871,
+        "title": "Светильник светодиодный, панель 600×600"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 4,
+   "seconds": 5
+  }
+ },
+ {
+  "name": "извещатели",
+  "prompt": "поставь пожарные извещатели на этаже",
+  "ok": true,
+  "failures": [],
+  "notes": [
+   "извещателей: 5, помещений: 5"
+  ],
+  "answer": {
+   "text": "Готово предложение: 5 дымовых извещателей — по одному в [Кабинет 101](room:01a13926-6e97-7910-9336-e01bb789e2f6), [Кабинет 102](room:01a13926-6e99-7175-8750-ad8b394f061a), [Кабинет 103](room:01a13926-6e9a-779a-a3a2-bf75a860ba5e), [Кабинет 104](room:01a13926-6e9a-7f65-84db-a850f44e6c22) и [Коридор](room:01a13926-6e99-77bf-b576-e6e52ceb5ac9). Примените его на плане этажа.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "place_detectors"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "a101aebf-2caa-46d9-b468-f1999f516133",
+     "kind": "proposal",
+     "chat_id": "c9fa7d21-1a14-431d-ae67-9922183a7c16",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Добавить 5 × Извещатель пожарный дымовой по площади в 5 помещениях",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:13.303054+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 5,
+     "labels": [
+      "Поставить Извещатель пожарный дымовой в (3.81, 3.81)",
+      "Поставить Извещатель пожарный дымовой в (5.0, 6.1)",
+      "Поставить Извещатель пожарный дымовой в (8.74, 3.81)",
+      "Поставить Извещатель пожарный дымовой в (8.74, 10.94)",
+      "Поставить Извещатель пожарный дымовой в (3.81, 10.94)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 3.81,
+       "y": 3.81,
+       "title": "Извещатель пожарный дымовой"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5,
+       "y": 6.1,
+       "title": "Извещатель пожарный дымовой"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 8.74,
+       "y": 3.81,
+       "title": "Извещатель пожарный дымовой"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 8.74,
+       "y": 10.94,
+       "title": "Извещатель пожарный дымовой"
+      },
+      {
+       "kind": "new",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 3.81,
+       "y": 10.94,
+       "title": "Извещатель пожарный дымовой"
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Поставить Извещатель пожарный дымовой в (3.81, 3.81)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003a0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 3.81,
+       "y": 3.81,
+       "angle": 0,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 3.81,
+        "y": 3.81,
+        "title": "Извещатель пожарный дымовой"
+       }
+      },
+      {
+       "label": "Поставить Извещатель пожарный дымовой в (5.0, 6.1)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003a0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 5,
+       "y": 6.1,
+       "angle": 0,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 5,
+        "y": 6.1,
+        "title": "Извещатель пожарный дымовой"
+       }
+      },
+      {
+       "label": "Поставить Извещатель пожарный дымовой в (8.74, 3.81)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003a0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 8.74,
+       "y": 3.81,
+       "angle": 0,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 8.74,
+        "y": 3.81,
+        "title": "Извещатель пожарный дымовой"
+       }
+      },
+      {
+       "label": "Поставить Извещатель пожарный дымовой в (8.74, 10.94)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003a0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 8.74,
+       "y": 10.94,
+       "angle": 0,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 8.74,
+        "y": 10.94,
+        "title": "Извещатель пожарный дымовой"
+       }
+      },
+      {
+       "label": "Поставить Извещатель пожарный дымовой в (3.81, 10.94)",
+       "kind": "asset_new",
+       "type_id": "0192f000-0000-7000-8000-0000000003a0",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 3.81,
+       "y": 10.94,
+       "angle": 0,
+       "show": {
+        "kind": "new",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 3.81,
+        "y": 10.94,
+        "title": "Извещатель пожарный дымовой"
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 1,
+   "seconds": 2
+  }
+ },
+ {
+  "name": "перенос",
+  "prompt": "перенеси всё из кабинета 103 в кабинет 104",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "В [Кабинете 103](room:01a13926-6e9a-779a-a3a2-bf75a860ba5e) числятся два кресла посетителя ([КР-181417-1](asset:01a13926-73ad-72a1-a13d-832fd3134123) и [КР-181417-2](asset:01a13926-73d4-79a2-b85b-cd2c8d30bce6)) — предложил перенести оба в [Кабинет 104](room:01a13926-6e9a-7f65-84db-a850f44e6c22), места в нём подобраны автоматически. Предложение ждёт подтверждения.",
+   "interim": "I'll find both rooms first.",
+   "tools": [
+    {
+     "name": "find_rooms"
+    },
+    {
+     "name": "find_rooms"
+    },
+    {
+     "name": "room"
+    },
+    {
+     "name": "move_to_room"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "14efb24f-1a41-4cb1-b112-5eac3e86621d",
+     "kind": "proposal",
+     "chat_id": "69413a3f-65fa-4adb-84d0-ebca218e7572",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Перенос обоих кресел посетителя из кабинета 103 в кабинет 104",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:22.214133+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 2,
+     "labels": [
+      "Кресло посетителя КР-181417-1: переставить в (7.56, 9.76)",
+      "Кресло посетителя КР-181417-2: переставить в (6.56, 9.76)"
+     ],
+     "sketch": null,
+     "shows": [
+      {
+       "kind": "move",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 7.56,
+       "y": 9.76,
+       "title": "Кресло посетителя КР-181417-1",
+       "from": {
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 1.2510000000000001,
+        "y": 9.186
+       }
+      },
+      {
+       "kind": "move",
+       "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+       "x": 6.56,
+       "y": 9.76,
+       "title": "Кресло посетителя КР-181417-2",
+       "from": {
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 2.851,
+        "y": 9.186
+       }
+      }
+     ],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Кресло посетителя КР-181417-1: переставить в (7.56, 9.76)",
+       "service": "assets",
+       "method": "POST",
+       "path": "/assets/01a13926-73ad-72a1-a13d-832fd3134123/move",
+       "body": {
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 7.56,
+        "y": 9.76,
+        "version": 1
+       },
+       "show": {
+        "kind": "move",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 7.56,
+        "y": 9.76,
+        "title": "Кресло посетителя КР-181417-1",
+        "from": {
+         "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+         "x": 1.2510000000000001,
+         "y": 9.186
+        }
+       }
+      },
+      {
+       "label": "Кресло посетителя КР-181417-2: переставить в (6.56, 9.76)",
+       "service": "assets",
+       "method": "POST",
+       "path": "/assets/01a13926-73d4-79a2-b85b-cd2c8d30bce6/move",
+       "body": {
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 6.56,
+        "y": 9.76,
+        "version": 1
+       },
+       "show": {
+        "kind": "move",
+        "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+        "x": 6.56,
+        "y": 9.76,
+        "title": "Кресло посетителя КР-181417-2",
+        "from": {
+         "floor_id": "01a13926-6e92-75ca-9d82-073b22e1f411",
+         "x": 2.851,
+         "y": 9.186
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 4,
+   "seconds": 9
+  }
+ },
+ {
+  "name": "неисправное",
+  "prompt": "что на этаже неисправно? коротко",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "На этаже неисправен один объект: МФУ лазерное (принтер, сканер, копир) [ПР-181417](asset:01a13926-73ef-7046-b3a7-5dc53dba1691) — в [Кабинете 101](room:01a13926-6e97-7910-9336-e01bb789e2f6). В ремонте объектов нет.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "find_assets"
+    },
+    {
+     "name": "find_assets"
+    }
+   ],
+   "proposals": [],
+   "steps": 2,
+   "seconds": 2
+  }
+ },
+ {
+  "name": "аудит",
+  "prompt": "проверь учёт здания, коротко",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "Проверил: в здании 5 помещений (4 кабинета и коридор) и всего 3 объекта учёта — два кресла посетителя в [Кабинете 103](room:01a13926-6e9a-779a-a3a2-bf75a860ba5e) и МФУ в [Кабинете 101](room:01a13926-6e97-7910-9336-e01bb789e2f6), оценка 7 000 ₽.\n\nПроблемы: у всех трёх объектов не назначен ответственный, а [МФУ ПР-181417](asset:01a13926-73ef-7046-b3a7-5dc53dba1691) неисправно. Людей к помещениям не привязано. Могу предложить назначить ответственных и отправить МФУ в ремонт — скажите, кого назначить.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "audit_assets"
+    },
+    {
+     "name": "building_passport"
+    }
+   ],
+   "proposals": [],
+   "steps": 2,
+   "seconds": 3
+  }
+ },
+ {
+  "name": "переименование",
+  "prompt": "переименуй кабинет 104 в Приёмная",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "Готово — предложение переименовать [помещение 104](room:01a13926-6e9a-7f65-84db-a850f44e6c22) в «Приёмная» сформировано и ждёт вашего применения.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "find_rooms"
+    },
+    {
+     "name": "propose_rooms"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "baa7f05a-b386-41a7-add7-7a891f5cfad8",
+     "kind": "proposal",
+     "chat_id": "498a3b7f-e271-4fd3-b105-2e777368e1c9",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Переименовать кабинет 104 в «Приёмная».",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:30.426806+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "Помещение 104 Кабинет 104: name: «Кабинет 104» → «Приёмная»"
+     ],
+     "sketch": null,
+     "shows": [],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "Помещение 104 Кабинет 104: name: «Кабинет 104» → «Приёмная»",
+       "service": "buildings",
+       "method": "PATCH",
+       "path": "/rooms/01a13926-6e9a-7f65-84db-a850f44e6c22",
+       "body": {
+        "name": "Приёмная",
+        "version": 1
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 2,
+   "seconds": 3
+  }
+ },
+ {
+  "name": "паспорт",
+  "prompt": "опиши здание в трёх предложениях",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "«Проверка копилота 181417» — одноэтажное здание площадью 113 м²: четыре кабинета (92,7 м²) и коридор (20,3 м²). В учёте всего 3 объекта — два кресла посетителя и МФУ, оценка по каталогу 7 000 ₽; два объекта в работе, один неисправен, ответственный ни за кем не закреплён. Люди к помещениям не привязаны.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "building_passport"
+    }
+   ],
+   "proposals": [],
+   "steps": 1,
+   "seconds": 2
+  }
+ },
+ {
+  "name": "права",
+  "prompt": "какие объекты есть в этом здании? перечисли инвентарные номера",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "Здание «Проверка копилота» с открытого экрана мне недоступно: список зданий вернулся пустым, и объекты учёта по нему не отдаются. Скажите, пожалуйста, к какому зданию у вас есть доступ, — или проверьте права на это здание.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "find_assets"
+    },
+    {
+     "name": "building_overview",
+     "error": "Не найдено или недоступно пользователю (buildings): Здание не найдено"
+    },
+    {
+     "name": "buildings"
+    }
+   ],
+   "proposals": [],
+   "steps": 3,
+   "seconds": 2
+  }
+ },
+ {
+  "name": "починка плана",
+  "prompt": "проверь план и исправь ошибки",
+  "ok": true,
+  "failures": [],
+  "notes": [],
+  "answer": {
+   "text": "На плане нашлись две ошибки: дублирующая стена между теми же точками и стена короче 5 мм. Подготовил предложение с обеими правками — дубль удаляется, короткая стена убирается со слиянием концов; примените его кнопкой или в редакторе.",
+   "interim": "",
+   "tools": [
+    {
+     "name": "check_plan"
+    },
+    {
+     "name": "propose_plan_fixes"
+    }
+   ],
+   "proposals": [
+    {
+     "id": "5ce4c82a-18a9-4bb4-8058-f8fb0a205ba5",
+     "kind": "proposal",
+     "chat_id": "7e59b97a-cb4f-4b7e-a0e5-7572b468ca4e",
+     "user_sub": "190a542d-8ed0-4ad4-bc70-3258bbefd309",
+     "building_id": "01a13926-6ab1-72f3-9433-c88b3abafef4",
+     "summary": "Исправить план: 2 правок",
+     "status": "open",
+     "result": null,
+     "created_at": "2026-10-14T06:44:37.455520+00:00",
+     "decided_at": null,
+     "decided_by": null,
+     "count": 1,
+     "labels": [
+      "План: 2 правок — убрана вторая стена twin; стена short убрана, её концы слиты"
+     ],
+     "sketch": {
+      "drawing_id": "01a13926-7414-7765-a620-90d7dcf00823",
+      "version": 2
+     },
+     "shows": [],
+     "drawing_id": null,
+     "actions": [
+      {
+       "label": "План: 2 правок — убрана вторая стена twin; стена short убрана, её концы слиты",
+       "kind": "sketch",
+       "drawing_id": "01a13926-7414-7765-a620-90d7dcf00823",
+       "version": 2,
+       "sketch": {
+        "version": 1,
+        "floors": [
+         {
+          "id": "f1",
+          "name": "Этаж 1",
+          "level": 1,
+          "elevation": 0,
+          "height": 3,
+          "nodes": {
+           "n1": [
+            0,
+            0
+           ],
+           "n2": [
+            0,
+            5
+           ],
+           "n3": [
+            0,
+            7.2
+           ],
+           "n4": [
+            0,
+            12.2
+           ],
+           "n5": [
+            10,
+            0
+           ],
+           "n6": [
+            10,
+            12.2
+           ],
+           "n7": [
+            5,
+            5
+           ],
+           "n8": [
+            5,
+            0
+           ],
+           "n9": [
+            10,
+            5
+           ],
+           "n10": [
+            5,
+            7.2
+           ],
+           "n11": [
+            5,
+            12.2
+           ],
+           "n12": [
+            10,
+            7.2
+           ]
+          },
+          "walls": {
+           "w1": {
+            "a": "n1",
+            "b": "n2",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w2": {
+            "a": "n2",
+            "b": "n3",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w3": {
+            "a": "n3",
+            "b": "n4",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w4": {
+            "a": "n5",
+            "b": "n9",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w5": {
+            "a": "n2",
+            "b": "n7",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w6": {
+            "a": "n1",
+            "b": "n8",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w7": {
+            "a": "n7",
+            "b": "n9",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w8": {
+            "a": "n8",
+            "b": "n5",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w9": {
+            "a": "n8",
+            "b": "n7",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w10": {
+            "a": "n3",
+            "b": "n10",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w11": {
+            "a": "n4",
+            "b": "n11",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w12": {
+            "a": "n10",
+            "b": "n12",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w13": {
+            "a": "n11",
+            "b": "n6",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w14": {
+            "a": "n10",
+            "b": "n11",
+            "thickness": 0.12,
+            "height": null,
+            "kind": "partition"
+           },
+           "w4s14": {
+            "a": "n9",
+            "b": "n12",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           },
+           "w4s14s15": {
+            "a": "n12",
+            "b": "n6",
+            "thickness": 0.25,
+            "height": null,
+            "kind": "bearing"
+           }
+          },
+          "openings": {
+           "o1": {
+            "wall": "w5",
+            "kind": "door",
+            "at": 2.5,
+            "width": 0.9,
+            "height": 2.1,
+            "sill": 0,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o2": {
+            "wall": "w6",
+            "kind": "window",
+            "at": 2.5,
+            "width": 1.5,
+            "height": 1.5,
+            "sill": 0.8,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o3": {
+            "wall": "w7",
+            "kind": "door",
+            "at": 2.5,
+            "width": 0.9,
+            "height": 2.1,
+            "sill": 0,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o4": {
+            "wall": "w8",
+            "kind": "window",
+            "at": 2.5,
+            "width": 1.5,
+            "height": 1.5,
+            "sill": 0.8,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o5": {
+            "wall": "w10",
+            "kind": "door",
+            "at": 2.5,
+            "width": 0.9,
+            "height": 2.1,
+            "sill": 0,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o6": {
+            "wall": "w11",
+            "kind": "window",
+            "at": 2.5,
+            "width": 1.5,
+            "height": 1.5,
+            "sill": 0.8,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o7": {
+            "wall": "w12",
+            "kind": "door",
+            "at": 2.5,
+            "width": 0.9,
+            "height": 2.1,
+            "sill": 0,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o8": {
+            "wall": "w13",
+            "kind": "window",
+            "at": 2.5,
+            "width": 1.5,
+            "height": 1.5,
+            "sill": 0.8,
+            "hinge": "a",
+            "side": "left"
+           },
+           "o9": {
+            "wall": "w2",
+            "kind": "door",
+            "at": 1.1,
+            "width": 1.2,
+            "height": 2.1,
+            "sill": 0,
+            "hinge": "a",
+            "side": "left"
+           }
+          },
+          "rooms": {
+           "r1": {
+            "at": [
+             2.5,
+             2.5
+            ],
+            "name": "Кабинет 101",
+            "number": "101",
+            "type": "office"
+           },
+           "r2": {
+            "at": [
+             7.5,
+             2.5
+            ],
+            "name": "Кабинет 102",
+            "number": "102",
+            "type": "office"
+           },
+           "r3": {
+            "at": [
+             2.5,
+             9.7
+            ],
+            "name": "Кабинет 103",
+            "number": "103",
+            "type": "office"
+           },
+           "r4": {
+            "at": [
+             7.5,
+             9.7
+            ],
+            "name": "Кабинет 104",
+            "number": "104",
+            "type": "office"
+           },
+           "r5": {
+            "at": [
+             5,
+             6.1
+            ],
+            "name": "Коридор",
+            "number": "",
+            "type": "corridor"
+           }
+          },
+          "columns": {},
+          "stairs": {},
+          "underlay": null,
+          "curves": {}
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ],
+   "steps": 2,
+   "seconds": 3
+  }
+ }
+]

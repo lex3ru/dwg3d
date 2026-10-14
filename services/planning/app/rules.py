@@ -80,9 +80,11 @@ class PlacementIn(BaseModel):
     floor_id: str | None = None
     room_ids: list[str] | None = Field(default=None, max_length=100)
     count: int = Field(1, ge=1, le=placing.MAX_ITEMS, description="сколько в каждом помещении")
-    where: Literal["along_wall", "center", "corners", "grid", "front_of"] = "along_wall"
+    where: Literal["along_wall", "center", "corners", "grid", "front_of", "at_wall", "at_point"] = "along_wall"
     gap: float = Field(0.2, ge=0, le=5, description="м между предметами")
-    side: Literal["north", "south", "east", "west"] | None = Field(None, description="для along_wall / corners: только стены этой стороны помещения")
+    side: Literal["north", "south", "east", "west"] | None = Field(None, description="для along_wall / corners / at_wall: стена этой стороны помещения")
+    along: float | Literal["start", "middle", "end"] | None = Field(None, description="для at_wall: метры от начала стены (по обходу, как в room_geometry) до края предмета, или start / middle / end")
+    from_end: bool = Field(False, description="для at_wall: считать along от конца стены (точки to), а не от начала")
     anchor_asset_id: str | None = Field(None, description="для front_of: объект, перед которым ставить (кресла к столу)")
     anchor: dict | None = Field(None, description="для front_of без объекта в учёте: {type_id, x, y, angle, floor_id} — например, стол, который только предлагается")
     companion_type_id: str | None = Field(None, description="к каждому поставленному предмету — ещё один перед ним лицом к нему (кресло к каждому столу)")
@@ -93,6 +95,14 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
     await _manages(request, me, body.building_id)
     t = await _type(request, body.type_id)
     anchor = None
+    if body.where == "at_point":
+        if not body.anchor or body.anchor.get("x") is None or body.anchor.get("y") is None:
+            raise Problem(422, "invalid", "at_point: укажите anchor {x, y, angle}")
+        anchor = {"x": float(body.anchor["x"]), "y": float(body.anchor["y"]), "angle": float(body.anchor.get("angle") or 0), "room_id": None}
+        if not body.room_ids and not body.floor_id:
+            raise Problem(422, "invalid", "at_point: укажите room_ids или floor_id")
+    if body.where == "at_wall" and not body.side:
+        raise Problem(422, "invalid", "at_wall: укажите side (north/south/east/west) и along")
     if body.where == "front_of":
         if body.anchor_asset_id:
             r = await request.app.state.client.get("assets", f"/assets/{body.anchor_asset_id}", token=_token(request))
@@ -127,7 +137,7 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
             if anchor and not anchor.get("room_id") and not r["poly"].buffer(0.05).contains(placing.Point(anchor["x"], anchor["y"])):
                 continue
             try:
-                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap, anchor, body.side)
+                got, notes = placing.place_in_room(r["poly"], plan, assets, all_types, t, body.count, body.where, body.gap, anchor, body.side, body.along, body.from_end)
             except placing.PlanError as ex:
                 raise Problem(422, "invalid", str(ex)) from ex
             rooms_out.append({"room_id": r["id"], "name": r["name"], "floor_id": floor_id, "placed": len(got), "notes": notes})
@@ -148,6 +158,53 @@ async def placements(body: PlacementIn, request: Request, me: Identity = Depends
     w, d, h = placing.size_of(t)
     return {"item": {"id": t["id"], "name": t["name"], "size": [w, d, h]}, "companion": {"id": companion["id"], "name": companion["name"]} if companion else None,
             "rooms": rooms_out, "places": places}
+
+
+class LayoutPlace(BaseModel):
+    type_id: str
+    x: float
+    y: float
+    angle: float | None = 0
+    room_id: str | None = Field(None, description="помещение, в котором предмет должен оказаться")
+
+
+class LayoutMove(BaseModel):
+    asset_id: str
+    x: float
+    y: float
+    angle: float | None = None
+    room_id: str | None = None
+
+
+class LayoutIn(BaseModel):
+    building_id: UUID
+    floor_id: str
+    places: list[LayoutPlace] = Field(default_factory=list, max_length=placing.MAX_ITEMS)
+    moves: list[LayoutMove] = Field(default_factory=list, max_length=placing.MAX_ITEMS)
+
+
+@router.post("/layout-check", summary="Проверить задуманную расстановку до предложения: в каком помещении, что не так, у какой стены, на что смотрит, ближайшее свободное место (ничего не ставит)")
+async def layout_check(body: LayoutIn, request: Request, me: Identity = Depends(current_identity)) -> dict:
+    await _manages(request, me, body.building_id)
+    if not body.places and not body.moves:
+        raise Problem(422, "invalid", "Нечего проверять: укажите places или moves")
+    scope = Scope(await _tree(request, body.building_id), body.floor_id, None)
+    plan = await _plan(request, body.floor_id)
+    assets = await _floor_assets(request, body.building_id, body.floor_id)
+    all_types = await types(request)
+    known = {a["id"] for a in assets}
+    for m in body.moves:
+        if m.asset_id not in known:
+            r = await request.app.state.client.get("assets", f"/assets/{m.asset_id}", token=_token(request))
+            if r.status_code != 200:
+                raise Problem(404, "not_found", f"Объект {m.asset_id} не найден")
+            assets.append(r.json())
+    rooms = placing.rooms_of(plan)
+    got = placing.check_layout(rooms, plan, assets, all_types, [p.model_dump() for p in body.places], [m.model_dump() for m in body.moves])
+    for x in got["items"]:
+        if x.get("room"):
+            x["room"]["type"] = scope.room_type.get(x["room"]["id"])
+    return {"floor_id": body.floor_id, **got}
 
 
 class DetectorsIn(BaseModel):
