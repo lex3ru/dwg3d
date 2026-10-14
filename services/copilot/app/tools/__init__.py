@@ -120,13 +120,27 @@ def specs(mode: str) -> list[dict]:
     return [t.spec() for t in REGISTRY.values() if mode == "propose" or t.kind == "read"]
 
 
+def _unstring(node):
+    """Nested objects and lists a model sends as JSON text ("wall": "{\"side\": ...}") become objects and lists."""
+    if isinstance(node, dict):
+        return {k: _unstring(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_unstring(v) for v in node]
+    if isinstance(node, str) and node[:1] in "{[":
+        try:
+            return _unstring(json.loads(node))
+        except ValueError:
+            return node
+    return node
+
+
 async def run(ctx: Ctx, name: str, raw: str) -> tuple[str, bool, Any]:
     """Run a tool by the model's call: (text for the model, is error, the data)."""
     t = REGISTRY.get(name)
     if t is None or (t.kind != "read" and ctx.mode != "propose"):
         return f"Нет инструмента {name}", True, None
     try:
-        args = json.loads(raw or "{}")
+        args = _unstring(json.loads(raw or "{}"))
         if not isinstance(args, dict):
             raise ValueError
     except ValueError:

@@ -64,12 +64,41 @@ async def _type_names(ctx: Ctx, ids: set[str]) -> dict[str, str]:
         return {}
 
 
+async def _checked(ctx: Ctx, places: list[Place], moves: list[Move]) -> dict | None:
+    """The layout check of what is about to be proposed (planning /layout-check), floor by floor; None when nothing
+    stands on a plan. Raises ToolError with the problems and the nearest free places, so nothing wrong is shown."""
+    b = ctx.building_id
+    floors: dict[str, dict] = {}
+    for p in places:
+        floors.setdefault(p.floor_id, {"places": [], "moves": []})["places"].append({"type_id": p.type_id, "x": p.x, "y": p.y, "angle": p.angle or 0})
+    for m in moves:
+        if m.floor_id:
+            floors.setdefault(m.floor_id, {"places": [], "moves": []})["moves"].append({"asset_id": m.asset_id, "x": m.x, "y": m.y, "angle": m.angle})
+    if not b or not floors:
+        return None
+    items, problems = [], 0
+    for floor_id, body in floors.items():
+        try:
+            got = await ctx.call("POST", "planning", "/layout-check", json={"building_id": b, "floor_id": floor_id, **body})
+        except ToolError:
+            return None                                     # no plan for the floor, or the planning service is away: nothing to check against
+        items += got.get("items", [])
+        problems += got.get("problems", 0)
+    if problems:
+        bad = [f"{x['what']} в ({x['at'][0]}, {x['at'][1]}): {', '.join(x['problems'])}" + (f"; свободно рядом: ({x['fix'][0]}, {x['fix'][1]})" if x.get("fix") else "")
+               for x in items if x.get("problems")]
+        raise ToolError("Не предложено — так ставить нельзя: " + "; ".join(bad[:12]) + ". Исправьте координаты (fix — ближайшее свободное место) или вызовите place_at / place_by_rules.")
+    return {"ok": True, "items": [{k: x.get(k) for k in ("what", "room", "wall", "faces")} for x in items]}
+
+
 @tool("propose_objects", """Предложить изменения объектов: поставить новые, переставить, списать. Координаты — метры плана
 этажа; не выдумывай их: возьми из карточек объектов (x, y), из помещения (move_to_room подберёт места сам) или спроси.
-Пользователь увидит предложение на плане и применит сам.""", kind="propose")
-async def propose_objects(ctx: Ctx, args: ProposeObjects) -> dict:
+Места проверяются кодом (как check_layout): с предметом в дверях, на другом предмете или вне помещения предложение
+не создаётся — в ошибке сказано, что не так и где свободно. Пользователь увидит предложение на плане и применит сам.""", kind="propose")
+async def propose_objects(ctx: Ctx, args: ProposeObjects, checked: bool = False) -> dict:
     if not (args.places or args.moves or args.removes):
         raise ToolError("Предложение пусто: укажите places, moves или removes")
+    check = None if checked else await _checked(ctx, args.places, [m for m in args.moves if m.floor_id] or await _with_floors(ctx, args.moves))
     actions: list[dict] = []
     for m in args.moves:
         a = await _asset(ctx, m.asset_id)
@@ -91,7 +120,20 @@ async def propose_objects(ctx: Ctx, args: ProposeObjects) -> dict:
         show = {"kind": "new", "floor_id": p.floor_id, "x": p.x, "y": p.y, "title": name}
         actions.append(proposals.new_asset_action(f"Поставить {name}" + (f" {p.inventory_no}" if p.inventory_no else "") + f" в ({p.x}, {p.y})",
                                                   p.type_id, p.floor_id, p.x, p.y, p.angle, p.product_id, p.inventory_no, show))
-    return await _propose(ctx, args.summary, actions)
+    out = await _propose(ctx, args.summary, actions)
+    return out | ({"check": check} if check else {})
+
+
+async def _with_floors(ctx: Ctx, moves: list[Move]) -> list[Move]:
+    """Moves with the floor of the object filled in, so the check knows which plan to look at."""
+    out = []
+    for m in moves:
+        if m.floor_id:
+            out.append(m)
+            continue
+        a = await _asset(ctx, m.asset_id)
+        out.append(Move(asset_id=m.asset_id, floor_id=a.get("floor_id"), x=m.x, y=m.y, angle=m.angle))
+    return out
 
 
 class MoveToRoom(BaseModel):
@@ -111,7 +153,16 @@ async def move_to_room(ctx: Ctx, args: MoveToRoom) -> dict:
     points = geometry.spread(poly, len(args.asset_ids))
     label = _room_label(room)
     moves = [Move(asset_id=a, floor_id=room["floor_id"], x=x, y=y) for a, (x, y) in zip(args.asset_ids, points, strict=True)]
-    return await propose_objects(ctx, ProposeObjects(summary=args.summary or f"Перенести {len(moves)} объектов в {label}", moves=moves))
+    # the spread is blind to doors and to what stands there: the check moves each to the nearest free spot
+    try:
+        got = await ctx.call("POST", "planning", "/layout-check", json={"building_id": ctx.building_id or room.get("building_id"), "floor_id": room["floor_id"],
+                                                                        "moves": [{"asset_id": m.asset_id, "x": m.x, "y": m.y, "room_id": args.room_id} for m in moves]})
+        for m, x in zip(moves, got.get("items", []), strict=False):
+            if x.get("fix"):
+                m.x, m.y = x["fix"]
+    except ToolError:
+        pass
+    return await propose_objects(ctx, ProposeObjects(summary=args.summary or f"Перенести {len(moves)} объектов в {label}", moves=moves), checked=True)
 
 
 # --------------------------------------------------------------------- rooms ---

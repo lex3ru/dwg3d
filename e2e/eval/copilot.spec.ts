@@ -96,6 +96,13 @@ test.beforeAll(async ({ browser }: { browser: Browser }) => {
   await json(admin.put(`${API.import}/drawings/${brokenDrawing}/sketch`, { data: { sketch: bad, version: bv } }))
 })
 
+function segDist(p: [number, number], a: [number, number], b: [number, number]): number {
+  const ab = [b[0] - a[0], b[1] - a[1]]
+  const ln = ab[0] ** 2 + ab[1] ** 2
+  const t = ln < 1e-12 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / ln))
+  return Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t)
+}
+
 function centre(n: string): [number, number] {
   const ring = room(n).ring
   return [ring.reduce((s, p) => s + p[0], 0) / ring.length, ring.reduce((s, p) => s + p[1], 0) / ring.length]
@@ -157,6 +164,47 @@ test('экран на свободную стену', async () => {
     ['в кабинете 102', walls.every(w => inside(w.at, ring) || toWall(w.at, ring) <= 0.35)],
     ...brief(a, 3),
   ], [`поставлено: ${items.map(i => i.type).join(', ') || '—'}`])
+})
+
+test('точное место: шкаф к северной стене в метре от угла', async () => {
+  const q = 'поставь в кабинете 102 шкаф для документов к северной стене, в метре от угла'
+  const a = await ask(admin, building, q, uiRoom('102'))
+  const items = a.proposals.flatMap(p => placed(p, types))
+  const storage = items.filter(i => i.role === 'storage')
+  const ring = room('102').ring
+  const top = Math.max(...ring.map(p => p[1]))
+  const xs = ring.map(p => p[0])
+  const cornerDist = (x: number) => Math.min(Math.abs(x - Math.min(...xs)), Math.abs(x - Math.max(...xs)))
+  check('точное место у стены', q, a, [
+    ['есть предложение', a.proposals.length >= 1],
+    ['один шкаф', storage.length === 1],
+    ['у северной стены (≤0,5 м от неё)', storage.length > 0 && storage.every(s => top - s.at[1] <= 0.5)],
+    ['около метра от угла (0,8–2 м до ближнего угла)', storage.every(s => cornerDist(s.at[0]) >= 0.8 && cornerDist(s.at[0]) <= 2.0)],
+    ['внутри кабинета 102', storage.every(s => inside(s.at, ring))],
+    ['точным инструментом (place_at или side)', a.tools.some(t => t.name === 'place_at' || t.name === 'place_by_rules')],
+    ['не больше 6 шагов', a.steps <= 6],
+    ...brief(a, 3),
+  ], [`поставлено: ${items.map(i => i.type).join(', ') || '—'}`])
+})
+
+test('точка в дверях: не ставит, сдвигает и объясняет', async () => {
+  // the door of 103 from the corridor: the point just inside the room, in the door's way
+  const ring = room('103').ring
+  const door = openings.filter(o => o.kind === 'door').map(o => ({ o, d: Math.min(...ring.map((p, i) => segDist(o.center, p, ring[(i + 1) % ring.length]))) })).sort((a, b) => a.d - b.d)[0].o
+  const c = centre('103')
+  const dir: [number, number] = [c[0] - door.center[0], c[1] - door.center[1]]
+  const ln = Math.hypot(...dir) || 1
+  const at: [number, number] = [+(door.center[0] + dir[0] / ln * 0.4).toFixed(2), +(door.center[1] + dir[1] / ln * 0.4).toFixed(2)]
+  const q = `поставь в кабинете 103 тумбу или шкаф в точку (${at[0]}, ${at[1]})`
+  const a = await ask(admin, building, q, uiRoom('103'))
+  const items = a.proposals.flatMap(p => placed(p, types))
+  check('точка в дверях', q, a, [
+    ['есть предложение или отказ с причиной', a.proposals.length >= 1 || /двер|проход|проём/i.test(a.text)],
+    ['ничего не стоит в дверях (>0,3 м от края проёма)', items.every(i => !nearOpening(i.at, openings.filter(o => o.kind === 'door'), 0.3))],
+    ['всё внутри кабинета 103', items.every(i => inside(i.at, ring))],
+    ['сказано про дверь или сдвиг', /двер|проход|сдвин|ближайш/i.test(a.text)],
+    ...brief(a, 3),
+  ], [`поставлено: ${items.map(i => `${i.type} (${i.at.join(', ')})`).join('; ') || '—'}`])
 })
 
 test('освещение кабинета', async () => {

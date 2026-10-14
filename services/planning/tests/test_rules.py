@@ -159,3 +159,84 @@ async def test_a_cabinet_stands_against_a_partition_as_against_a_wall(client, to
     # but not through the partition or the door
     p = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": STORAGE, "room_ids": [ROOM], "count": 6, "where": "along_wall", "side": "north"})).json()["places"]
     assert all(3.4 < q["y"] < 4 for q in p)
+
+
+async def test_a_place_on_a_named_wall_at_a_distance(client, tokens, world):
+    boss = tokens.bearer("boss")
+    # the office's south wall runs 0→6 along y=0 (counter-clockwise walk); 1 m from its start, the desk's back to the wall
+    r = await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_wall", "side": "south", "along": 1.0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    p = body["places"][0]
+    assert body["rooms"][0]["notes"] == [] and abs(p["x"] - 1.7) < 0.02 and abs(p["y"] - 0.36) < 0.02 and p["angle"] == 180.0
+    # the middle of the south wall is the door: the desk is slid aside and the shift is said
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_wall", "side": "south", "along": "middle"})).json()
+    p, notes = r["places"][0], r["rooms"][0]["notes"]
+    assert len(notes) == 1 and "мешает двери" in notes[0] and "сдвинуто" in notes[0]
+    assert not (2.3 < p["x"] < 3.7) and abs(p["y"] - 0.36) < 0.02
+    # two cabinets in a row from the end of the north wall
+    STORAGE = "cabinet-type"
+    world.types[STORAGE] = {"id": STORAGE, "name": "Шкаф", "category_id": "c", "price": None, "currency": "RUB", "size": [0.8, 0.4, 1.9]}
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": STORAGE, "room_ids": [ROOM], "count": 2, "where": "at_wall", "side": "north", "along": "end", "gap": 0})).json()
+    xs = sorted(p["x"] for p in r["places"])
+    assert len(xs) == 2 and all(abs(p["y"] - 3.79) < 0.02 for p in r["places"]) and abs(xs[0] - 0.4) < 0.02 and abs(xs[1] - 1.2) < 0.02
+    # from the other corner: the south wall runs 0→6, so 1 m from its end puts the desk's right edge at x = 5
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_wall", "side": "south", "along": 1.0, "from_end": True})).json()
+    assert abs(r["places"][0]["x"] - 4.3) < 0.02 and r["rooms"][0]["notes"] == []
+    # too far along a 6 m wall (the north wall runs 6→0): pulled back to fit at the far corner, and said so
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_wall", "side": "north", "along": 5.5})).json()
+    assert abs(r["places"][0]["x"] - 0.7) < 0.02 and "сдвинут" in r["rooms"][0]["notes"][0]
+    # no such wall, no side
+    assert (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_wall"})).status_code == 422
+
+
+async def test_a_place_at_a_point_is_checked_and_moved_when_taken(client, tokens, world):
+    boss = tokens.bearer("boss")
+    ok = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_point", "anchor": {"x": 3, "y": 2, "angle": 90}})).json()
+    assert ok["places"] == [{"floor_id": FLOOR, "room_id": ROOM, "type_id": DESK, "x": 3.0, "y": 2.0, "angle": 90.0}] and ok["rooms"][0]["notes"] == []
+    # in the doorway: refused with the reason, and the nearest free place offered instead
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": DESK, "room_ids": [ROOM], "where": "at_point", "anchor": {"x": 3, "y": 0.5, "angle": 0}})).json()
+    notes = r["rooms"][0]["notes"]
+    assert len(r["places"]) == 1 and "мешает двери" in notes[0] and "ближайшее свободное место" in notes[0]
+    p = r["places"][0]
+    assert p["y"] > 0.5 and abs(p["x"] - 3) < 1.5
+    # on another item: the reason names it
+    world.put(DESK, "СТ-7", 1.5, 2.5)
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "room_ids": [ROOM], "where": "at_point", "anchor": {"x": 1.5, "y": 2.5}})).json()
+    assert "налезает на Рабочий стол СТ-7" in r["rooms"][0]["notes"][0]
+    # a point outside the room: no room takes it
+    r = (await client.post(f"{API}/placements", headers=boss, json={"building_id": BUILDING, "type_id": CHAIR, "floor_id": FLOOR, "where": "at_point", "anchor": {"x": 20, "y": 20}})).json()
+    assert r["places"] == [] and r["rooms"] == []
+
+
+async def test_layout_check_tells_what_is_wrong_and_where_to_put_it_instead(client, tokens, world):
+    boss = tokens.bearer("boss")
+    desk = world.put(DESK, "СТ-1", 3, 3.5)
+    world.touch(desk["id"], angle=0)
+    chair = world.put(CHAIR, "КР-1", 5, 2)
+    SCREEN = "screen-type"
+    world.types[SCREEN] = {"id": SCREEN, "name": "Экран", "category_id": "o", "price": None, "currency": "RUB", "size": [1.2, 0.1, 0.7], "elevation": 1.5, "wall_mounted": True, "values": {}}
+    r = await client.post(f"{API}/layout-check", headers=boss, json={"building_id": BUILDING, "floor_id": FLOOR, "places": [
+        {"type_id": CHAIR, "x": 3, "y": 2.8, "angle": 180},          # before the desk, facing it: fine
+        {"type_id": CHAIR, "x": 3, "y": 0.4, "angle": 0},            # in the doorway
+        {"type_id": DESK, "x": 3, "y": 3.5, "angle": 0},             # on the desk that stands there
+        {"type_id": DESK, "x": 9, "y": 9, "angle": 0},               # outside any room
+        {"type_id": SCREEN, "x": 0.06, "y": 2, "angle": 270},        # on the west wall, free: fine
+        {"type_id": SCREEN, "x": 3, "y": 0.06, "angle": 180},        # over the door
+        {"type_id": CHAIR, "x": 1, "y": 1, "angle": 0, "room_id": ROOM2},   # asked for the corridor, lands in the office
+    ], "moves": [{"asset_id": chair["id"], "x": 5, "y": 2.5}]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    items = body["items"]
+    assert body["ok"] is False and body["problems"] == 5 and len(items) == 8
+    assert items[0]["problems"] == [] and items[0]["faces"] == "Рабочий стол СТ-1" and items[0]["room"]["id"] == ROOM and items[0]["room"]["type"] == "office"
+    assert items[1]["problems"] == ["мешает двери или проходу"] and items[1]["fix"] and not (2.3 < items[1]["fix"][0] < 3.7 and items[1]["fix"][1] < 0.8)
+    assert items[2]["problems"] == ["налезает на Рабочий стол СТ-1"] and items[2]["fix"]
+    assert items[3]["problems"] == ["вне помещений"] and items[3]["room"] is None and "fix" not in items[3]
+    assert items[4]["problems"] == [] and items[4]["wall"].startswith("west 0.06")
+    assert items[5]["problems"] == ["висит над дверью или окном"]
+    assert items[6]["problems"][0].startswith("не в том помещении") and items[6]["room"]["id"] == ROOM
+    # the moved chair is not in its own way at its new place
+    assert items[7]["what"] == "Кресло посетителя КР-1" and items[7]["problems"] == []
+    assert (await client.post(f"{API}/layout-check", headers=boss, json={"building_id": BUILDING, "floor_id": FLOOR})).status_code == 422
+    assert (await client.post(f"{API}/layout-check", headers=tokens.bearer("clerk"), json={"building_id": BUILDING, "floor_id": FLOOR, "places": [{"type_id": DESK, "x": 1, "y": 1}]})).status_code in (403, 404)

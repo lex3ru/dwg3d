@@ -108,7 +108,9 @@ async def test_objects_are_proposed_and_moved_on_approval(app, client, tokens, w
     shows = prop["shows"]
     assert [s["kind"] for s in shows] == ["move", "move"] and shows[0]["from"] == {"floor_id": FLOOR, "x": 2.5, "y": 1.0}
     pts = {(s["x"], s["y"]) for s in shows}
-    assert len(pts) == 2 and all(0 < x < 4 and 0 < y < 3 for x, y in pts)
+    assert len(pts) == 2 and all(0 < x < 4 and 0.5 <= y < 3 for x, y in pts)
+    # the places were checked against the plan (the stand-in's door is at y < 0.5: anything there is moved up)
+    assert world.rules and world.rules[-1][0] == "layout-check" and len(world.rules[-1][1]["moves"]) == 2
     # the fact is untouched until approved; then the objects are moved with the user's token
     assert world.assets[MONITOR]["x"] == 2.5
     r = await client.post(f"{API}/proposals/{prop['id']}/apply", headers=me)
