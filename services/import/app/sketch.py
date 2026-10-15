@@ -382,32 +382,45 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
     if not columns.is_empty and not solid.is_empty:
         columns = _mp(_polys(columns.difference(solid)))
 
-    # rooms: the spaces the walls close; groups of walls and columns standing inside a room are taken out of it
+    # a floor taken from a drawing: its outline is closed as the drawing's build closes it (the gaps between the
+    # walls the conversion recognised, the glazing between columns), so the slab, the roof and the rooms are the
+    # building's, not only what the walls happen to close; a plan drawn by hand is what its walls close
     filled = [Polygon(p.exterior) for p in _polys(solid)]
-    labels = sorted(f["rooms"].items())
-    rooms = []
-    for body in _polys(solid):
-        for ring in body.interiors:
-            space = Polygon(ring)
-            inner = [x for x in filled if x.area < space.area and space.contains(x.representative_point())]
-            room = _mp(_polys(space.difference(_mp([solid, columns, *inner]))))
-            for part in _polys(room):
-                if part.area < float(cfg["geometry"]["min_room_area"]):
-                    continue
-                label = next((lb for _, lb in labels if part.contains(Point(lb["at"]))), None)
-                r = Room(part, (label["name"] if label else "")[:60], round(part.area, 2))
-                r.label_type = label["type"] if label else None
-                r.number = label["number"].strip()[:40] if label else ""
-                rooms.append(r)
-
     footprint = _mp(filled)
+    closed = EMPTY
     if f.get("source") and not solid.is_empty:
-        # a floor taken from a drawing: its outline is closed as the drawing's build closes it (the gaps between
-        # the walls the conversion recognised, the glazing between columns), so the slab and the roof are the
-        # building's, not only the rooms' the walls happen to close; a plan drawn by hand is what its walls close
         closed = drawing_footprint(_mp([solid, columns]), openings)
         if not closed.is_empty:
             footprint = _mp([footprint, closed])
+
+    labels = sorted(f["rooms"].items())
+    rooms = []
+
+    def room_of(part, min_area: float) -> None:
+        if part.area < min_area:
+            return
+        label = next((lb for _, lb in labels if part.contains(Point(lb["at"]))), None)
+        r = Room(part, (label["name"] if label else "")[:60], round(part.area, 2))
+        r.label_type = label["type"] if label else None
+        r.number = label["number"].strip()[:40] if label else ""
+        rooms.append(r)
+
+    min_area = float(cfg["geometry"]["min_room_area"])
+    if not closed.is_empty:
+        # the spaces of the closed outline between the walls and columns, as the drawing's build finds its rooms
+        space = closed.difference(_mp([solid, columns]))
+        space = space.buffer(-0.02, join_style="mitre").buffer(0.02, join_style="mitre")
+        for part in sorted(_polys(space), key=lambda q: -q.area):
+            room_of(part, min_area)
+    else:
+        # the spaces the walls close; groups of walls and columns standing inside a room are taken out of it
+        for body in _polys(solid):
+            for ring in body.interiors:
+                space = Polygon(ring)
+                inner = [x for x in filled if x.area < space.area and space.contains(x.representative_point())]
+                for part in _polys(_mp(_polys(space.difference(_mp([solid, columns, *inner]))))):
+                    room_of(part, min_area)
+
     plan = FloorPlan()
     plan.walls, plan.wall_parts, plan.columns = walls, parts, columns
     plan.full_parts, plan.low_parts = full_parts, low_parts           # 3D only (SketchScene)
