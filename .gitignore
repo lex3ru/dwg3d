@@ -4,7 +4,7 @@
 *.dwg
 !legacy/backend/tests/**/*.dwg
 
-# the current single-application version (legacy/)
+# the first, single-application version (legacy/); /backups/ above is its stack's
 /legacy/.tools/
 /legacy/data/
 /legacy/work/
@@ -17,9 +17,11 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
-/deploy/backups/
 .ruff_cache/
-tools/acceptance/.state.json
+
+# the second, microservice version (legacy2/)
+/legacy2/deploy/backups/
+/legacy2/tools/acceptance/.state.json
 
 # real drawings of the user's buildings: data, not code
 /Поэтажные планы *.dxf
