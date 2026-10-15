@@ -14,14 +14,14 @@ import {
   type Floor, type Opening, type OpeningKind, type Piece, type Sketch as Sketch_, type WallKind,
 } from '@/plan'
 import { dist, type XY } from '@/plan/vec'
-import { getRoomTypes, underlayUrl, uploadUnderlay } from '@/api'
+import { getRoomTypes, repairSketch, underlayUrl, uploadUnderlay } from '@/api'
 import { Canvas, type Focus, type Tool } from './Canvas'
 import { wallsSelection, type Selection } from './selection'
 import { areaText } from './format'
 import { openPdf, type Pdf } from './pdf'
 import { calibrate, levelUnderlay, placeUnderlay, rotateUnderlay } from './underlay'
 import { BuildCard } from './BuildCard'
-import { useSketch, type SketchState } from './state'
+import { applyInEditor, useSketch, type SketchState } from './state'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon; hint: string }[] = [
   { id: 'select', label: 'Выбор', key: 'V', icon: MousePointer2, hint: 'Выбрать и двигать стены, углы и помещения; клавиша V' },
@@ -117,6 +117,19 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
 
   const issues = useMemo(() => checkFloor(floor), [floor])
   const bad = useMemo(() => new Set(issues.filter(i => i.level === 'error').flatMap(i => i.ids)), [issues])
+  // the server repairs what it can (walls crossing away from a node it cannot): the whole plan, one step of undo
+  const [repairing, setRepairing] = useState(false)
+  const [repairNote, setRepairNote] = useState<string | null>(null)
+  const repairAll = () => {
+    setRepairing(true)
+    setRepairNote(null)
+    st.flush().then(() => repairSketch(drawing)).then(r => {
+      if (r.fixed.length) applyInEditor(drawing, r.sketch)
+      const left = r.left.filter(i => i.level === 'error').length
+      setRepairNote(!r.fixed.length ? 'Исправлять автоматически нечего: такие ошибки правят вручную'
+        : `Исправлено: ${r.fixed.length}. ${left ? `Осталось ошибок: ${left} — их правят вручную` : 'Ошибок не осталось'}`)
+    }, (e: Error) => setRepairNote(`Не удалось исправить: ${e.message}`)).finally(() => setRepairing(false))
+  }
   const rooms = useMemo(() => findRooms(floor), [floor])
   const floors = [...st.sketch.floors].sort((a, b) => a.level - b.level)
   const below = floors.filter(f => f.level < floor.level).pop() ?? null
@@ -260,6 +273,13 @@ function Editor({ st, drawing }: { st: Loaded; drawing: string }) {
                       ))}
                     </ul>
                   )}
+                  {issues.some(i => i.code !== 'crossing') && (
+                    <Button size="sm" variant="outline" disabled={repairing || st.status === 'conflict'} data-testid="sketch-repair" onClick={repairAll}
+                      hint="Починить план на сервере: убрать стены короче 5 мм и двойные, вернуть проёмы в их стены и развести их, примкнуть концы стен к соседним; одним шагом отмены">
+                      Исправить автоматически
+                    </Button>
+                  )}
+                  {repairNote && <p className="text-xs text-muted-foreground" data-testid="sketch-repair-note">{repairNote}</p>}
                   <UnderlayPanel floor={floor} drawing={drawing} onCommit={commit} tool={tool}
                     setTool={t => { setTool(t); setSelection(null) }} cal={cal} />
                   {floors.length > 1 && (

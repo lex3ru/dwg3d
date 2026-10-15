@@ -353,7 +353,8 @@ def _repair_floor(f: dict, want: set[str]) -> list[dict]:
                 o["at"] = round((lo + hi) / 2, 3)
                 done("opening-off-wall", [oid], f"проём {oid} сужен до стены")
             elif o["at"] - o["width"] / 2 < lo - 1e-6 or o["at"] + o["width"] / 2 > hi + 1e-6:
-                o["at"] = round(min(max(o["at"], lo + o["width"] / 2), hi - o["width"] / 2), 3)
+                # rounded, then held within the faces: a rounding may not put it half a millimetre out again
+                o["at"] = min(max(round(o["at"], 3), lo + o["width"] / 2), hi - o["width"] / 2)
                 done("opening-off-wall", [oid], f"проём {oid} сдвинут внутрь стены")
     if "openings-overlap" in want:
         by_wall: dict[str, list[str]] = {}

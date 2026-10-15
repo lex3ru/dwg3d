@@ -11,10 +11,16 @@ they stop short of (the corners and the junctions), and where the lines cross
 they are cut, as the editor does.
 
 Openings go into the wall nearest their middle, with their kind, width, and
-the side and hinge of a door's leaf; rooms keep their names, columns and
-stairs their places. Each floor remembers the sheet of the drawing it came
-from (`source`), so the plan's next build continues the floors and rooms the
-building already has.
+the side and hinge of a door's leaf, and stand between the wall's faces as
+the editor demands (a corner takes the half-thickness of the walls meeting
+there); rooms keep their names, columns and stairs their places. Nodes
+closer than the editor's joining tolerance are one, and what the editor
+would still call an error (a wall shorter than that, two walls between the
+same nodes, an opening off its wall or over another) is repaired as the
+editor's own repair does, so the plan that comes out can be built at once.
+Each floor remembers the sheet of the drawing it came from (`source`), so
+the plan's next build continues the floors and rooms the building already
+has.
 """
 from __future__ import annotations
 
@@ -25,6 +31,9 @@ from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from .sketch import _faces, outlines
+from .sketch_check import JOIN_TOL, NAMES, repair
+
 MIN_T, MAX_T = 0.04, 0.9          # what may be a wall's thickness
 PARALLEL = 0.985                  # cos of faces taken as running opposite ways
 MIN_OVERLAP = 0.03
@@ -33,6 +42,7 @@ PARTITION_T = 0.18                # thinner walls are partitions
 RISER = 0.17                      # frontend/src/plan/elements.ts
 REACH = 0.5                       # how far past a wall's end its corner may be
 INSIDE = 0.9                      # a strip this much in the wall outline is a wall
+CONVERT_FIXES = ("short-wall", "twin-walls", "opening-off-wall", "openings-overlap", "opening-too-tall")
 
 
 def _polys(g) -> list[Polygon]:
@@ -229,11 +239,12 @@ def graph(segments, kinds) -> tuple[dict, dict]:
     index: dict[tuple, str] = {}
 
     def node(pt) -> str:
-        key = (round(pt[0] / 0.002), round(pt[1] / 0.002))
+        # points within the editor's joining tolerance are one node: a shorter wall is none to the editor
+        key = (round(pt[0] / JOIN_TOL), round(pt[1] / JOIN_TOL))
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 k = index.get((key[0] + dx, key[1] + dy))
-                if k is not None and math.dist(nodes[k], pt) < 0.003:
+                if k is not None and math.dist(nodes[k], pt) <= JOIN_TOL:
                     return k
         k = f"n{len(nodes) + 1}"
         nodes[k] = [round(pt[0], 4), round(pt[1], 4)]
@@ -357,6 +368,9 @@ def openings_of(plan: dict, nodes: dict, walls: dict, cfg: dict, height: float) 
     door_h = float(b.get("door_height", 2.1))
     sill, head = float(b.get("window_sill", 0.9)), float(b.get("window_head", 2.4))
     out, lost = {}, 0
+    floor = {"nodes": nodes, "walls": walls}
+    lines = outlines(floor) if walls else {}
+    faces = {wid: _faces(floor, w, lines[wid]) for wid, w in walls.items()}
     for o in plan.get("openings") or []:
         kind = o.get("kind") if o.get("kind") in ("door", "window", "vitrage", "passage") else "passage"
         c = Point(o["center"])
@@ -372,9 +386,13 @@ def openings_of(plan: dict, nodes: dict, walls: dict, cfg: dict, height: float) 
         w = walls[best[1]]
         a, bb = nodes[w["a"]], nodes[w["b"]]
         d = _unit(_sub(bb, a))
-        length = math.dist(a, bb)
-        width = min(max(float(o["width"]), 0.1), length)
-        at = min(max(_dot(_sub(o["center"], a), d), width / 2), length - width / 2)
+        # between the wall's faces, as the editor checks it: a wide passage is narrowed to what the wall has
+        lo, hi = faces[best[1]]
+        if hi - lo < 0.1 + 0.02:
+            lost += 1
+            continue
+        width = min(max(float(o["width"]), 0.1), hi - lo - 0.02)
+        at = min(max(_dot(_sub(o["center"], a), d), lo + width / 2), hi - width / 2)
         hinge, side = "a", "left"
         if o.get("leaves"):
             h, tip = o["leaves"][0]
@@ -483,4 +501,15 @@ def sketch_of(result: dict, plans: dict[str, dict], cfg: dict) -> tuple[dict, li
         floors.append(f)
         notes += n
     floors.sort(key=lambda f: (f["level"], f["elevation"]))
-    return {"version": 1, "floors": floors}, notes
+    # what the editor would refuse to build is repaired as its own repair does; loose ends and names are left
+    # to the user, who sees them as warnings
+    sketch, fixed = repair({"version": 1, "floors": floors}, CONVERT_FIXES)
+    for f in sketch["floors"]:
+        counts: dict[str, int] = {}
+        for x in fixed:
+            if x["floor_id"] == f["id"]:
+                counts[x["code"]] = counts.get(x["code"], 0) + 1
+        if counts:
+            what = ", ".join(f"{NAMES[code].lower()} — {n}" for code, n in counts.items())
+            notes.append(f"{f['name']}: исправлено при переводе: {what}")
+    return sketch, notes

@@ -189,6 +189,15 @@ export const underlayUrl = (drawing: string, image: string) => `${IMPORT}/drawin
 /** Saves over the save `version` the edits started from; another save made meanwhile — ApiError 409 «conflict». */
 export const saveSketch = (drawing: string, sketch: unknown, version: number) =>
   api<{ version: number }>(`${IMPORT}/drawings/${drawing}/sketch`, { method: 'PUT', json: { sketch, version } })
+export type SketchIssue = { floor_id: string; level: 'error' | 'warning'; code: string; message: string; ids: string[]; at?: [number, number] }
+/**
+ * The saved plan repaired on the server, not saved: walls shorter than 5 mm and twins gone, openings back in their
+ * walls and apart, loose ends joined to the wall they stop short of, labels in no room removed. `fixed` — what was
+ * done, `left` — what remains; the editor applies the plan as one step of undo.
+ */
+export const repairSketch = (drawing: string, codes?: string[]) =>
+  api<{ version: number; sketch: unknown; fixed: { floor_id: string; code: string; ids: string[]; what: string }[]; left: SketchIssue[]; errors: number; warnings: number }>(
+    `${IMPORT}/drawings/${drawing}/sketch/repair`, { method: 'POST', json: { codes: codes ?? null } })
 
 // ---- people and rights (the building's administrators)
 

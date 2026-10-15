@@ -412,6 +412,40 @@ def test_walls_of_a_built_plan_come_back_as_centre_lines(tmp_path):
         assert drawn == sorted(round(r["area"], 1) for r in plans[f["id"]]["rooms"])
 
 
+def test_a_converted_plan_has_no_errors_the_editor_would_stop_the_build_for(tmp_path):
+    """The converter joins nodes with the editor's tolerance, puts openings between the walls' faces and repairs the
+    rest, so the plan builds at once: no error of app/sketch_check (the editor's check) is left. The real drawing
+    the complaint came with is tried too when it is at hand: it used to come with 16 errors on its floor."""
+    import json
+    from pathlib import Path
+
+    from app import sketch_check
+    from app.dwg.pipeline import run
+    from app.to_sketch import sketch_of
+
+    from .make_sample import make
+
+    sources = [make(tmp_path / "sample.dxf")]
+    real = Path(__file__).resolve().parents[3] / "Поэтажные планы Бастион.dxf"
+    if real.exists():
+        sources.append(real)
+    cfg = load_config({})
+    for i, src in enumerate(sources):
+        meta = run(src, tmp_path / f"build{i}", {}, debug_png=False, use_cache=False)
+        plans = {f["id"]: json.loads((tmp_path / f"build{i}" / f["plan"]).read_text()) for f in meta["floors"]}
+        sketch, notes = sketch_of(meta, plans, cfg)
+        sketch = read_sketch(sketch)
+        errors = [x for x in sketch_check.check(sketch) if x["level"] == "error"]
+        assert errors == [], (src.name, errors)
+        if i == 1:                                      # the real floor, not an empty one
+            assert sum(len(f["walls"]) for f in sketch["floors"]) > 100
+        # the sample's rooms are still closed by the plan's walls, to their areas
+        if i == 0:
+            for f in sketch["floors"]:
+                built = sorted(round(r["area"], 1) for r in plans[f["id"]]["rooms"])
+                assert sorted(round(r.area, 1) for r in plan_of(f, cfg).rooms) == built
+
+
 async def test_a_drawing_turned_into_a_plan_goes_on_as_the_same_drawing(client, app, worker, tokens, grants, sample):
     admin = tokens.admin()
     d = (await upload(client, tokens, sample)).json()

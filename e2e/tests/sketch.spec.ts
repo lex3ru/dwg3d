@@ -278,3 +278,56 @@ test('an uploaded drawing turned into a plan keeps the building\'s floors and ro
   await expect(row).toHaveAttribute('data-status', 'done', { timeout: 30_000 })
   expect(await rooms()).toEqual(before)
 })
+
+// A plan with mistakes the editor used to stop the build for: «Исправить автоматически» repairs what the server can
+// (a wall shorter than 5 mm, a twin wall) as one step of undo and saves; a plan still with errors builds after a
+// warning instead of never.
+test('a plan with mistakes is repaired by a button, or built after a warning', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.setViewportSize({ width: 1360, height: 900 })
+  await signIn(page, 'admin')
+  await page.getByRole('button', { name: 'Создать здание' }).click()
+  await page.getByLabel('Название').fill(`С ошибками ${Date.now()}`)
+  await page.getByRole('button', { name: 'Создать', exact: true }).click()
+  await page.waitForURL(/#\/p\//)
+  const building = page.url().split('#/p/')[1]
+  const made = await page.request.post('/api/import/v1/sketches', { data: { building_id: building, name: 'План с ошибками' } })
+  expect(made.status(), await made.text()).toBe(201)
+  const sketchId = (await made.json() as { id: string }).id
+  const wall = (a: string, b: string, t = 0.25, kind = 'bearing') => ({ a, b, thickness: t, height: null, kind })
+  const broken = { version: 1, floors: [{ id: 'f1', name: 'Этаж 1', level: 1, elevation: 0, height: 2.7,
+    nodes: { a: [0, 0], e: [2, 0], b: [4, 0], c: [4, 3], f: [2, 3], d: [0, 3], s1: [1, 1], s2: [1, 1.003] },
+    walls: { w1: wall('a', 'e'), w2: wall('e', 'b'), w3: wall('b', 'c'), w4: wall('c', 'f'), w5: wall('f', 'd'), w6: wall('d', 'a'),
+      p: wall('e', 'f', 0.1, 'partition'), short: wall('s1', 's2', 0.1, 'partition'), twin: wall('a', 'e') },
+    openings: {}, rooms: { r1: { at: [1, 1.5], name: 'Кухня', number: '101', type: null } } }] }
+  const v0 = (await (await page.request.get(`/api/import/v1/drawings/${sketchId}/sketch`)).json() as { version: number }).version
+  const saved = await page.request.put(`/api/import/v1/drawings/${sketchId}/sketch`, { data: { sketch: broken, version: v0 } })
+  expect(saved.status(), await saved.text()).toBe(200)
+  await page.goto(`/#/sketch/${sketchId}`)
+  await expect(page.getByText('Две стены между одними и теми же точками')).toBeVisible()
+  await expect(page.getByText('Стена короче 5 мм')).toBeVisible()
+
+  // the build is offered with a warning, not refused; declined, nothing is built
+  const build = page.getByTestId('sketch-build-button')
+  await expect(build).toBeEnabled()
+  await expect(build).toHaveAttribute('data-errors', '2')
+  let asked = ''
+  page.once('dialog', d => { asked = d.message(); void d.dismiss() })
+  await build.click()
+  expect(asked).toContain('Ошибок в плане: 2')
+  await expect(page.getByTestId('sketch-built')).toHaveCount(0)
+
+  // repaired by the button: the mistakes are gone, the step can be undone, and the repaired plan is what got saved
+  await page.getByTestId('sketch-repair').click()
+  await expect(page.getByTestId('sketch-repair-note')).toHaveText('Исправлено: 2. Ошибок не осталось')
+  await expect(page.getByText('Две стены между одними и теми же точками')).toHaveCount(0)
+  await expect(page.getByTestId('sketch-repair')).toHaveCount(0)
+  await expect(build).toHaveAttribute('data-errors', '0')
+  await expect(page.getByRole('button', { name: 'Отменить' })).toBeEnabled()
+  await expect.poll(async () => {
+    const s = await (await page.request.get(`/api/import/v1/drawings/${sketchId}/sketch`)).json() as { sketch: { floors: { walls: Record<string, unknown> }[] } }
+    return Object.keys(s.sketch.floors[0].walls).sort().join()
+  }, { timeout: 10_000 }).toBe('p,w1,w2,w3,w4,w5,w6')
+  await build.click()
+  await expect(page.getByTestId('sketch-built')).toBeVisible({ timeout: 90_000 })
+})

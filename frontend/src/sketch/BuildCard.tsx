@@ -31,7 +31,8 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
     else if (event.type.startsWith('import.build.')) { setLive(null); load() }
   })
 
-  // a plan with errors (walls crossing away from a corner, an opening off its wall) is not built
+  // a plan with errors (walls crossing away from a corner, an opening off its wall) is built after a warning: the
+  // build clips an opening to its wall and joins crossing walls, so the rooms may not be the ones drawn
   const errors = useMemo(() => (st.sketch?.floors ?? []).flatMap(f => checkFloor(f).filter(i => i.level === 'error').map(i => `${f.name}: ${i.message}`)), [st.sketch])
   const empty = !(st.sketch?.floors ?? []).some(f => Object.keys(f.walls).length)
   const b = d?.build
@@ -41,6 +42,8 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
   const fromFile = b?.status === 'done' && b.of === 'file'
 
   const build = () => {
+    if (errors.length && !confirm(`Ошибок в плане: ${errors.length}.\n${errors.slice(0, 6).join('\n')}${errors.length > 6 ? '\n…' : ''}\n\n`
+      + 'Собрать всё равно? Проём за гранью стены будет обрезан по ней, стены на пересечении сольются, и помещения могут выйти не такими, как нарисованы.')) return
     setBusy(true)
     setRefused(null)
     st.flush().then(() => rebuildDrawing(drawing)).then(setD, (e: Error) => setRefused(e.message)).finally(() => setBusy(false))
@@ -79,10 +82,12 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
       {fromFile && !running && <p className="text-xs text-muted-foreground" data-testid="sketch-from-file">План взят из сборки {b.n} загруженного чертежа. Соберите его, когда поправите: здание продолжит те же этажи и помещения.</p>}
       {built && !running && <p className="text-xs text-muted-foreground" data-testid="sketch-built">Собрана сборка {b.n}: здание взяло этажи и помещения плана.</p>}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy || running || empty || errors.length > 0 || st.status === 'conflict'} onClick={build} data-testid="sketch-build-button"
+        <Button size="sm" disabled={busy || running || empty || st.status === 'conflict'} onClick={build} data-testid="sketch-build-button"
+          data-errors={errors.length}
           hint={empty ? 'Собрать здание из плана: сначала нарисуйте стены'
-            : errors.length ? `Собрать здание из плана: сначала исправьте — ${errors[0]}`
-              : running ? 'Сборка уже идёт' : 'Сохранить план и собрать из него этажи, помещения и 3D-модель здания'}>
+            : running ? 'Сборка уже идёт'
+              : errors.length ? `Собрать здание из плана с ошибками (${errors.length}): проёмы за гранью стены обрежутся, стены на пересечении сольются; лучше сначала исправить — ${errors[0]}`
+                : 'Сохранить план и собрать из него этажи, помещения и 3D-модель здания'}>
           <Hammer className="size-4" />Собрать здание
         </Button>
         <Button size="sm" variant="outline" disabled={busy || empty} data-testid="sketch-dxf"

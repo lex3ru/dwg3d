@@ -164,7 +164,7 @@ export function Building({ id, review }: { id: string; review?: string }) {
                         if (!confirm(`Перевести «${d.name}» в нарисованный план? Стены, проёмы и помещения последней сборки станут планом 2D-редактора, и дальше чертёж меняется в нём, а не новым файлом. Загруженные файлы останутся в истории.`)) return
                         setBusy(true)
                         drawingToSketch(d.id).then(r => {
-                          if (r.notes.length) alert(`Перенесено не всё:\n${r.notes.join('\n')}`)
+                          if (r.notes.length) alert(`При переводе в план:\n${r.notes.join('\n')}`)
                           location.hash = to.sketch(d.id)
                         }, (e: Error) => { setError(e.message); setBusy(false) })
                       }}>
