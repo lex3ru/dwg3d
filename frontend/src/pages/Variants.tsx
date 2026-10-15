@@ -145,7 +145,7 @@ function VariantCard({ id, building, editor, onChanged }: { id: string; building
       {unnumbered.length > 0 && v.status === 'draft' && (
         <div data-testid="numbers">
           <h3 className="font-medium">Инвентарные номера новых объектов</h3>
-          <p className="text-muted-foreground">Без номера объект не будет поставлен при применении.</p>
+          <p className="text-muted-foreground">Без номера объект встанет на план без учёта; номер можно задать здесь или потом в его карточке.</p>
           <ul className="mt-1 grid gap-1">
             {unnumbered.map(o => <Numbering key={o.id} variant={v.id} op={o.id} onDone={load}
               name={cmp.objects.find(x => x.op_id === o.id)?.name ?? 'новый объект'} />)}

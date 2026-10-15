@@ -62,11 +62,12 @@ const pinIds = new Map<string, string>()
 /** the same for objects placed in the scene: viewer id <-> object id in the assets service */
 const objectIds = new Map<string, string>()
 const viewerIds = new Map<string, string>()
-/** what the viewer shows of an object besides the placed item: its number, where its card is */
-const objectInfo = new Map<string, { number: string; card: string }>()
+/** what the viewer shows of an object besides the placed item: its number (none — not on the books), where its card is */
+const objectInfo = new Map<string, { number: string | null; card: string }>()
 
-/** An object of accounting (not a free piece of furniture): its inventory number and the address of its card. */
-export function assetOf(viewerId: string): { number: string; card: string } | null {
+/** An object of the assets service (not a piece of a variant): its inventory number, if it is on the books, and
+ * the address of its card. */
+export function assetOf(viewerId: string): { number: string | null; card: string } | null {
   return objectInfo.get(objectIds.get(viewerId) ?? viewerId) ?? null
 }
 let admin = false
@@ -295,7 +296,7 @@ async function variantOps(id: string, ops: Json[]): Promise<Json[]> {
         const type = (await call('GET', `${CATALOG}/types/${op.item}`)).name
         const answer = await askNumber({ title: 'Новый объект в варианте', optional: true, suggestion: await nextNumber(k.building, op.item),
           generate: generator(op.item, 1).generate, products: await productsOf(op.item),
-          text: `Инвентарный номер «${type}» — можно оставить пустым и указать перед применением варианта` })
+          text: `Инвентарный номер «${type}» — можно оставить пустым: при применении варианта объект встанет без учёта` })
         const number = answer?.number.trim()
         edits.push({ kind: 'place', type_id: op.item, floor_id: k.floors.get(op.floor), x: op.at[0], y: op.at[1], angle: op.angle ?? 0,
           ...(answer?.product ? { product_id: answer.product } : {}), inventory_no: number || null, note: op.note ?? '' })
@@ -456,7 +457,7 @@ async function nextNumber(building: string, type: string): Promise<string> {
     const pages = await Promise.all(['', '&state=retired'].map((state) =>
       call('GET', `${ASSETS}/assets?building_id=${building}&type_id=${type}${state}&limit=200`)))
     const items = pages.flatMap((p) => p.items as Json[])
-    const numbered = items.map((a) => String(a.inventory_no)).filter((n) => /\d+$/.test(n))
+    const numbered = items.map((a) => String(a.inventory_no ?? '')).filter((n) => /\d+$/.test(n))
     const last = numbered.sort((a, b) => Number(/(\d+)$/.exec(a)![1]) - Number(/(\d+)$/.exec(b)![1])).pop()
     return last ? inRow(last, 2)[1] : ''
   } catch { return '' }
@@ -469,8 +470,9 @@ export function inRow(first: string, n: number): string[] {
   return Array.from({ length: n }, (_, i) => `${m[1]}${String(Number(m[2]) + i).padStart(m[2].length, '0')}`)
 }
 
-/** The viewer's changes of placed items: a new item is a new object (its inventory number is asked for),
- * a moved or turned one is moved, a note is the object's note. Removing and resizing happen elsewhere. */
+/** The viewer's changes of placed items: a new item is a new object (its inventory number is asked for; none —
+ * it stands off the books), a moved or turned one is moved, a note is the object's note, a removed one is deleted
+ * when it is not on the books (one on the books is written off in its card). Resizing happens elsewhere. */
 async function objectOps(id: string, all: Json[]): Promise<Json> {
   const k = known.get(id)!
   const byFloor = new Map([...k.floors].map(([candidate, floor]) => [floor, candidate]))
@@ -479,26 +481,33 @@ async function objectOps(id: string, all: Json[]): Promise<Json> {
   const ops = all.filter((op) => !mine.includes(op))
   const deleted = mine.filter((op) => op.op === 'delete').map((op) => op.id)
   const items: Json[] = await variantOps(id, mine)
-  if (ops.some((op) => op.op === 'delete')) throw refuse('Объект учёта не удаляется из сцены: списать его можно в карточке объекта')
-  // several new at once (a copy, a row): one number asked, the next ones go in a row
+  for (const op of ops.filter((op) => op.op === 'delete')) {
+    const server = objectIds.get(op.id) ?? op.id
+    const a: Json = await call('GET', `${ASSETS}/assets/${server}`)
+    if (a.inventory_no) throw refuse(`${a.type_name} ${a.inventory_no} на учёте и из сцены не удаляется: списать его можно в карточке объекта`)
+    await call('DELETE', `${ASSETS}/assets/${server}`)
+    deleted.push(op.id)
+  }
+  // several new at once (a copy, a row): one number asked, the next ones go in a row; none — all off the books
   const creates = ops.filter((op) => op.op === 'create')
   let numbers: string[] = []
   let product: string | null = null          // the make and model of all of them (a row is of one model)
   if (creates.length) {
     const type = (await call('GET', `${CATALOG}/types/${creates[0].item}`)).name
     const gen = generator(creates[0].item, creates.length)
-    const answer = await askNumber({ title: creates.length > 1 ? `Новые объекты: ${creates.length}` : 'Новый объект', optional: false,
+    const answer = await askNumber({ title: creates.length > 1 ? `Новые объекты: ${creates.length}` : 'Новый объект', optional: true,
       suggestion: await nextNumber(k.building, creates[0].item), generate: gen.generate, products: await productsOf(creates[0].item),
-      text: creates.length > 1 ? `Инвентарный номер первого из «${type}» — следующие пойдут подряд` : `Инвентарный номер «${type}»` })
-    const first = answer?.number.trim()
-    if (!first) throw refuse('Объект не поставлен: нужен инвентарный номер')
-    numbers = gen.row(first) ?? inRow(first, creates.length)
-    product = answer?.product ?? null
+      text: creates.length > 1 ? `Инвентарный номер первого из «${type}» — следующие пойдут подряд; пусто — все встанут без учёта`
+        : `Инвентарный номер «${type}»; пусто — встанет на план без учёта, номер дадут в карточке` })
+    if (!answer) throw refuse('Объект не поставлен')
+    const first = answer.number.trim()
+    numbers = first ? gen.row(first) ?? inRow(first, creates.length) : []
+    product = answer.product ?? null
   }
-  for (const op of ops) {
+  for (const op of ops.filter((op) => op.op !== 'delete')) {
     const server = objectIds.get(op.id) ?? op.id
     if (op.op === 'create') {
-      const number = numbers.shift()!
+      const number = numbers.shift() ?? null
       const a = await call('POST', `${ASSETS}/assets`, { type_id: op.item, product_id: product, floor_id: k.floors.get(op.floor),
         x: op.at[0], y: op.at[1], angle: op.angle ?? 0, inventory_no: number, note: op.note ?? '' })
       objectIds.set(op.id, a.id)

@@ -42,6 +42,11 @@ def asset_json(a) -> dict:
     }
 
 
+def label(a) -> str:
+    """«Кушетка КШ-0012», or «Кушетка без номера» for one not on the books."""
+    return f"{a.type_name} {a.inventory_no or 'без номера'}"
+
+
 def chain(a) -> list[tuple[str, object]]:
     """The object and everything above it, for a question about rights."""
     return [("asset", a.id), ("room", a.room_id), ("floor", a.floor_id), ("building", a.building_id)]

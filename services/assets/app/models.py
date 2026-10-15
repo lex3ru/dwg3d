@@ -38,7 +38,7 @@ assets = Table(
     Column("angle", Float, nullable=False, server_default="0"),
     Column("elevation", Float),
     Column("container_id", Uuid, ForeignKey("assets.id"), index=True),
-    Column("inventory_no", Text, nullable=False, unique=True),        # never reused, even after retiring
+    Column("inventory_no", Text, unique=True),                        # none — not on the books; never reused, even after retiring
     Column("serial_no", Text),
     Column("state", Text, nullable=False, server_default="in_use"),
     Column("responsible_id", Uuid, index=True),                       # -> people

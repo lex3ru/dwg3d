@@ -219,7 +219,7 @@ class World:
             if me.sub not in self.admins and not me.is_admin:
                 return httpx.Response(403, json={"code": "forbidden", "detail": "Недостаточно прав"})
             a = {"id": str(uuid4()), "type_id": body["type_id"], "type_name": "Извещатель дымовой" if body["type_id"] == "t-smoke" else "Стол",
-                 "inventory_no": body["inventory_no"], "state": "in_use", "building_id": BUILDING, "floor_id": body["floor_id"],
+                 "inventory_no": body.get("inventory_no"), "state": "in_use", "building_id": BUILDING, "floor_id": body["floor_id"],
                  "room_id": ROOM214, "x": body["x"], "y": body["y"], "angle": body.get("angle") or 0, "responsible_id": None, "props": {}, "version": 1}
             self.assets[a["id"]] = a
             return httpx.Response(201, json=a)

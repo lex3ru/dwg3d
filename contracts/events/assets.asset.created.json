@@ -1,12 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "assets.asset.created",
-  "description": "Объект поставлен на учёт. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "description": "Объект поставлен на план. subject — объект; здание, этаж, помещение и объект — в конверте. inventory_no есть, если объект сразу поставлен на учёт.",
   "type": "object",
   "required": [
     "asset_id",
-    "type_id",
-    "inventory_no"
+    "type_id"
   ],
   "additionalProperties": false,
   "properties": {

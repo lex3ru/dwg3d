@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assets.asset.deleted",
+  "description": "Объект, не стоявший на учёте, удалён со сцены насовсем — с файлами и историей. subject — объект; здание, этаж, помещение и объект — в конверте.",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "type_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "type_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

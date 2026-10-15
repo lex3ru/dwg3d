@@ -361,7 +361,7 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 | angle | real | |
 | elevation | double null | |
 | container_id | uuid null FK assets | |
-| inventory_no | text | уникален |
+| inventory_no | text null | уникален; пусто — объект не на учёте |
 | serial_no | text null | |
 | state | text | `in_use` \| `faulty` \| `in_repair` \| `in_storage` \| `retired` |
 | responsible_id | uuid null | → people |
@@ -377,7 +377,10 @@ S3: `drawings/<id>/files/<n>/<имя>`, `builds/<id>/floor_<n>.glb`,
 Ограничения:
 
 - `inventory_no` уникален по всей таблице, включая списанные: номера не
-  используются повторно.
+  используются повторно. Пустой номер — объект стоит на плане, но не на
+  учёте (миграция 0004, 15.10.2026): его можно поставить на учёт
+  (`registered` в истории) или удалить насовсем вместе с историей и
+  файлами; объект с номером не удаляется.
 - либо `container_id`, либо координаты: `(container_id is null) = (x is not null)`.
 - контейнер сам не вложен и стоит в том же помещении — проверяет приложение
   в той же транзакции.

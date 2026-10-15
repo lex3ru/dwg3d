@@ -1,8 +1,8 @@
 """QR labels for printing: one sticker, or a sheet of them on A4 (docs/TZ.md, 4.4).
 
 A label is a square of `size` mm: the QR code (the link to the object's card)
-on top, the inventory number and the type below. The link carries nothing but
-the code: whoever scans it signs in and sees the card only with a right to it.
+on top, the inventory number and the type below (for an object without a number:
+the type, marked «не на учёте»). The link carries nothing but the code: whoever scans it signs in and sees the card only with a right to it.
 """
 from __future__ import annotations
 
@@ -23,7 +23,8 @@ def _sticker(c, x: float, y: float, size: float, url: str, a, *, cut: bool) -> N
     pad = size * 0.04
     q = size * 0.62
     pdf.qr(c, url, x + (size - q) / 2, y + size - q - pad, q)
-    number, kind = a.inventory_no, a.type_name
+    # one not on the books has no number: the type takes its place, and the small line says so
+    number, kind = (a.inventory_no, a.type_name) if a.inventory_no else (a.type_name, "не на учёте")
     big = pdf.fit(number, pdf.BOLD, size * 0.12, size - 2 * pad)
     c.setFont(pdf.BOLD, big)
     c.drawCentredString(x + size / 2, y + size * 0.19, number)
@@ -44,7 +45,7 @@ def single(url: str, a, size_mm: float) -> bytes:
     out = BytesIO()
     size = size_mm * mm
     c = pdf.canvas(out, pagesize=(size, size), pageCompression=1)
-    c.setTitle(f"Метка {a.inventory_no}")
+    c.setTitle(f"Метка {a.inventory_no or a.qr_code}")
     _sticker(c, 0, 0, size, url, a, cut=False)
     c.showPage()
     c.save()

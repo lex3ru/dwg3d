@@ -155,7 +155,7 @@
 | `people.person.assigned` / `.unassigned` | создать / отозвать `viewer` на помещение (`origin: assignment`) |
 | `people.person.left` | отозвать все назначения человека |
 | `assets.asset.responsible_changed` | отозвать `responsible` у прежнего, выдать новому (`origin: responsible`) |
-| `assets.asset.retired` | отозвать назначения на объект |
+| `assets.asset.retired`, `assets.asset.deleted` | отозвать назначения на объект |
 | `assets.asset.moved` (смена здания) | обновить `building_id` назначений на объект |
 | `buildings.room.merged` | перенести назначения на помещение-наследник |
 | `buildings.room.retired` | отозвать назначения на помещение |
@@ -387,12 +387,14 @@ Asset {
 
 | Публикует | Данные |
 |---|---|
-| `assets.asset.created` | объект целиком |
+| `assets.asset.created` | объект поставлен на план; `inventory_no` — если сразу на учёт |
+| `assets.asset.registered` | объект поставлен на учёт: `inventory_no` |
 | `assets.asset.changed` | `changes: {поле: [было, стало]}` |
 | `assets.asset.moved` | откуда и куда: здание, этаж, помещение, точка, контейнер |
 | `assets.asset.state_changed` | было, стало |
 | `assets.asset.responsible_changed` | `from`, `to` (person_id), `building_id` |
 | `assets.asset.retired` | объект |
+| `assets.asset.deleted` | объект не на учёте удалён насовсем |
 | `assets.asset.file_added` / `.file_removed` | `file_id`, вид, имя |
 
 | Получает | Реакция |
@@ -444,7 +446,7 @@ Asset {
 |---|---|
 | `buildings.room.merged` | перенести привязки в наследника |
 | `buildings.room.retired` | снять привязки (с событиями `unassigned`) |
-| `assets.asset.retired` | очистить `workplace_asset_id` |
+| `assets.asset.retired`, `assets.asset.deleted` | очистить `workplace_asset_id` |
 
 ## 8. Журнал (`journal`)
 

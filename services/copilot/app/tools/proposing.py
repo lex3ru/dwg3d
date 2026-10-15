@@ -35,7 +35,7 @@ class Place(BaseModel):
     x: float
     y: float
     angle: float | None = None
-    inventory_no: str | None = Field(None, description="инвентарный номер; пусто — свободный номер подберётся при применении")
+    inventory_no: str | None = Field(None, description="инвентарный номер; пусто — объект встанет на план без учёта, номер дадут в карточке")
     product_id: str | None = None
 
 
@@ -110,10 +110,14 @@ async def propose_objects(ctx: Ctx, args: ProposeObjects, checked: bool = False)
         actions.append(proposals.action(label, "assets", "POST", f"/assets/{m.asset_id}/move", body, show))
     for r in args.removes:
         a = await _asset(ctx, r)
-        show = {"kind": "remove", "floor_id": a["floor_id"], "x": a.get("x"), "y": a.get("y"), "title": f"{a.get('type_name')} {a.get('inventory_no')}"} \
+        name = f"{a.get('type_name')} {a.get('inventory_no') or 'без номера'}"
+        show = {"kind": "remove", "floor_id": a["floor_id"], "x": a.get("x"), "y": a.get("y"), "title": name} \
             if a.get("x") is not None else None
-        actions.append(proposals.action(f"{a.get('type_name')} {a.get('inventory_no')}: списать", "assets", "POST",
-                                        f"/assets/{r}/state", {"state": "retired", "version": a["version"]}, show))
+        if a.get("inventory_no"):                       # on the books: written off; off them: deleted from the scene
+            actions.append(proposals.action(f"{name}: списать", "assets", "POST",
+                                            f"/assets/{r}/state", {"state": "retired", "version": a["version"]}, show))
+        else:
+            actions.append(proposals.action(f"{name}: удалить со сцены", "assets", "DELETE", f"/assets/{r}", None, show))
     names = await _type_names(ctx, {p.type_id for p in args.places})
     for p in args.places:
         name = names.get(p.type_id, "объект")

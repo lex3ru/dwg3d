@@ -154,8 +154,8 @@ def boss(world) -> dict[str, str]:
     return world.person("boss", ("admin", "building", BUILDING))
 
 
-async def put(client, headers, world, type_: str, number: str, x: float = 2.0, **kw) -> dict:
-    """Place an object of a test type at (x, 2) of the floor."""
+async def put(client, headers, world, type_: str, number: str | None, x: float = 2.0, **kw) -> dict:
+    """Place an object of a test type at (x, 2) of the floor; no number — not on the books."""
     body = {"type_id": world.types[type_]["id"], "floor_id": FLOOR, "x": x, "y": 2.0, "inventory_no": number, **kw}
     if type_ == "scope":
         body.setdefault("props", {"owner": "Эндоскопия"})

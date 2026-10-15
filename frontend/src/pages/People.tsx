@@ -1,9 +1,6 @@
 import { History, Upload, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  assignPerson, createPerson, importPeople, leavePerson, linkPerson, listAssets, listAssignments, listPeople, unassignPerson,
-  type Asset, type Assignment, type ImportReport, type Person, type TreeFloor,
-} from '../api'
+import { assignPerson, createPerson, importPeople, leavePerson, linkPerson, listAssets, listAssignments, listPeople, numberOf, unassignPerson, type Asset, type Assignment, type ImportReport, type Person, type TreeFloor } from '../api'
 import { to } from '../shell/route'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -119,7 +116,7 @@ function Rooms({ person, building, floors, onError }: { person: Person; building
           <Tip label="Объект выбранного помещения, за которым сидит человек, например стол; можно не указывать">
             <select className="h-7 rounded-md border bg-card px-1 text-xs" value={adding.workplace} aria-label="Рабочее место" onChange={e => setAdding({ ...adding, workplace: e.target.value })}>
               <option value="">без рабочего места</option>
-              {adding.assets.map(a => <option key={a.id} value={a.id}>{a.type_name} · {a.inventory_no}</option>)}
+              {adding.assets.map(a => <option key={a.id} value={a.id}>{a.type_name} · {numberOf(a)}</option>)}
             </select>
           </Tip>
           <Button type="submit" size="sm" className="h-7" disabled={!adding.room}

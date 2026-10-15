@@ -31,6 +31,13 @@ def register(bus: Bus) -> None:
         await session.execute(update(assignments).where(assignments.c.workplace_asset_id == asset)
                               .values(workplace_asset_id=None))
 
+    @bus.consumer("assets.asset.deleted", name="asset-deleted")
+    async def asset_deleted(session: AsyncSession, event: dict) -> None:
+        """Nor is one deleted from the scene."""
+        asset = UUID(event["data"]["asset_id"])
+        await session.execute(update(assignments).where(assignments.c.workplace_asset_id == asset)
+                              .values(workplace_asset_id=None))
+
 
     @bus.consumer("buildings.room.merged", name="room-merged")
     async def room_merged(session: AsyncSession, event: dict) -> None:

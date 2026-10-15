@@ -1,6 +1,6 @@
 import { FileText, History, Map as MapIcon, Pencil, QrCode } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { labelsSheet, listAssets, patchRoom, roomPeople, roomSheetUrl, type Asset, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
+import { labelsSheet, listAssets, numberOf, patchRoom, roomPeople, roomSheetUrl, type Asset, type Me, type Room, type RoomPerson, type TreeFloor } from '../api'
 import { useEvents } from '../stream'
 import { Comments } from '../components/Comments'
 import { Button } from '../components/ui/button'
@@ -91,7 +91,7 @@ export function RoomCard({ me, building, room, floor, admin, onChanged, onPlan }
             {assets.items.map(a => (
               <li key={a.id}>
                 <Tip label="Карточка объекта: свойства, ответственный, файлы, история">
-                  <a className="text-primary hover:underline" href={to.assets(building, a.id)}>{a.type_name} · {a.inventory_no}</a>
+                  <a className="text-primary hover:underline" href={to.assets(building, a.id)}>{a.type_name} · {numberOf(a)}</a>
                 </Tip>
               </li>
             ))}

@@ -41,7 +41,7 @@ export default function ItemInspector(p: {
 }) {
   const sel = p.item
   const c = catalogItem(sel.item)
-  // an object of accounting: its size is its type's, it is retired in its card rather than deleted here
+  // an object of the assets service: its size is its type's; one on the books is written off in its card, not deleted here
   const asset = assetOf(sel.id)
   const [w, d, h] = itemSize(sel, c)
   const [row, setRow] = useState<{ n: number; gap: number } | null>(null)
@@ -57,7 +57,7 @@ export default function ItemInspector(p: {
           {sel.product && <span className="block truncate text-xs text-muted-foreground">{sel.product}</span>}
           {asset && (
             <Tip label="Открыть карточку объекта: свойства, ответственный, история">
-              <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">инв. № {asset.number} — карточка</a>
+              <a className="block text-xs text-primary hover:underline" href={asset.card} data-testid="asset-link">{asset.number ? `инв. № ${asset.number}` : 'не на учёте'} — карточка</a>
             </Tip>
           )}
           <small className="text-xs text-muted-foreground">{(p.plan && roomAt(p.plan, sel.at)) || 'вне помещений'}</small>
@@ -127,10 +127,11 @@ export default function ItemInspector(p: {
           </div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            <Button variant="outline" size="sm" hint={asset ? 'Такой же рядом (Ctrl+D): новый объект учёта, спросит инвентарный номер' : 'Такой же предмет рядом (Ctrl+D)'}
+            <Button variant="outline" size="sm" hint={asset ? 'Такой же рядом (Ctrl+D): новый объект, спросит инвентарный номер' : 'Такой же предмет рядом (Ctrl+D)'}
               onClick={() => p.onDuplicate(sel.id)}><Copy /> Копия</Button>
             <Button variant="outline" size="sm" hint="Несколько одинаковых в линию вдоль ширины, с заданным зазором" onClick={() => setRow({ n: 3, gap: 0 })}><Columns3 /> Ряд…</Button>
-            {!asset && <Button variant="ghost" size="sm" className="ml-auto text-destructive" hint="Убрать предмет из варианта (Delete); Ctrl+Z вернёт" onClick={() => p.onDelete(sel.id)}><Trash2 /> Удалить</Button>}
+            {(!asset || !asset.number) && <Button variant="ghost" size="sm" className="ml-auto text-destructive" onClick={() => p.onDelete(sel.id)}
+              hint={asset ? 'Удалить объект со сцены насовсем (Delete): он не на учёте, записи о нём не останется' : 'Убрать предмет из варианта (Delete); Ctrl+Z вернёт'}><Trash2 /> Удалить</Button>}
           </div>
         )}
       </fieldset>

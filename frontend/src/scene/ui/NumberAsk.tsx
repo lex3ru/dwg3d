@@ -8,8 +8,8 @@ import { Select } from '@/components/ui/select'
 import { setNumberAsker, type NumberAnswer, type NumberQuestion } from '../compat'
 
 /** The editor's own question about the inventory number of a new object (instead of the browser's prompt, which a
- * browser may be told to stop showing): the next number in the building is suggested; a type with makes and models
- * asks which one, if known. */
+ * browser may be told to stop showing): the next number in the building is suggested, an empty one puts the object
+ * on the plan off the books; a type with makes and models asks which one, if known. */
 export default function NumberAsk() {
   const [q, setQ] = useState<NumberQuestion | null>(null)
   const [value, setValue] = useState('')
@@ -36,7 +36,7 @@ export default function NumberAsk() {
     setQ(null)
   }
   const money = (p: NumberQuestion['products'][number]) => (p.price != null ? ` — ${p.price.toLocaleString('ru')} ${p.currency}` : '')
-  const ready = q?.optional || value.trim() !== ''
+  const ready = true
   return (
     <Dialog open={!!q} onOpenChange={(open) => { if (!open) close(null) }}>
       <DialogContent className="max-w-md" data-testid="number-ask">
@@ -66,9 +66,10 @@ export default function NumberAsk() {
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => close(null)}
-              hint={q?.optional ? 'Объект не появится в варианте' : 'Объект не будет поставлен: без инвентарного номера его нет в учёте'}>Отмена</Button>
+              hint={q?.optional ? 'Объект не появится в варианте' : 'Объект не будет поставлен'}>Отмена</Button>
             <Button type="submit" disabled={!ready}
-              hint={ready ? 'Номер занят навсегда, даже после списания; поменять можно в карточке объекта' : 'Сначала укажите номер'}>Поставить</Button>
+              hint={value.trim() ? 'Номер занят навсегда, даже после списания; поменять можно в карточке объекта'
+                : 'Без номера объект встанет на план без учёта; поставить на учёт можно потом из его карточки'}>Поставить</Button>
           </DialogFooter>
         </form>
       </DialogContent>

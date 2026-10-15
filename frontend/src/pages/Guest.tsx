@@ -1,9 +1,6 @@
 import { LogOut, Moon, Sun } from 'lucide-react'
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import {
-  ApiError, assetTone, endGuest, getFloorPlan, getMe, getModel, getTreeWithBuilding, listAllAssets, listAllTypes,
-  type Asset, type Building, type CatalogType, type DrawingModel, type FloorPlanData, type GuestMe, type TreeFloor,
-} from '../api'
+import { ApiError, assetTone, endGuest, getFloorPlan, getMe, getModel, getTreeWithBuilding, listAllAssets, listAllTypes, numberOf, type Asset, type Building, type CatalogType, type DrawingModel, type FloorPlanData, type GuestMe, type TreeFloor } from '../api'
 import { FloorPlan, type Dot } from '../components/FloorPlan'
 import { itemOf } from '../components/glyphs'
 import { Button } from '../components/ui/button'
@@ -178,10 +175,10 @@ export function GuestView({ me, onEnded, onLeft }: {
                   : sorted.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">На этом этаже объектов нет.</p> : (
                     <ul className="mt-2 divide-y rounded-lg border bg-card text-sm">
                       {sorted.map(a => (
-                        <li key={a.id} data-asset={a.inventory_no}
+                        <li key={a.id} data-asset={a.inventory_no ?? a.id}
                           className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2', room && a.room_id === room && 'bg-accent')}>
                           <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span>
-                            <span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
+                            <span className="ml-2 text-muted-foreground">{numberOf(a)}</span></span>
                           <span className="text-muted-foreground">{rooms.get(a.room_id) ?? ''}</span>
                           <StateBadge a={a} />
                         </li>

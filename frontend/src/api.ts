@@ -303,7 +303,9 @@ export const STATES: Record<AssetState, string> = {
   in_use: 'в работе', faulty: 'неисправен', in_repair: 'в ремонте', in_storage: 'на складе', retired: 'списан' }
 export type Asset = {
   id: string; type_id: string; type_name: string; building_id: string; floor_id: string; room_id: string
-  x: number | null; y: number | null; container_id: string | null; inventory_no: string; serial_no: string | null
+  x: number | null; y: number | null; container_id: string | null
+  /** the inventory number; null — the object stands on the plan but is not on the books */
+  inventory_no: string | null; serial_no: string | null
   /** how it is turned, degrees counter-clockwise (at 0 the back is towards +Y of the plan) */
   angle: number
   /** the make and model named (catalog's product) and a copy of its name */
@@ -342,8 +344,15 @@ export async function listAllAssets(params: Record<string, string | undefined>):
   return all
 }
 export const getAsset = (id: string) => api<AssetCard>(`${ASSETS}/assets/${id}`)
-export const createAsset = (body: { type_id: string; product_id?: string | null; floor_id: string; x: number; y: number; inventory_no: string }) =>
+/** «КШ-0012», or «без номера» for an object not on the books. */
+export const numberOf = (a: Pick<Asset, 'inventory_no'>) => a.inventory_no ?? 'без номера'
+export const createAsset = (body: { type_id: string; product_id?: string | null; floor_id: string; x: number; y: number; inventory_no?: string | null }) =>
   api<Asset>(`${ASSETS}/assets`, { method: 'POST', json: body })
+/** On the books: with the number given, or the next free one of the type when it is empty. */
+export const registerAsset = (a: Asset, inventory_no?: string) =>
+  api<Asset>(`${ASSETS}/assets/${a.id}/register`, { method: 'POST', json: { inventory_no: inventory_no?.trim() || null, version: a.version } })
+/** Off the scene for good, with its files and history; only an object not on the books. */
+export const deleteAsset = (id: string) => api<void>(`${ASSETS}/assets/${id}`, { method: 'DELETE' })
 export const patchAsset = (a: Asset, patch: { props?: Record<string, unknown>; note?: string; serial_no?: string; inventory_no?: string; product_id?: string | null }) =>
   api<Asset>(`${ASSETS}/assets/${a.id}`, { method: 'PATCH', json: { ...patch, version: a.version } })
 export const setAssetState = (a: Asset, state: AssetState) =>
@@ -360,7 +369,8 @@ export const deleteAssetFile = (id: string) => api<void>(`${ASSETS}/files/${id}`
 export const assetFileUrl = (id: string) => `${ASSETS}/files/${id}`
 export const moveAssetInto = (a: Asset, container_id: string) =>
   api<Asset>(`${ASSETS}/assets/${a.id}/move`, { method: 'POST', json: { container_id, version: a.version } })
-export const createAssets = (body: { type_id: string; floor_id: string; points: [number, number][]; prefix: string; start: number; width: number }) =>
+/** Several of a type at once: with numbers in a row (prefix, start, width), or off the books when `start` is not given. */
+export const createAssets = (body: { type_id: string; floor_id: string; points: [number, number][]; prefix?: string; start?: number; width?: number }) =>
   api<{ items: Asset[] }>(`${ASSETS}/assets/batch`, { method: 'POST', json: body })
 /** All rows or none; a refusal lists the rows at fault (ApiError.rows). */
 export async function importAssets(building: string, file: File): Promise<{ created: number }> {

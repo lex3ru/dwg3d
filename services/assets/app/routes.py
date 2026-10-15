@@ -3,6 +3,9 @@
 An object is seen by those with a right on it or on the room, floor or building it is
 in; who answers for it (or for its room) edits what the schema lets them and its state;
 the building's administrator does the rest. What one may not see does not exist (404).
+An object stands on the plan with or without an inventory number: one without is not on
+the books yet — it may be put on them (given a number) or deleted; one on the books is
+never deleted, only written off, and its number is never used again.
 A guest by a link sees the objects of its area and nothing of who is behind them: no
 responsible, no note, no property naming a person; history, files, labels and changes
 are not for guests (403 `guest`).
@@ -104,12 +107,15 @@ def _taken(ex: IntegrityError) -> Problem | None:
 async def list_assets(request: Request, building_id: UUID | None = None, floor_id: UUID | None = None,
                       room_id: UUID | None = None, type_id: UUID | None = None, category_id: UUID | None = None,
                       product_id: UUID | None = None, state: str | None = None, responsible_id: UUID | None = None,
-                      container_id: UUID | None = None,
+                      container_id: UUID | None = None, accounted: bool | None = None,
                       needs_placement: bool | None = None, needs_fill: bool | None = None, q: str | None = None,
                       limit: int = 200, cursor: int = 0, me: Identity = Depends(current_identity)) -> dict:
     """Also filters by values of properties: `prop.<key>=`, `prop.<key>.gte=`, `prop.<key>.lte=`
-    (dates and numbers compare as written: 2026-10-05, 12.5). Retired objects come only with `state=retired`."""
+    (dates and numbers compare as written: 2026-10-05, 12.5). Retired objects come only with `state=retired`;
+    `accounted` — only those on the books (with an inventory number) or only those not."""
     where = [assets.c.state == state] if state and state != "all" else ([] if state == "all" else [assets.c.state != "retired"])
+    if accounted is not None:
+        where.append(assets.c.inventory_no.is_not(None) if accounted else assets.c.inventory_no.is_(None))
     seen = core.visible_filter(await _scopes(request, me, reading=True))
     if seen is not None:
         where.append(seen)
@@ -123,7 +129,8 @@ async def list_assets(request: Request, building_id: UUID | None = None, floor_i
     if q and q.strip():
         pattern = core.like(q)
         where.append(assets.c.type_name.ilike(pattern) | assets.c.product_name.ilike(pattern)
-                     | assets.c.inventory_no.ilike(pattern) | func.coalesce(assets.c.serial_no, "").ilike(pattern))
+                     | func.coalesce(assets.c.inventory_no, "").ilike(pattern)
+                     | func.coalesce(assets.c.serial_no, "").ilike(pattern))
     for name, value in request.query_params.items():
         if name.startswith("prop."):
             key, _, op = name[5:].partition(".")
@@ -202,7 +209,7 @@ async def label(asset_id: UUID, request: Request, size: float = Query(40, ge=lab
     async with request.app.state.db.begin() as session:
         a = await _asset(session, asset_id, scopes)
     url = labels.link(request.app.state.settings.public_url, a.qr_code)
-    return _pdf(await asyncio.to_thread(labels.single, url, a, size), f"метка-{a.inventory_no}.pdf")
+    return _pdf(await asyncio.to_thread(labels.single, url, a, size), f"метка-{a.inventory_no or a.qr_code}.pdf")
 
 
 class Labels(BaseModel):
@@ -274,7 +281,7 @@ class Place(BaseModel):
 class AssetIn(Place):
     type_id: UUID
     product_id: UUID | None = Field(default=None, description="Марка и модель из каталога, если известна")
-    inventory_no: str = Field(min_length=1, max_length=60)
+    inventory_no: str | None = Field(default=None, max_length=60, description="Пусто — объект стоит на плане, но не на учёте")
     serial_no: str | None = Field(default=None, max_length=100)
     props: dict = Field(default_factory=dict)
     note: str = Field(default="", max_length=2000)
@@ -312,13 +319,15 @@ async def _insert(request: Request, session, me: Identity, who: dict, body: Asse
     a = (await session.execute(insert(assets).values(
         id=uuid7(), type_id=body.type_id, type_name=kind.name, category_id=kind.category_id,
         product_id=product_id, product_name=product_name,
-        schema_version=kind.schema_version, inventory_no=body.inventory_no.strip(), serial_no=body.serial_no,
+        schema_version=kind.schema_version, inventory_no=(body.inventory_no or "").strip() or None, serial_no=body.serial_no,
         props=body.props, note=body.note, needs_fill=core.incomplete(kind.schema, body.props), qr_code=core.qr_code(),
         created_by=me.sub, **where).returning(assets))).one()
-    await core.record(session, a.id, who, "created", {"type": [None, kind.name], "inventory_no": [None, a.inventory_no],
+    number = {"inventory_no": a.inventory_no} if a.inventory_no else {}
+    await core.record(session, a.id, who, "created", {"type": [None, kind.name],
+                                                       **({"inventory_no": [None, a.inventory_no]} if a.inventory_no else {}),
                                                        **({"product_name": [None, product_name]} if product_name else {})})
     await emit(session, "assets.asset.created", ("asset", a.id),
-               {"asset_id": str(a.id), "type_id": str(a.type_id), "inventory_no": a.inventory_no}, **core.scope_fields(a))
+               {"asset_id": str(a.id), "type_id": str(a.type_id), **number}, **core.scope_fields(a))
     return a
 
 
@@ -331,23 +340,20 @@ def _initials(name: str) -> str:
     return "".join(w[0] for w in words[:3]).upper() or "ОБ"
 
 
-@router.get("/inventory-numbers", tags=["assets"], summary="Свободные инвентарные номера для новых объектов типа")
-async def free_numbers(request: Request, type_id: UUID, count: int = Query(default=1, ge=1, le=500),
-                       me: Identity = Depends(forbid_guests)) -> dict:
-    """For one who has no number at hand: `count` numbers in a row, none of them taken in the whole system (the
-    numbers of objects written off included). They continue the series of the last object of the type («КК-00012» →
-    «КК-00013»); a type without objects starts its own, from the first letters of its name («КК-00001»). Nothing is
-    reserved: two who ask at once may get the same, and the second to place an object is told the number is taken."""
-    async with request.app.state.db.begin() as session:
-        last = (await session.execute(select(assets.c.inventory_no).where(assets.c.type_id == type_id)
-                                      .order_by(assets.c.created_at.desc()).limit(1))).scalar()
-        hit = NUMBER.match(last or "")
-        if hit:
-            prefix, width = hit.group(1), len(hit.group(2))
-        else:
-            prefix, width = f"{_initials((await core.schema_of(request, session, type_id)).name)}-", 5
-        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        taken = {n for (n,) in await session.execute(select(assets.c.inventory_no).where(assets.c.inventory_no.like(like)))}
+async def _free(request: Request, session, type_id: UUID, count: int) -> list[str]:
+    """`count` numbers in a row, none of them taken in the whole system (the numbers of objects written off
+    included). They continue the series of the last numbered object of the type («КК-00012» → «КК-00013»); a type
+    without numbered objects starts its own, from the first letters of its name («КК-00001»). Nothing is reserved:
+    two who ask at once may get the same, and the second to use the number is told it is taken."""
+    last = (await session.execute(select(assets.c.inventory_no).where(
+        assets.c.type_id == type_id, assets.c.inventory_no.is_not(None)).order_by(assets.c.created_at.desc()).limit(1))).scalar()
+    hit = NUMBER.match(last or "")
+    if hit:
+        prefix, width = hit.group(1), len(hit.group(2))
+    else:
+        prefix, width = f"{_initials((await core.schema_of(request, session, type_id)).name)}-", 5
+    like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    taken = {n for (n,) in await session.execute(select(assets.c.inventory_no).where(assets.c.inventory_no.like(like)))}
     seqs = [int(m.group(2)) for n in taken if (m := NUMBER.match(n)) and m.group(1) == prefix]
     n, out = max(seqs, default=0) + 1, []
     while len(out) < count:
@@ -355,10 +361,19 @@ async def free_numbers(request: Request, type_id: UUID, count: int = Query(defau
         if number not in taken:
             out.append(number)
         n += 1
-    return {"numbers": out}
+    return out
 
 
-@router.post("/assets", status_code=201, tags=["assets"], summary="Поставить объект: тип, точка этажа или контейнер, номер")
+@router.get("/inventory-numbers", tags=["assets"], summary="Свободные инвентарные номера для новых объектов типа")
+async def free_numbers(request: Request, type_id: UUID, count: int = Query(default=1, ge=1, le=500),
+                       me: Identity = Depends(forbid_guests)) -> dict:
+    """For one who has no number at hand: see `_free`."""
+    async with request.app.state.db.begin() as session:
+        return {"numbers": await _free(request, session, type_id, count)}
+
+
+@router.post("/assets", status_code=201, tags=["assets"],
+             summary="Поставить объект: тип, точка этажа или контейнер; с инвентарным номером — сразу на учёт")
 async def create_asset(body: AssetIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     try:
@@ -378,13 +393,13 @@ class Batch(BaseModel):
     floor_id: UUID
     points: list[tuple[float, float]] = Field(min_length=1, max_length=500, description="Точки [x, y]")
     angle: float = 0
-    prefix: str = Field(max_length=40, description="Начало инвентарного номера: «КР-»")
-    start: int = Field(ge=0, le=10**9, description="С какого числа считать")
+    prefix: str = Field(default="", max_length=40, description="Начало инвентарного номера: «КР-»")
+    start: int | None = Field(default=None, ge=0, le=10**9, description="С какого числа считать; пусто — без учёта")
     width: int = Field(default=4, ge=1, le=10, description="Сколько цифр в номере")
 
 
 @router.post("/assets/batch", status_code=201, tags=["assets"],
-             summary="Несколько одинаковых объектов с номерами подряд; всё или ничего")
+             summary="Несколько одинаковых объектов: с номерами подряд или без учёта; всё или ничего")
 async def create_batch(body: Batch, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
     scopes, who = await _scopes(request, me), await core.actor(request, me)
     building, rooms = await _locate(request, body.floor_id, body.points)
@@ -400,7 +415,7 @@ async def create_batch(body: Batch, request: Request, me: Identity = Depends(for
                          "container_id": None, "angle": body.angle, "elevation": None}
                 _need(scopes, "manage", _area(where), "Ставить объекты может администратор здания")
                 one = AssetIn(type_id=body.type_id, product_id=body.product_id,
-                              inventory_no=f"{body.prefix}{body.start + i:0{body.width}d}")
+                              inventory_no=f"{body.prefix}{body.start + i:0{body.width}d}" if body.start is not None else None)
                 made.append(core.asset_json(await _insert(request, session, me, who, one, where)))
     except IntegrityError as ex:                    # one taken number refuses them all
         raise _taken(ex) or ex from ex
@@ -412,12 +427,12 @@ COLUMNS = {"тип": "type", "инвентарный номер": "inventory_no"
 
 
 @router.post("/assets/import", status_code=201, tags=["assets"],
-             summary="Загрузить объекты из Excel: Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание")
+             summary="Загрузить объекты из Excel: Тип, Инвентарный номер (можно пусто), Серийный номер, Этаж, X, Y, Примечание")
 async def import_assets(request: Request, building_id: UUID, file: UploadFile = File(...),
                         me: Identity = Depends(forbid_guests)) -> dict:
     """All rows or none: with a mistake in any row nothing is created, and the answer names the rows.
     The type is given by its name in the catalog, the floor by its number (level) or name; X and Y are
-    plan coordinates of the floor, metres."""
+    plan coordinates of the floor, metres. A row without an inventory number is an object not on the books."""
     import io
 
     from openpyxl import load_workbook
@@ -432,7 +447,7 @@ async def import_assets(request: Request, building_id: UUID, file: UploadFile = 
         raise Problem(422, "invalid", "Не удалось прочитать файл: нужен Excel (.xlsx)",
                       errors=[{"field": "file", "message": "не .xlsx"}]) from ex
     header = [COLUMNS.get(str(c or "").strip().lower()) for c in (rows[0] if rows else [])]
-    missing = [title for title, key in COLUMNS.items() if key in ("type", "inventory_no", "floor", "x", "y") and key not in header]
+    missing = [title for title, key in COLUMNS.items() if key in ("type", "floor", "x", "y") and key not in header]
     if missing:
         raise Problem(422, "invalid", "В первой строке не хватает столбцов: " + ", ".join(missing),
                       errors=[{"field": "file", "message": "нет столбцов"}])
@@ -462,11 +477,10 @@ async def import_assets(request: Request, building_id: UUID, file: UploadFile = 
             problems.append(f"нет типа «{raw.get('type') or ''}» в каталоге")
         if floor is None:
             problems.append(f"нет этажа «{raw.get('floor') or ''}»")
-        if not number:
-            problems.append("нет инвентарного номера")
-        elif number in seen:
+        if number in seen:
             problems.append(f"номер {number} повторяется в файле")
-        seen.add(number)
+        if number:
+            seen.add(number)
         try:
             x, y = float(raw.get("x")), float(raw.get("y"))
         except (TypeError, ValueError):
@@ -476,7 +490,7 @@ async def import_assets(request: Request, building_id: UUID, file: UploadFile = 
             errors.append({"row": n, "message": "; ".join(problems)})
         else:
             serial = str(raw["serial_no"]).strip() if raw.get("serial_no") not in (None, "") else None
-            parsed.append({"row": n, "type": kind, "floor": floor, "number": number, "x": x, "y": y, "serial": serial,
+            parsed.append({"row": n, "type": kind, "floor": floor, "number": number or None, "x": x, "y": y, "serial": serial,
                            "note": str(raw.get("note") or "").strip()})
     by_floor: dict[str, list[dict]] = {}
     for p in parsed:
@@ -489,7 +503,7 @@ async def import_assets(request: Request, building_id: UUID, file: UploadFile = 
                 errors.append({"row": p["row"], "message": "точка вне помещений"})
     async with request.app.state.db.begin() as session:
         taken = set((await session.execute(select(assets.c.inventory_no).where(
-            assets.c.inventory_no.in_([p["number"] for p in parsed] or [""])))).scalars())
+            assets.c.inventory_no.in_([p["number"] for p in parsed if p["number"]] or [""])))).scalars())
         errors += [{"row": p["row"], "message": f"номер {p['number']} уже есть"} for p in parsed if p["number"] in taken]
         if errors:
             raise Problem(422, "invalid", f"В файле ошибки ({len(errors)}) — ничего не загружено",
@@ -541,7 +555,15 @@ async def patch_asset(asset_id: UUID, body: AssetPatch, request: Request, me: Id
             values: dict = {}
             if "inventory_no" in sent or "serial_no" in sent:
                 _need(scopes, "manage", core.chain(a), "Номера меняет администратор здания")
-                values.update({k: sent[k] for k in ("inventory_no", "serial_no") if k in sent})
+                if "inventory_no" in sent:
+                    if not (sent["inventory_no"] or "").strip():
+                        raise Problem(422, "invalid", "Номер нельзя снять: снятие с учёта — это списание",
+                                      errors=[{"field": "inventory_no", "message": "пусто"}])
+                    if a.inventory_no is None:
+                        raise Problem(409, "not_accounted", "Объект не на учёте: номер даётся постановкой на учёт")
+                    values["inventory_no"] = sent["inventory_no"].strip()
+                if "serial_no" in sent:
+                    values["serial_no"] = sent["serial_no"]
             if "product_id" in sent:
                 _need(scopes, "manage", core.chain(a), "Модель объекта меняет администратор здания")
                 product_id, product_name = await core.product_of(request, a.type_id, sent["product_id"])
@@ -580,6 +602,8 @@ async def set_state(asset_id: UUID, body: StateIn, request: Request, me: Identit
         retiring = body.state == "retired"
         _need(scopes, "manage" if retiring or a.state == "retired" else "edit", core.chain(a),
               "Списывает объекты администратор здания")
+        if retiring and a.inventory_no is None:
+            raise Problem(409, "not_accounted", "Объект не на учёте — списывать нечего; его можно удалить или поставить на учёт")
         if a.state == body.state:
             return core.asset_json(a)
         new = (await session.execute(update(assets).where(assets.c.id == asset_id).values(
@@ -587,19 +611,69 @@ async def set_state(asset_id: UUID, body: StateIn, request: Request, me: Identit
             updated_at=func.now()).returning(assets))).one()
         await core.record(session, asset_id, who, "retired" if retiring else "state", {"state": [a.state, body.state]})
         if retiring:
-            # what stood inside stays in the room, to be placed anew
-            inside = (await session.execute(update(assets).where(assets.c.container_id == asset_id).values(
-                container_id=None, x=a.x, y=a.y, needs_placement=True, version=assets.c.version + 1,
-                updated_at=func.now()).returning(assets))).all()
-            for child in inside:
-                await core.record(session, child.id, core.SYSTEM, "system", {"container_id": [str(asset_id), None]},
-                                  reason=f"Списан объект {a.inventory_no}, в котором он стоял")
-                await emit(session, "assets.asset.changed", ("asset", child.id),
-                           {"asset_id": str(child.id), "fields": ["container_id", "needs_placement"]},
-                           **core.scope_fields(child))
+            await _release_inside(session, a, f"Списан объект {core.label(a)}, в котором он стоял")
         await emit(session, "assets.asset.retired" if retiring else "assets.asset.state_changed", ("asset", asset_id),
                    {"asset_id": str(asset_id), "from": a.state, "to": body.state}, **core.scope_fields(new))
     return core.asset_json(new)
+
+
+async def _release_inside(session, a, reason: str) -> None:
+    """What stood inside the object stays in the room at its point, to be placed anew."""
+    inside = (await session.execute(update(assets).where(assets.c.container_id == a.id).values(
+        container_id=None, x=a.x, y=a.y, needs_placement=True, version=assets.c.version + 1,
+        updated_at=func.now()).returning(assets))).all()
+    for child in inside:
+        await core.record(session, child.id, core.SYSTEM, "system", {"container_id": [str(a.id), None]}, reason=reason)
+        await emit(session, "assets.asset.changed", ("asset", child.id),
+                   {"asset_id": str(child.id), "fields": ["container_id", "needs_placement"]}, **core.scope_fields(child))
+
+
+class RegisterIn(BaseModel):
+    inventory_no: str | None = Field(default=None, max_length=60, description="Пусто — следующий свободный номер типа")
+    version: int
+
+
+@router.post("/assets/{asset_id}/register", tags=["assets"],
+             summary="Поставить на учёт: дать инвентарный номер — свой или следующий свободный")
+async def register(asset_id: UUID, body: RegisterIn, request: Request, me: Identity = Depends(forbid_guests)) -> dict:
+    """From here on the object is on the books: its number is never used again, and it leaves only by being written off."""
+    scopes, who = await _scopes(request, me), await core.actor(request, me)
+    try:
+        async with request.app.state.db.begin() as session:
+            a = await _asset(session, asset_id, scopes, lock=True)
+            _stale(a, body.version)
+            _need(scopes, "manage", core.chain(a), "Ставит на учёт администратор здания")
+            if a.inventory_no is not None:
+                raise Problem(409, "accounted", f"Объект уже на учёте под номером {a.inventory_no}")
+            number = (body.inventory_no or "").strip() or (await _free(request, session, a.type_id, 1))[0]
+            new = (await session.execute(update(assets).where(assets.c.id == asset_id).values(
+                inventory_no=number, version=assets.c.version + 1, updated_at=func.now()).returning(assets))).one()
+            await core.record(session, asset_id, who, "registered", {"inventory_no": [None, number]})
+            await emit(session, "assets.asset.registered", ("asset", asset_id),
+                       {"asset_id": str(asset_id), "type_id": str(a.type_id), "inventory_no": number}, **core.scope_fields(new))
+        return core.asset_json(new)
+    except IntegrityError as ex:
+        raise _taken(ex) or ex from ex
+
+
+@router.delete("/assets/{asset_id}", status_code=204, tags=["assets"],
+               summary="Удалить со сцены объект, который не на учёте; учтённый только списывается")
+async def delete_asset(asset_id: UUID, request: Request, me: Identity = Depends(forbid_guests)) -> None:
+    """Gone for good, with its files and history; what stood inside stays in the room, to be placed anew."""
+    scopes = await _scopes(request, me)
+    async with request.app.state.db.begin() as session:
+        a = await _asset(session, asset_id, scopes, lock=True)
+        _need(scopes, "manage", core.chain(a), "Удаляет объекты администратор здания")
+        if a.inventory_no is not None:
+            raise Problem(409, "accounted", f"Объект на учёте под номером {a.inventory_no}: его можно только списать")
+        await _release_inside(session, a, f"Удалён объект {core.label(a)}, в котором он стоял")
+        files = (await session.execute(select(func.count()).select_from(asset_files)
+                                       .where(asset_files.c.asset_id == asset_id))).scalar_one()
+        await session.execute(delete(assets).where(assets.c.id == asset_id))
+        await emit(session, "assets.asset.deleted", ("asset", asset_id),
+                   {"asset_id": str(asset_id), "type_id": str(a.type_id)}, **core.scope_fields(a))
+    if files:
+        await asyncio.to_thread(storage.bucket().delete_prefix, f"assets/{asset_id}/")
 
 
 class ResponsibleIn(BaseModel):

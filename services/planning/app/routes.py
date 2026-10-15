@@ -376,8 +376,9 @@ def _why(r) -> str:
 @router.post("/variants/{variant_id}/apply", tags=["variants"],
              summary="Применить вариант: операции выполняет сервис объектов от имени пользователя")
 async def apply(variant_id: UUID, request: Request, me: Identity = Depends(current_identity)) -> dict:
-    """What is done leaves the variant; what is refused (the object changed since, no inventory number, a taken
-    one…) stays in it, listed with the reason — to be corrected and applied again."""
+    """What is done leaves the variant; what is refused (the object changed since, a taken inventory number…) stays
+    in it, listed with the reason — to be corrected and applied again. A new object without a number is placed
+    on the plan off the books; the number can be given later in its card."""
     v = await _variant(request, me, variant_id)
     if v.status != "draft":
         raise Problem(409, "applied", "Вариант уже применён")
@@ -387,12 +388,9 @@ async def apply(variant_id: UUID, request: Request, me: Identity = Depends(curre
     for o in ops:
         d = o.data or {}
         if o.op == "add":
-            if not d.get("inventory_no"):
-                refused.append({"op_id": str(o.id), "op": o.op, "reason": "нет инвентарного номера"})
-                continue
             r = await _assets(request, "POST", "/assets", json={
                 "type_id": d["type_id"], "floor_id": d["floor_id"], "x": d["x"], "y": d["y"], "angle": d.get("angle") or 0,
-                "product_id": d.get("product_id"), "inventory_no": d["inventory_no"], "note": d.get("note") or ""})
+                "product_id": d.get("product_id"), "inventory_no": d.get("inventory_no"), "note": d.get("note") or ""})
         else:
             version = versions.get(o.asset_id, o.base_version)
             if version is None:

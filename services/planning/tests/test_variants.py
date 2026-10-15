@@ -63,21 +63,21 @@ async def test_a_variant_from_making_to_applying(client, app, tokens, world):
     got = (await client.get(url, headers=boss)).json()
     assert [o["conflict"] for o in got["ops"] if o["op"] == "move"] == ["changed"]
 
-    # applied: what conflicts or lacks a number is refused and stays; the rest is done, in the objects
+    # applied: what conflicts is refused and stays; the rest is done, in the objects — the chair without a number
+    # stands on the plan off the books
     applied = await client.post(f"{url}/apply", headers=boss)
     assert applied.status_code == 200
     result = applied.json()["result"]
-    assert sorted(x["op"] for x in result["applied"]) == ["add", "change", "remove"]
-    assert sorted((x["op"], x["reason"]) for x in result["refused"]) == [
-        ("add", "нет инвентарного номера"), ("move", "объект изменён после того, как вариант был составлен")]
-    assert applied.json()["status"] == "draft" and applied.json()["counts"] == {"add": 1, "move": 1, "change": 0, "remove": 0}
+    assert sorted(x["op"] for x in result["applied"]) == ["add", "add", "change", "remove"]
+    assert [(x["op"], x["reason"]) for x in result["refused"]] == [("move", "объект изменён после того, как вариант был составлен")]
+    assert applied.json()["status"] == "draft" and applied.json()["counts"] == {"add": 0, "move": 1, "change": 0, "remove": 0}
     assert world.assets[old["id"]]["state"] == "retired" and world.assets[chair["id"]]["note"] == "к окну"
-    assert any(a["inventory_no"] == "КР-0010" for a in world.assets.values())
+    chairs = sorted(str(a["inventory_no"]) for a in world.assets.values() if a["type_id"] == CHAIR)
+    assert chairs == ["None", "КР-0001", "КР-0002", "КР-0010"]
 
-    # the rest corrected: the desk's place taken anew, a number given — applied in full
+    # the rest corrected: the desk's place taken anew — applied in full
     fix = [{"kind": "move", "asset_id": desk["id"], "version": world.assets[desk["id"]]["version"], "floor_id": FLOOR,
-            "x": 5.5, "y": 2.0, "angle": 90},
-           {"kind": "move", "op_id": new_op, "inventory_no": "КР-0011", "floor_id": FLOOR, "x": 7.5, "y": 1.0}]
+            "x": 5.5, "y": 2.0, "angle": 90}]
     assert (await client.post(f"{url}/edits", json={"edits": fix}, headers=boss)).status_code == 200
     final = (await client.post(f"{url}/apply", headers=boss)).json()
     assert final["status"] == "applied" and final["result"]["refused"] == [] and final["counts"]["move"] == 0

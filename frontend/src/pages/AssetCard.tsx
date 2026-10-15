@@ -1,8 +1,8 @@
-import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, Pencil, QrCode, Undo2 } from 'lucide-react'
+import { Camera, FileText, History, Map as MapIcon, Move, Paperclip, Pencil, QrCode, Trash2, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAssetFile, getAsset, listAssets, listPeople, listProducts, listTypes,
-  moveAssetInto, patchAsset, peopleByIds, productLabel,
+  addAssetFile, assetFileUrl, assetFiles, assetHistory, assetLabelUrl, deleteAsset, deleteAssetFile, getAsset, listAssets, listPeople, listProducts,
+  listTypes, moveAssetInto, numberOf, patchAsset, peopleByIds, productLabel, registerAsset,
   revertAsset, setAssetResponsible, setAssetState, STATES,
   type Asset, type AssetCard as Card, type AssetFile, type AssetState, type HistoryEntry, type Me, type Person, type Product, type Prop,
   type TreeFloor,
@@ -17,7 +17,7 @@ import { StateBadge } from './Assets'
 
 const select = 'h-8 rounded-md border bg-card px-2 text-sm'
 const ACTIONS: Record<string, string> = {
-  created: 'поставлен на учёт', changed: 'изменён', moved: 'перемещён', state: 'состояние', responsible: 'ответственный',
+  created: 'поставлен', registered: 'поставлен на учёт', changed: 'изменён', moved: 'перемещён', state: 'состояние', responsible: 'ответственный',
   file_added: 'файл добавлен', file_removed: 'файл убран', retired: 'списан', reverted: 'откат', system: 'система' }
 const SAVED_AT_ONCE = 'Сохраняется сразу; прежнее значение останется в истории'
 const show = (v: unknown) => (v == null || v === '' ? '—' : typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v))
@@ -34,7 +34,7 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
   const [boxes, setBoxes] = useState<Asset[]>([])           // containers of the building this one could stand in
   const [products, setProducts] = useState<Product[]>([])   // makes and models of the type, for the administrator to name one
   const [error, setError] = useState<string | null>(null)
-  const [renumbering, setRenumbering] = useState<string | null>(null)       // the number being changed
+  const [renumbering, setRenumbering] = useState<string | null>(null)       // the number being changed, or given to put on the books
   const [partial, setPartial] = useState(false)             // the people service did not answer: no names
   const picker = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
@@ -71,21 +71,37 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
       <div>
         <h2 className="text-base font-semibold">{a.type_name}</h2>
         {renumbering != null ? (
-          <form className="mt-1 flex items-center gap-2" onSubmit={e => {
+          <form className="mt-1 flex items-center gap-2" data-testid="numbering" onSubmit={e => {
             e.preventDefault()
-            if (renumbering.trim() && renumbering.trim() !== a.inventory_no) act(patchAsset(a, { inventory_no: renumbering.trim() }).then(() => setRenumbering(null)))
+            if (!a.inventory_no) act(registerAsset(a, renumbering).then(() => setRenumbering(null)))
+            else if (renumbering.trim() && renumbering.trim() !== a.inventory_no) act(patchAsset(a, { inventory_no: renumbering.trim() }).then(() => setRenumbering(null)))
             else setRenumbering(null)
           }}>
-            <Input autoFocus className="h-7 w-40" value={renumbering} maxLength={60} aria-label="Новый инвентарный номер" onChange={e => setRenumbering(e.target.value)} />
-            <Button type="submit" size="sm" hint="Старый номер останется в истории объекта; новый должен быть свободен во всей системе">Сохранить</Button>
-            <Button type="button" size="sm" variant="ghost" hint="Оставить прежний номер" onClick={() => setRenumbering(null)}>Отмена</Button>
+            <Input autoFocus className="h-7 w-44" value={renumbering} maxLength={60} aria-label={a.inventory_no ? 'Новый инвентарный номер' : 'Инвентарный номер'}
+              placeholder={a.inventory_no ? undefined : 'пусто — следующий свободный'} onChange={e => setRenumbering(e.target.value)} />
+            <Button type="submit" size="sm" hint={a.inventory_no ? 'Старый номер останется в истории объекта; новый должен быть свободен во всей системе'
+              : 'С этого момента объект на учёте: номер занят навсегда, снять с учёта можно только списанием. Пусто — продолжится серия номеров этого типа'}>
+              {a.inventory_no ? 'Сохранить' : 'На учёт'}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" hint={a.inventory_no ? 'Оставить прежний номер' : 'Оставить без учёта'} onClick={() => setRenumbering(null)}>Отмена</Button>
           </form>
         ) : (
-          <div className="flex items-center gap-1 text-muted-foreground">{a.inventory_no}{a.serial_no ? ` · зав. № ${a.serial_no}` : ''}
-            {a.can.manage && (
+          <div className="flex items-center gap-1 text-muted-foreground">
+            {a.inventory_no ? `${a.inventory_no}${a.serial_no ? ` · зав. № ${a.serial_no}` : ''}` : (
+              <Tip label="Объект стоит на плане, но инвентарного номера у него нет: списать его нельзя, зато можно удалить со сцены">
+                <span data-testid="unaccounted">не на учёте{a.serial_no ? ` · зав. № ${a.serial_no}` : ''}</span>
+              </Tip>
+            )}
+            {a.can.manage && a.inventory_no && (
               <Button size="icon-sm" variant="ghost" aria-label="Изменить инвентарный номер" onClick={() => setRenumbering(a.inventory_no)}
                 hint="Заменить номер, например сгенерированный при постановке, на настоящий из бухгалтерии; QR-метка по-прежнему откроет карточку, но напечатанный на ней номер станет старым">
                 <Pencil className="size-3.5" />
+              </Button>
+            )}
+            {a.can.manage && !a.inventory_no && a.state !== 'retired' && (
+              <Button size="sm" variant="outline" className="ml-1" onClick={() => setRenumbering('')}
+                hint="Дать объекту инвентарный номер — свой или следующий свободный; с этого момента он на учёте и снимается с него только списанием">
+                Поставить на учёт
               </Button>
             )}
           </div>
@@ -103,13 +119,22 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
       <div className="flex flex-wrap items-center gap-2">
         {a.can.edit && (a.state !== 'retired' || a.can.manage) ? (
           <Tip label={a.state === 'retired' ? 'Объект списан; другое состояние вернёт его на учёт; возврат запишется в историю'
-            : a.can.manage ? 'Смена запишется в историю объекта; «списан» снимает его с учёта, вложенное останется в помещении без места'
-              : 'Смена запишется в историю объекта; списать может только администратор здания'}>
+            : !a.inventory_no ? 'Смена запишется в историю объекта; списать можно только объект на учёте, этот — удалить'
+              : a.can.manage ? 'Смена запишется в историю объекта; «списан» снимает его с учёта, вложенное останется в помещении без места'
+                : 'Смена запишется в историю объекта; списать может только администратор здания'}>
             <select className={select} value={a.state} aria-label="Состояние объекта" onChange={e => act(setAssetState(a, e.target.value as AssetState))}>
-              {Object.entries(STATES).filter(([k]) => k !== 'retired' || a.can.manage).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {Object.entries(STATES).filter(([k]) => k !== 'retired' || (a.can.manage && a.inventory_no)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Tip>
         ) : <StateBadge a={a} />}
+        {a.can.manage && !a.inventory_no && (
+          <Button variant="outline" size="sm" className="text-destructive" hint="Убрать объект со сцены насовсем, с файлами и историей; вложенные останутся в помещении без места. Это не списание: объект не на учёте"
+            onClick={() => {
+              if (confirm(`Удалить «${a.type_name}» со сцены? Объект не на учёте: записи о нём не останется.`)) {
+                deleteAsset(a.id).then(() => { location.hash = to.plan(building, a.floor_id, a.room_id) }, (e: Error) => setError(e.message))
+              }
+            }}><Trash2 className="size-4" /> Удалить</Button>
+        )}
         {a.x != null && floor && (
           <Button asChild variant="outline" size="sm" hint="Открыть план этажа, выделив помещение, где стоит объект"><a href={to.plan(building, floor.id, a.room_id)}><MapIcon className="size-4" /> На плане</a></Button>
         )}
@@ -135,7 +160,7 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
           <Tip label="Поместить объект в контейнер этого здания: дальше он будет переезжать вместе с ним">
             <select className={select} value={a.container_id ?? ''} aria-label="Поставить внутрь" onChange={e => { if (e.target.value) act(moveAssetInto(a, e.target.value)) }}>
               <option value="">— выберите контейнер —</option>
-              {boxes.map(b => <option key={b.id} value={b.id}>{b.type_name} · {b.inventory_no}</option>)}
+              {boxes.map(b => <option key={b.id} value={b.id}>{b.type_name} · {numberOf(b)}</option>)}
             </select>
           </Tip>
         </label>
@@ -189,7 +214,7 @@ export function AssetCard({ id, me, building, floors, admin, onGone }: {
         <div>
           <h3 className="font-medium">Внутри</h3>
           <ul className="mt-1 grid gap-0.5">
-            {a.children.map(c => <li key={c.id}><Tip label="Карточка вложенного объекта; он переезжает вместе с этим"><a className="text-primary" href={to.assets(building, c.id)}>{c.type_name} · {c.inventory_no}</a></Tip></li>)}
+            {a.children.map(c => <li key={c.id}><Tip label="Карточка вложенного объекта; он переезжает вместе с этим"><a className="text-primary" href={to.assets(building, c.id)}>{c.type_name} · {numberOf(c)}</a></Tip></li>)}
           </ul>
         </div>
       )}

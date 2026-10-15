@@ -1145,7 +1145,7 @@
     },
     "/api/planning/v1/variants/{variant_id}/apply": {
       "post": {
-        "description": "What is done leaves the variant; what is refused (the object changed since, no inventory number, a taken\none…) stays in it, listed with the reason — to be corrected and applied again.",
+        "description": "What is done leaves the variant; what is refused (the object changed since, a taken inventory number…) stays\nin it, listed with the reason — to be corrected and applied again. A new object without a number is placed\non the plan off the books; the number can be given later in its card.",
         "operationId": "apply_api_planning_v1_variants__variant_id__apply_post",
         "parameters": [
           {

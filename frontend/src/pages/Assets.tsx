@@ -1,6 +1,6 @@
 import { FileSpreadsheet, QrCode, Search, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { ApiError, assetsReportUrl, importAssets, labelsSheet, listAssets, STATES, type Asset, type AssetState, type TreeFloor } from '../api'
+import { ApiError, assetsReportUrl, importAssets, labelsSheet, listAssets, numberOf, STATES, type Asset, type AssetState, type TreeFloor } from '../api'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
@@ -50,11 +50,13 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
   const [state, setState] = useState<AssetState | ''>(initialState && initialState in STATES ? initialState as AssetState : '')
   const [attention, setAttention] = useState<'' | 'needs_fill' | 'needs_placement'>(
     initialAttention === 'needs_fill' || initialAttention === 'needs_placement' ? initialAttention : '')
+  const [accounted, setAccounted] = useState<'' | 'true' | 'false'>('')     // on the books, off them, either
   const [error, setError] = useState<string | null>(null)
+  const filter = { building_id: building, q, state, accounted, [attention || 'x']: attention ? 'true' : undefined }
   const load = useCallback(() => {
-    listAssets({ building_id: building, q, state, [attention || 'x']: attention ? 'true' : undefined, limit: '300' })
+    listAssets({ ...filter, limit: '300' })
       .then(r => { setItems(r.items); setTotal(r.total); setError(null) }, (e: Error) => setError(e.message))
-  }, [building, q, state, attention])
+  }, [building, q, state, attention, accounted])
   useEffect(load, [load])
   useEvents(event => { if (event.type.startsWith('assets.')) load() })
   const room = (a: Asset) => {
@@ -78,6 +80,13 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
             {Object.entries(STATES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </Tip>
+        <Tip label="На учёте — с инвентарным номером; без учёта — стоят на плане, номера нет: такие можно удалить, а на учёт поставить из карточки">
+          <select className={select} value={accounted} onChange={e => setAccounted(e.target.value as typeof accounted)} aria-label="Учёт">
+            <option value="">на учёте и без</option>
+            <option value="true">на учёте</option>
+            <option value="false">без учёта</option>
+          </select>
+        </Tip>
         <Tip label="Объекты без обязательных свойств или потерявшие место: их помещение или контейнер исчезли">
           <select className={select} value={attention} onChange={e => setAttention(e.target.value as typeof attention)} aria-label="Требует внимания">
             <option value="">все</option>
@@ -89,7 +98,7 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
           <span className="text-sm text-muted-foreground" data-testid="assets-total">{total}</span>
         </Tip>
         <Button asChild size="sm" variant="outline" hint="Скачать список объектов по текущему фильтру, свойства — отдельными столбцами">
-          <a href={assetsReportUrl({ building_id: building, q, state, [attention || 'x']: attention ? 'true' : undefined })} download><FileSpreadsheet className="size-4" /> В Excel</a>
+          <a href={assetsReportUrl(filter)} download><FileSpreadsheet className="size-4" /> В Excel</a>
         </Button>
         {admin && (
           <>
@@ -111,7 +120,7 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
       </div>
       {admin && (
         <p className="mt-1 text-sm text-muted-foreground">
-          Excel: столбцы Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание. Этаж — номер или название, X и Y — точка на плане этажа в метрах. Загружается всё или ничего.
+          Excel: столбцы Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание. Этаж — номер или название, X и Y — точка на плане этажа в метрах; пустой номер — объект без учёта. Загружается всё или ничего.
         </p>
       )}
       {report && (
@@ -127,17 +136,17 @@ export function Assets({ building, floors, selected, admin, initialQuery, initia
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       {items.length === 0 ? (
         <p className="mt-6 text-sm text-muted-foreground">
-          {q || state || attention ? 'Ничего не найдено.' : 'Объектов пока нет. Их ставит на план администратор здания — в разделе «План».'}
+          {q || state || attention || accounted ? 'Ничего не найдено.' : 'Объектов пока нет. Их ставит на план администратор здания — в разделе «План».'}
         </p>
       ) : (
         <ul className="mt-4 divide-y rounded-lg border bg-card text-sm" data-testid="assets">
           {items.map(a => (
             <li key={a.id}>
-              <a href={to.assets(building, a.id)} aria-current={a.id === selected ? 'true' : undefined} data-asset={a.inventory_no}
+              <a href={to.assets(building, a.id)} aria-current={a.id === selected ? 'true' : undefined} data-asset={a.inventory_no ?? a.id}
                 className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-secondary', a.id === selected && 'bg-accent')}>
                 <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span>
                   {a.product_name && <span className="ml-2 text-muted-foreground">{a.product_name}</span>}
-                  <span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
+                  <span className={cn('ml-2 text-muted-foreground', !a.inventory_no && 'italic')}>{numberOf(a)}</span></span>
                 <span className="text-muted-foreground max-sm:hidden">{room(a)}</span>
                 {a.needs_placement && <NeedsMark need="placement"><Badge variant="warning">разместить</Badge></NeedsMark>}
                 {a.needs_fill && <NeedsMark need="fill"><Badge variant="warning">заполнить</Badge></NeedsMark>}

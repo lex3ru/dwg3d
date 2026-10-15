@@ -144,5 +144,5 @@ export const SHAPES = Object.keys(DRAW)
 export const itemOf = (a: Asset, types: Map<string, CatalogType>, rest: Pick<Item, 'tone' | 'chosen'>): Item => {
   const t = types.get(a.type_id)
   return { id: a.id, x: a.x!, y: a.y!, angle: a.angle ?? 0, w: t?.size[0] || 0.5, d: t?.size[1] || 0.5, shape: t?.shape ?? 'box',
-    title: `${a.type_name} · ${a.inventory_no}`, ...rest }
+    title: a.inventory_no ? `${a.type_name} · ${a.inventory_no}` : a.type_name, ...rest }
 }

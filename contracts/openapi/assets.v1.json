@@ -49,10 +49,17 @@
             "title": "Floor Id"
           },
           "inventory_no": {
-            "maxLength": 60,
-            "minLength": 1,
-            "title": "Inventory No",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Пусто — объект стоит на плане, но не на учёте",
+            "title": "Inventory No"
           },
           "note": {
             "default": "",
@@ -123,8 +130,7 @@
           }
         },
         "required": [
-          "type_id",
-          "inventory_no"
+          "type_id"
         ],
         "title": "AssetIn",
         "type": "object"
@@ -238,6 +244,7 @@
             "type": "array"
           },
           "prefix": {
+            "default": "",
             "description": "Начало инвентарного номера: «КР-»",
             "maxLength": 40,
             "title": "Prefix",
@@ -257,11 +264,18 @@
             "title": "Product Id"
           },
           "start": {
-            "description": "С какого числа считать",
-            "maximum": 1000000000.0,
-            "minimum": 0.0,
-            "title": "Start",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 1000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "С какого числа считать; пусто — без учёта",
+            "title": "Start"
           },
           "type_id": {
             "format": "uuid",
@@ -280,9 +294,7 @@
         "required": [
           "type_id",
           "floor_id",
-          "points",
-          "prefix",
-          "start"
+          "points"
         ],
         "title": "Batch",
         "type": "object"
@@ -497,6 +509,32 @@
         "title": "MoveIn",
         "type": "object"
       },
+      "RegisterIn": {
+        "properties": {
+          "inventory_no": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Пусто — следующий свободный номер типа",
+            "title": "Inventory No"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RegisterIn",
+        "type": "object"
+      },
       "ResponsibleIn": {
         "properties": {
           "person_id": {
@@ -592,7 +630,7 @@
   "paths": {
     "/api/assets/v1/assets": {
       "get": {
-        "description": "Also filters by values of properties: `prop.<key>=`, `prop.<key>.gte=`, `prop.<key>.lte=`\n(dates and numbers compare as written: 2026-10-05, 12.5). Retired objects come only with `state=retired`.",
+        "description": "Also filters by values of properties: `prop.<key>=`, `prop.<key>.gte=`, `prop.<key>.lte=`\n(dates and numbers compare as written: 2026-10-05, 12.5). Retired objects come only with `state=retired`;\n`accounted` — only those on the books (with an inventory number) or only those not.",
         "operationId": "list_assets_api_assets_v1_assets_get",
         "parameters": [
           {
@@ -749,6 +787,22 @@
           },
           {
             "in": "query",
+            "name": "accounted",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accounted"
+            }
+          },
+          {
+            "in": "query",
             "name": "needs_placement",
             "required": false,
             "schema": {
@@ -881,7 +935,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Поставить объект: тип, точка этажа или контейнер, номер",
+        "summary": "Поставить объект: тип, точка этажа или контейнер; с инвентарным номером — сразу на учёт",
         "tags": [
           "assets"
         ]
@@ -924,7 +978,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Несколько одинаковых объектов с номерами подряд; всё или ничего",
+        "summary": "Несколько одинаковых объектов: с номерами подряд или без учёта; всё или ничего",
         "tags": [
           "assets"
         ]
@@ -975,7 +1029,7 @@
     },
     "/api/assets/v1/assets/import": {
       "post": {
-        "description": "All rows or none: with a mistake in any row nothing is created, and the answer names the rows.\nThe type is given by its name in the catalog, the floor by its number (level) or name; X and Y are\nplan coordinates of the floor, metres.",
+        "description": "All rows or none: with a mistake in any row nothing is created, and the answer names the rows.\nThe type is given by its name in the catalog, the floor by its number (level) or name; X and Y are\nplan coordinates of the floor, metres. A row without an inventory number is an object not on the books.",
         "operationId": "import_assets_api_assets_v1_assets_import_post",
         "parameters": [
           {
@@ -1023,13 +1077,48 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Загрузить объекты из Excel: Тип, Инвентарный номер, Серийный номер, Этаж, X, Y, Примечание",
+        "summary": "Загрузить объекты из Excel: Тип, Инвентарный номер (можно пусто), Серийный номер, Этаж, X, Y, Примечание",
         "tags": [
           "assets"
         ]
       }
     },
     "/api/assets/v1/assets/{asset_id}": {
+      "delete": {
+        "description": "Gone for good, with its files and history; what stood inside stays in the room, to be placed anew.",
+        "operationId": "delete_asset_api_assets_v1_assets__asset_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Удалить со сцены объект, который не на учёте; учтённый только списывается",
+        "tags": [
+          "assets"
+        ]
+      },
       "get": {
         "operationId": "get_asset_api_assets_v1_assets__asset_id__get",
         "parameters": [
@@ -1431,6 +1520,62 @@
         ]
       }
     },
+    "/api/assets/v1/assets/{asset_id}/register": {
+      "post": {
+        "description": "From here on the object is on the books: its number is never used again, and it leaves only by being written off.",
+        "operationId": "register_api_assets_v1_assets__asset_id__register_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Register Api Assets V1 Assets  Asset Id  Register Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Поставить на учёт: дать инвентарный номер — свой или следующий свободный",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
     "/api/assets/v1/assets/{asset_id}/responsible": {
       "post": {
         "operationId": "set_responsible_api_assets_v1_assets__asset_id__responsible_post",
@@ -1613,7 +1758,7 @@
     },
     "/api/assets/v1/inventory-numbers": {
       "get": {
-        "description": "For one who has no number at hand: `count` numbers in a row, none of them taken in the whole system (the\nnumbers of objects written off included). They continue the series of the last object of the type («КК-00012» →\n«КК-00013»); a type without objects starts its own, from the first letters of its name («КК-00001»). Nothing is\nreserved: two who ask at once may get the same, and the second to place an object is told the number is taken.",
+        "description": "For one who has no number at hand: see `_free`.",
         "operationId": "free_numbers_api_assets_v1_inventory_numbers_get",
         "parameters": [
           {

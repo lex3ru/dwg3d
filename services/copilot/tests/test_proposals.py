@@ -123,7 +123,7 @@ async def test_objects_are_proposed_and_moved_on_approval(app, client, tokens, w
     assert "пуст" in next(e["error"] for e in got if e["type"] == "tool")
 
 
-async def test_new_objects_get_numbers_when_applied(app, client, tokens, world, model):
+async def test_new_objects_stand_off_the_books_unless_numbered(app, client, tokens, world, model):
     await configure(client, tokens)
     world.admins.add("user-1")
     me = tokens.bearer("user-1")
@@ -137,7 +137,7 @@ async def test_new_objects_get_numbers_when_applied(app, client, tokens, world, 
     r = await client.post(f"{API}/proposals/{prop['id']}/apply", headers=me)
     assert r.json()["status"] == "applied", r.text
     done = r.json()["result"]["done"]
-    assert done[1]["inventory_no"].startswith("ИЗ-") and done[2]["inventory_no"] == "СТ-7" and done[1]["asset_id"]
+    assert done[1]["inventory_no"] is None and done[2]["inventory_no"] == "СТ-7" and done[1]["asset_id"]
     assert world.assets[PRINTER]["state"] == "retired" and sum(1 for a in world.assets.values() if a.get("type_id") == "t-desk") == 2
 
 

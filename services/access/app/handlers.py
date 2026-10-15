@@ -86,6 +86,11 @@ def register(bus: Bus) -> None:
     async def asset_retired(session: AsyncSession, event: dict) -> None:
         await revoke(session, grants.c.scope_kind == "asset", grants.c.scope_id == UUID(event["data"]["asset_id"]))
 
+    @bus.consumer("assets.asset.deleted", name="asset-deleted")
+    async def asset_deleted(session: AsyncSession, event: dict) -> None:
+        """An object taken off the scene for good: rights on it go with it."""
+        await revoke(session, grants.c.scope_kind == "asset", grants.c.scope_id == UUID(event["data"]["asset_id"]))
+
     @bus.consumer("assets.asset.moved", name="asset-moved")
     async def asset_moved(session: AsyncSession, event: dict) -> None:
         """An object taken to another building: its grants are in that building now."""

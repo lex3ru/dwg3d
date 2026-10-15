@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, getProposal, listAllAssets, listAllTypes, listComments, listProducts, moveAsset,
+  addComment, assetTone, createAsset, createAssets, getAsset, getFloorPlan, getProposal, listAllAssets, numberOf, listAllTypes, listComments, listProducts, moveAsset,
   productLabel, type Product,
   type Asset, type CatalogType, type Comment, type FloorPlanData, type Me, type ProposalShow, type TreeFloor,
 } from '../api'
@@ -54,7 +54,7 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
   const [types, setTypes] = useState<CatalogType[]>([])
   const [placing, setPlacing] = useState<{ type: string; number: string; product: string } | null>(null)
   // several of a kind: the points are clicked one by one, the numbers go in a row
-  const [series, setSeries] = useState<{ type: string; prefix: string; start: string; width: string; points: [number, number][] } | null>(null)
+  const [series, setSeries] = useState<{ type: string; numbered: boolean; prefix: string; start: string; width: string; points: [number, number][] } | null>(null)
   // comments to points of the floor: marks on the plan; a new one — a click, then the text
   const [notes, setNotes] = useState<Comment[]>([])
   const [noting, setNoting] = useState<{ x: number; y: number; text: string } | 'pick' | null>(null)
@@ -85,12 +85,13 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
     if (!moving || !active) return
     moveAsset(moving, active.id, x, y).then(a => { setError(null); location.hash = to.assets(building, a.id) }, (e: Error) => setError(e.message))
   }
-  const number = (s: NonNullable<typeof series>, i: number) => `${s.prefix}${String((Number(s.start) || 0) + i).padStart(Number(s.width) || 1, '0')}`
+  const number = (s: NonNullable<typeof series>, i: number) =>
+    (s.numbered ? `${s.prefix}${String((Number(s.start) || 0) + i).padStart(Number(s.width) || 1, '0')}` : 'без учёта')
   const placeSeries = () => {
     if (!series || !active) return
     if (!series.type || !series.points.length) return setError('Выберите тип и отметьте места на плане')
-    createAssets({ type_id: series.type, floor_id: active.id, points: series.points, prefix: series.prefix,
-      start: Number(series.start) || 0, width: Number(series.width) || 1 }).then(() => {
+    createAssets({ type_id: series.type, floor_id: active.id, points: series.points,
+      ...(series.numbered ? { prefix: series.prefix, start: Number(series.start) || 0, width: Number(series.width) || 1 } : {}) }).then(() => {
       setSeries(null); setError(null); loadAssets()
     }, (e: Error) => setError(e.message))
   }
@@ -101,8 +102,8 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
   const [products, setProducts] = useState<Product[]>([])
   useEffect(() => { if (placing?.type) listProducts(placing.type).then(setProducts, () => setProducts([])); else setProducts([]) }, [placing?.type])
   const place = (x: number, y: number) => {
-    if (!placing?.type || !placing.number.trim() || !active) return setError('Выберите тип и введите инвентарный номер')
-    createAsset({ type_id: placing.type, product_id: placing.product || null, floor_id: active.id, x, y, inventory_no: placing.number.trim() }).then(a => {
+    if (!placing?.type || !active) return setError('Выберите тип объекта')
+    createAsset({ type_id: placing.type, product_id: placing.product || null, floor_id: active.id, x, y, inventory_no: placing.number.trim() || null }).then(a => {
       setPlacing(null); setError(null); loadAssets(); location.hash = to.assets(building, a.id)
     }, (e: Error) => setError(e.message))
   }
@@ -130,7 +131,7 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
       <p className="mt-1 text-sm text-muted-foreground">{active.name} · помещений: {active.rooms.length} · объектов: {assets.filter(a => a.x != null).length}</p>
       {moving && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm" data-testid="moving">
-          <span>Перемещение: <b>{moving.type_name}</b> · {moving.inventory_no} — щёлкните новое место на плане (этаж можно сменить)</span>
+          <span>Перемещение: <b>{moving.type_name}</b> · {numberOf(moving)} — щёлкните новое место на плане (этаж можно сменить)</span>
           <Button asChild variant="ghost" size="sm" hint="Оставить объект на прежнем месте и вернуться к его карточке"><a href={to.assets(building, moving.id)}>Отмена</a></Button>
         </div>
       )}
@@ -145,28 +146,39 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
               </select>
             </Tip>
           </label>
-          <label className="grid gap-0.5 text-xs text-muted-foreground">Начало номера
-            <Tip label="Общая часть всех номеров перед числом, например «КР-»">
-              <Input className="h-8 w-28" value={series.prefix} placeholder="КР-" onChange={e => setSeries({ ...series, prefix: e.target.value })} />
-            </Tip>
-          </label>
-          <label className="grid gap-0.5 text-xs text-muted-foreground">С числа
-            <Tip label="Число первого номера; следующие идут подряд в порядке отметок на плане">
-              <Input className="h-8 w-20" inputMode="numeric" value={series.start} onChange={e => setSeries({ ...series, start: e.target.value.replace(/\D/g, '') })} />
-            </Tip>
-          </label>
-          <label className="grid gap-0.5 text-xs text-muted-foreground">Цифр
-            <Tip label="Длина числа: недостающие цифры дополнятся нулями слева, при 4 — 0001">
-              <Input className="h-8 w-14" inputMode="numeric" value={series.width} onChange={e => setSeries({ ...series, width: e.target.value.replace(/\D/g, '') })} />
-            </Tip>
-          </label>
+          <Tip label="Снять галочку — объекты встанут на план без учёта, номера им дадут потом в карточках">
+            <label className="flex items-center gap-1.5 pb-2 text-sm">
+              <input type="checkbox" checked={series.numbered} aria-label="С инвентарными номерами" onChange={e => setSeries({ ...series, numbered: e.target.checked })} />
+              на учёт
+            </label>
+          </Tip>
+          {series.numbered && (
+            <>
+              <label className="grid gap-0.5 text-xs text-muted-foreground">Начало номера
+                <Tip label="Общая часть всех номеров перед числом, например «КР-»">
+                  <Input className="h-8 w-28" value={series.prefix} placeholder="КР-" onChange={e => setSeries({ ...series, prefix: e.target.value })} />
+                </Tip>
+              </label>
+              <label className="grid gap-0.5 text-xs text-muted-foreground">С числа
+                <Tip label="Число первого номера; следующие идут подряд в порядке отметок на плане">
+                  <Input className="h-8 w-20" inputMode="numeric" value={series.start} onChange={e => setSeries({ ...series, start: e.target.value.replace(/\D/g, '') })} />
+                </Tip>
+              </label>
+              <label className="grid gap-0.5 text-xs text-muted-foreground">Цифр
+                <Tip label="Длина числа: недостающие цифры дополнятся нулями слева, при 4 — 0001">
+                  <Input className="h-8 w-14" inputMode="numeric" value={series.width} onChange={e => setSeries({ ...series, width: e.target.value.replace(/\D/g, '') })} />
+                </Tip>
+              </label>
+            </>
+          )}
           <span className="pb-1.5 text-sm" data-testid="series-numbers">
             {series.points.length ? `отмечено ${series.points.length}: ${number(series, 0)}${series.points.length > 1 ? ` … ${number(series, series.points.length - 1)}` : ''}`
               : 'отмечайте места на плане'}
           </span>
           <Button size="sm" disabled={!series.points.length || !series.type} onClick={placeSeries}
             hint={!series.type ? 'Сначала выберите тип объектов' : !series.points.length ? 'Сначала отметьте места на плане'
-              : 'Поставить на учёт все отмеченные объекты с номерами подряд; если хоть один номер занят, не создастся ни один'}>
+              : series.numbered ? 'Поставить на учёт все отмеченные объекты с номерами подряд; если хоть один номер занят, не создастся ни один'
+                : 'Поставить все отмеченные объекты на план без учёта; номера им дадут потом в карточках'}>
             Поставить {series.points.length || ''}
           </Button>
           {series.points.length > 0 && <Button variant="ghost" size="sm" hint="Снять с плана последнюю отметку; номера остальных не изменятся"
@@ -212,8 +224,8 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
             </label>
           )}
           <label className="grid gap-0.5 text-xs text-muted-foreground">Инвентарный номер
-            <Tip label="Не повторяется никогда: номер даже списанного объекта занят">
-              <Input className="h-8 w-40" value={placing.number} onChange={e => setPlacing({ ...placing, number: e.target.value })} />
+            <Tip label="Можно оставить пустым: объект встанет на план без учёта, на учёт его поставят из карточки. Номер не повторяется никогда: даже списанного объекта занят">
+              <Input className="h-8 w-40" value={placing.number} placeholder="пусто — без учёта" onChange={e => setPlacing({ ...placing, number: e.target.value })} />
             </Tip>
           </label>
           <span className="pb-1.5 text-sm">и щёлкните место на плане</span>
@@ -221,10 +233,10 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
         </div>
       ) : (
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" hint="Поставить на учёт один объект: тип, инвентарный номер и щелчок по месту на плане"
+          <Button variant="outline" size="sm" hint="Поставить один объект: тип и щелчок по месту на плане; с инвентарным номером — сразу на учёт"
             onClick={() => setPlacing({ type: '', number: '', product: '' })}>Поставить объект</Button>
-          <Button variant="outline" size="sm" hint="Несколько объектов одного типа: места отмечаются щелчками, номера идут подряд"
-            onClick={() => setSeries({ type: '', prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
+          <Button variant="outline" size="sm" hint="Несколько объектов одного типа: места отмечаются щелчками; на учёт с номерами подряд или без учёта"
+            onClick={() => setSeries({ type: '', numbered: true, prefix: '', start: '1', width: '4', points: [] })}>Поставить несколько</Button>
           {!noting && <Button variant="outline" size="sm" hint={NOTE_HINT} onClick={() => setNoting('pick')}>Комментарий к точке</Button>}
         </div>
       ))}
@@ -239,7 +251,7 @@ export function Plan({ me, building, floors, floor, room, admin, move, proposal 
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm" data-testid="plan-proposal">
           <span className="font-medium">Предложение помощника:</span>
           <span className="min-w-0 flex-1 truncate">{shown.summary}</span>
-          <span className="text-xs text-muted-foreground">зелёное — поставить, синее — переставить, красное — списать{shown.status !== 'open' && ` · ${shown.status === 'applied' ? 'уже применено' : shown.status === 'rejected' ? 'отклонено' : 'устарело'}`}</span>
+          <span className="text-xs text-muted-foreground">зелёное — поставить, синее — переставить, красное — списать или удалить{shown.status !== 'open' && ` · ${shown.status === 'applied' ? 'уже применено' : shown.status === 'rejected' ? 'отклонено' : 'устарело'}`}</span>
           <Tip label="Убрать пометки предложения с плана"><a href={to.plan(building, active.id)} className="text-primary underline underline-offset-2">скрыть</a></Tip>
         </div>
       )}

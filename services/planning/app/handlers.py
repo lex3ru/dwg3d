@@ -11,7 +11,8 @@ from twin_chassis.bus import Bus
 from .models import variant_ops, variants
 
 WHAT = {"assets.asset.moved": "перемещён", "assets.asset.changed": "изменён", "assets.asset.state_changed": "сменил состояние",
-        "assets.asset.retired": "списан", "assets.asset.responsible_changed": "сменил ответственного"}
+        "assets.asset.retired": "списан", "assets.asset.deleted": "удалён", "assets.asset.registered": "поставлен на учёт",
+        "assets.asset.responsible_changed": "сменил ответственного"}
 
 
 async def _mark(session: AsyncSession, ids: set, reason: dict) -> None:

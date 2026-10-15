@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, DoorOpen, FileStack, Layers, Map as MapIcon, QrCode, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { getCabinet, listAssets, listPlaced, listVariants, type Asset, type Building, type Cabinet, type Me, type TreeFloor } from '../api'
+import { getCabinet, listAssets, listPlaced, listVariants, numberOf, type Asset, type Building, type Cabinet, type Me, type TreeFloor } from '../api'
 import { Button } from '../components/ui/button'
 import { Tip } from '../components/ui/tooltip'
 import { to } from '../shell/route'
@@ -66,8 +66,8 @@ export function Home({ me, building, floors, admin }: { me: Me; building: Buildi
     <ul className="divide-y rounded-lg border bg-card text-sm" data-testid={testid}>
       {items.map(a => (
         <li key={a.id}>
-          <a href={to.assets(building.id, a.id)} data-asset={a.inventory_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-secondary">
-            <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span><span className="ml-2 text-muted-foreground">{a.inventory_no}</span></span>
+          <a href={to.assets(building.id, a.id)} data-asset={a.inventory_no ?? a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-secondary">
+            <span className="min-w-40 flex-1"><span className="font-medium">{a.type_name}</span><span className="ml-2 text-muted-foreground">{numberOf(a)}</span></span>
             <span className="text-muted-foreground max-sm:hidden">{place(a)}</span>
             {a.needs_placement && <NeedsMark need="placement"><span className="text-xs text-warning">разместить</span></NeedsMark>}
             {a.needs_fill && <NeedsMark need="fill"><span className="text-xs text-warning">заполнить</span></NeedsMark>}

@@ -80,7 +80,8 @@ class DigestArg(BaseModel):
 
 
 NOTABLE = {"assets.asset.state_changed": "смена состояния", "assets.asset.retired": "списание", "assets.asset.moved": "перемещение",
-           "assets.asset.created": "новый объект", "assets.asset.responsible_changed": "смена ответственного",
+           "assets.asset.created": "новый объект", "assets.asset.registered": "постановка на учёт", "assets.asset.deleted": "удаление",
+           "assets.asset.responsible_changed": "смена ответственного",
            "access.grant.created": "выдано право", "access.grant.revoked": "отозвано право", "people.person.left": "выбыл человек",
            "buildings.revision.published": "новая ревизия чертежа", "buildings.room.retired": "снято помещение",
            "planning.variant.applied": "применён вариант", "copilot.proposal.applied": "применено предложение копилота"}

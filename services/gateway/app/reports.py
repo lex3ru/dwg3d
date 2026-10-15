@@ -87,7 +87,8 @@ def _workbook(items: list[dict], types: dict, floors: dict, rooms: dict, names: 
         flags = (("размещения", a.get("needs_placement")), ("заполнения", a.get("needs_fill")))
         needs = ", ".join(x for x, on in flags if on)
         t = types.get(a["type_id"]) or {}
-        row = [a["type_name"], a["inventory_no"], a.get("serial_no") or "", STATES.get(a["state"], a["state"]),
+        row = [a["type_name"], a.get("inventory_no") or "", a.get("serial_no") or "",
+               STATES.get(a["state"], a["state"]),
                (floor or {}).get("name") or "", (room or {}).get("name") or "",
                names.get(a.get("responsible_id") or "", ""), needs, a.get("note") or "", a.get("qr_code") or ""]
         schema = {p["key"]: p for p in t.get("schema") or []}
@@ -152,7 +153,8 @@ def _sheet(building: dict, floor: dict, room: dict, items: list[dict], names: di
              Spacer(1, 6 * mm)]
     rows = [["№", "Тип", "Инвентарный №", "Серийный №", "Состояние", "Ответственный", "Отметка"]]
     for n, a in enumerate(items, start=1):
-        rows.append([str(n), Paragraph(escape(a["type_name"]), body), a["inventory_no"], a.get("serial_no") or "",
+        rows.append([str(n), Paragraph(escape(a["type_name"]), body), a.get("inventory_no") or "",
+                     a.get("serial_no") or "",
                      STATES.get(a["state"], a["state"]),
                      Paragraph(escape(names.get(a.get("responsible_id") or "", "—")), body), ""])
     table = Table(rows, colWidths=[9 * mm, 45 * mm, 30 * mm, 28 * mm, 22 * mm, 36 * mm, 10 * mm], repeatRows=1)
@@ -209,7 +211,7 @@ async def drawing_with_objects(building_id: UUID, body: DrawingReport, request: 
         _types(request, who, {a["type_id"] for a in items}),
         _names(request, who, {a["responsible_id"] for a in items if a.get("responsible_id")}))
     objects = [{"floor": mine[a["floor_id"]].get("candidate"), "at": [a["x"], a["y"]], "angle": a.get("angle") or 0,
-                "type": a["type_id"], "name": a["type_name"], "inventory_no": a["inventory_no"],
+                "type": a["type_id"], "name": a["type_name"], "inventory_no": a.get("inventory_no"),
                 "state": STATES.get(a["state"], a["state"]),
                 "responsible": names.get(a.get("responsible_id") or "", ""),
                 "room": (rooms.get(a["room_id"]) or {}).get("name") or "", "note": a.get("note") or ""} for a in items]

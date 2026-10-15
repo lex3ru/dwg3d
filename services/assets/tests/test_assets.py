@@ -47,6 +47,67 @@ async def test_placing(client, app, world, boss):
     assert again.status_code == 409
 
 
+async def test_on_the_plan_without_a_number_and_on_the_books_later(client, app, world, boss):
+    """A thing stands on the plan with no inventory number; it is put on the books by giving it one (its own or the
+    next free), and from then on it is only written off. One not on the books is deleted, not written off."""
+    chair = await put(client, boss, world, "couch", None, x=2)
+    assert chair["inventory_no"] is None and chair["state"] == "in_use"
+    created = (await events(app, "assets.asset.created"))[-1]
+    assert "inventory_no" not in created["data"]
+    url = f"{API}/assets/{chair['id']}"
+    # a second one without a number: no clash of numbers between them
+    other = await put(client, boss, world, "couch", None, x=3)
+    numbered = await put(client, boss, world, "couch", "КШ-0007", x=6)
+
+    # the lists tell them apart; the search survives the missing number
+    async def ids(**params) -> list[str]:
+        return [a["id"] for a in (await client.get(f"{API}/assets", params=params, headers=boss)).json()["items"]]
+    assert await ids(accounted=False) == [chair["id"], other["id"]] and await ids(accounted=True) == [numbered["id"]]
+    assert await ids(q="куш") == [numbered["id"], chair["id"], other["id"]]       # a number sorts before none
+    # the label works without a number; the number cannot be set past the registering
+    assert (await client.get(f"{url}/label", headers=boss)).headers["content-type"] == "application/pdf"
+    assert (await client.patch(url, json={"inventory_no": "КШ-0001", "version": 1}, headers=boss)).json()["code"] == "not_accounted"
+    # writing off is for what is on the books
+    assert (await client.post(f"{url}/state", json={"state": "retired", "version": 1}, headers=boss)).json()["code"] == "not_accounted"
+    assert (await client.post(f"{url}/state", json={"state": "faulty", "version": 1}, headers=boss)).json()["state"] == "faulty"
+
+    # on the books: the next free number of the type, or one's own
+    keeper = world.person("keeper", ("responsible", "asset", chair["id"]))
+    assert (await client.post(f"{url}/register", json={"version": 2}, headers=keeper)).status_code == 403
+    r = await client.post(f"{url}/register", json={"version": 2}, headers=boss)
+    assert r.status_code == 200 and r.json()["inventory_no"] == "КШ-0008" and r.json()["version"] == 3
+    registered = (await events(app, "assets.asset.registered"))[-1]
+    assert registered["data"] == {"asset_id": chair["id"], "type_id": chair["type_id"], "inventory_no": "КШ-0008"}
+    assert (await client.post(f"{url}/register", json={"version": 3}, headers=boss)).json()["code"] == "accounted"
+    taken = await client.post(f"{API}/assets/{other['id']}/register", json={"inventory_no": "КШ-0008", "version": 1}, headers=boss)
+    assert taken.status_code == 409 and taken.json()["code"] == "inventory_no_taken"
+    mine = await client.post(f"{API}/assets/{other['id']}/register", json={"inventory_no": " КШ-0100 ", "version": 1}, headers=boss)
+    assert mine.json()["inventory_no"] == "КШ-0100"
+    assert [h["action"] for h in (await client.get(f"{url}/history", headers=boss)).json()["items"]] == ["registered", "state", "created"]
+    # the number cannot be taken away: off the books is written off
+    assert (await client.patch(url, json={"inventory_no": None, "version": 3}, headers=boss)).status_code == 422
+    assert (await client.patch(url, json={"inventory_no": " ", "version": 3}, headers=boss)).status_code == 422
+
+    # deleting: only what is not on the books, only by the administrator; gone with its files
+    assert (await client.delete(url, headers=boss)).json()["code"] == "accounted"
+    loose = await put(client, boss, world, "rack", None, x=2)
+    inside = (await client.post(f"{API}/assets", json={"type_id": world.types["couch"]["id"], "container_id": loose["id"]},
+                                headers=boss)).json()
+    await client.post(f"{API}/assets/{loose['id']}/files", files={"file": ("Фото.jpg", b"\xff\xd8", "image/jpeg")}, headers=boss)
+    assert (await client.delete(f"{API}/assets/{loose['id']}", headers=keeper)).status_code == 404     # not theirs to see
+    assert (await client.delete(f"{API}/assets/{loose['id']}", headers=world.person("v", ("viewer", "room", ROOM_A)))).status_code == 403
+    assert (await client.delete(f"{API}/assets/{loose['id']}", headers=boss)).status_code == 204
+    assert (await client.get(f"{API}/assets/{loose['id']}", headers=boss)).status_code == 404
+    deleted = (await events(app, "assets.asset.deleted"))[-1]
+    assert deleted["data"] == {"asset_id": loose["id"], "type_id": loose["type_id"]} and deleted["room_id"] == ROOM_A
+    left = await get(client, boss, inside)                           # what stood inside waits to be placed
+    assert (left["container_id"], left["needs_placement"], left["x"]) == (None, True, 2)
+    # a row of several without numbers
+    row = await client.post(f"{API}/assets/batch", json={"type_id": world.types["couch"]["id"], "floor_id": FLOOR,
+                                                          "points": [[1, 1], [2, 1]]}, headers=boss)
+    assert row.status_code == 201 and [a["inventory_no"] for a in row.json()["items"]] == [None, None]
+
+
 async def test_many_at_once_with_numbers_in_a_row(client, world, boss):
     batch = {"type_id": world.types["couch"]["id"], "floor_id": FLOOR, "points": [[1, 1], [2, 1], [6, 1]],
              "prefix": "КШ-", "start": 9, "width": 3}
@@ -316,7 +377,8 @@ async def test_import_from_excel_is_all_or_nothing(client, world, boss):
                                  files={"file": ("objects.xlsx", data)}, headers=headers)
 
     await put(client, boss, world, "couch", "КШ-1")
-    good = [("Кушетка", "КШ-2", None, 1, 2, 2, "у окна"), ("кушетка", "КШ-3", "SN-9", "План 1-го этажа", 7.5, 2, None)]
+    good = [("Кушетка", "КШ-2", None, 1, 2, 2, "у окна"), ("кушетка", "КШ-3", "SN-9", "План 1-го этажа", 7.5, 2, None),
+            ("Кушетка", None, None, 1, 3, 2, "без учёта")]
     bad = [("Кушетка", "КШ-1", None, 1, 2, 2, None),            # the number is taken
            ("Диван", "КШ-4", None, 1, 2, 2, None),              # no such type
            ("Кушетка", "КШ-5", None, 9, 2, 2, None),            # no such floor
@@ -326,16 +388,16 @@ async def test_import_from_excel_is_all_or_nothing(client, world, boss):
     r = await load(workbook(*good, *bad))
     assert r.status_code == 422
     report = {e["field"]: e["message"] for e in r.json()["errors"]}
-    assert sorted(report) == ["строка 4", "строка 5", "строка 6", "строка 7", "строка 8"]
-    assert "уже есть" in report["строка 4"] and "нет типа" in report["строка 5"] and "вне помещений" in report["строка 7"]
-    assert "повторяется" in report["строка 8"] and "числами" in report["строка 8"]
+    assert sorted(report) == ["строка 5", "строка 6", "строка 7", "строка 8", "строка 9"]
+    assert "уже есть" in report["строка 5"] and "нет типа" in report["строка 6"] and "вне помещений" in report["строка 8"]
+    assert "повторяется" in report["строка 9"] and "числами" in report["строка 9"]
     assert (await client.get(f"{API}/assets", headers=boss)).json()["total"] == 1          # nothing was created
 
     r = await load(workbook(*good))
-    assert r.status_code == 201 and r.json() == {"created": 2}
-    items = (await client.get(f"{API}/assets", params={"q": "КШ"}, headers=boss)).json()["items"]
+    assert r.status_code == 201 and r.json() == {"created": 3}
+    items = (await client.get(f"{API}/assets", params={"q": "куш"}, headers=boss)).json()["items"]
     assert [(a["inventory_no"], a["room_id"], a["serial_no"], a["note"]) for a in items] == [
-        ("КШ-1", ROOM_A, None, ""), ("КШ-2", ROOM_A, None, "у окна"), ("КШ-3", ROOM_B, "SN-9", "")]
+        ("КШ-1", ROOM_A, None, ""), ("КШ-2", ROOM_A, None, "у окна"), ("КШ-3", ROOM_B, "SN-9", ""), (None, ROOM_A, None, "без учёта")]
     assert (await load(workbook(*good))).status_code == 422                                # again: the numbers are taken
     assert (await load(b"not a workbook")).status_code == 422
     assert (await load(workbook(*good), world.person("viewer", ("viewer", "floor", FLOOR)))).status_code == 403

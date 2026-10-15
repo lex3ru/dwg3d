@@ -86,9 +86,9 @@ class World:
                      and (not request.url.params.get("floor_id") or a["floor_id"] == request.url.params["floor_id"])]
             return httpx.Response(200, json={"items": items, "total": len(items), "next": None})
         if path.endswith("/assets") and request.method == "POST":
-            if any(a["inventory_no"] == body["inventory_no"] for a in self.assets.values()):
+            if body.get("inventory_no") and any(a["inventory_no"] == body["inventory_no"] for a in self.assets.values()):
                 return httpx.Response(409, json={"code": "inventory_no_taken", "detail": "Такой инвентарный номер уже есть"})
-            a = self.put(body["type_id"], body["inventory_no"], body["x"], body["y"], body.get("product_id"))
+            a = self.put(body["type_id"], body.get("inventory_no"), body["x"], body["y"], body.get("product_id"))
             return httpx.Response(201, json=a)
         asset_id = path.split("/assets/")[-1].split("/")[0]
         a = self.assets.get(asset_id)
