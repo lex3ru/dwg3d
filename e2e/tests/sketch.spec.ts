@@ -272,11 +272,19 @@ test('an uploaded drawing turned into a plan keeps the building\'s floors and ro
 
   await page.getByTestId('sketch-build-button').click()
   await expect(page.getByTestId('sketch-built')).toBeVisible({ timeout: 90_000 })
+  const sketch = page.url()
   // published: the building shows the plan's build, with the rooms it had
   await page.goto(`/#/p/${building}`)
   await expect(row).toContainText('нарисованный план · сборка 2')
   await expect(row).toHaveAttribute('data-status', 'done', { timeout: 30_000 })
   expect(await rooms()).toEqual(before)
+
+  // turned into a plan again, from the file's last build: the plan is the file's once more
+  await page.goto(sketch)
+  page.once('dialog', d => d.accept())
+  await page.getByTestId('sketch-reconvert').click()
+  await expect(page.getByTestId('sketch-summary')).toHaveText(/^Стен: \d+ · помещений: 2 · 83,4\d м²$/)
+  await expect(page.getByTestId('sketch-save')).toHaveText('Сохранено', { timeout: 10_000 })
 })
 
 // A plan with mistakes the editor used to stop the build for: «Исправить автоматически» repairs what the server can

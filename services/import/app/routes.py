@@ -332,16 +332,23 @@ async def sketch_from_template(body: TemplateIn, request: Request, me: Identity 
 
 @router.post("/drawings/{drawing_id}/to-sketch", tags=["sketches"],
              summary="Перевести загруженный чертёж в нарисованный план: стены, проёмы, помещения, колонны и лестницы "
-                     "его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются")
+                     "его последней сборки — в 2D-редактор; тот же чертёж, его этажи и помещения продолжаются. "
+                     "Уже переведённый чертёж переводится заново из последней сборки его файла — поверх плана")
 async def to_sketch(drawing_id: UUID, request: Request, _: Identity = Depends(manages_drawing)) -> dict:
     from .to_sketch import sketch_of
 
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id)
-        _file_only(d)
+        if d.kind == "sketch" and not d.current_file_id:
+            raise Problem(409, "not_file", "Этот план нарисован, а не переведён из чертежа: переводить нечего")
         b = None
-        if d.current_build_id:
+        if d.kind == "sketch":                      # again: the file's last build, whatever was built of the plan since
+            last = (select(builds).where(builds.c.drawing_id == drawing_id, builds.c.file_id.is_not(None),
+                                         builds.c.status == "done").order_by(builds.c.n.desc()).limit(1))
+            b = (await session.execute(last)).one_or_none()
+        elif d.current_build_id:
             b = (await session.execute(select(builds).where(builds.c.id == d.current_build_id))).one_or_none()
+        was_version = d.sketch_version
     if b is None or b.status != "done" or not b.out_prefix:
         raise Problem(409, "not_ready", "Чертёж ещё не собран: в план переводится его последняя сборка")
     result = b.result or {}
@@ -364,8 +371,9 @@ async def to_sketch(drawing_id: UUID, request: Request, _: Identity = Depends(ma
         raise Problem(422, "invalid", "В сборке чертежа не нашлось стен, которые можно перевести в план")
     async with request.app.state.db.begin() as session:
         d = await _drawing(session, drawing_id, lock=True)
-        _file_only(d)
-        if d.current_build_id != b.id:
+        if d.kind == "sketch" and d.sketch_version != was_version:
+            raise Problem(409, "conflict", "План успели сохранить: переведите чертёж ещё раз")
+        if d.kind != "sketch" and d.current_build_id != b.id:
             raise Problem(409, "conflict", "Чертёж успели пересобрать: переведите его ещё раз")
         name = (await store.drawing_json(session, d))["name"]          # the file's, when it was not named
         await session.execute(update(drawings).where(drawings.c.id == drawing_id).values(

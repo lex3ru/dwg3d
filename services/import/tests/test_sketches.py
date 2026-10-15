@@ -463,8 +463,6 @@ async def test_a_drawing_turned_into_a_plan_goes_on_as_the_same_drawing(client, 
     r = await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)
     assert r.status_code == 200, r.text
     assert r.json()["kind"] == "sketch" and r.json()["id"] == d["id"] and r.json()["notes"] == []
-    # once it is a plan, it is not taken again
-    assert (await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)).json()["code"] == "sketch"
     got = (await client.get(f"{API}/drawings/{d['id']}/sketch", headers=admin)).json()
     assert [f["id"] for f in got["sketch"]["floors"]] == [f["id"] for f in sorted(before, key=lambda f: f["level"])]
     assert all(f["walls"] and f["openings"] for f in got["sketch"]["floors"])
@@ -481,3 +479,17 @@ async def test_a_drawing_turned_into_a_plan_goes_on_as_the_same_drawing(client, 
     assert sorted(map(key, after)) == sorted(map(key, before))
     areas = lambda fs: sorted(round(r["area"], 1) for f in fs for r in f["rooms"])  # noqa: E731
     assert areas(after) == areas(before)
+    # the slab of a floor taken from a drawing is the drawing's outline, as the file's build had it
+    assert [round(f["stats"]["footprint_m2"]) for f in after] == [round(f["stats"]["footprint_m2"]) for f in before]
+
+    # edited, it is taken from the file's last build again, over the edits; a save made meanwhile is not lost
+    edited = {**got["sketch"], "floors": [{**got["sketch"]["floors"][0], "walls": {}, "openings": {}}, *got["sketch"]["floors"][1:]]}
+    v = (await client.put(f"{API}/drawings/{d['id']}/sketch", json={"sketch": edited, "version": got["version"]},
+                          headers=admin)).json()["version"]
+    r = await client.post(f"{API}/drawings/{d['id']}/to-sketch", headers=admin)
+    assert r.status_code == 200 and r.json()["kind"] == "sketch" and r.json()["sketch_version"] == v + 1, r.text
+    again = (await client.get(f"{API}/drawings/{d['id']}/sketch", headers=admin)).json()["sketch"]
+    assert all(f["walls"] and f["openings"] for f in again["floors"])
+    # a plan drawn from nothing has no drawing to be taken from
+    drawn_only = (await client.post(f"{API}/sketches", json={"building_id": BUILDING, "name": "Свой"}, headers=admin)).json()
+    assert (await client.post(f"{API}/drawings/{drawn_only['id']}/to-sketch", headers=admin)).json()["code"] == "not_file"

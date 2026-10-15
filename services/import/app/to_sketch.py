@@ -69,6 +69,10 @@ def _dot(a, b):
     return a[0] * b[0] + a[1] * b[1]
 
 
+def _cross(a, b):
+    return a[0] * b[1] - a[1] * b[0]
+
+
 def _sub(a, b):
     return (a[0] - b[0], a[1] - b[1])
 
@@ -263,8 +267,41 @@ def graph(segments, kinds) -> tuple[dict, dict]:
             continue
         walls[f"w{len(walls) + 1}"] = {"a": na, "b": nb, "thickness": segments[src][2], "height": None,
                                        "kind": kinds[src]}
+    _weld(nodes, walls)
     _prune(nodes, walls)
     return nodes, walls
+
+
+def _weld(nodes: dict, walls: dict) -> None:
+    """A node lying on a wall it is not an end of (within the joining tolerance: a T the union did not cut, the
+    ends being a hair off the line) cuts that wall there, so walls only meet at nodes, as the editor keeps them."""
+    changed = True
+    while changed:
+        changed = False
+        for wid, w in list(walls.items()):
+            a, b = nodes[w["a"]], nodes[w["b"]]
+            d = _sub(b, a)
+            ln = math.hypot(*d)
+            if ln < 1e-9:
+                continue
+            best = None
+            for nid, p in nodes.items():
+                if nid in (w["a"], w["b"]):
+                    continue
+                t = _dot(_sub(p, a), d) / (ln * ln)
+                if t * ln <= JOIN_TOL or (1 - t) * ln <= JOIN_TOL:
+                    continue
+                off = abs(_cross(d, _sub(p, a))) / ln
+                if off <= JOIN_TOL and (best is None or t < best[0]):
+                    best = (t, nid)
+            if best is None:
+                continue
+            rest = f"w{len(walls) + 1}"
+            while rest in walls:
+                rest = f"w{int(rest[1:]) + 1}"
+            walls[rest] = {**w, "a": best[1]}
+            walls[wid] = {**w, "b": best[1]}
+            changed = True
 
 
 def _lines(g):

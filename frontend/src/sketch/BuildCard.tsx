@@ -1,6 +1,6 @@
-import { Box, FileDown, Hammer, Printer } from 'lucide-react'
+import { Box, FileDown, Hammer, Printer, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { downloadSketch, getDrawing, rebuildDrawing, type Drawing } from '@/api'
+import { downloadSketch, drawingToSketch, getDrawing, rebuildDrawing, type Drawing } from '@/api'
 import { Button } from '@/components/ui/button'
 import { floatClass } from '@/components/ui/float'
 import { cn } from '@/lib/utils'
@@ -40,6 +40,17 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
   const built = b?.status === 'done' && d?.current_build_id === b.id && b.of !== 'file'
   // a drawing turned into a plan: the building shows the drawing's last build until the plan is built
   const fromFile = b?.status === 'done' && b.of === 'file'
+  // turned into a plan from a file: it can be turned again, from the file's last build, over this plan
+  const reconvert = () => {
+    if (!confirm(`Перевести «${d?.name ?? 'чертёж'}» в план заново? План станет таким, каким его даёт последняя сборка файла, — правки, сделанные здесь, пропадут, и отменить это будет нельзя.`)) return
+    setBusy(true)
+    setRefused(null)
+    st.flush().then(() => drawingToSketch(drawing)).then(r => {
+      if (r.notes.length) alert(`При переводе в план:\n${r.notes.join('\n')}`)
+      st.reload()
+      load()
+    }, (e: Error) => setRefused(e.message)).finally(() => setBusy(false))
+  }
 
   const build = () => {
     if (errors.length && !confirm(`Ошибок в плане: ${errors.length}.\n${errors.slice(0, 6).join('\n')}${errors.length > 6 ? '\n…' : ''}\n\n`
@@ -107,6 +118,12 @@ export function BuildCard({ drawing, st }: { drawing: string; st: SketchState })
         {built && (
           <Button asChild size="sm" variant="outline" hint="3D-сцена здания из этого плана: помещения, расстановка объектов">
             <a href={`#/f/${drawing}`}><Box className="size-4" />Открыть в 3D</a>
+          </Button>
+        )}
+        {d?.filename && (
+          <Button size="sm" variant="outline" disabled={busy || running || st.status === 'conflict'} data-testid="sketch-reconvert" onClick={reconvert}
+            hint="Перевести чертёж в план заново из последней сборки его файла: стены, проёмы, помещения, колонны и лестницы — поверх этого плана; правки здесь пропадут">
+            <RefreshCw className="size-4" />Заново из чертежа
           </Button>
         )}
       </div>

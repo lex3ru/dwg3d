@@ -32,6 +32,7 @@ from .dwg.exports import export_obj_zip
 from .dwg.features import Stair
 from .dwg.floors import FloorCandidate
 from .dwg.geometry import EMPTY, FloorPlan, Opening, Room, plan_to_json
+from .dwg.geometry import _footprint as drawing_footprint
 from .dwg.model3d import SceneBuilder, _pane, extrude
 from .dwg.semantics import classify_room, find_entrances, floor_pois, legend, room_type_rules
 from .sketch_ifc import export_sketch_ifc
@@ -400,6 +401,13 @@ def plan_of(f: dict, cfg: dict) -> FloorPlan:
                 rooms.append(r)
 
     footprint = _mp(filled)
+    if f.get("source") and not solid.is_empty:
+        # a floor taken from a drawing: its outline is closed as the drawing's build closes it (the gaps between
+        # the walls the conversion recognised, the glazing between columns), so the slab and the roof are the
+        # building's, not only the rooms' the walls happen to close; a plan drawn by hand is what its walls close
+        closed = drawing_footprint(_mp([solid, columns]), openings)
+        if not closed.is_empty:
+            footprint = _mp([footprint, closed])
     plan = FloorPlan()
     plan.walls, plan.wall_parts, plan.columns = walls, parts, columns
     plan.full_parts, plan.low_parts = full_parts, low_parts           # 3D only (SketchScene)
