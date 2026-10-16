@@ -132,7 +132,12 @@ function RegistryTab() {
   const admin = me.role === "admin";
   const navigate = useNavigate();
   const [card, setCard] = useCard();
-  const [filters, setFiltersState] = useState<Filters>(readFilters);
+  // ссылка с главной («Неисправные» и т. п.) задаёт выборку: она — поверх запомненной
+  const [urlParams] = useSearchParams();
+  const [filters, setFiltersState] = useState<Filters>(() => {
+    const fromUrl = Object.fromEntries((["state", "building_id", "place"] as const).filter((k) => urlParams.get(k)).map((k) => [k, urlParams.get(k)!]));
+    return Object.keys(fromUrl).length ? { ...EMPTY, ...fromUrl } : readFilters();
+  });
   const [sort, setSort] = useState("number");
   const [limit, setLimit] = useState(100);
   const [cols, setColsState] = useState<Col[]>(readCols);

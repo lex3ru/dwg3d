@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.core.auth import CurrentActor
+from app.core.auth import AnyActor, CurrentActor
 from app.core.db import DB
 from app.modules.planning import api
 
@@ -12,12 +12,12 @@ router = APIRouter(prefix="/api", tags=["planning"])
 
 
 @router.get("/floors/{floor_id}/items")
-def floor_items(floor_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+def floor_items(floor_id: uuid.UUID, actor: AnyActor, session: DB) -> dict[str, Any]:
     return {"items": [api.item_view(i) for i in api.floor_items(session, actor, floor_id)]}
 
 
 @router.get("/items/{item_id}")
-def get_item(item_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+def get_item(item_id: uuid.UUID, actor: AnyActor, session: DB) -> dict[str, Any]:
     return api.item_view(api.get_item(session, actor, item_id))
 
 

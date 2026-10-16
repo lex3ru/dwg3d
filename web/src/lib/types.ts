@@ -1,4 +1,4 @@
-export type Role = "admin" | "viewer";
+export type Role = "admin" | "viewer" | "guest";
 
 export interface BuildingRef {
   id: string;
@@ -21,6 +21,7 @@ export interface User {
 
 export interface Me extends User {
   role_title: string;
+  expires_at?: string | null; // гость по ссылке: до какого времени действует ссылка
 }
 
 export interface JournalEntry {

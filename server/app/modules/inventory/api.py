@@ -356,3 +356,174 @@ def created_units(session: Session, doc: Document) -> list[list[Unit]]:
         found = units_by_id(session, ids)
         out.append([found[i] for i in ids if i in found])
     return out
+
+
+# ------------------------------------------------- для отчётов (5.6) и выгрузки (7.4)
+
+
+def registry_rows(session: Session, actor: Actor, **filters: Any) -> list[dict[str, Any]]:
+    from app.modules.inventory import units
+
+    return units.registry(session, actor, limit=100_000, **filters)["items"]
+
+
+def registry_xlsx(session: Session, actor: Actor, **filters: Any) -> bytes:
+    from app.modules.inventory import excel
+
+    return excel.registry_export(registry_rows(session, actor, **filters), actor)
+
+
+def balance_rows(
+    session: Session,
+    actor: Actor,
+    at: date | None = None,
+    place: str | None = None,
+    building_id: uuid.UUID | None = None,
+) -> list[dict[str, Any]]:
+    return docs.balances(session, actor, place=place, at=at, building_id=building_id)
+
+
+def cost_statement(
+    session: Session, actor: Actor, at: date, group_by: list[str], building_id: uuid.UUID | None
+) -> dict[str, Any]:
+    from app.modules.inventory import cost
+
+    return cost.statement(session, actor, at, group_by, building_id)
+
+
+def cost_xlsx(statement: dict[str, Any]) -> bytes:
+    from app.modules.inventory import excel
+
+    return excel.statement_export(statement)
+
+
+def movement_rows(
+    session: Session, actor: Actor, since: date, until: date, building_id: uuid.UUID | None
+) -> list[dict[str, Any]]:
+    """Движение за период: строки проведённых документов."""
+    admin(actor)
+    from app.modules.inventory.models import DocLine
+
+    rows = session.execute(
+        select(Document, DocLine)
+        .join(DocLine, DocLine.document_id == Document.id)
+        .where(Document.status != "draft", Document.date >= since, Document.date <= until)
+        .order_by(Document.date, Document.kind, Document.number, DocLine.position)
+    ).all()
+    unit_ids = [ln.unit_id for _, ln in rows if ln.unit_id]
+    units_ = units_by_id(session, unit_ids)
+    types = catalog.types_by_id(
+        session, [ln.type_id for _, ln in rows if ln.type_id] + [u.type_id for u in units_.values()]
+    )
+    places = Places(session, actor)
+    out = []
+    for doc, ln in rows:
+        u = units_.get(ln.unit_id) if ln.unit_id else None
+        t = types.get(u.type_id if u else ln.type_id) if (u or ln.type_id) else None
+        if building_id is not None:
+            touched = [
+                places.get(k).building_id
+                for k in (
+                    ln.from_place,
+                    ln.to_place,
+                    doc.from_place,
+                    doc.to_place,
+                    u.place if u else None,
+                )
+                if k
+            ]
+            if building_id not in touched:
+                continue
+        out.append(
+            {
+                "date": doc.date,
+                "document": doc_title(doc.kind, doc.number),
+                "status": "отменён" if doc.status == "cancelled" else "",
+                "what": (t.name if t else "") + (f" № {u.number}" if u else ""),
+                "qty": float(ln.qty or 0) if not u else 1,
+                "unit": t.unit if t else "",
+                "from": places.title(ln.from_place or doc.from_place),
+                "to": places.title(ln.to_place or doc.to_place),
+                "amount": float((ln.price or 0) * (ln.qty or 0)),
+                "note": ln.reason or ln.note,
+            }
+        )
+    return out
+
+
+def document_pdf(session: Session, actor: Actor, doc_id: uuid.UUID) -> tuple[bytes, str]:
+    from app.modules.inventory import printing
+
+    doc = docs.get_document(session, actor, doc_id)
+    view = docs.doc_view(session, actor, doc)
+    data = printing.document_pdf(view, str(system.get(session, "organization_name") or ""))
+    return data, f"{doc_title(doc.kind, doc.number)}.pdf"
+
+
+def document_choices(
+    session: Session, actor: Actor, kind: str | None = None
+) -> list[dict[str, Any]]:
+    return [
+        {"id": d["id"], "title": f"{d['title']} от {d['date']:%d.%m.%Y}", "status": d["status"]}
+        for d in docs.documents(session, actor, kind=kind, limit=500)
+    ]
+
+
+def count_pdf(session: Session, actor: Actor, doc_id: uuid.UUID, what: str) -> tuple[bytes, str]:
+    from app.modules.inventory import counts
+
+    org = str(system.get(session, "organization_name") or "")
+    if what == "act":
+        return counts.act_pdf(session, actor, doc_id, org)
+    return counts.statement_pdf(session, actor, doc_id, org)
+
+
+def place_labels_pdf(session: Session, actor: Actor, place: str, base_url: str) -> bytes:
+    """Метки на место (помещение — с меткой на дверь)."""
+    from app.modules.inventory import printing
+
+    admin(actor)
+    known = Places(session, actor)
+    p = known.get(place)
+    rows = registry_rows(session, actor, place=place)
+    items = [{"code": r["label_code"], "number": r["number"], "title": r["title"]} for r in rows]
+    if p.room_id:
+        items.insert(0, {"code": room_label(session, p.room_id), "number": "", "title": p.title})
+    if not items:
+        raise AppError("В месте нечего метить.")
+    return printing.labels_pdf(items, label_settings(session), base_url, "sheet")
+
+
+def place_title(session: Session, actor: Actor, key: str) -> str:
+    return Places(session, actor).title(key)
+
+
+def counts_with_state(session: Session, states: list[str], building_id: uuid.UUID | None) -> int:
+    q = select(func.count()).select_from(Unit).where(Unit.state.in_(states))
+    if building_id is not None:
+        q = q.where(Unit.building_id == building_id)
+    return session.scalar(q) or 0
+
+
+def latest_documents(session: Session, actor: Actor, limit: int = 8) -> list[dict[str, Any]]:
+    return docs.documents(session, actor, limit=limit)
+
+
+def unit_files(session: Session, building_id: uuid.UUID | None) -> list[tuple[str, uuid.UUID, str]]:
+    """Файлы имущества для полной выгрузки: (папка, файл, подпись)."""
+    from app.modules.inventory.models import DocFile, UnitFile
+
+    out: list[tuple[str, uuid.UUID, str]] = []
+    q = select(UnitFile, Unit).join(Unit, Unit.id == UnitFile.unit_id)
+    if building_id is not None:
+        q = q.where(Unit.building_id == building_id)
+    for f, u in session.execute(q).all():
+        out.append(("имущество", f.file_id, f"{u.number}"))
+    for u in session.scalars(select(Unit).where(Unit.photo_file_id.is_not(None))):
+        if building_id is None or u.building_id == building_id:
+            out.append(("имущество", u.photo_file_id, f"{u.number} фото"))  # type: ignore[arg-type]
+    for f, d in session.execute(
+        select(DocFile, Document).join(Document, Document.id == DocFile.document_id)
+    ).all():
+        out.append(("документы", f.file_id, doc_title(d.kind, d.number)))
+    return out

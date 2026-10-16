@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Response, UploadFile
 from pydantic import BaseModel, Field
 
-from app.core.auth import Admin, CurrentActor
+from app.core.auth import Admin, AnyActor
 from app.core.db import DB
 from app.modules.catalog import api, excel, model3d
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
 
 @router.get("")
-def tree(actor: CurrentActor, session: DB, archived: bool = False) -> dict[str, Any]:
+def tree(actor: AnyActor, session: DB, archived: bool = False) -> dict[str, Any]:
     return api.tree(session, actor, archived)
 
 
@@ -136,7 +136,7 @@ def _type_values(body: TypeIn) -> dict[str, Any]:
 
 
 @router.get("/types/{type_id}")
-def get_type(type_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+def get_type(type_id: uuid.UUID, actor: AnyActor, session: DB) -> dict[str, Any]:
     return api.type_view(session, api.get_type(session, type_id), actor)
 
 
@@ -254,7 +254,7 @@ class PurposeIn(BaseModel):
 
 
 @router.get("/purposes")
-def list_purposes(_: CurrentActor, session: DB, archived: bool = False) -> dict[str, Any]:
+def list_purposes(_: AnyActor, session: DB, archived: bool = False) -> dict[str, Any]:
     return {"items": [api.purpose_view(p) for p in api.purposes(session, archived)]}
 
 

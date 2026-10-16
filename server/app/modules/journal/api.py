@@ -88,3 +88,15 @@ def purge_before(session: Session, cutoff: datetime) -> int:
     result = session.execute(delete(Entry).where(Entry.at < cutoff))
     session.execute(text("SET LOCAL journal.purge = 'off'"))
     return result.rowcount or 0  # type: ignore[attr-defined]
+
+
+def entries_for(session: Session, refs: list[str]) -> list[Entry]:
+    """Все записи, что касаются хоть одной из ссылок (полная выгрузка, 7.4), — по порядку."""
+    if not refs:
+        return []
+    out: dict[int, Entry] = {}
+    for i in range(0, len(refs), 200):
+        part = refs[i : i + 200]
+        for e in session.scalars(select(Entry).where(Entry.refs.overlap(part))):
+            out[e.id] = e
+    return [out[k] for k in sorted(out)]

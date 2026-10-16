@@ -9,7 +9,7 @@ import { Button } from "@/ui/button";
 import { FormError } from "@/ui/form";
 import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
 import { PlacePicker } from "./parts";
-import { KINDS, dateRu, money, type Doc, type DocKind } from "./types";
+import { KINDS, NEW_KINDS, dateRu, money, type Doc, type DocKind } from "./types";
 
 export const STATUS: Record<Doc["status"], [string, "muted" | "ok" | "warn"]> = {
   draft: ["черновик", "warn"],
@@ -51,7 +51,7 @@ export function DocumentsPage() {
             </Button>
             {menu && (
               <div role="menu" className="absolute right-0 z-20 mt-1 flex w-56 flex-col rounded-lg border border-line bg-surface p-1 shadow-lg">
-                {(Object.keys(KINDS) as DocKind[]).map((k) => (
+                {NEW_KINDS.map((k) => (
                   <button key={k} role="menuitem" type="button" onClick={() => void create(k)} className="cursor-pointer rounded-md border-0 bg-transparent px-3 py-2 text-left text-sm hover:bg-surface-2">
                     {KINDS[k]}
                   </button>
@@ -101,9 +101,9 @@ export function DocumentsPage() {
             </thead>
             <tbody>
               {list.data.items.map((d) => (
-                <tr key={d.id} className="cursor-pointer hover:bg-surface-2" onClick={() => navigate(`/documents/${d.id}`)}>
+                <tr key={d.id} className="cursor-pointer hover:bg-surface-2" onClick={() => navigate(d.kind === "inventory" ? `/inventory/${d.id}` : `/documents/${d.id}`)}>
                   <td className="border-b border-line px-3 py-2 font-medium">
-                    <Link to={`/documents/${d.id}`} className={cn("text-ink", d.status === "cancelled" && "line-through")}>
+                    <Link to={d.kind === "inventory" ? `/inventory/${d.id}` : `/documents/${d.id}`} className={cn("text-ink", d.status === "cancelled" && "line-through")}>
                       {d.title}
                     </Link>
                     {d.basis && <div className="text-[11px] text-ink-3">{d.basis}</div>}

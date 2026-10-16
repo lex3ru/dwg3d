@@ -72,4 +72,12 @@ def seed_all(session: Session) -> str | None:
     return "; ".join(parts) or None
 
 
-module = Module(name="catalog", title="Каталог", routers=[router], seed=seed_all)
+def _setup(_: object) -> None:
+    from app.modules.catalog import api
+    from app.modules.files import api as files
+
+    # гость по ссылке видит 3D — ему отдаются файлы моделей каталога (5.7.2)
+    files.on_guest_file(api.is_model_file)
+
+
+module = Module(name="catalog", title="Каталог", routers=[router], seed=seed_all, setup=_setup)

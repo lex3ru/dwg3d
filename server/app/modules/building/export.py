@@ -307,7 +307,7 @@ def fit_svg(d: Drawing, aw: float, ah: float, overlays: list[dict[str, Any]]) ->
 
 
 def pdf(d: Drawing, *, paper: str, orientation: str, scale: int | None, title: str,
-        organization: str, floor: str) -> bytes:
+        organization: str, floor: str, overlays: list[dict[str, Any]] | None = None) -> bytes:
     from weasyprint import HTML
 
     scale, sheets, pw, ph = layout(d, paper, orientation, scale)
@@ -317,7 +317,7 @@ def pdf(d: Drawing, *, paper: str, orientation: str, scale: int | None, title: s
     for i, sheet in enumerate(sheets, 1):
         pages.append(f"""
 <section class="sheet">
-  <div class="draw">{_svg(d, sheet, scale, aw, ah)}</div>
+  <div class="draw">{_svg(d, sheet, scale, aw, ah, overlays)}</div>
   <table class="title"><tr>
     <td class="org">{escape(organization)}</td>
     <td class="name">{escape(title)}<br><b>{escape(floor)}</b></td>
@@ -350,7 +350,7 @@ LAYER_COLORS = {"Стены несущие": 7, "Перегородки": 8, "П
                 "Лестницы": 2, "Лифты": 5, "Помещения": 3}
 
 
-def dxf(d: Drawing) -> bytes:
+def dxf(d: Drawing, overlays: list[dict[str, Any]] | None = None) -> bytes:
     doc = ezdxf.new("R2010", setup=True)
     doc.header["$INSUNITS"] = 4  # миллиметры
     for name, color in LAYER_COLORS.items():
@@ -367,6 +367,12 @@ def dxf(d: Drawing) -> bytes:
     for layer, p, text, size in d.texts:
         msp.add_text(text, height=size, dxfattribs={"layer": layer}).set_placement(
             p, align=TextEntityAlignment.MIDDLE_CENTER)
+    # предметы расстановки — по слоям каталога
+    for o in overlays or []:
+        layer = str(o.get("layer") or "Предметы")[:200]
+        if layer not in doc.layers:
+            doc.layers.add(layer, color=o.get("aci", 5))
+        msp.add_lwpolyline([tuple(p) for p in o["points"]], close=True, dxfattribs={"layer": layer})
     out = io.StringIO()
     doc.write(out)
     return out.getvalue().encode("utf-8")

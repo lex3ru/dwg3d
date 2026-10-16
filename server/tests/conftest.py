@@ -50,6 +50,7 @@ def clean() -> Iterator[None]:
         s.execute(text("SET LOCAL journal.purge = 'on'"))
         s.execute(text("DELETE FROM journal.entry"))
         s.execute(text("TRUNCATE access.account, access.login_session, access.building_grant, "
+                       "access.share_link, "
                        "building.building, files.file, catalog.layer, catalog.char_set, "
                        "catalog.item_type, catalog.purpose, inventory.document, "
                        "core.job, core.schedule_run, core.worker_beat, system.setting CASCADE"))

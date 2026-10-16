@@ -1,13 +1,14 @@
 // Учёт имущества — как его отдаёт сервер (server/app/modules/inventory)
 
-export type State = "in_use" | "broken" | "repair" | "storage" | "written_off";
-export type DocKind = "opening" | "receipt" | "transfer" | "repair" | "writeoff" | "revaluation";
+export type State = "in_use" | "broken" | "repair" | "storage" | "not_found" | "written_off";
+export type DocKind = "opening" | "receipt" | "transfer" | "repair" | "writeoff" | "revaluation" | "inventory";
 
 export const STATES: Record<State, string> = {
   in_use: "в работе",
   broken: "неисправна",
   repair: "в ремонте",
   storage: "на хранении",
+  not_found: "не найдена",
   written_off: "списана",
 };
 
@@ -18,7 +19,11 @@ export const KINDS: Record<DocKind, string> = {
   repair: "Ремонт",
   writeoff: "Списание",
   revaluation: "Переоценка",
+  inventory: "Инвентаризация",
 };
+
+// документы, которые заводятся из «Документов»; инвентаризация — своим экраном (6.5.8)
+export const NEW_KINDS: DocKind[] = ["opening", "receipt", "transfer", "repair", "writeoff", "revaluation"];
 
 export interface PlaceRef {
   key: string;
@@ -171,6 +176,7 @@ export interface Doc {
   reason: string;
   note: string;
   cancels_id: string | null;
+  warnings?: string[];
   cancelled_by_id: string | null;
   created_by: string;
   posted_by: string;

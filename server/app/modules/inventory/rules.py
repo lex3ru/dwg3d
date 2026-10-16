@@ -9,6 +9,7 @@ STATES = {
     "broken": "неисправна",
     "repair": "в ремонте",
     "storage": "на хранении",
+    "not_found": "не найдена",  # при инвентаризации — для разбирательства или списания (5.4.6)
     "written_off": "списана",
 }
 STATE_BY_TITLE = {v: k for k, v in STATES.items()}
@@ -22,6 +23,7 @@ KINDS = {
     "repair": "Ремонт",
     "writeoff": "Списание",
     "revaluation": "Переоценка",
+    "inventory": "Инвентаризация",
 }
 PREFIX = {
     "opening": "ВО",
@@ -30,6 +32,7 @@ PREFIX = {
     "repair": "РМ",
     "writeoff": "СП",
     "revaluation": "ПО",
+    "inventory": "ИН",
 }
 
 

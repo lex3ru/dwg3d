@@ -45,7 +45,7 @@ export function PlacePanel({ store, cat, readOnly, link, calcs }: { store: Edito
     return [...cat.types.values()].filter((t) => placeable(t) && (!layer || t.layer_id === layer) && (!q || t.name.toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name));
   }, [cat, search, layer]);
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-  const [tab, setTabState] = useState<Tab>(() => savedTab(readOnly));
+  const [tab, setTabState] = useState<Tab>(() => (new URLSearchParams(location.search).get("calc") ? "calc" : savedTab(readOnly)));
   const setTab = (t: Tab) => {
     setTabState(t);
     try {

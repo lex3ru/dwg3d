@@ -436,6 +436,31 @@ def lift_view(lift: Lift) -> dict[str, Any]:
             "floor_ids": lift.floor_ids, "stop_ids": lift.stop_ids}
 
 
+def building_files(session: Session, actor: Actor, building_id: uuid.UUID
+                   ) -> list[tuple[str, uuid.UUID, str]]:
+    """Файлы здания для полной выгрузки (7.4): чертежи и подложки — (папка, файл, подпись)."""
+    from app.modules.building.models import Drawing
+
+    get_building(session, actor, building_id)
+    out: list[tuple[str, uuid.UUID, str]] = []
+    for d in session.scalars(select(Drawing).where(Drawing.building_id == building_id)):
+        out.append(("чертежи", d.file_id, d.name))
+    for f in floors(session, building_id):
+        underlay = (f.plan or {}).get("underlay") or {}
+        if underlay.get("file_id"):
+            out.append(("подложки", uuid.UUID(underlay["file_id"]), f.name))
+    return out
+
+
+def is_underlay_file(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    floors = select(Floor).where(Floor.building_id.in_(list(actor.building_ids)))
+    for floor in session.scalars(floors):
+        underlay = (floor.plan or {}).get("underlay") or {}
+        if underlay.get("file_id") == str(file_id):
+            return True
+    return False
+
+
 def floor_obstacles(session: Session, actor: Actor, floor_id: uuid.UUID) -> list[Any]:
     """Стены (без дверей и проходов) и колонны этажа — что закрывает обзор (расчёты)."""
     floor = get_floor(session, actor, floor_id)
@@ -692,7 +717,8 @@ def floor_svg(session: Session, actor: Actor, floor_id: uuid.UUID, width_mm: flo
 
 def export_floor(session: Session, actor: Actor, floor_id: uuid.UUID, fmt: str,
                  paper: str = "A4", orientation: str = "landscape",
-                 scale: int | None = None) -> tuple[bytes, str]:
+                 scale: int | None = None, overlays: list[dict[str, Any]] | None = None
+                 ) -> tuple[bytes, str]:
     from app.modules.building import export
     from app.modules.system import api as system
 
@@ -706,12 +732,12 @@ def export_floor(session: Session, actor: Actor, floor_id: uuid.UUID, fmt: str,
     drawing = export.drawing(plan, rooms, lifts, str(floor.id))
     name = f"{building.name} — {floor.name}"
     if fmt == "dxf":
-        return export.dxf(drawing), f"{name}.dxf"
+        return export.dxf(drawing, overlays), f"{name}.dxf"
     if paper not in export.PAPERS or orientation not in ("landscape", "portrait"):
         raise AppError("Лист — А4 или А3, книжный или альбомный.")
     if scale is not None and scale not in export.SCALES:
         raise AppError("Такого масштаба нет.", field="scale")
     data = export.pdf(drawing, paper=paper, orientation=orientation, scale=scale,
                       title=building.name, organization=system.get(session, "organization_name"),
-                      floor=floor.name)
+                      floor=floor.name, overlays=overlays)
     return data, f"{name}.pdf"

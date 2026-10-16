@@ -11,7 +11,7 @@ import { Dialog } from "@/ui/dialog";
 import { Choice, Field, FormError, Input } from "@/ui/form";
 import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
 
-export const ROLE_TITLES = { admin: "администратор", viewer: "просмотр" } as const;
+export const ROLE_TITLES = { admin: "администратор", viewer: "просмотр", guest: "гость по ссылке" } as const;
 
 export function UserState({ user }: { user: User }) {
   if (user.blocked) return <Chip tone="bad">заблокирована</Chip>;

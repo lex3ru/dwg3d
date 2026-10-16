@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core import tasks
-from app.core.auth import Admin, CurrentActor
+from app.core.auth import Admin, AnyActor, CurrentActor
 from app.core.config import config
 from app.core.db import DB
 from app.modules.access import api
@@ -49,10 +49,13 @@ def login(body: LoginIn, request: Request, session: DB) -> Response:
 def logout(request: Request, response: Response, session: DB) -> None:
     api.logout(session, request.cookies.get(api.COOKIE))
     response.delete_cookie(api.COOKIE, path="/")
+    response.delete_cookie(api.SHARE_COOKIE, path="/")
 
 
 @auth.get("/me")
-def me(actor: CurrentActor, session: DB) -> dict[str, Any]:
+def me(actor: AnyActor, session: DB) -> dict[str, Any]:
+    if actor.is_guest:
+        return api.guest_view(session, actor)
     return _me(session, actor.user_id)
 
 
@@ -141,3 +144,40 @@ def purge_sessions(session: Session, _payload: dict[str, Any], _progress: tasks.
                    ) -> dict[str, Any]:
     return {"removed": api.purge_sessions(session)}
 
+
+
+# ---------------------------------------------------------------- ссылки на просмотр (С21)
+
+share = APIRouter(prefix="/api", tags=["share"])
+
+
+@share.get("/share-links")
+def share_links(actor: Admin, session: DB) -> dict[str, Any]:
+    return {"items": api.share_links(session, actor)}
+
+
+class ShareIn(BaseModel):
+    building_id: uuid.UUID
+    until: date
+    note: str = Field(default="", max_length=200)
+
+
+@share.post("/share-links", status_code=201)
+def create_share(body: ShareIn, actor: Admin, session: DB) -> dict[str, Any]:
+    view, token = api.create_share_link(session, actor, body.building_id, body.until, body.note)
+    return {**view, "token": token}
+
+
+@share.post("/share-links/{link_id}/revoke")
+def revoke_share(link_id: uuid.UUID, actor: Admin, session: DB) -> dict[str, Any]:
+    return api.revoke_share_link(session, actor, link_id)
+
+
+@share.post("/share/{token}")
+def open_share(token: str, session: DB) -> Response:
+    """Гость открыл ссылку: сеанс гостя — ключом ссылки в cookie, до её срока."""
+    view = api.open_share_link(session, token)
+    response = JSONResponse(jsonable_encoder(view))
+    response.set_cookie(api.SHARE_COOKIE, token, httponly=True, secure=config().secure_cookies,
+                        samesite="lax", path="/", max_age=366 * 24 * 3600)
+    return response

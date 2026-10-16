@@ -1,5 +1,7 @@
 import { Footprints, Scissors, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router";
+import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { usePurposes } from "@/catalog/parts";
 import { Button } from "@/ui/button";
@@ -158,6 +160,7 @@ export function Properties({
   const edit = (change: (p: Plan) => void) => store.apply(change);
   const del = () => store.apply((p) => remove(p, selection), []);
   const ro = readOnly;
+  const admin = useMe().role === "admin";
 
   if (selection.length > 1) {
     return (
@@ -287,6 +290,11 @@ export function Properties({
           Площадь: <span className="font-mono text-ink">{shape ? `${shape.area.toLocaleString("ru-RU")} м²` : "подпись вне помещений"}</span>
         </div>
         <PurposeField value={r.purpose_id} disabled={ro} onChange={(purpose_id) => set({ purpose_id })} />
+        {admin && shape?.id && (
+          <Link to={`/journal?ref=room:${shape.id}`} className="text-[13px]">
+            Журнал помещения
+          </Link>
+        )}
       </Section>
     );
   }

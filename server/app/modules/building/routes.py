@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Response, UploadFile
 from pydantic import BaseModel, Field
 
-from app.core.auth import CurrentActor
+from app.core.auth import AnyActor, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
 from app.modules.building import api, drawings
@@ -23,7 +23,7 @@ def _full(session: DB, actor: CurrentActor, building_id: uuid.UUID) -> dict[str,
 
 
 @router.get("/buildings")
-def list_buildings(actor: CurrentActor, session: DB, archived: bool = False) -> dict[str, Any]:
+def list_buildings(actor: AnyActor, session: DB, archived: bool = False) -> dict[str, Any]:
     return {"items": api.list_buildings(session, actor, archived)}
 
 
@@ -39,7 +39,7 @@ def create_building(body: BuildingIn, actor: CurrentActor, session: DB) -> dict[
 
 
 @router.get("/buildings/{building_id}")
-def get_building(building_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+def get_building(building_id: uuid.UUID, actor: AnyActor, session: DB) -> dict[str, Any]:
     return _full(session, actor, building_id)
 
 
@@ -109,7 +109,7 @@ def delete_floor(floor_id: uuid.UUID, actor: CurrentActor, session: DB) -> None:
 
 
 @router.get("/floors/{floor_id}/plan")
-def get_plan(floor_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+def get_plan(floor_id: uuid.UUID, actor: AnyActor, session: DB) -> dict[str, Any]:
     return api.plan_view(session, actor, api.get_floor(session, actor, floor_id))
 
 

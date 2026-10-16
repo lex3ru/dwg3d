@@ -694,6 +694,11 @@ def _type_values(session: Session, values: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def is_model_file(session: Session, _actor: Actor, file_id: uuid.UUID) -> bool:
+    q = select(ItemType.id).where(ItemType.model_file_id == file_id).limit(1)
+    return session.scalar(q) is not None
+
+
 def types_by_id(session: Session, ids: Any) -> dict[uuid.UUID, ItemType]:
     """Типы по ключам — для модулей выше (учёт, планировка)."""
     ids = list(set(ids))
@@ -761,6 +766,10 @@ def models_of(session: Session, type_id: uuid.UUID) -> list[Model]:
 
 def all_types(session: Session) -> list[ItemType]:
     return list(session.scalars(select(ItemType).order_by(ItemType.name)))
+
+
+def layer_colors(session: Session) -> dict[uuid.UUID, str]:
+    return dict(session.execute(select(Layer.id, Layer.color)).all())  # type: ignore[arg-type]
 
 
 def layer_names(session: Session) -> dict[uuid.UUID, str]:

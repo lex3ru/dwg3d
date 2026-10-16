@@ -16,7 +16,7 @@ export function useInvalidateInventory() {
   return () => client.invalidateQueries({ queryKey: ["inventory"] });
 }
 
-const STATE_TONES: Record<State, Tone> = { in_use: "ok", broken: "bad", repair: "warn", storage: "muted", written_off: "muted" };
+const STATE_TONES: Record<State, Tone> = { in_use: "ok", broken: "bad", repair: "warn", storage: "muted", not_found: "bad", written_off: "muted" };
 
 // Состояние выглядит одинаково везде: в списке, на плане и в карточке (6.1 п. 4)
 export function StateChip({ state }: { state: State }) {

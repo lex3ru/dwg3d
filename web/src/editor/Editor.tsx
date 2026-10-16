@@ -130,6 +130,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.floor.id]);
   useCardTitle(`${data.building.name} · ${data.floor.name}${project ? ` · проект «${project.name}»` : ""}`);
+  const guest = useMe().role === "guest";
   const itemsUrl = project ? `/api/projects/${project.id}/floors/${data.floor.id}` : `/api/floors/${data.floor.id}/items`;
 
   // ---------------------------------------------------------------- расстановка (5.3.2, 6.5.2)
@@ -617,9 +618,11 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
         <Button size="icon" variant="ghost" aria-label="Показать весь этаж" title="Показать весь этаж" onClick={() => window.dispatchEvent(new Event("editor:fit"))}>
           <Maximize />
         </Button>
-        <Button size="icon" variant="ghost" aria-label="Печать и выгрузка" title="Печать и выгрузка" onClick={() => setPrinting(true)}>
-          <Printer />
-        </Button>
+        {!guest && (
+          <Button size="icon" variant="ghost" aria-label="Печать и выгрузка" title="Печать и выгрузка" onClick={() => setPrinting(true)}>
+            <Printer />
+          </Button>
+        )}
         <Button size="icon" variant="ghost" aria-label="Подсказка по клавишам" title="Клавиши (?)" onClick={() => setHelp(true)}>
           <CircleHelp />
         </Button>

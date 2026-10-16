@@ -17,6 +17,7 @@ from app.core.errors import AppError, Conflict, NotFound, stale
 from app.modules.catalog import api as catalog
 from app.modules.inventory.models import (
     Cell,
+    CountPlace,
     DocFile,
     DocLine,
     Document,
@@ -521,6 +522,45 @@ class Posting:
         self.take(frm, t.id, line.model_id, qty, line, t.name)
         self.qty_lines.append((t.name, qty, t.unit))
 
+    def inventory(self, line: DocLine) -> None:
+        """Проведение инвентаризации (5.4.6 п. 3): строки составлены из отметок обхода."""
+        if line.reason == "без расхождений":
+            return
+        if line.unit_id:
+            unit = self.unit_of(line)
+            if line.state == "not_found":
+                unit.state = "not_found"
+                unit.version += 1
+                self.event(unit, "inventory")
+                return
+            to = self.place(line.to_place, "где найдена")
+            if unit.parent_id:
+                raise Fail(f"{unit.number} входит в состав другой единицы — отметьте её основу")
+            line.from_place = unit.place
+            if unit.state == "not_found":
+                unit.state = "storage" if is_storage(to) else "in_use"
+            self.move_unit(unit, to)
+            self.event(unit, "inventory")
+            return
+        t = self.type_of(line)
+        qty = _d(line.qty)
+        if line.reason == "недостача":
+            frm = self.place(line.from_place, "где не хватает")
+            self.take(frm, t.id, line.model_id, qty, line, t.name)
+            self.qty_lines.append((t.name, -qty, t.unit))
+        elif line.reason == "излишек":
+            to = self.place(line.to_place, "где излишек")
+            have, amount = self.balance(to.key, t.id, line.model_id)
+            price = (
+                _d(line.price)
+                if line.price is not None
+                else (amount / have if have > 0 else _d(t.price))
+            )
+            self.stock(to, t.id, line.model_id, qty, (price * qty).quantize(Decimal("0.01")), line)
+            self.qty_lines.append((t.name, qty, t.unit))
+        else:
+            self.new_items(line)  # вещь без метки — новая единица
+
     def revaluation(self, line: DocLine) -> None:
         unit = self.unit_of(line)
         if line.new_value is None or _d(line.new_value) < 0:
@@ -531,11 +571,70 @@ class Posting:
         self.event(unit, "revaluation")
 
 
-def _check_date(doc: Document) -> None:
+def doc_places(session: Session, doc: Document) -> set[str]:
+    """Места, которых касается документ: шапка, строки, где числятся его единицы."""
+    places = {doc.from_place, doc.to_place}
+    unit_ids = []
+    for line in lines_of(session, doc):
+        places |= {line.from_place, line.to_place}
+        if line.unit_id:
+            unit_ids.append(line.unit_id)
+    if unit_ids:
+        places |= set(session.scalars(select(Unit.place).where(Unit.id.in_(unit_ids))))
+    if doc.kind == "inventory":
+        places |= set(
+            session.scalars(select(CountPlace.place).where(CountPlace.document_id == doc.id))
+        )
+    return {p for p in places if p}
+
+
+def _check_date(session: Session, actor: Actor, doc: Document) -> None:
     if doc.date > date.today():
         raise AppError("Дата документа — не позже сегодняшней.", field="date")
-    # 5.4.4 п. 2 — не раньше последней проведённой инвентаризации мест документа:
-    # инвентаризация появится на этапе 9
+    # 5.4.4 п. 2 — не раньше последней проведённой инвентаризации мест документа: иначе её
+    # результат задним числом перестал бы сходиться
+    places = doc_places(session, doc)
+    if not places:
+        return
+    last = session.execute(
+        select(Document, CountPlace.place)
+        .join(CountPlace, CountPlace.document_id == Document.id)
+        .where(
+            Document.kind == "inventory",
+            Document.status == "posted",
+            Document.id != doc.id,
+            Document.date > doc.date,
+            CountPlace.place.in_(places),
+        )
+        .order_by(Document.date.desc())
+        .limit(1)
+    ).first()
+    if last is not None:
+        inv, place = last
+        raise AppError(
+            f"Дата документа — раньше проведённой «{doc_title(inv.kind, inv.number)}» от "
+            f"{inv.date:%d.%m.%Y} ({Places(session, actor).title(place)}): её результат "
+            "перестал бы сходиться. Поставьте дату не раньше.",
+            field="date",
+        )
+
+
+def open_counts(session: Session, places: set[str], exclude: uuid.UUID | None = None) -> list[str]:
+    """Незакрытые инвентаризации этих мест — движения по ним предупреждают (5.4.6 п. 5)."""
+    if not places:
+        return []
+    rows = session.execute(
+        select(Document)
+        .join(CountPlace, CountPlace.document_id == Document.id)
+        .where(
+            Document.kind == "inventory",
+            Document.status == "draft",
+            CountPlace.place.in_(places),
+            Document.id != exclude,
+        )
+        .distinct()
+    ).scalars()
+    return [doc_title(d.kind, d.number) for d in rows]
 
 
 def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Document:
@@ -544,7 +643,7 @@ def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Doc
         raise Conflict("Документ уже проведён.")
     if doc.version != version:
         raise stale("Документ")
-    _check_date(doc)
+    _check_date(session, actor, doc)
     lines = lines_of(session, doc)
     if not lines:
         raise AppError("В документе нет строк.")
@@ -558,6 +657,7 @@ def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Doc
         "repair": p.repair,
         "writeoff": p.writeoff,
         "revaluation": p.revaluation,
+        "inventory": p.inventory,
     }[doc.kind]
     errors: list[str] = []
     nested = session.begin_nested()
@@ -845,6 +945,15 @@ def doc_view(session: Session, actor: Actor, doc: Document, full: bool = True) -
             for f in session.scalars(select(DocFile).where(DocFile.document_id == doc.id))
         ]
         if full
+        else []
+    )
+    # идёт инвентаризация мест документа — движение предупреждает (5.4.6 п. 5)
+    out["warnings"] = (
+        [
+            f"По месту идёт «{t}»: движение после начала обхода — учтите его при проведении."
+            for t in open_counts(session, doc_places(session, doc), exclude=doc.id)
+        ]
+        if full and doc.status == "draft" and doc.kind != "inventory"
         else []
     )
     return out

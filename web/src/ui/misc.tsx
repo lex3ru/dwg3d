@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 export type Tone = "ok" | "bad" | "warn" | "muted" | "accent";
@@ -19,8 +19,12 @@ export function Chip({ tone = "muted", children }: { tone?: Tone; children: Reac
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cn("rounded-xl border border-line bg-surface", className)}>{children}</section>;
+export function Card({ className, children, ...rest }: { className?: string; children: ReactNode } & HTMLAttributes<HTMLElement>) {
+  return (
+    <section className={cn("rounded-xl border border-line bg-surface", className)} {...rest}>
+      {children}
+    </section>
+  );
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {

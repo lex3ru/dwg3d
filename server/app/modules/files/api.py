@@ -5,7 +5,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from sqlalchemy.orm import Session
 
@@ -94,6 +94,20 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
     session.add(record)
     session.flush()
     return record
+
+
+# Гость по ссылке получает только файлы плана и 3D (подложку своего здания, модели каталога):
+# модули выше говорят, чей это файл (5.7.2)
+_guest_checks: list[Any] = []
+
+
+def on_guest_file(check: Any) -> None:
+    """check(session, actor, file_id) -> bool: файл нужен гостю для плана и 3D."""
+    _guest_checks.append(check)
+
+
+def guest_may(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    return any(check(session, actor, file_id) for check in _guest_checks)
 
 
 def get(session: Session, file_id: uuid.UUID) -> StoredFile:

@@ -11,7 +11,7 @@ from app.core.auth import Admin, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
 from app.modules.building import api as building
-from app.modules.inventory import api, cost, documents, excel, places, printing, units
+from app.modules.inventory import api, cost, counts, documents, excel, places, printing, units
 from app.modules.inventory.rules import doc_title
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
@@ -501,3 +501,108 @@ def import_property(
 @qr.get("/{code}")
 def resolve(code: str, actor: CurrentActor, session: DB) -> dict[str, Any]:
     return api.resolve_label(session, actor, code)
+
+
+# ---------------------------------------------------------------- инвентаризация (5.4.6)
+
+
+class CountIn(BaseModel):
+    places: list[str] = Field(default_factory=list, max_length=2000)
+    floor_id: uuid.UUID | None = None
+    warehouse_id: uuid.UUID | None = None
+
+
+@router.get("/counts")
+def list_counts(actor: Admin, session: DB, status: str | None = None) -> dict[str, Any]:
+    return {"items": documents.documents(session, actor, kind="inventory", status=status)}
+
+
+@router.post("/counts", status_code=201)
+def create_count(body: CountIn, actor: Admin, session: DB) -> dict[str, Any]:
+    doc = counts.create_count(session, actor, body.places, body.floor_id, body.warehouse_id)
+    return counts.count_view(session, actor, doc.id)
+
+
+@router.get("/counts/{doc_id}")
+def get_count(
+    doc_id: uuid.UUID, actor: Admin, session: DB, place: str | None = None
+) -> dict[str, Any]:
+    return counts.count_view(session, actor, doc_id, place)
+
+
+class ScanIn(BaseModel):
+    code: str = Field(max_length=200)
+    place: str | None = None
+
+
+@router.post("/counts/{doc_id}/scan")
+def scan(doc_id: uuid.UUID, body: ScanIn, actor: Admin, session: DB) -> dict[str, Any]:
+    return counts.scan(session, actor, doc_id, body.code, body.place)
+
+
+class MarkIn(BaseModel):
+    unit_id: uuid.UUID
+    place: str
+
+
+@router.post("/counts/{doc_id}/marks")
+def mark(doc_id: uuid.UUID, body: MarkIn, actor: Admin, session: DB) -> dict[str, Any]:
+    return counts.mark(session, actor, doc_id, body.unit_id, body.place, manual=True)
+
+
+@router.delete("/counts/{doc_id}/marks/{unit_id}", status_code=204)
+def unmark(doc_id: uuid.UUID, unit_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    counts.unmark(session, actor, doc_id, unit_id)
+    return Response(status_code=204)
+
+
+@router.post("/counts/{doc_id}/extras", status_code=201)
+def add_extra(doc_id: uuid.UUID, body: dict[str, Any], actor: Admin, session: DB) -> dict[str, Any]:
+    e = counts.add_extra(session, actor, doc_id, body)
+    return {"id": e.id}
+
+
+@router.delete("/counts/{doc_id}/extras/{extra_id}", status_code=204)
+def remove_extra(doc_id: uuid.UUID, extra_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    counts.remove_extra(session, actor, doc_id, extra_id)
+    return Response(status_code=204)
+
+
+class StockIn(BaseModel):
+    place: str
+    type_id: uuid.UUID
+    counted: float | None = None
+
+
+@router.put("/counts/{doc_id}/stock", status_code=204)
+def set_stock(doc_id: uuid.UUID, body: StockIn, actor: Admin, session: DB) -> Response:
+    counts.set_stock(session, actor, doc_id, body.place, body.type_id, body.counted)
+    return Response(status_code=204)
+
+
+class PostIn(BaseModel):
+    version: int
+
+
+@router.post("/counts/{doc_id}/post")
+def post_count(doc_id: uuid.UUID, body: PostIn, actor: Admin, session: DB) -> dict[str, Any]:
+    doc = counts.post_count(session, actor, doc_id, body.version)
+    return documents.doc_view(session, actor, doc)
+
+
+@router.get("/counts/{doc_id}/statement.pdf")
+def statement(doc_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    data, name = counts.statement_pdf(session, actor, doc_id, system_name(session))
+    return _pdf(data, name)
+
+
+@router.get("/counts/{doc_id}/act.pdf")
+def act(doc_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    data, name = counts.act_pdf(session, actor, doc_id, system_name(session))
+    return _pdf(data, name)
+
+
+def system_name(session: DB) -> str:
+    from app.modules.system import api as system
+
+    return str(system.get(session, "organization_name") or "")

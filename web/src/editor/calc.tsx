@@ -91,7 +91,10 @@ export function useCalcs(store: EditorStore, floorId: string) {
   const seq = useRef<Record<string, number>>({});
   const sentAt = useRef(0);
   useEffect(() => {
-    store.set({ calcsOn: savedOn() });
+    // ?calc=light — расчёт включается по ссылке (с главной)
+    const asked = new URLSearchParams(location.search).get("calc");
+    const on = savedOn();
+    store.set({ calcsOn: asked && !on.includes(asked) ? [...on, asked] : on });
   }, [store]);
   const roomId = useMemo(() => {
     if (!room) return "";

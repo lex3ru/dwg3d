@@ -5,7 +5,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TypeFull } from "@/catalog/types";
+import { Link } from "react-router";
 import { get } from "@/lib/api";
+import { useMe } from "@/lib/auth";
 import { Button } from "@/ui/button";
 import { align, arrayCopies, distribute, fitAlong, footprint, sizeOf, WARNING_TEXT, type Align, type Item, type Placed, type WarningCode } from "./items";
 import { CalcParams, type CalcInfo } from "./calc";
@@ -55,6 +57,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
   const room = roomsById.get((parent ?? item).room_id ?? "");
   const models = (full.data?.models ?? []).filter((m) => !m.archived || m.id === item.model_id);
   const nameOf = (i: Item) => cat.types.get(i.type_id)?.name ?? "предмет";
+  const admin = useMe().role === "admin";
 
   return (
     <>
@@ -68,6 +71,12 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
       >
         <div className="text-[13px] text-ink-2">
           {layer?.name ?? "без слоя"} · {roomTitle(room)}
+          {admin && (
+            <>
+              {" · "}
+              <Link to={`/journal?ref=item:${item.id}`}>История</Link>
+            </>
+          )}
           {t?.width ? <span className="block font-mono text-[12px] text-ink-3">{`${t.width} × ${t.depth ?? "?"} × ${t.height ?? "?"} мм`}</span> : null}
         </div>
         {warnings.length > 0 && (

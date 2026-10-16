@@ -270,3 +270,71 @@ class StockMove(Base):
     model_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("catalog.model.id"))
     qty: Mapped[float] = mapped_column(Numeric(14, 3))
     amount: Mapped[float] = mapped_column(Numeric(16, 2))
+
+
+# ---------------------------------------------------------------- инвентаризация (5.4.6)
+
+
+class CountPlace(Base):
+    """Места, которые проверяет инвентаризация (документ вида inventory)."""
+
+    __tablename__ = "count_place"
+    __table_args__ = S
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
+    )
+    place: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+
+
+class CountMark(Base):
+    """Отметка обхода: единицу нашли в этом месте (сканом метки или вручную)."""
+
+    __tablename__ = "count_mark"
+    __table_args__ = S
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
+    )
+    unit_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.unit.id", ondelete="CASCADE"), primary_key=True
+    )
+    place: Mapped[str] = mapped_column(String(50))
+    manual: Mapped[bool] = mapped_column(Boolean, default=False)
+    marked_by: Mapped[str] = mapped_column(String(150), default="")
+    marked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CountExtra(Base):
+    """Вещь, которая не числится (без метки): заводится при проведении."""
+
+    __tablename__ = "count_extra"
+    __table_args__ = S
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), index=True
+    )
+    place: Mapped[str] = mapped_column(String(50))
+    type_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("catalog.item_type.id"))
+    model_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("catalog.model.id"))
+    serial: Mapped[str] = mapped_column(String(100), default="")
+    note: Mapped[str] = mapped_column(String(300), default="")
+    photo_file_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("files.file.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CountStock(Base):
+    """Пересчитанный остаток количественного учёта в месте."""
+
+    __tablename__ = "count_stock"
+    __table_args__ = S
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
+    )
+    place: Mapped[str] = mapped_column(String(50), primary_key=True)
+    type_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("catalog.item_type.id"), primary_key=True
+    )
+    counted: Mapped[float] = mapped_column(Numeric(14, 3))

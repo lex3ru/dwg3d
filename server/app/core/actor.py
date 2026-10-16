@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
-Role = Literal["admin", "viewer"]
+# guest — гость по ссылке на просмотр (5.7.2): без учётной записи, только план и 3D здания
+Role = Literal["admin", "viewer", "guest"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,10 @@ class Actor:
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    @property
+    def is_guest(self) -> bool:
+        return self.role == "guest"
 
     def can_see_building(self, building_id: UUID) -> bool:
         return self.is_admin or building_id in self.building_ids

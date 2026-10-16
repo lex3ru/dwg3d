@@ -83,3 +83,23 @@ class LoginSession(Base):
                                                    server_default=func.now())
     user_agent: Mapped[str | None] = mapped_column(String(300))
     ip: Mapped[str | None] = mapped_column(String(64))
+
+
+class ShareLink(Base):
+    """Ссылка на просмотр здания (5.7.2, С21): гость без учётной записи видит план и 3D с
+    текущей расстановкой — без учёта, проектов и стоимости. Со сроком; отзывается досрочно.
+    В ссылке — случайный ключ, здесь — его SHA-256."""
+
+    __tablename__ = "share_link"
+    __table_args__ = {"schema": "access"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
+    building_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(150), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened: Mapped[int] = mapped_column(Integer, default=0)
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -24,5 +24,15 @@ def admin(actor: Annotated[Actor, Depends(current_actor)]) -> Actor:
     return actor
 
 
-CurrentActor = Annotated[Actor, Depends(current_actor)]
+def member(actor: Annotated[Actor, Depends(current_actor)]) -> Actor:
+    """Учётная запись: администратор или «просмотр». Гостю по ссылке — нельзя: ему открыто
+    только то, что объявлено через AnyActor (план и 3D здания, 5.7.2)."""
+    if actor.is_guest:
+        raise Forbidden()
+    return actor
+
+
+CurrentActor = Annotated[Actor, Depends(member)]
+# и гость по ссылке на просмотр — только план, расстановка, каталог для рисования, файлы
+AnyActor = Annotated[Actor, Depends(current_actor)]
 Admin = Annotated[Actor, Depends(admin)]

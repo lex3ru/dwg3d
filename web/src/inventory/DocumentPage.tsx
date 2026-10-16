@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, Plus, Printer, QrCode, Save, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
 import type { TypeFull } from "@/catalog/types";
 import { ApiError, api, get, post, put } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -30,6 +30,7 @@ export function DocumentPage() {
   useCardTitle(doc.data?.title);
   if (doc.isLoading) return <Loading />;
   if (!doc.data) return <Empty title="Документ не найден" />;
+  if (doc.data.kind === "inventory" && !doc.data.cancels_id) return <Navigate to={`/inventory/${doc.data.id}`} replace />;
   return <Editor key={`${doc.data.id}:${doc.data.version}`} doc={doc.data} />;
 }
 
@@ -173,6 +174,15 @@ function Editor({ doc }: { doc: Doc }) {
           </Button>
         )}
       </div>
+      {!!doc.warnings?.length && (
+        <div role="note" className="rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn">
+          {doc.warnings.map((w) => (
+            <p key={w} className="m-0">
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
       {error && (
         <div role="alert" className="rounded-lg border border-bad/30 bg-bad-soft px-3 py-2 text-sm text-bad">
           {error.message}
