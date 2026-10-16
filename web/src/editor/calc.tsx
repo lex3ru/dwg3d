@@ -40,11 +40,11 @@ export type Shape2D =
   | { kind: "cells"; size: number; cells: number[][]; scale?: [number, string][]; color?: string; hatch?: boolean; opacity?: number }
   | { kind: "label"; x: number; y: number; text: string; short?: string; width?: number; tone?: "ok" | "bad" | "muted" };
 
-export interface Shape3D {
-  kind: "lines";
-  color: string;
-  segments: number[][][];
-}
+export type Shape3D =
+  | { kind: "lines"; color: string; segments: number[][][] }
+  | { kind: "polygon3d"; color: string; rings: Rings[]; z: number; opacity?: number }
+  // поверхность из точки до дуги на высоте z (конус обзора)
+  | { kind: "fan"; color: string; apex: number[]; arc: number[][]; z: number; closed?: boolean; opacity?: number };
 
 export interface Pin {
   text: string;
@@ -216,22 +216,55 @@ const M = 0.001;
 
 export function CalcLines3D({ store }: { store: EditorStore }) {
   const results = useEditor(store, (s) => s.calcResults);
-  const groups = useMemo(() => {
-    const out: { color: string; geometry: THREE.BufferGeometry }[] = [];
+  const shapes = useMemo(() => {
+    const lines: { color: string; geometry: THREE.BufferGeometry }[] = [];
+    const fills: { color: string; opacity: number; geometry: THREE.BufferGeometry }[] = [];
     for (const r of Object.values(results))
       for (const s of r.draw3d) {
-        const pts = s.segments.flatMap(([a, b]) => [a![0]! * M, a![2]! * M, -a![1]! * M, b![0]! * M, b![2]! * M, -b![1]! * M]);
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-        out.push({ color: s.color, geometry: g });
+        if (s.kind === "lines") {
+          const pts = s.segments.flatMap(([a, b]) => [a![0]! * M, a![2]! * M, -a![1]! * M, b![0]! * M, b![2]! * M, -b![1]! * M]);
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+          lines.push({ color: s.color, geometry: g });
+        } else if (s.kind === "fan") {
+          const at = (x: number, y: number, z: number) => [x * M, z * M, -y * M];
+          const v = [...at(s.apex[0]!, s.apex[1]!, s.apex[2]!), ...s.arc.flatMap(([x, y]) => at(x!, y!, s.z))];
+          const idx: number[] = [];
+          const n = s.arc.length;
+          for (let i = 0; i < n - 1; i++) idx.push(0, i + 1, i + 2);
+          if (s.closed) idx.push(0, n, 1);
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+          g.setIndex(idx);
+          fills.push({ color: s.color, opacity: s.opacity ?? 0.08, geometry: g });
+        } else {
+          // плоское пятно на высоте z: плоскость XY плана → пол сцены (x, высота, −y)
+          for (const poly of s.rings) {
+            const shape = new THREE.Shape(poly[0]!.map(([x, y]) => new THREE.Vector2(x! * M, y! * M)));
+            for (const hole of poly.slice(1)) shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x! * M, y! * M))));
+            const g = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2).translate(0, s.z * M, 0);
+            fills.push({ color: s.color, opacity: s.opacity ?? 0.3, geometry: g });
+          }
+        }
       }
-    return out;
+    return { lines, fills };
   }, [results]);
+  useEffect(
+    () => () => {
+      for (const x of [...shapes.lines, ...shapes.fills]) x.geometry.dispose();
+    },
+    [shapes],
+  );
   return (
     <>
-      {groups.map((g, i) => (
-        <lineSegments key={i} geometry={g.geometry}>
-          <lineBasicMaterial color={g.color} />
+      {shapes.fills.map((f, i) => (
+        <mesh key={`f${i}`} geometry={f.geometry} renderOrder={2}>
+          <meshBasicMaterial color={f.color} transparent opacity={f.opacity} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {shapes.lines.map((g, i) => (
+        <lineSegments key={`l${i}`} geometry={g.geometry}>
+          <lineBasicMaterial color={g.color} transparent opacity={0.7} />
         </lineSegments>
       ))}
     </>

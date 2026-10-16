@@ -83,7 +83,15 @@ def test_c7_camera_zone_levels_and_walls(admin) -> None:
     row = result["table"]["rows"][0]
     assert row[2] == "2.8" and row[5] == "84°"
     assert float(row[6]) > 5  # идентификация — дальше 5 м
-    assert result["draw3d"][0]["kind"] == "lines" and len(result["draw3d"][0]["segments"]) == 8
+    # в 3D — пятна уровней на полу и конус из объектива до края зоны: за перегородку не выходит
+    kinds = [d["kind"] for d in result["draw3d"]]
+    assert kinds == ["polygon3d"] * 4 + ["fan", "lines"]
+    fan = result["draw3d"][4]
+    assert fan["apex"][2] == 2800
+    # луч за перегородку (x = 3000) проходит только через дверь (y от 2550 до 3450)
+    beyond = [(x, y) for x, y in fan["arc"] if x > 3050]
+    assert beyond
+    assert all(2550 <= 2000 + (y - 2000) * 2800 / (x - 200) <= 3450 for x, y in beyond)
 
     # «непросматриваемые места» в 214 на уровне идентификации
     unseen = run(

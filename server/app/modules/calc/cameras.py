@@ -232,8 +232,9 @@ def compute(ctx: Ctx, options: dict[str, str]) -> Result:
             hits = _hits(np.array([thing.x, thing.y]), dirs, a, b, reach + 10)
             shapes = {k: _zone(cam, angles, hits, radii[k]) for k, *_ in levels}
             drawn = {k: rings(z.simplify(5)) for k, z in shapes.items()}
-            _zones[key] = (shapes, drawn, radii, reach, _frustum(cam, min(reach, 8000)))
-        shapes, drawn, radii, reach, frustum = _zones[key]
+            cone3d = _cone(cam, shapes, angles, hits, radii[LEVELS[0][0]])
+            _zones[key] = (shapes, drawn, radii, reach, cone3d)
+        shapes, drawn, radii, reach, cone = _zones[key]
         for k, _, _, color in levels:
             zone = shapes[k]
             if zone.is_empty:
@@ -248,7 +249,7 @@ def compute(ctx: Ctx, options: dict[str, str]) -> Result:
                     "item_id": thing.id,
                 }
             )
-        r.draw3d.append({**frustum, "item_id": thing.id})
+        r.draw3d += [{**c, "item_id": thing.id} for c in cone]
         rows.append(
             [
                 thing.type.name + (f" «{thing.label}»" if thing.label else ""),
@@ -356,26 +357,55 @@ def _unseen(
     r.issues = {"title": f"Не просматривается — {titles[level]}", "rows": rows[:50]}
 
 
-def _frustum(cam: Camera, length: float) -> dict[str, Any]:
-    """Конус обзора в 3D: из объектива четыре ребра и рамка на конце."""
+FLOOR3D = 20.0  # мм над полом: пятна зон в 3D лежат на полу, как в прежней версии
+
+
+def _cone(
+    cam: Camera, shapes: dict[str, Polygon], angles: np.ndarray, hits: np.ndarray, radius: float
+) -> list[dict[str, Any]]:
+    """Зона в 3D (5.3.4 п. 2), как в прежней версии: пятна уровней на полу, полупрозрачный
+    конус из объектива до дальнего края зоны, его боковые рёбра и линия по краю. Край — те же
+    лучи, что на плане, поэтому стены обрезают и конус."""
     t = cam.thing
-    apex = [t.x, t.y, cam.z]
-    h = math.radians(cam.heading)
-    corners = []
-    hs = (-cam.fov / 2, cam.fov / 2) if not cam.fisheye else (-90.0, 90.0)
-    vs = (cam.tilt - cam.vfov / 2, cam.tilt + cam.vfov / 2) if not cam.fisheye else (89.0, 89.0)
-    for dh, dv in ((hs[0], vs[0]), (hs[1], vs[0]), (hs[1], vs[1]), (hs[0], vs[1])):
-        az = h + math.radians(dh)
-        el = math.radians(dv)
-        corners.append(
-            [
-                round(t.x + math.cos(az) * math.cos(el) * length),
-                round(t.y + math.sin(az) * math.cos(el) * length),
-                round(max(0.0, cam.z - math.sin(el) * length)),
-            ]
-        )
-    segs = [[apex, c] for c in corners] + [[corners[i], corners[(i + 1) % 4]] for i in range(4)]
-    return {"kind": "lines", "color": "#1E88E5", "segments": segs, "item_id": t.id}
+    out: list[dict[str, Any]] = []
+    for k, _, _, _, color in LEVELS:
+        zone = shapes.get(k)
+        if zone is not None and not zone.is_empty:
+            out.append(
+                {
+                    "kind": "polygon3d",
+                    "rings": rings(zone.simplify(20)),
+                    "z": FLOOR3D,
+                    "color": color,
+                    "opacity": 0.22,
+                }
+            )
+    reach = np.minimum(np.minimum(hits, cam.far), radius)
+    if not (reach > 1).any():
+        return out
+    p = np.array([t.x, t.y])
+    arc = p + np.stack([np.cos(angles), np.sin(angles)], axis=1) * reach[:, None]
+    arc = np.round(arc[:: max(1, len(arc) // 120)]).tolist()
+    apex = [round(t.x), round(t.y), round(cam.z)]
+    out.append(
+        {
+            "kind": "fan",
+            "apex": apex,
+            "arc": arc,
+            "z": FLOOR3D,
+            "closed": cam.fisheye,
+            "color": "#1E88E5",
+            "opacity": 0.08,
+        }
+    )
+    rim = [[x, y, FLOOR3D + 5] for x, y in arc]
+    segs = [[rim[i], rim[i + 1]] for i in range(len(rim) - 1)]
+    if cam.fisheye:
+        segs.append([rim[-1], rim[0]])
+    else:
+        segs += [[apex, rim[0]], [apex, rim[-1]]]
+    out.append({"kind": "lines", "color": "#1E88E5", "segments": segs})
+    return out
 
 
 register(
