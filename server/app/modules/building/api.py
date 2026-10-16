@@ -436,6 +436,12 @@ def lift_view(lift: Lift) -> dict[str, Any]:
             "floor_ids": lift.floor_ids, "stop_ids": lift.stop_ids}
 
 
+def floor_obstacles(session: Session, actor: Actor, floor_id: uuid.UUID) -> list[Any]:
+    """Стены (без дверей и проходов) и колонны этажа — что закрывает обзор (расчёты)."""
+    floor = get_floor(session, actor, floor_id)
+    return geometry.obstacles(Plan.model_validate(floor.plan or {}))
+
+
 def plan_view(session: Session, actor: Actor, floor: Floor) -> dict[str, Any]:
     plan = Plan.model_validate(floor.plan or {})
     analysis = geometry.analyze(plan)

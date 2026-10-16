@@ -11,6 +11,7 @@ import { SLAB, blockers, buildFloor, liftGeometry, type Blocker } from "./build3
 import type { Item } from "./items";
 import { Items3D } from "./items3d";
 import type { Catalog } from "./placement";
+import { CalcLines3D } from "./calc";
 import { useEditor, type EditorStore } from "./store";
 import { pointInPolygon, projectOnSegment, rect, rot, type FloorInfo, type Lift, type Plan, type PlanView, type Pt } from "./plan";
 
@@ -85,7 +86,10 @@ export default function View3D({ floorId, floors, plan, lifts, onWalker, walkReq
           <FloorMesh key={d.floor.id} data={d} next={floors.find((f) => f.position === d.floor.position + 1) ?? null}>
             {cat &&
               (d.floor.id === floorId ? (
-                <Items3D items={items} cat={cat} hidden={hidden} selected={selected} interactive={!readOnly && editMode === "place" && mode === "orbit"} store={store} plan={plan} />
+                <>
+                  <Items3D items={items} cat={cat} hidden={hidden} selected={selected} interactive={!readOnly && editMode === "place" && mode === "orbit"} store={store} plan={plan} />
+                  {editMode === "place" && <CalcLines3D store={store} />}
+                </>
               ) : (
                 <Items3D items={otherItems[floors.indexOf(d.floor)]?.data?.items ?? []} cat={cat} hidden={hidden} selected={selected} interactive={false} key={i} />
               ))}

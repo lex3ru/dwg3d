@@ -21,6 +21,7 @@ import { Canvas, type WallDefaults } from "./Canvas";
 import { ItemPanel } from "./ItemPanel";
 import { footprint, normAngle, warningsFor, type Item, type WarningCode } from "./items";
 import { PlacePanel } from "./PlacePanel";
+import { useCalcs } from "./calc";
 import { LabelsOffer, RegisterDialog, RemoveDialog, useLink, useLinkInStore, type Registered } from "./link";
 import { copyItems, requestRemove, toChanges, type Catalog } from "./placement";
 import { copy, paste, remove, type Clip } from "./ops";
@@ -268,6 +269,10 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
   useEffect(() => {
     if (phone && !readOnly && store.state.mode === "build") store.set({ mode: "place", selection: [], tool: "select", placing: null });
   }, [phone, readOnly, store]);
+
+  // расчёты (5.3.7): включённые пересчитываются по расстановке на экране
+  const calcList = useCalcs(store, data.floor.id);
+  const calcs = calcList.data?.items ?? [];
 
   // связь с учётом (5.5): единицы этажа, неразмещённые, сверка
   const link = useLink(data.floor.id);
@@ -620,7 +625,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       <div className="flex min-h-0 flex-1">
         {show2d && editMode === "place" && cat && (
           <aside aria-label="Слои и каталог" className="flex w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface max-md:hidden">
-            <PlacePanel store={store} cat={cat} readOnly={readOnly} link={link.data} />
+            <PlacePanel store={store} cat={cat} readOnly={readOnly} link={link.data} calcs={calcs} />
           </aside>
         )}
         {!readOnly && show2d && editMode === "build" && (
@@ -692,7 +697,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         {show2d && (
           <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
             {editMode === "place" && cat && !selection.some((x) => x.kind === "room") ? (
-              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={link.data} onRegister={setRegistering} />
+              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={link.data} onRegister={setRegistering} calcs={calcs} />
             ) : (
               <Properties
                 store={store}

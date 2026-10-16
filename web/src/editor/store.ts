@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { CalcResult } from "./calc";
 import type { Item } from "./items";
 import type { Check, Lift, Plan, Pt } from "./plan";
 
@@ -66,6 +67,9 @@ export interface EditorState {
   onlyBroken: boolean; // фильтр «показать только неисправное» (6.5.2)
   askRemove: string[] | null; // убирают связанные предметы — спросить, что с единицами
   multiSelect: boolean; // на телефоне касание добавляет к выбранному (вместо Shift)
+  calcsOn: string[]; // включённые расчёты (5.3.7)
+  calcOptions: Record<string, Record<string, string>>;
+  calcResults: Record<string, CalcResult>;
   ghosts: Pt[]; // где встанут копии (ряд, сетка)
   hiddenLayers: string[];
   lockedLayers: string[];
@@ -113,6 +117,9 @@ export class EditorStore {
       onlyBroken: false,
       askRemove: null,
       multiSelect: false,
+      calcsOn: [],
+      calcOptions: {},
+      calcResults: {},
       ghosts: [],
       ...layerView(),
     };

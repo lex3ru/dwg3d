@@ -26,7 +26,7 @@ from app.modules.journal import api as journal
 from app.modules.planning.models import Item
 
 LIMIT = 20_000  # мм: координата дальше 20 км от начала плана — ошибка ввода
-FIELDS = ("x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id")
+FIELDS = ("x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id", "params")
 
 
 def item_view(item: Item) -> dict[str, Any]:
@@ -43,6 +43,7 @@ def item_view(item: Item) -> dict[str, Any]:
         "z": item.z,
         "label": item.label,
         "unit_id": item.unit_id,
+        "params": item.params or {},
         "version": item.version,
     }
 
@@ -126,6 +127,27 @@ def _uuid(value: Any, what: str) -> uuid.UUID | None:
         return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
     except ValueError:
         raise AppError(f"{what}: неверный ключ.", field=what) from None
+
+
+def _params(value: Any) -> dict[str, Any]:
+    """Параметры для расчётов: «модуль.параметр» → число, текст или да/нет."""
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict) or len(value) > 30:
+        raise AppError("Параметры расчётов: неверный вид.", field="params")
+    out: dict[str, Any] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or len(k) > 40:
+            raise AppError("Параметры расчётов: неверное название.", field="params")
+        if isinstance(v, bool) or v is None:
+            out[k] = v
+        elif isinstance(v, int | float):
+            out[k] = _number(v, k, -1e6, 1e6)
+        elif isinstance(v, str) and len(v) <= 100:
+            out[k] = v
+        else:
+            raise AppError(f"Параметр «{k}»: неверное значение.", field="params")
+    return out
 
 
 def _placeable(session: Session, type_id: uuid.UUID) -> Any:
@@ -214,6 +236,8 @@ class _Batch:
             item.angle = _number(values["angle"], "angle", -1e6, 1e6) % 360
         if "z" in values:
             item.z = _number(values["z"], "z", -5000, 50_000)
+        if "params" in values:
+            item.params = _params(values["params"])
         if "label" in values:
             label = str(values["label"] or "").strip()
             if len(label) > 100:
@@ -246,6 +270,7 @@ class _Batch:
             angle=0,
             z=0,
             label="",
+            params={},
             version=1,
         )
         self.link(item, values.get("unit_id"))

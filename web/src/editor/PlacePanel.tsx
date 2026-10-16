@@ -2,13 +2,14 @@ import { Eye, EyeOff, Lock, LockOpen, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TypeBrief } from "@/catalog/types";
 import { cn } from "@/lib/cn";
+import { CalcSection, type CalcInfo } from "./calc";
 import { UnplacedSection, type LinkView } from "./link";
 import { placeable, type Catalog } from "./placement";
 import { useEditor, type EditorStore } from "./store";
 
 // Слева в «Расстановке» (5.3.1): слои — показать, скрыть, заблокировать; каталог — поиск,
 // слой, перетаскивание на план (или выбор и щелчок по плану — на телефоне).
-export function PlacePanel({ store, cat, readOnly, link }: { store: EditorStore; cat: Catalog; readOnly: boolean; link: LinkView | undefined }) {
+export function PlacePanel({ store, cat, readOnly, link, calcs }: { store: EditorStore; cat: Catalog; readOnly: boolean; link: LinkView | undefined; calcs: CalcInfo[] }) {
   const items = useEditor(store, (s) => s.items);
   const hidden = useEditor(store, (s) => s.hiddenLayers);
   const locked = useEditor(store, (s) => s.lockedLayers);
@@ -31,7 +32,8 @@ export function PlacePanel({ store, cat, readOnly, link }: { store: EditorStore;
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // слоёв, расчётов и неразмещённых бывает много — панель листается, каталогу всегда место
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <section aria-label="Слои" className="max-h-56 shrink-0 overflow-y-auto border-b border-line p-2">
         <h3 className="m-0 px-1.5 pb-1 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">Слои</h3>
         {layers.map((l) => {
@@ -68,15 +70,16 @@ export function PlacePanel({ store, cat, readOnly, link }: { store: EditorStore;
           );
         })}
       </section>
+      <CalcSection store={store} list={calcs} />
       <UnplacedSection store={store} cat={cat} link={link} readOnly={readOnly} />
       {!readOnly && (
-        <section aria-label="Каталог" className="flex min-h-0 flex-1 flex-col p-2">
+        <section aria-label="Каталог" className="flex min-h-80 flex-1 flex-col p-2">
           <h3 className="m-0 px-1.5 pb-1.5 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">Каталог</h3>
           <label className="mb-1.5 flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-2 max-md:h-11">
             <Search className="size-3.5 text-ink-3" />
             <input aria-label="Поиск в каталоге" placeholder="Поиск" value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none" />
           </label>
-          <div className="mb-1.5 flex flex-wrap gap-1">
+          <div className="mb-1.5 flex max-h-20 shrink-0 flex-wrap gap-1 overflow-y-auto">
             {[{ id: null, name: "все" }, ...layers].map((l) => (
               <button
                 key={l.id ?? "all"}
@@ -89,7 +92,7 @@ export function PlacePanel({ store, cat, readOnly, link }: { store: EditorStore;
               </button>
             ))}
           </div>
-          <ul aria-label="Типы для расстановки" className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-0">
+          <ul aria-label="Типы для расстановки" className="m-0 min-h-48 flex-1 list-none overflow-y-auto p-0">
             {types.map((t) => (
               <TypeRow key={t.id} t={t} color={cat.layers.get(t.layer_id ?? "")?.color ?? "#607D8B"} active={placing === t.id} onPick={() => store.set({ placing: placing === t.id ? null : t.id, placingUnit: null, selection: [] })} />
             ))}

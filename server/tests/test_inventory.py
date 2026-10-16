@@ -406,6 +406,13 @@ def test_c10_property_list_from_excel(admin) -> None:
     assert units["total"] == done["units"]
     numbers = {u["number"] for u in units["items"]}
     assert {"000001", "000046"} <= numbers
+    # «Hikvision DS-2CD2143G2-IS» из файла — модель каталога «… 2.8 мм», новая не заводится
+    tree = admin.get("/api/catalog").json()
+    dome = next(t for t in tree["types"] if t["name"] == "Камера купольная")
+    assert [m["name"] for m in admin.get(f"/api/catalog/types/{dome['id']}").json()["models"]] == [
+        "DS-2CD2143G2-IS 2.8 мм",
+        "DS-2CD2743G2-IZS 2.8–12 мм",
+    ]
     # повторная загрузка того же списка — без дублей: номера заняты
     again = admin.post(
         "/api/inventory/import",

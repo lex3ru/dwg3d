@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.actor import Actor
 from app.modules.building import api
 from app.modules.building.plan import Plan
+from app.modules.catalog import api as catalog
 
 LENGTH, DEPTH = 42000.0, 16200.0
 OUTER, BEARING, PARTITION = 380.0, 250.0, 120.0
@@ -42,7 +43,41 @@ FLOORS: list[dict[str, Any]] = [
 ]
 
 
-def floor_plan(level: int, rooms: dict[str, Any]) -> dict[str, Any]:
+# назначение помещения по его названию (5.3.5: норма освещённости и рабочая поверхность);
+# первое совпавшее начало слова
+PURPOSES: list[tuple[tuple[str, ...], str]] = [
+    (("процедур", "стерилизац"), "Процедурный кабинет"),
+    (("перевязоч",), "Перевязочная"),
+    (("смотров",), "Смотровая"),
+    (("кабинет экг", "функциональн", "физиотерап"), "Кабинет функциональной диагностики"),
+    (("кабинет узи",), "Кабинет УЗИ"),
+    (("кабинет офтальмолог",), "Кабинет офтальмолога"),
+    (("кабинет заведующ", "кабинет главного", "кабинет заместител", "приёмная"),
+     "Кабинет руководителя"),
+    (("регистратур",), "Регистратура"),
+    (("ординатор", "бухгалтер", "отдел кадров", "методическ", "конференц"), "Ординаторская"),
+    (("холл", "лифтовый холл", "ожидание"), "Холл, вестибюль"),
+    (("коридор",), "Коридор"),
+    (("лестнич",), "Лестница"),
+    (("гардероб",), "Гардероб"),
+    (("санузел",), "Санузел"),
+    (("склад", "кладов", "архив"), "Склад"),
+    (("серверн",), "Серверная"),
+    (("комната персонала", "комната отдыха"), "Комната персонала"),
+    (("кабинет", "прививочн", "аптечн", "лаборатор"), "Кабинет врача"),
+]
+
+
+def purpose_of(name: str, purposes: dict[str, str]) -> str | None:
+    low = name.lower()
+    for starts, purpose in PURPOSES:
+        if any(low.startswith(s) or f" {s}" in low for s in starts):
+            return purposes.get(purpose)
+    return None
+
+
+def floor_plan(level: int, rooms: dict[str, Any], purposes: dict[str, str] | None = None
+               ) -> dict[str, Any]:
     nodes: dict[str, list[float]] = {}
     walls: list[dict[str, Any]] = []
     openings: list[dict[str, Any]] = []
@@ -126,6 +161,8 @@ def floor_plan(level: int, rooms: dict[str, Any]) -> dict[str, Any]:
         number += 1
     labels.append({"id": "new-c", "x": 18000, "y": (ys + yn) / 2, "number": f"{first // 100}К",
                    "name": "Коридор"})
+    for label in labels:
+        label["purpose_id"] = purpose_of(label["name"], purposes or {})
 
     stairs = []
     if level < len(FLOORS) - 1:
@@ -142,11 +179,13 @@ def floor_plan(level: int, rooms: dict[str, Any]) -> dict[str, Any]:
 
 def create(session: Session, actor: Actor, name: str = "Поликлиника") -> dict[str, Any]:
     building = api.create_building(session, actor, name, "ул. Садовая, 12")
+    # назначения — из каталога, если он уже загружен (на первом запуске — да)
+    purposes = {p.name: str(p.id) for p in catalog.purposes(session)}
     floor_ids = []
     for level, rooms in enumerate(FLOORS):
         floor = api.add_floor(session, actor, building.id, rooms["name"],
                               elevation=level * HEIGHT, height=HEIGHT)
-        plan = Plan.model_validate(floor_plan(level, rooms))
+        plan = Plan.model_validate(floor_plan(level, rooms, purposes))
         api.save_plan(session, actor, floor.id, plan, floor.plan_version, confirm=True)
         floor_ids.append(floor.id)
     api.create_lift(session, actor, building.id, {

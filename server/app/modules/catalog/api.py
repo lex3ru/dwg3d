@@ -709,14 +709,50 @@ def models_by_id(session: Session, ids: Any) -> dict[uuid.UUID, Model]:
     return {m.id: m for m in session.scalars(select(Model).where(Model.id.in_(ids)))}
 
 
-def type_ids(session: Session, layer_id: uuid.UUID | None = None, text: str | None = None
-             ) -> list[uuid.UUID]:
+def type_ids(
+    session: Session, layer_id: uuid.UUID | None = None, text: str | None = None
+) -> list[uuid.UUID]:
     q = select(ItemType.id)
     if layer_id is not None:
         q = q.where(ItemType.layer_id == layer_id)
     if text:
         q = q.where(ItemType.name.ilike(f"%{text}%"))
     return list(session.scalars(q))
+
+
+def named_values(
+    session: Session, item_type: ItemType, model_id: uuid.UUID | None
+) -> dict[str, Any]:
+    """Значения характеристик типа и модели по названию характеристики (для расчётов, 5.2.5)."""
+    names = {c.id: c.name for c in characteristics_of(session, item_type)}
+    out = {names[k]: v for k, v in _values(session, type_id=item_type.id).items() if k in names}
+    if model_id is not None:
+        out.update(
+            {names[k]: v for k, v in _values(session, model_id=model_id).items() if k in names}
+        )
+    return out
+
+
+def types_with(session: Session, names: list[str]) -> list[ItemType]:
+    """Типы, у которых есть все эти характеристики (из наборов или свои)."""
+    wanted = set(names)
+    found: dict[uuid.UUID, set[str]] = {}
+    from_sets = select(TypeSet.type_id, Characteristic.name).join(
+        Characteristic, Characteristic.set_id == TypeSet.set_id
+    )
+    own = select(Characteristic.type_id, Characteristic.name).where(
+        Characteristic.type_id.is_not(None)
+    )
+    for q in (from_sets, own):
+        for type_id, name in session.execute(q.where(Characteristic.name.in_(wanted))):
+            found.setdefault(type_id, set()).add(name)
+    ids = [t for t, have in found.items() if wanted <= have]
+    return sorted(types_by_id(session, ids).values(), key=lambda t: t.name)
+
+
+def purpose_map(session: Session) -> dict[str, Purpose]:
+    """Назначения помещений по ключу (строкой, как в плане)."""
+    return {str(p.id): p for p in purposes(session, archived=True)}
 
 
 def models_of(session: Session, type_id: uuid.UUID) -> list[Model]:

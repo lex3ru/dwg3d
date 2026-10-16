@@ -50,6 +50,7 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
     z: defaultZ(type, floorHeight),
     label: "",
     unit_id: unit?.id ?? null,
+    params: {},
     version: 1,
   };
   if (!container && !free) {
@@ -111,7 +112,7 @@ export function copiesAt(store: EditorStore, item: Item, points: Pt[]) {
 
 // ---------------------------------------------------------------- на сервер
 
-const FIELDS = ["x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id"] as const;
+const FIELDS = ["x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id", "params"] as const;
 
 export interface Changes {
   create: Record<string, unknown>[];

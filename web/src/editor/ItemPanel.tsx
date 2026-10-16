@@ -8,6 +8,7 @@ import type { TypeFull } from "@/catalog/types";
 import { get } from "@/lib/api";
 import { Button } from "@/ui/button";
 import { align, arrayCopies, distribute, fitAlong, footprint, sizeOf, WARNING_TEXT, type Align, type Item, type Placed, type WarningCode } from "./items";
+import { CalcParams, type CalcInfo } from "./calc";
 import { registrable, UnitBlock, type LinkView } from "./link";
 import { copiesAt, copyItems, requestRemove, standalone, type Catalog } from "./placement";
 import { type Pt, type Room } from "./plan";
@@ -26,7 +27,7 @@ function Section({ title, children }: { title: ReactNode; children: ReactNode })
 const roomTitle = (r: Room | undefined) => (r ? [r.number, r.name].filter(Boolean).join(" ") || "помещение без номера" : "вне помещений");
 
 // Справа в «Расстановке» (5.3.1, 5.3.2): свойства выбранного предмета или нескольких
-export function ItemPanel({ store, cat, rooms, readOnly, warnings, link, onRegister }: { store: EditorStore; cat: Catalog; rooms: Room[]; readOnly: boolean; warnings: Map<string, WarningCode[]>; link: LinkView | undefined; onRegister: (ids: string[]) => void }) {
+export function ItemPanel({ store, cat, rooms, readOnly, warnings, link, onRegister, calcs }: { store: EditorStore; cat: Catalog; rooms: Room[]; readOnly: boolean; warnings: Map<string, WarningCode[]>; link: LinkView | undefined; onRegister: (ids: string[]) => void; calcs: CalcInfo[] }) {
   const items = useEditor(store, (s) => s.items);
   const selection = useEditor(store, (s) => s.selection);
   const chosen = useMemo(() => {
@@ -36,12 +37,12 @@ export function ItemPanel({ store, cat, rooms, readOnly, warnings, link, onRegis
   const roomsById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
 
   if (chosen.length === 1)
-    return <OneItem key={chosen[0]!.id} item={chosen[0]!} store={store} cat={cat} roomsById={roomsById} readOnly={readOnly} warnings={warnings.get(chosen[0]!.id) ?? []} link={link} onRegister={onRegister} />;
+    return <OneItem key={chosen[0]!.id} item={chosen[0]!} store={store} cat={cat} roomsById={roomsById} readOnly={readOnly} warnings={warnings.get(chosen[0]!.id) ?? []} link={link} onRegister={onRegister} calcs={calcs} />;
   if (chosen.length > 1) return <ManyItems items={chosen} store={store} cat={cat} readOnly={readOnly} onRegister={onRegister} link={link} />;
   return <FloorSummary store={store} cat={cat} roomsById={roomsById} warnings={warnings} />;
 }
 
-function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegister }: { item: Item; store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; readOnly: boolean; warnings: WarningCode[]; link: LinkView | undefined; onRegister: (ids: string[]) => void }) {
+function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegister, calcs }: { item: Item; store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; readOnly: boolean; warnings: WarningCode[]; link: LinkView | undefined; onRegister: (ids: string[]) => void; calcs: CalcInfo[] }) {
   const items = useEditor(store, (s) => s.items);
   const t = cat.types.get(item.type_id);
   const layer = t?.layer_id ? cat.layers.get(t.layer_id) : undefined;
@@ -121,6 +122,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
             )}
           </>
         )}
+        {!item.parent_id && <CalcParams item={item} list={calcs} readOnly={readOnly} onChange={(params) => set({ params })} />}
         <TextField label="Подпись на плане" value={item.label} placeholder="необязательно" disabled={readOnly} onChange={(label) => set({ label })} />
         {!readOnly && !parent && containers.length > 0 && (
           <label className="flex flex-col gap-1 text-[12px] text-ink-2">

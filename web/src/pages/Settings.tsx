@@ -26,12 +26,14 @@ interface Status {
 const TABS = [
   { key: "general", title: "Общие" },
   { key: "inventory", title: "Учёт имущества" },
+  { key: "calc", title: "Расчёты" },
   { key: "status", title: "Состояние сервера" },
 ];
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "status" ? "status" : params.get("tab") === "inventory" ? "inventory" : "general";
+  const asked = params.get("tab");
+  const tab = TABS.some((t) => t.key === asked) ? asked! : "general";
   return (
     <PageBody>
       <PageHeader title="Настройки" />
@@ -52,7 +54,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
-      {tab === "general" ? <General /> : tab === "inventory" ? <InventorySettings /> : <ServerStatus />}
+      {tab === "general" ? <General /> : tab === "inventory" ? <KeyedSettings key="inventory" keys={INVENTORY_KEYS} /> : tab === "calc" ? <KeyedSettings key="calc" keys={CALC_KEYS} /> : <ServerStatus />}
     </PageBody>
   );
 }
@@ -126,7 +128,20 @@ const INVENTORY_KEYS: [string, string, string][] = [
   ["document_max_mb", "Документ — до, МБ", ""],
 ];
 
-function InventorySettings() {
+// 4.6 п. 3, 4; 5.3.4, 5.3.5: пороги камер и параметры расчёта освещённости
+const CALC_KEYS: [string, string, string][] = [
+  ["calc_face_height_mm", "Камеры: высота лица, мм", "На этой высоте рисуется зона обзора (5.3.4)."],
+  ["calc_camera_range_m", "Камеры: предельная дальность, м", ""],
+  ["calc_px_detect", "Обнаружение, пк/м", "Плотность изображения по ГОСТ Р 51558 / IEC 62676-4."],
+  ["calc_px_observe", "Наблюдение действий, пк/м", ""],
+  ["calc_px_recognize", "Узнавание, пк/м", ""],
+  ["calc_px_identify", "Идентификация, пк/м", "Установление личности."],
+  ["calc_light_maintenance", "Освещённость: коэффициент запаса", "Делит расчётную освещённость: старение и загрязнение светильников."],
+  ["calc_light_reflection", "Освещённость: прибавка за отражения, доля", "0,2 — к прямому свету прибавляется 20 % за отражения от стен и потолка."],
+  ["calc_light_step_mm", "Освещённость: шаг сетки, мм", "Чем меньше, тем подробнее раскраска и дольше расчёт."],
+];
+
+function KeyedSettings({ keys }: { keys: [string, string, string][] }) {
   const client = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => get<Settings>("/api/system/settings") });
   const [values, setValues] = useState<Record<string, string>>({});
@@ -134,13 +149,13 @@ function InventorySettings() {
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     if (!settings.data) return;
-    setValues(Object.fromEntries(INVENTORY_KEYS.map(([k]) => [k, String(settings.data.items.find((i) => i.key === k)?.value ?? "")])));
+    setValues(Object.fromEntries(keys.map(([k]) => [k, String(settings.data.items.find((i) => i.key === k)?.value ?? "")])));
   }, [settings.data]);
   const save = useMutation({
     mutationFn: () =>
       patch<Settings>("/api/system/settings", {
         version: settings.data!.version,
-        values: Object.fromEntries(INVENTORY_KEYS.map(([k]) => [k, k === "inventory_number_template" ? values[k] : Number(String(values[k]).replace(",", "."))])),
+        values: Object.fromEntries(keys.map(([k]) => [k, k === "inventory_number_template" ? values[k] : Number(String(values[k]).replace(",", "."))])),
       }),
     onSuccess: (data) => {
       client.setQueryData(["settings"], data);
@@ -160,7 +175,7 @@ function InventorySettings() {
           save.mutate();
         }}
       >
-        {INVENTORY_KEYS.map(([k, title, hint]) => (
+        {keys.map(([k, title, hint]) => (
           <Field key={k} label={title} hint={hint || undefined} error={error?.field === k ? error.message : undefined}>
             {(p) => <Input {...p} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} className={k === "inventory_number_template" ? "font-mono" : "w-32"} />}
           </Field>

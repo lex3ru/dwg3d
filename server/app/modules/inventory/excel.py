@@ -487,10 +487,22 @@ def _model(session: Session, actor: Actor, t: Any, text: str) -> uuid.UUID | Non
     if not text:
         return None
     norm = _norm(text)
-    for m in t_models(session, t.id):
+    models = t_models(session, t.id)
+    for m in models:
         full = _norm(f"{m.manufacturer} {m.name}")
         if norm in (_norm(m.name), full) or (m.article and norm == _norm(m.article)):
             return m.id
+    # в файле название короче каталожного («Hikvision DS-2CD2143G2-IS» — «… 2.8 мм»): все
+    # слова из файла есть в модели каталога, и среди них — артикульное (с цифрами)
+    words = set(norm.split())
+    if any(any(ch.isdigit() for ch in w) for w in words):
+        fits = [
+            (len(set(_norm(f"{m.manufacturer} {m.name}").split()) - words), m)
+            for m in models
+            if words <= set(_norm(f"{m.manufacturer} {m.name} {m.article or ''}").split())
+        ]
+        if fits:
+            return min(fits, key=lambda f: f[0])[1].id
     m = catalog.create_model(session, actor, t.id, {"name": text[:200]})
     return m.id
 

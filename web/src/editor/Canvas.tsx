@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { footprint, gapsToWalls, normAngle, sizeOf, stickToWall, wallGeometry, type Gap, type Item, type WarningCode } from "./items";
+import { CalcWorld, calcLabels } from "./calc";
 import { GapLines, Ghosts, ItemShape, layerColor } from "./items2d";
 import { itemState, placeAt, type Catalog } from "./placement";
 import { addWall, nodeAt, snapPoint, splitWall, translate, wallAt, type Snap } from "./ops";
@@ -54,6 +55,7 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
   const hiddenLayers = useEditor(store, (s) => s.hiddenLayers);
   const lockedLayers = useEditor(store, (s) => s.lockedLayers);
   const unitStates = useEditor(store, (s) => s.unitStates);
+  const calcResults = useEditor(store, (s) => s.calcResults);
   const onlyBroken = useEditor(store, (s) => s.onlyBroken);
   const [gaps, setGaps] = useState<Gap[]>([]);
   const plan = useEditor(store, (s) => s.plan);
@@ -690,6 +692,12 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
         )}
       </g>,
     );
+  }
+
+  // расчёты (5.3.7): зоны обзора, освещённость — над помещениями, под предметами
+  if (mode === "place" && Object.keys(calcResults).length) {
+    world.push(<CalcWorld key="calc" results={calcResults} px={px} />);
+    overlay.push(...calcLabels(calcResults, toScreen, view.scale));
   }
 
   // подписи, не попавшие ни в одно помещение

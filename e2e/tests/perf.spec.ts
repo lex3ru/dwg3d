@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { loginAdmin } from "./helpers";
+import { loginAdmin, unique } from "./helpers";
 
 // 8.2: план этажа открывается за 2 с, 3D-вид — за 3 с. Нужно здание E2E_PERF_BUILDING
 // (например, «Поликлиника»: python -m app sample polyclinic); без него тест пропускается.
@@ -113,4 +113,58 @@ test("8.2: 2 000 предметов на этаже — открытие и пл
   expect(open).toBeLessThan(2000);
   expect(drag2d).toBeGreaterThanOrEqual(30);
   if (process.env.E2E_GPU) expect(orbit3d).toBeGreaterThanOrEqual(30);
+});
+
+// 8.2 для этапа 7: пересчёт зоны обзора при движении камеры — 0,2 с, освещённость этажа — 10 с.
+// Этаж 60 × 30 м: 40 кабинетов 6 × 7,5 м с назначением, по 4 светильника, 30 камер.
+test("8.2: расчёты — зона обзора 0,2 с, освещённость этажа 10 с", async ({ page }) => {
+  const H = { "X-Requested-With": "app" };
+  await loginAdmin(page);
+  const tree = await (await page.request.get("/api/catalog")).json();
+  const type = (name: string) => tree.types.find((t: { name: string }) => t.name === name).id as string;
+  const office = tree.purposes.find((p: { name: string }) => p.name === "Кабинет врача").id;
+  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name: unique("8.2-расчёты-") } })).json();
+  const f = await (await page.request.post(`/api/buildings/${b.id}/floors`, { headers: H, data: { name: "1 этаж" } })).json();
+  const nodes: Record<string, [number, number]> = {};
+  const walls: object[] = [];
+  const rooms: object[] = [];
+  for (let i = 0; i <= 10; i++) for (let j = 0; j <= 4; j++) nodes[`n${i}_${j}`] = [i * 6000, j * 7500];
+  for (let i = 0; i <= 10; i++) for (let j = 0; j < 4; j++) walls.push({ id: `v${i}_${j}`, a: `n${i}_${j}`, b: `n${i}_${j + 1}`, thickness: 200 });
+  for (let j = 0; j <= 4; j++) for (let i = 0; i < 10; i++) walls.push({ id: `h${i}_${j}`, a: `n${i}_${j}`, b: `n${i + 1}_${j}`, thickness: 200 });
+  for (let i = 0; i < 10; i++) for (let j = 0; j < 4; j++) rooms.push({ id: `new-${i}-${j}`, x: i * 6000 + 3000, y: j * 7500 + 3750, number: `${j + 1}${String(i + 1).padStart(2, "0")}`, name: "Кабинет", purpose_id: office });
+  const saved = await page.request.put(`/api/floors/${f.id}/plan`, { headers: H, data: { plan_version: 1, plan: { nodes, walls, rooms } } });
+  expect(saved.ok()).toBeTruthy();
+  const lamp = type("Светильник светодиодный 600×600");
+  const cam = type("Камера купольная");
+  const create: object[] = [];
+  for (let i = 0; i < 10; i++)
+    for (let j = 0; j < 4; j++) {
+      for (const [dx, dy] of [[1500, 1900], [4500, 1900], [1500, 5600], [4500, 5600]]) create.push({ type_id: lamp, x: i * 6000 + dx!, y: j * 7500 + dy! });
+      if ((i * 4 + j) % 4 < 3) create.push({ type_id: cam, x: i * 6000 + 500, y: j * 7500 + 7000, angle: 225 });
+    }
+  const r = await page.request.post(`/api/floors/${f.id}/items/changes`, { headers: H, data: { create } });
+  expect(r.ok()).toBeTruthy();
+  const items = (await r.json()).items;
+  const cams = items.filter((i: { type_id: string }) => i.type_id === cam);
+  expect(cams).toHaveLength(30);
+
+  const run = async (key: string, sent?: object[]) => {
+    const t = Date.now();
+    const res = await page.request.post(`/api/calc/${key}/floors/${f.id}`, { headers: H, data: { items: sent ?? null, options: {} } });
+    expect(res.ok()).toBeTruthy();
+    return { ms: Date.now() - t, body: await res.json() };
+  };
+  const light = await run("light");
+  expect(light.body.table.rows).toHaveLength(40);
+  // камеру тащат: пересчёт по расстановке с экрана, несколько раз подряд
+  const times: number[] = [];
+  for (let k = 0; k < 5; k++) {
+    const res = await run("camera", cams.map((c: { x: number }, n: number) => (n === 0 ? { ...c, x: c.x + k * 300 } : c)));
+    expect(res.body.table.rows).toHaveLength(30);
+    times.push(res.ms);
+  }
+  const zone = Math.max(...times.slice(1));
+  console.log(`расчёты: освещённость этажа (40 помещений, 160 светильников) ${light.ms} мс, зона обзора (30 камер) ${zone} мс`);
+  expect(light.ms).toBeLessThan(10_000);
+  expect(zone).toBeLessThan(200);
 });

@@ -101,6 +101,40 @@ def _valid_walls(plan: Plan) -> list[Wall]:
     return [w for w in plan.walls if w.a in plan.nodes and w.b in plan.nodes and w.a != w.b]
 
 
+def obstacles(plan: Plan) -> list[BaseGeometry]:
+    """Что закрывает обзор (5.3.4 п. 2): тела стен без дверей и проходов, колонны. Окна и
+    витражи считаются глухими."""
+    from shapely import affinity
+    from shapely.ops import substring
+
+    out: list[BaseGeometry] = []
+    walls = _valid_walls(plan)
+    thickest: dict[str, float] = {}
+    for w in walls:
+        line = centerline(plan, w)
+        if line.length <= 0:
+            continue
+        body = wall_body(plan, w)
+        for op in plan.openings:
+            if op.wall != w.id or op.kind not in ("door", "passage"):
+                continue
+            s0, s1 = _opening_span(plan, op)
+            gap = substring(line, max(0.0, s0), min(line.length, s1))
+            if gap.length > 0:
+                body = body.difference(gap.buffer(w.thickness / 2 + 5, cap_style="flat",
+                                                  join_style="mitre"))
+        out.append(body)
+        for n in (w.a, w.b):
+            thickest[n] = max(thickest.get(n, 0), w.thickness)
+    out += [Point(plan.nodes[n]).buffer(t / 2, quad_segs=8) for n, t in thickest.items()]
+    for c in plan.columns:
+        shape = (Point(c.x, c.y).buffer(c.w / 2, quad_segs=12) if c.round else
+                 Polygon([(c.x - c.w / 2, c.y - c.d / 2), (c.x + c.w / 2, c.y - c.d / 2),
+                          (c.x + c.w / 2, c.y + c.d / 2), (c.x - c.w / 2, c.y + c.d / 2)]))
+        out.append(affinity.rotate(shape, c.angle, origin=(c.x, c.y)) if c.angle else shape)
+    return [g for g in out if not g.is_empty]
+
+
 # ---------------------------------------------------------------- помещения
 
 def analyze(plan: Plan) -> Analysis:
