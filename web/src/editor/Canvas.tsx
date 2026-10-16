@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { footprint, gapsToWalls, normAngle, sizeOf, stickToWall, wallGeometry, type Gap, type Item, type WarningCode } from "./items";
+import { GapLines, Ghosts, ItemShape, layerColor } from "./items2d";
+import { itemState, placeAt, type Catalog } from "./placement";
 import { addWall, nodeAt, snapPoint, splitWall, translate, wallAt, type Snap } from "./ops";
 import {
   OPENING_DEFAULTS, add, band, bounds, centerline, dist, extend, formatM, joinExtensions, newId, pointAt, pointInPolygon, polylineLength, rect, rot, slice, toPath,
@@ -25,6 +28,9 @@ interface Props {
   onCalibrate: (a: Pt, b: Pt) => void;
   onLengthPrompt: (open: { at: [number, number]; apply: (mm: number) => void } | null) => void;
   walker?: { p: Pt; angle: number } | null;
+  cat: Catalog | null;
+  warnings: Map<string, WarningCode[]>;
+  floorHeight: number;
 }
 
 type Drag =
@@ -33,11 +39,20 @@ type Drag =
   | { kind: "node"; id: string; base: Plan; moved: boolean }
   | { kind: "opening"; id: string; base: Plan; moved: boolean }
   | { kind: "lift"; lift: Lift; start: Pt; moved: boolean; p: Pt }
-  | { kind: "box"; start: Pt; now: Pt };
+  | { kind: "box"; start: Pt; now: Pt }
+  | { kind: "items"; start: Pt; base: Item[]; ids: string[]; moved: boolean }
+  | { kind: "rotate"; id: string; base: Item[] };
 
 const OPENING_TOOLS: OpeningKind[] = ["door", "window", "passage", "glazing"];
 
-export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCreateLift, onLiftMoved, onCalibrate, onLengthPrompt, walker }: Props) {
+export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCreateLift, onLiftMoved, onCalibrate, onLengthPrompt, walker, cat, warnings, floorHeight }: Props) {
+  const mode = useEditor(store, (s) => s.mode);
+  const items = useEditor(store, (s) => s.items);
+  const placing = useEditor(store, (s) => s.placing);
+  const ghosts = useEditor(store, (s) => s.ghosts);
+  const hiddenLayers = useEditor(store, (s) => s.hiddenLayers);
+  const lockedLayers = useEditor(store, (s) => s.lockedLayers);
+  const [gaps, setGaps] = useState<Gap[]>([]);
   const plan = useEditor(store, (s) => s.plan);
   const view = useEditor(store, (s) => s.view);
   const tool = useEditor(store, (s) => s.tool);
@@ -57,6 +72,7 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
   const pinch = useRef<{ d: number; scale: number; cx: number; cy: number; vx: number; vy: number } | null>(null);
   const space = useRef(false);
   const { image } = useUnderlayImage(plan.underlay);
+  const faces = useMemo(() => wallGeometry(plan).faces, [plan]);
 
   // ---------------------------------------------------------------- вид
 
@@ -171,6 +187,71 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
     return null;
   };
 
+  // предмет под курсором (сверху — последний поставленный); скрытые и заблокированные слои — мимо
+  const hitItem = (p: Pt): Item | null => {
+    if (!cat) return null;
+    const list = store.state.items;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const it = list[i]!;
+      if (it.parent_id) continue;
+      const st = itemState(store, cat, it);
+      if (!st.shown || st.locked) continue;
+      const t = cat.types.get(it.type_id);
+      const { w, d } = sizeOf(t);
+      const min = 12 / store.state.view.scale;
+      if (pointInPolygon(p, footprint(it, t)) || (Math.max(w, d) < min && dist(p, [it.x ?? 0, it.y ?? 0]) < min / 2)) return it;
+    }
+    return null;
+  };
+
+  // ручка поворота выбранного предмета — у его передней стороны, на экране
+  const rotateHandle = (): { id: string; at: [number, number] } | null => {
+    const sel = store.state.selection;
+    if (readOnly || sel.length !== 1 || sel[0]!.kind !== "item" || !cat) return null;
+    const it = store.state.items.find((i) => i.id === sel[0]!.id);
+    if (!it || it.parent_id) return null;
+    const { d } = sizeOf(cat.types.get(it.type_id));
+    const c = toScreen([it.x ?? 0, it.y ?? 0]);
+    const f = toScreen(add([it.x ?? 0, it.y ?? 0], rot([0, d / 2], it.angle)));
+    const len = Math.hypot(f[0] - c[0], f[1] - c[1]) || 1;
+    return { id: it.id, at: [f[0] + ((f[0] - c[0]) / len) * 22, f[1] + ((f[1] - c[1]) / len) * 22] };
+  };
+
+  const onPlaceDown = (e: RPointerEvent<SVGSVGElement>, p: Pt) => {
+    const s = store.state;
+    const v = s.view;
+    if (s.placing && cat && !readOnly) {
+      const t = cat.types.get(s.placing);
+      if (t) placeAt(store, cat, t, p, faces, floorHeight, e.altKey);
+      if (!e.shiftKey) store.set({ placing: null });
+      return;
+    }
+    const r = svg.current!.getBoundingClientRect();
+    const handle = rotateHandle();
+    if (handle && Math.hypot(e.clientX - r.left - handle.at[0], e.clientY - r.top - handle.at[1]) < 10) {
+      drag.current = { kind: "rotate", id: handle.id, base: s.items };
+      return;
+    }
+    const hit = hitItem(p);
+    if (!hit) {
+      // подпись помещения — его свойства (и у «просмотра»)
+      const room = s.plan.rooms.find((r) => dist([r.x, r.y], p) <= 14 / v.scale);
+      if (room) {
+        store.set({ selection: [{ kind: "room", id: room.id }] });
+        drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y };
+        return;
+      }
+      if (!e.shiftKey) store.set({ selection: [] });
+      drag.current = readOnly || e.pointerType === "touch" ? { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y } : { kind: "box", start: p, now: p };
+      return;
+    }
+    let sel = s.selection.filter((x) => x.kind === "item");
+    if (e.shiftKey) sel = isSelected(sel, "item", hit.id) ? sel.filter((x) => x.id !== hit.id) : [...sel, { kind: "item", id: hit.id }];
+    else if (!isSelected(sel, "item", hit.id)) sel = [{ kind: "item", id: hit.id }];
+    store.set({ selection: sel });
+    drag.current = readOnly ? { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y } : { kind: "items", start: p, base: s.items, ids: sel.map((x) => x.id), moved: false };
+  };
+
   // ---------------------------------------------------------------- указатель
 
   const onPointerDown = (e: RPointerEvent<SVGSVGElement>) => {
@@ -190,6 +271,10 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
       return;
     }
     if (e.button !== 0) return;
+    if (store.state.mode === "place") {
+      onPlaceDown(e, p);
+      return;
+    }
     const s = store.state;
     const snap = snapPoint(s.plan, p, v.scale, s.snaps, chain[0] ? chain[chain.length - 1] : null);
 
@@ -338,6 +423,48 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
       setBox([d.start, p]);
       return;
     }
+    if (d?.kind === "items" && cat) {
+      let dx = p[0] - d.start[0];
+      let dy = p[1] - d.start[1];
+      if (s.snaps.grid) {
+        dx = Math.round(dx / 10) * 10;
+        dy = Math.round(dy / 10) * 10;
+      }
+      if (!d.moved && Math.hypot(dx, dy) * s.view.scale < 3) return;
+      d.moved = true;
+      const ids = new Set(d.ids);
+      let one: Item | null = null;
+      const next = d.base.map((it) => {
+        if (!ids.has(it.id) || it.parent_id) return it;
+        const moved = { ...it, x: (it.x ?? 0) + dx, y: (it.y ?? 0) + dy };
+        if (ids.size === 1) {
+          const t = cat.types.get(it.type_id);
+          const { w, d: depth } = sizeOf(t);
+          // к стене: настенный — всегда, напольный — когда спина у стены; Alt — свободно
+          if (!e.altKey && t && t.mount !== "ceiling") {
+            const stick = stickToWall(faces, [moved.x, moved.y], w, depth, t.mount === "wall" ? 1500 : 150);
+            if (stick) Object.assign(moved, { x: stick.x, y: stick.y, angle: stick.angle });
+          }
+          one = moved;
+        }
+        return moved;
+      });
+      store.previewItems(next);
+      const single = one as Item | null;
+      if (single) {
+        const { w, d: depth } = sizeOf(cat.types.get(single.type_id));
+        setGaps(gapsToWalls(faces, single, w, depth));
+      }
+      return;
+    }
+    if (d?.kind === "rotate") {
+      const it = d.base.find((i) => i.id === d.id);
+      if (!it) return;
+      let angle = (Math.atan2(p[1] - (it.y ?? 0), p[0] - (it.x ?? 0)) * 180) / Math.PI - 90;
+      if (!e.altKey) angle = Math.round(angle / 15) * 15;
+      store.previewItems(d.base.map((i) => (i.id === d.id ? { ...i, angle: normAngle(angle) } : i)));
+      return;
+    }
     if (d?.kind === "move") {
       let dx = p[0] - d.start[0];
       let dy = p[1] - d.start[1];
@@ -416,6 +543,13 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
       } else store.commit(next);
     }
     if (d.kind === "lift" && d.moved) onLiftMoved(d.lift, d.p);
+    if ((d.kind === "items" && d.moved) || d.kind === "rotate") {
+      const next = s.items;
+      store.previewItems(d.base);
+      store.changeItems(next);
+      setGaps([]);
+      return;
+    }
     if (d.kind === "box") {
       setBox(null);
       const [a, b] = [d.start, d.now];
@@ -424,6 +558,13 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
       const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
       const inside = (p: Pt) => p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1;
       const pl = s.plan;
+      if (s.mode === "place") {
+        const picked: Sel[] = cat
+          ? s.items.filter((it) => !it.parent_id && inside([it.x ?? 0, it.y ?? 0]) && itemState(store, cat, it).shown && !itemState(store, cat, it).locked).map((it) => ({ kind: "item" as const, id: it.id }))
+          : [];
+        store.set({ selection: e.shiftKey ? [...s.selection, ...picked] : picked });
+        return;
+      }
       const sel: Sel[] = [
         ...pl.walls.filter((w) => inside(pl.nodes[w.a]!) && inside(pl.nodes[w.b]!)).map((w) => ({ kind: "wall" as const, id: w.id })),
         ...pl.columns.filter((c) => inside([c.x, c.y])).map((c) => ({ kind: "column" as const, id: c.id })),
@@ -587,6 +728,45 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
     for (const o of ops) world.push(<OpeningShape key={o.id} opening={o} wall={w} line={line} px={px} selected={isSelected(selection, "opening", o.id)} />);
   }
 
+  // предметы (5.3.2); в «Строительстве» — бледно
+  if (cat) {
+    const contents = new Map<string, number>();
+    for (const it of items) if (it.parent_id) contents.set(it.parent_id, (contents.get(it.parent_id) ?? 0) + 1);
+    for (const it of items) {
+      if (it.parent_id) continue;
+      const t = cat.types.get(it.type_id);
+      if (t?.layer_id && hiddenLayers.includes(t.layer_id)) continue;
+      world.push(
+        <ItemShape
+          key={`i${it.id}`}
+          item={it}
+          type={t}
+          color={layerColor(cat.layers, t)}
+          px={px}
+          selected={isSelected(selection, "item", it.id)}
+          warn={mode === "place" && warnings.has(it.id)}
+          pale={mode === "build" || (!!t?.layer_id && lockedLayers.includes(t.layer_id))}
+          contents={contents.get(it.id) ?? 0}
+        />,
+      );
+      if (it.label && mode === "place") {
+        const at = toScreen([it.x ?? 0, it.y ?? 0]);
+        overlay.push(
+          <text key={`il${it.id}`} x={at[0]} y={at[1] + 4} textAnchor="middle" fontSize={11} fill="var(--ink)" stroke="var(--surface)" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+            {it.label}
+          </text>,
+        );
+      }
+    }
+    if (mode === "place") {
+      const handle = rotateHandle();
+      if (handle) overlay.push(<circle key="rot" cx={handle.at[0]} cy={handle.at[1]} r={7} fill="var(--surface)" stroke="var(--accent)" strokeWidth={2} style={{ cursor: "grab" }}><title>Повернуть (шаг 15°, Alt — свободно)</title></circle>);
+      if (gaps.length) overlay.push(<GapLines key="gaps" gaps={gaps} toScreen={toScreen} />);
+      const sel = selection.length === 1 ? items.find((i) => i.id === selection[0]!.id) : null;
+      if (ghosts.length && sel) world.push(<Ghosts key="ghosts" points={ghosts} item={sel} type={cat.types.get(sel.type_id)} px={px} />);
+    }
+  }
+
   // узлы выделенных стен
   if (!readOnly)
     for (const s of selection) {
@@ -665,7 +845,16 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
     );
   }
 
-  const cursorStyle = readOnly || tool === "select" ? (drag.current?.kind === "pan" ? "grabbing" : "default") : "crosshair";
+  const cursorStyle = mode === "place" ? (placing ? "copy" : "default") : readOnly || tool === "select" ? (drag.current?.kind === "pan" ? "grabbing" : "default") : "crosshair";
+
+  // перетаскивание типа из каталога слева
+  const onDrop = (e: React.DragEvent) => {
+    const typeId = e.dataTransfer.getData("application/x-item-type");
+    if (!typeId || !cat || readOnly) return;
+    e.preventDefault();
+    const t = cat.types.get(typeId);
+    if (t) placeAt(store, cat, t, toWorld(e.clientX, e.clientY), faces, floorHeight, e.altKey);
+  };
   return (
     <svg
       ref={svg}
@@ -679,6 +868,10 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
       onWheel={onWheel}
       onDoubleClick={onDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
+      onDragOver={(e) => {
+        if (mode === "place" && !readOnly && e.dataTransfer.types.includes("application/x-item-type")) e.preventDefault();
+      }}
+      onDrop={onDrop}
       role="img"
       aria-label="План этажа"
     >

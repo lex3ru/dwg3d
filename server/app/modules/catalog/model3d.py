@@ -83,7 +83,13 @@ def size_of(data: bytes) -> list[float]:
 
 
 def attach(
-    session: Session, actor: Actor, type_id: uuid.UUID, stream: BinaryIO, name: str
+    session: Session,
+    actor: Actor,
+    type_id: uuid.UUID,
+    stream: BinaryIO,
+    name: str,
+    credit: str = "",
+    transform: dict[str, Any] | None = None,
 ) -> ItemType:
     api._admin(actor)
     api.get_type(session, type_id)
@@ -94,4 +100,4 @@ def attach(
     import io
 
     record = files.store(session, actor, io.BytesIO(data), name, {"glb"})
-    return api.attach_model3d(session, actor, type_id, record.id, size)
+    return api.attach_model3d(session, actor, type_id, record.id, size, credit, transform)

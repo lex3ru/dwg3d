@@ -9,6 +9,7 @@ import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { Field, FormError, Input } from "@/ui/form";
 import { Chip, Loading } from "@/ui/misc";
+import { transformOf, type ModelTransform } from "./model3d";
 import { CharDialog, ValueInput, useInvalidateCatalog, useSerialPatch, useTree } from "./parts";
 import { LEVELS, MOUNTS, rub, showValue, type Characteristic, type ModelInfo, type Mount, type TypeFull } from "./types";
 
@@ -162,8 +163,8 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
   const file = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const { set, error: editError } = useTypeEdit(t);
-  const tr = { rx: 0, ry: 0, rz: 0, scale: 1, ...t.model_transform };
-  const setTransform = (patchT: Partial<typeof tr>) => set({ model_transform: { ...tr, ...patchT } });
+  const tr = transformOf(t.model_transform);
+  const setTransform = (patchT: Partial<ModelTransform>) => set({ model_transform: { ...tr, ...patchT } });
   const upload = async (f: File) => {
     setError(null);
     const form = new FormData();
@@ -190,11 +191,19 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
         {t.model_url ? (
           <>
             <div className="text-[13px]">
-              Модель: <span className="font-mono">{size?.map((v) => v.toFixed(2)).join(" × ")} м</span> (ширина × высота × глубина)
-              <br />
-              Габариты типа: <span className="font-mono">{dims.map((v) => (v ? v.toFixed(2) : "—")).join(" × ")} м</span>
+              {tr.fit ? (
+                <>Модель вписана в габариты типа: <span className="font-mono">{dims.map((v) => (v ? v.toFixed(2) : "—")).join(" × ")} м</span></>
+              ) : (
+                <>
+                  Модель: <span className="font-mono">{size?.map((v) => v.toFixed(2)).join(" × ")} м</span> (ширина × высота × глубина)
+                  <br />
+                  Габариты типа: <span className="font-mono">{dims.map((v) => (v ? v.toFixed(2) : "—")).join(" × ")} м</span>
+                </>
+              )}
+              {t.model_credit && <span className="mt-1 block text-[12px] text-ink-3">Источник: {t.model_credit}</span>}
+              <span className="mt-1 block text-[12px] text-ink-3">Синяя стрелка на полу — перед предмета (на плане — черта у края).</span>
             </div>
-            {size && width && Math.abs(size[0] - width) / width > 0.1 && (
+            {!tr.fit && size && width && Math.abs(size[0] - width) / width > 0.1 && (
               <p className="m-0 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">Размер модели не совпадает с габаритами — поверните её или подгоните масштаб.</p>
             )}
             {!ro && (
@@ -209,8 +218,11 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
                     ))}
                   </div>
                 </div>
-                <NumberField label="Масштаб" value={tr.scale} digits={3} min={0.0001} onChange={(scale) => void setTransform({ scale })} />
-                {fitScale && Math.abs(fitScale - 1) > 0.01 && (
+                <label className="flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={tr.fit} onChange={(e) => void setTransform({ fit: e.target.checked })} /> Вписать в габариты типа (растянуть по осям)
+                </label>
+                {!tr.fit && <NumberField label="Масштаб" value={tr.scale} digits={3} min={0.0001} onChange={(scale) => void setTransform({ scale })} />}
+                {!tr.fit && fitScale && Math.abs(fitScale - 1) > 0.01 && (
                   <Button size="sm" onClick={() => void setTransform({ scale: Number((tr.scale * fitScale).toFixed(4)) })}>
                     Подогнать по ширине (×{fitScale.toFixed(3)})
                   </Button>
@@ -261,7 +273,7 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
 
 const empty = (v: unknown) => v === null || v === undefined || v === "";
 
-function rotatedSize(size: [number, number, number] | null, tr: { rx: number; ry: number; rz: number; scale: number }): [number, number, number] | null {
+function rotatedSize(size: [number, number, number] | null, tr: ModelTransform): [number, number, number] | null {
   if (!size) return null;
   let [x, y, z] = size;
   // повороты на 90° переставляют оси

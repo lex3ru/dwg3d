@@ -251,6 +251,14 @@ def update_floor(session: Session, actor: Actor, floor_id: uuid.UUID, version: i
     return floor
 
 
+# модули выше проверяют, можно ли удалить этаж (на нём предметы): бросают Conflict
+_floor_guards: list[Callable[[Session, uuid.UUID], None]] = []
+
+
+def guard_floor_delete(check: Callable[[Session, uuid.UUID], None]) -> None:
+    _floor_guards.append(check)
+
+
 def delete_floor(session: Session, actor: Actor, floor_id: uuid.UUID) -> None:
     _require_admin(actor)
     floor = get_floor(session, actor, floor_id)
@@ -259,6 +267,8 @@ def delete_floor(session: Session, actor: Actor, floor_id: uuid.UUID) -> None:
             Room.floor_id == floor.id)):
         raise Conflict("Удалить можно только пустой этаж — на этом есть план или помещения.",
                        code="not_empty")
+    for check in _floor_guards:
+        check(session, floor.id)
     for lift in session.scalars(select(Lift).where(Lift.building_id == floor.building_id)):
         if floor.id in lift.floor_ids:
             lift.floor_ids = [f for f in lift.floor_ids if f != floor.id]
@@ -307,6 +317,15 @@ _on_rooms_continued: list[Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | 
 def on_rooms_continued(callback: Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | None]],
                                           None]) -> None:
     _on_rooms_continued.append(callback)
+
+
+# после сохранения плана: помещения этажа могли поменять очертания — модули выше
+# пересчитывают, что в каком помещении стоит
+_on_plan_saved: list[Callable[[Session, Actor, uuid.UUID], None]] = []
+
+
+def on_plan_saved(callback: Callable[[Session, Actor, uuid.UUID], None]) -> None:
+    _on_plan_saved.append(callback)
 
 
 # ---------------------------------------------------------------- план (5.1.4–5.1.6)
@@ -534,6 +553,8 @@ def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
     for callback in _on_rooms_continued:
         if continued:
             callback(session, actor, continued)
+    for saved_callback in _on_plan_saved:
+        saved_callback(session, actor, floor.id)
 
     parts = [f"стен {len(plan.walls)}, проёмов {len(plan.openings)}, "
              f"помещений {len(analysis.rooms)}"]

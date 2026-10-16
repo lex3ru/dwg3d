@@ -15,11 +15,17 @@ import { Dialog } from "@/ui/dialog";
 import { FloorDialog } from "@/pages/Buildings";
 import { Choice, Field, FormError, Input } from "@/ui/form";
 import { Empty, Loading } from "@/ui/misc";
+import { useTree } from "@/catalog/parts";
+import type { Tree } from "@/catalog/types";
 import { Canvas, type WallDefaults } from "./Canvas";
+import { ItemPanel } from "./ItemPanel";
+import { footprint, normAngle, warningsFor, type Item, type WarningCode } from "./items";
+import { PlacePanel } from "./PlacePanel";
+import { copyItems, removeItems, toChanges, type Catalog } from "./placement";
 import { copy, paste, remove, type Clip } from "./ops";
 import { dist, type Check, type Lift, type Plan, type PlanView, type Pt } from "./plan";
 import { Properties, NumberField } from "./Properties";
-import { EditorStore, clearDraft, readDraft, useEditor, type Tool } from "./store";
+import { EditorStore, clearDraft, layersChosen, readDraft, useEditor, type ItemOp, type Mode, type Tool } from "./store";
 import { PDF_RENDER_WIDTH, underlayToWorld, worldToUnderlay } from "./Underlay";
 
 const View3D = lazy(() => import("./View3D"));
@@ -75,17 +81,30 @@ function FloorEditor({ floorId }: { floorId: string }) {
   const me = useMe();
   const readOnly = me.role !== "admin";
   const view = useQuery({ queryKey: ["plan", floorId], queryFn: () => get<PlanView>(`/api/floors/${floorId}/plan`), refetchOnWindowFocus: false });
-  if (view.isLoading) return <Loading />;
+  const items = useQuery({ queryKey: ["items", floorId], queryFn: () => get<{ items: Item[] }>(`/api/floors/${floorId}/items`), refetchOnWindowFocus: false });
+  // и архивные типы: предметы архивного типа остаются на плане
+  const tree = useTree(true);
+  if (view.isLoading || items.isLoading || tree.isLoading) return <Loading />;
   if (!view.data) return <Empty title="Этаж не найден" />;
-  return <Loaded data={view.data} readOnly={readOnly} />;
+  return <Loaded data={view.data} items={items.data?.items ?? []} tree={tree.data} readOnly={readOnly} />;
 }
 
-function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
+function startMode(readOnly: boolean, asked: string | null): Mode {
+  if (readOnly) return "place";
+  if (asked === "build" || asked === "place") return asked;
+  try {
+    return (localStorage.getItem("editor-mode") as Mode) || "build";
+  } catch {
+    return "build";
+  }
+}
+
+function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; items: Item[]; tree: Tree | undefined; readOnly: boolean }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const client = useQueryClient();
   const store = useMemo(() => {
-    const s = new EditorStore(data.floor.id, structuredClone(data.plan), data.plan_version, data.lifts);
+    const s = new EditorStore(data.floor.id, structuredClone(data.plan), data.plan_version, data.lifts, serverItems, startMode(readOnly, params.get("mode")));
     // только чтение: помещения — как сохранены, проверку не спрашиваем
     if (readOnly)
       s.set({
@@ -98,6 +117,56 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.floor.id]);
   useCardTitle(`${data.building.name} · ${data.floor.name}`);
+
+  // ---------------------------------------------------------------- расстановка (5.3.2, 6.5.2)
+
+  const cat: Catalog | null = useMemo(
+    () => (tree ? { types: new Map(tree.types.map((t) => [t.id, t])), layers: new Map(tree.layers.map((l) => [l.id, l])) } : null),
+    [tree],
+  );
+  // слои, скрытые по умолчанию (видимость из каталога), — пока человек сам не выбрал
+  useEffect(() => {
+    if (tree && !layersChosen()) store.set({ hiddenLayers: tree.layers.filter((l) => !l.visible).map((l) => l.id) });
+  }, [tree, store]);
+
+  // действия уходят на сервер по очереди: каждое — с версиями, которые вернуло предыдущее
+  const versions = useRef(new Map(serverItems.map((i) => [i.id, i.version])));
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingOps = useRef(0);
+  const [itemsBusy, setItemsBusy] = useState(false);
+  useEffect(() => {
+    store.sendItems = (op: ItemOp) => {
+      pendingOps.current += 1;
+      setItemsBusy(true);
+      queue.current = queue.current.then(async () => {
+        try {
+          const body = toChanges(op, versions.current);
+          const r = await post<{ items: Item[]; deleted: string[] }>(`/api/floors/${data.floor.id}/items/changes`, body);
+          for (const i of r.items) versions.current.set(i.id, i.version);
+          for (const id of r.deleted) versions.current.delete(id);
+          store.itemsSaved(r.items, r.deleted);
+        } catch (e) {
+          flash("bad", `${(e as ApiError).message} Расстановка обновлена с сервера.`);
+          const fresh = await get<{ items: Item[] }>(`/api/floors/${data.floor.id}/items`);
+          versions.current = new Map(fresh.items.map((i) => [i.id, i.version]));
+          store.set({ items: fresh.items, itemPast: [], itemFuture: [], selection: [] });
+        } finally {
+          pendingOps.current -= 1;
+          if (!pendingOps.current) setItemsBusy(false);
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, data.floor.id]);
+  // расстановку изменили в другом окне — подхватить, когда своих действий в пути нет
+  useEffect(() => {
+    if (pendingOps.current) return;
+    const mine = new Map(store.state.items.map((i) => [i.id, i.version]));
+    const same = serverItems.length === mine.size && serverItems.every((i) => mine.get(i.id) === i.version);
+    if (same) return;
+    versions.current = new Map(serverItems.map((i) => [i.id, i.version]));
+    store.set({ items: serverItems, itemPast: [], itemFuture: [] });
+  }, [serverItems, store]);
 
   // план с сервера обновился (чужое сохранение, лифты) — подхватить, если своих правок нет
   useEffect(() => {
@@ -136,8 +205,33 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
   const check = useEditor(store, (s) => s.check);
   const tool = useEditor(store, (s) => s.tool);
   const snaps = useEditor(store, (s) => s.snaps);
-  const canUndo = useEditor(store, (s) => s.past.length > 0);
-  const canRedo = useEditor(store, (s) => s.future.length > 0);
+  const editMode = useEditor(store, (s) => s.mode);
+  const items = useEditor(store, (s) => s.items);
+  const selection = useEditor(store, (s) => s.selection);
+  const canUndo = useEditor(store, (s) => (s.mode === "place" ? s.itemPast.length : s.past.length) > 0);
+  const canRedo = useEditor(store, (s) => (s.mode === "place" ? s.itemFuture.length : s.future.length) > 0);
+  const undo = () => (store.state.mode === "place" ? store.undoItems() : store.undo());
+  const redo = () => (store.state.mode === "place" ? store.redoItems() : store.redo());
+  const setEditMode = (m: Mode) => {
+    store.set({ mode: m, selection: [], tool: "select", placing: null });
+    try {
+      localStorage.setItem("editor-mode", m);
+    } catch {
+      /* не запомнится */
+    }
+  };
+
+  // предупреждения расстановки (5.3.2 п. 6) — когда предметы перестали двигаться
+  const [warnings, setWarnings] = useState<Map<string, WarningCode[]>>(new Map());
+  useEffect(() => {
+    if (!cat) return;
+    const t = setTimeout(() => {
+      const outlines = (check?.rooms ?? data.rooms).map((r) => r.outline);
+      const placed = items.filter((i) => !i.parent_id).map((i) => ({ item: i, type: cat.types.get(i.type_id), poly: footprint(i, cat.types.get(i.type_id)) }));
+      setWarnings(warningsFor(plan, outlines, placed));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [items, plan, check, cat, data.rooms]);
 
   // выделить помещение из адреса (?room=…) — поиск ведёт сюда
   useEffect(() => {
@@ -161,6 +255,11 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
     setMessage({ tone, text });
     setTimeout(() => setMessage((m) => (m?.text === text ? null : m)), 6000);
   };
+  useEffect(() => {
+    const on = (e: Event) => flash("bad", (e as CustomEvent<string>).detail);
+    window.addEventListener("editor:flash", on);
+    return () => window.removeEventListener("editor:flash", on);
+  }, []);
 
   // ---------------------------------------------------------------- сохранение (5.1.6)
 
@@ -250,6 +349,10 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (store.state.mode === "place") {
+        placeKey(e, mod, key);
+        return;
+      }
       if (mod && (key === "z" || key === "я")) {
         e.preventDefault();
         if (e.shiftKey) store.redo();
@@ -284,6 +387,47 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  // клавиши «Расстановки»: отмена, копия, удаление, поворот, сдвиг стрелками
+  const itemClip = useRef<Item[]>([]);
+  const placeKey = (e: KeyboardEvent, mod: boolean, key: string) => {
+    const s = store.state;
+    const ids = new Set(s.selection.filter((x) => x.kind === "item").map((x) => x.id));
+    const chosen = s.items.filter((i) => ids.has(i.id));
+    const free = chosen.filter((i) => !i.parent_id);
+    const shift = (fn: (i: Item) => Partial<Item>) => store.changeItems(s.items.map((i) => (ids.has(i.id) && !i.parent_id ? { ...i, ...fn(i) } : i)));
+    if (mod && (key === "z" || key === "я")) {
+      e.preventDefault();
+      if (e.shiftKey) store.redoItems();
+      else store.undoItems();
+    } else if (mod && (key === "y" || key === "н")) {
+      e.preventDefault();
+      store.redoItems();
+    } else if (mod && (key === "c" || key === "с")) {
+      itemClip.current = free;
+    } else if (mod && (key === "v" || key === "м")) {
+      if (itemClip.current.length) copyItems(store, itemClip.current.filter((i) => s.items.some((x) => x.id === i.id)), [500, -500]);
+    } else if (mod && (key === "d" || key === "в")) {
+      e.preventDefault();
+      if (free.length) copyItems(store, free, [500, -500]);
+    } else if (mod && (key === "s" || key === "ы")) {
+      e.preventDefault();
+      void startSave();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      if (ids.size) removeItems(store, ids, cat ?? undefined);
+    } else if (e.key === "Escape") {
+      store.set({ placing: null, selection: [] });
+    } else if (e.key === "?") {
+      setHelp(true);
+    } else if (!mod && (key === "r" || key === "к") && free.length) {
+      shift((i) => ({ angle: normAngle(i.angle + (e.shiftKey ? -15 : 15)) }));
+    } else if (!mod && e.key.startsWith("Arrow") && free.length) {
+      e.preventDefault();
+      const step = e.shiftKey ? 100 : 10;
+      const [dx, dy] = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key] ?? [0, 0];
+      shift((i) => ({ x: (i.x ?? 0) + dx!, y: (i.y ?? 0) + dy! }));
+    }
+  };
 
   // ---------------------------------------------------------------- подложка (5.1.4 п. 5)
 
@@ -352,6 +496,22 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
             <Plus /> этаж
           </Button>
         )}
+        {!readOnly && (
+          <div role="tablist" aria-label="Режим" className="flex rounded-lg border border-line-strong p-0.5">
+            {([["build", "Строительство"], ["place", "Расстановка"]] as const).map(([m, title]) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={editMode === m}
+                onClick={() => setEditMode(m)}
+                className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-10", editMode === m ? "bg-ink text-surface" : "bg-transparent text-ink hover:bg-surface-2")}
+              >
+                {title}
+              </button>
+            ))}
+          </div>
+        )}
         <div role="radiogroup" aria-label="Вид" className="flex rounded-lg border border-line-strong p-0.5">
           {(["2d", "3d", "both"] as const).map((m) => (
             <button
@@ -376,10 +536,10 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
         </div>
         {!readOnly && (
           <>
-            <Button size="icon" variant="ghost" aria-label="Отменить (Ctrl+Z)" title="Отменить (Ctrl+Z)" disabled={!canUndo} onClick={() => store.undo()}>
+            <Button size="icon" variant="ghost" aria-label="Отменить (Ctrl+Z)" title="Отменить (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
               <Undo2 />
             </Button>
-            <Button size="icon" variant="ghost" aria-label="Повторить (Ctrl+Y)" title="Повторить (Ctrl+Y)" disabled={!canRedo} onClick={() => store.redo()}>
+            <Button size="icon" variant="ghost" aria-label="Повторить (Ctrl+Y)" title="Повторить (Ctrl+Y)" disabled={!canRedo} onClick={redo}>
               <Redo2 />
             </Button>
             <div className="flex items-center gap-1 text-[12px] text-ink-2 max-lg:hidden" role="group" aria-label="Привязки">
@@ -407,9 +567,10 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
             {message.text}
           </span>
         )}
+        {!readOnly && editMode === "place" && <span className="text-[13px] text-ink-2">{itemsBusy ? "Сохраняю расстановку…" : "Расстановка сохраняется сразу"}</span>}
         {!readOnly && (
           <>
-            {edits > 0 && <span className="text-[13px] text-ink-2">Несохранённые правки: {edits}</span>}
+            {edits > 0 && <span className="text-[13px] text-ink-2">Несохранённые правки плана: {edits}</span>}
             <Button variant="primary" onClick={() => void startSave()} disabled={edits === 0 || save.isPending}>
               <Save /> Сохранить план
             </Button>
@@ -418,7 +579,12 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {!readOnly && show2d && (
+        {show2d && editMode === "place" && cat && (
+          <aside aria-label="Слои и каталог" className="flex w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface max-md:hidden">
+            <PlacePanel store={store} cat={cat} readOnly={readOnly} />
+          </aside>
+        )}
+        {!readOnly && show2d && editMode === "build" && (
           <aside aria-label="Инструменты" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface max-md:w-14">
             <div className="grid grid-cols-1 gap-0.5 p-2">
               {TOOLS.map((t) => (
@@ -453,6 +619,9 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
                 onCalibrate={(a, b) => setCalibration([a, b])}
                 onLengthPrompt={setLengthPrompt}
                 walker={walker}
+                cat={cat}
+                warnings={warnings}
+                floorHeight={data.floor.height}
               />
               {lengthPrompt && <LengthPrompt at={lengthPrompt.at} onApply={lengthPrompt.apply} onCancel={() => setLengthPrompt(null)} />}
               {draft && (
@@ -474,7 +643,7 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
           {show3d && (
             <div className="relative min-w-0 flex-1">
               <Suspense fallback={<Loading />}>
-                <View3D buildingId={data.building.id} floorId={data.floor.id} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} />
+                <View3D buildingId={data.building.id} floorId={data.floor.id} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
               </Suspense>
             </div>
           )}
@@ -482,17 +651,21 @@ function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
 
         {show2d && (
           <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
-            <Properties
-              store={store}
-              readOnly={readOnly}
-              floors={floors}
-              floorId={data.floor.id}
-              wallDefaults={wallDefaults}
-              setWallDefaults={setWallDefaults}
-              onLiftChange={(l, c) => void changeLift(l, c)}
-              onLiftDelete={(l) => void deleteLift(l)}
-            />
-            {!readOnly && (
+            {editMode === "place" && cat && !selection.some((x) => x.kind === "room") ? (
+              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} />
+            ) : (
+              <Properties
+                store={store}
+                readOnly={readOnly}
+                floors={floors}
+                floorId={data.floor.id}
+                wallDefaults={wallDefaults}
+                setWallDefaults={setWallDefaults}
+                onLiftChange={(l, c) => void changeLift(l, c)}
+                onLiftDelete={(l) => void deleteLift(l)}
+              />
+            )}
+            {!readOnly && editMode === "build" && (
               <section className="flex flex-col gap-2 px-4 py-4" aria-label="Проверка плана">
                 <h3 className="m-0 flex items-center justify-between text-sm font-semibold">
                   Проверка плана
@@ -746,24 +919,35 @@ function PrintDialog({ open, onOpenChange, floorId, unsaved }: { open: boolean; 
 }
 
 function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const rows: [string, ReactNode][] = [
+  const common: [string, ReactNode][] = [
     ["Ctrl+Z / Ctrl+Y", "отменить / повторить"],
     ["Ctrl+C / Ctrl+V", "копировать / вставить выделенное"],
     ["Delete", "удалить выделенное"],
     ["Ctrl+S", "сохранить план"],
-    ["Esc", "закончить цепочку стен, снять выделение"],
-    ["Enter", "при рисовании стены — ввести длину"],
-    ["V W A D O R M", "выбор, стена, дуга, дверь, окно, подпись помещения, измерение"],
     ["Колесо мыши", "приблизить / отдалить"],
     ["Пробел + перетаскивание, средняя кнопка", "сдвинуть план"],
     ["Shift + щелчок, рамка", "выделить несколько"],
   ];
+  const build: [string, ReactNode][] = [
+    ["Esc", "закончить цепочку стен, снять выделение"],
+    ["Enter", "при рисовании стены — ввести длину"],
+    ["V W A D O R M", "выбор, стена, дуга, дверь, окно, подпись помещения, измерение"],
+  ];
+  const place: [string, ReactNode][] = [
+    ["Ctrl+D", "копия выделенного рядом"],
+    ["R / Shift+R", "повернуть на 15° против / по часовой"],
+    ["Стрелки, Shift+стрелки", "сдвинуть на 10 / 100 мм"],
+    ["Alt при перетаскивании", "без прилипания к стене и без шага поворота"],
+    ["Esc", "перестать ставить выбранный тип, снять выделение"],
+    ["В 3D: перетаскивание, Shift", "двигать по полу (настенный — вдоль стены), поворачивать"],
+  ];
+  const rows: [string, ReactNode][] = [...common, ["", <b key="b">Строительство</b>], ...build, ["", <b key="p">Расстановка</b>], ...place];
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Клавиши редактора">
       <table className="w-full border-collapse text-sm">
         <tbody>
-          {rows.map(([k, v]) => (
-            <tr key={k}>
+          {rows.map(([k, v], i) => (
+            <tr key={i}>
               <td className="py-1.5 pr-4 font-mono text-[12px] whitespace-nowrap text-ink-2">{k}</td>
               <td className="py-1.5">{v}</td>
             </tr>

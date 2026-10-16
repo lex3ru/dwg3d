@@ -111,6 +111,9 @@ class ItemType(Base):
     # поворот и масштаб 3D-модели, чтобы она встала по габаритам: {rx, ry, rz, scale}
     model_transform: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     model_size: Mapped[list[float] | None] = mapped_column(JSONB)  # м, как в файле
+    # откуда модель и на каких условиях (автор, лицензия); "" — загружена или убрана
+    # администратором, None — ещё не трогали (тогда ей можно дать модель из комплекта)
+    model_credit: Mapped[str | None] = mapped_column(String(300))
     top_view: Mapped[str] = mapped_column(String(10), default="box")  # box icon
     icon: Mapped[str] = mapped_column(String(40), default="")
     price: Mapped[float | None] = mapped_column(Numeric(14, 2))

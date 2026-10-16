@@ -8,6 +8,10 @@ import { get } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { SLAB, blockers, buildFloor, liftGeometry, type Blocker } from "./build3d";
+import type { Item } from "./items";
+import { Items3D } from "./items3d";
+import type { Catalog } from "./placement";
+import { useEditor, type EditorStore } from "./store";
 import { pointInPolygon, projectOnSegment, rect, rot, type FloorInfo, type Lift, type Plan, type PlanView, type Pt } from "./plan";
 
 // 3D-вид (5.1.7): обзор и прогулка от первого лица. Один этаж или всё здание; этажи выше
@@ -26,6 +30,9 @@ interface Props {
   lifts: Lift[];
   onWalker: (w: { p: Pt; angle: number } | null) => void;
   walkRequest: { p: Pt; n: number } | null;
+  store: EditorStore;
+  cat: Catalog | null;
+  readOnly: boolean;
 }
 
 interface FloorData {
@@ -34,10 +41,18 @@ interface FloorData {
   slabs: Pt[][];
 }
 
-export default function View3D({ floorId, floors, plan, lifts, onWalker, walkRequest }: Props) {
+export default function View3D({ floorId, floors, plan, lifts, onWalker, walkRequest, store, cat, readOnly }: Props) {
   const others = useQueries({
     queries: floors.map((f) => ({ queryKey: ["plan", f.id], queryFn: () => get<PlanView>(`/api/floors/${f.id}/plan`), staleTime: 30_000 })),
   });
+  const otherItems = useQueries({
+    queries: floors.map((f) => ({ queryKey: ["items", f.id], queryFn: () => get<{ items: Item[] }>(`/api/floors/${f.id}/items`), staleTime: 30_000, enabled: f.id !== floorId })),
+  });
+  const items = useEditor(store, (s) => s.items);
+  const hidden = useEditor(store, (s) => s.hiddenLayers);
+  const selection = useEditor(store, (s) => s.selection);
+  const editMode = useEditor(store, (s) => s.mode);
+  const selected = useMemo(() => new Set(selection.filter((x) => x.kind === "item").map((x) => x.id)), [selection]);
   const [scope, setScope] = useState<"floor" | "below">("below");
   const [mode, setMode] = useState<"orbit" | "walk">(walkRequest ? "walk" : "orbit");
   const [startAt, setStartAt] = useState<Pt | null>(walkRequest?.p ?? null);
@@ -66,8 +81,15 @@ export default function View3D({ floorId, floors, plan, lifts, onWalker, walkReq
         <ambientLight intensity={0.7} />
         <directionalLight position={[40, 80, 30]} intensity={1.4} />
         <hemisphereLight args={["#ffffff", "#8a8f99", 0.4]} />
-        {shown.map((d) => (
-          <FloorMesh key={d.floor.id} data={d} next={floors.find((f) => f.position === d.floor.position + 1) ?? null} />
+        {shown.map((d, i) => (
+          <FloorMesh key={d.floor.id} data={d} next={floors.find((f) => f.position === d.floor.position + 1) ?? null}>
+            {cat &&
+              (d.floor.id === floorId ? (
+                <Items3D items={items} cat={cat} hidden={hidden} selected={selected} interactive={!readOnly && editMode === "place" && mode === "orbit"} store={store} plan={plan} />
+              ) : (
+                <Items3D items={otherItems[floors.indexOf(d.floor)]?.data?.items ?? []} cat={cat} hidden={hidden} selected={selected} interactive={false} key={i} />
+              ))}
+          </FloorMesh>
         ))}
         {lifts.map((l) => (
           <LiftMesh key={l.id} lift={l} floors={floors} upTo={scope === "floor" ? current : current} onlyFloor={scope === "floor" ? current : null} />
@@ -108,7 +130,7 @@ const materials = {
   lift: new THREE.MeshStandardMaterial({ color: "#5b8ff0", transparent: true, opacity: 0.25 }),
 };
 
-function FloorMesh({ data, next }: { data: FloorData; next: FloorInfo | null }) {
+function FloorMesh({ data, next, children }: { data: FloorData; next: FloorInfo | null; children?: React.ReactNode }) {
   const geometry = useMemo(
     () => buildFloor(data.plan, data.floor.height, data.slabs, next ? next.elevation - data.floor.elevation : null),
     [data.plan, data.floor.height, data.slabs, next, data.floor.elevation],
@@ -120,6 +142,7 @@ function FloorMesh({ data, next }: { data: FloorData; next: FloorInfo | null }) 
         const g = k !== "lift" ? geometry[k] : null;
         return g ? <mesh key={k} geometry={g} material={materials[k]} /> : null;
       })}
+      {children}
     </group>
   );
 }
@@ -137,11 +160,12 @@ function LiftMesh({ lift, floors, onlyFloor }: { lift: Lift; floors: FloorInfo[]
 }
 
 function Orbit({ data }: { data: FloorData[] }) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const controls = useRef<React.ComponentRef<typeof OrbitControls>>(null);
   const fitted = useRef(false);
   useEffect(() => {
-    if (fitted.current) return;
+    // панель ещё не получила размер (вид «оба» раскладывается после первого кадра)
+    if (fitted.current || size.width < 20 || size.height < 20) return;
     const pts = data.flatMap((d) => Object.values(d.plan.nodes));
     if (!pts.length) return;
     fitted.current = true;
@@ -154,12 +178,16 @@ function Orbit({ data }: { data: FloorData[] }) {
     const top = Math.max(...data.map((f) => (f.floor.elevation + f.floor.height) * M));
     // вся коробка здания в кадре
     const radius = Math.max(Math.hypot(w, d, top) / 2, 5);
-    const distance = radius / Math.sin(((55 / 2) * Math.PI) / 180);
+    // по меньшему из углов обзора: в узкой панели (вид «оба») — по ширине
+    const vfov = (55 * Math.PI) / 180;
+    const aspect = size.width / Math.max(size.height, 1) || 1;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const distance = radius / Math.sin(Math.min(vfov, hfov) / 2);
     const dir = new THREE.Vector3(0.55, 0.65, 0.75).normalize();
     camera.position.set(cx + dir.x * distance, top / 2 + dir.y * distance, cz + dir.z * distance);
     controls.current?.target.set(cx, top / 2, cz);
     controls.current?.update();
-  }, [data, camera]);
+  }, [data, camera, size]);
   return <OrbitControls ref={controls} makeDefault enableDamping />;
 }
 

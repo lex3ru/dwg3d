@@ -212,3 +212,26 @@ def test_purposes(admin) -> None:
     assert r.json()["norm"] == 400
     admin.post(f"/api/catalog/purposes/{p['id']}/archive")
     assert admin.get("/api/catalog/purposes").json()["items"] == []
+
+
+def test_base_catalog_comes_with_3d_models(admin) -> None:  # type: ignore[no-untyped-def]
+    """5.2.6: типы базового каталога на плане получают 3D-модели из комплекта — один раз;
+    модель, которую администратор убрал или заменил, не возвращается."""
+    from app.modules.catalog.module import seed_models
+
+    seeded(admin)
+    with transaction() as s:
+        assert seed_models(s) == "3D-модели каталога: 80"
+    tree = admin.get("/api/catalog").json()
+    placeable = [t for t in tree["types"] if t["layer_id"] and t["mount"] != "none"]
+    assert all(t["model_url"] for t in placeable)
+    couch = next(t for t in placeable if t["name"] == "Кушетка смотровая")
+    assert couch["model_transform"]["fit"] is True
+    assert "CC0" in couch["model_credit"]
+    chair = next(t for t in placeable if t["name"] == "Кресло-коляска")
+    assert "CC-BY 3.0" in chair["model_credit"] and "poly.pizza" in chair["model_credit"]
+
+    assert admin.delete(f"/api/catalog/types/{couch['id']}/model3d").status_code == 200
+    with transaction() as s:
+        assert seed_models(s) is None
+    assert admin.get(f"/api/catalog/types/{couch['id']}").json()["model_url"] is None

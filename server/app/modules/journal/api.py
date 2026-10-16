@@ -31,7 +31,9 @@ def record(session: Session, actor: Actor | None, action: str, summary: str, *,
         action=action, summary=summary, entity=entity, refs=all_refs,
         before=_plain(before), after=_plain(after),
     ))
-    events.publish(session, {"action": action, "entity": entity, "refs": all_refs})
+    # сообщение канала PostgreSQL — не больше 8000 байт: при больших пачках (ряд из сотни
+    # светильников) хватает того, что изменилось, без полного перечня
+    events.publish(session, {"action": action, "entity": entity, "refs": all_refs[:40]})
 
 
 def changes(before: Mapping[str, Any], after: Mapping[str, Any]

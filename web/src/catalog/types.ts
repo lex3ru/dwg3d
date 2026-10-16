@@ -56,8 +56,9 @@ export interface TypeBrief {
   top_view: "box" | "icon";
   icon: string;
   model_url: string | null;
-  model_transform: { rx?: number; ry?: number; rz?: number; scale?: number };
+  model_transform: { rx?: number; ry?: number; rz?: number; scale?: number; fit?: boolean };
   model_size: [number, number, number] | null;
+  model_credit: string | null;
   archived: boolean;
   price?: number | null;
   version: number;

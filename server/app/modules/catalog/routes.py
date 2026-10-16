@@ -127,7 +127,7 @@ class TypeIn(BaseModel):
     unit: str | None = Field(default=None, max_length=20)
     life_months: int | None = None
     container: bool | None = None
-    model_transform: dict[str, float] | None = None
+    model_transform: dict[str, float | bool] | None = None
 
 
 def _type_values(body: TypeIn) -> dict[str, Any]:

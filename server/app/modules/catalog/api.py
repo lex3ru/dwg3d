@@ -604,6 +604,7 @@ def type_brief(t: ItemType, actor: Actor) -> dict[str, Any]:
         "model_url": f"/api/files/{t.model_file_id}" if t.model_file_id else None,
         "model_transform": t.model_transform or {},
         "model_size": t.model_size,
+        "model_credit": t.model_credit or None,
         "archived": t.archived_at is not None,
         "version": t.version,
     }
@@ -673,6 +674,14 @@ def _type_values(session: Session, values: dict[str, Any]) -> dict[str, Any]:
         raise AppError("Цена не может быть отрицательной.", field="price")
     if out.get("life_months") is not None and not 1 <= int(out["life_months"]) <= 1200:
         raise AppError("Срок службы — от 1 до 1200 месяцев.", field="life_months")
+    if "model_transform" in out:
+        tr = out["model_transform"] or {}
+        out["model_transform"] = {
+            **{k: float(tr.get(k, 0)) % 360 for k in ("rx", "ry", "rz")},
+            "scale": float(tr.get("scale", 1)) if 0 < float(tr.get("scale", 1)) <= 1000 else 1.0,
+            # вписать модель в габариты типа по каждой оси
+            "fit": bool(tr.get("fit", False)),
+        }
     if "top_view" in out and out["top_view"] not in ("box", "icon"):
         raise AppError("Вид сверху — контур или значок.", field="top_view")
     return out
@@ -808,13 +817,16 @@ def attach_model3d(
     type_id: uuid.UUID,
     file_id: uuid.UUID | None,
     size: list[float] | None,
+    credit: str = "",
+    transform: dict[str, Any] | None = None,
 ) -> ItemType:
     _admin(actor)
     t = get_type(session, type_id)
     old = t.model_file_id
     t.model_file_id = file_id
     t.model_size = size
-    t.model_transform = {"rx": 0, "ry": 0, "rz": 0, "scale": 1} if file_id else {}
+    t.model_credit = credit
+    t.model_transform = (transform or {"rx": 0, "ry": 0, "rz": 0, "scale": 1}) if file_id else {}
     t.version += 1
     _record(
         session,

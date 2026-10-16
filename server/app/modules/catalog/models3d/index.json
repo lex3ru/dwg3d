@@ -1,0 +1,802 @@
+[
+ {
+  "type": "Автоклав",
+  "file": "avtoklav.glb",
+  "ry": 180,
+  "title": "Electric Oven",
+  "author": "MilkAndBanana",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/AwUZBbqleJ",
+  "credit": "«Electric Oven», MilkAndBanana, CC0 — https://poly.pizza/m/AwUZBbqleJ"
+ },
+ {
+  "type": "Стерилизатор воздушный",
+  "file": "sterilizator-vozdushnyy.glb",
+  "ry": 180,
+  "title": "Oven Solo",
+  "author": "Zsky",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/dxG130Ddm1",
+  "credit": "«Oven Solo», Zsky, CC-BY 3.0 — https://poly.pizza/m/dxG130Ddm1"
+ },
+ {
+  "type": "УФ-камера для хранения инструментов",
+  "file": "uf-kamera-dlya-khraneniya-instrumentov.glb",
+  "ry": 0,
+  "title": "Microwave",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/5JVQaADip1h",
+  "credit": "«Microwave», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/5JVQaADip1h"
+ },
+ {
+  "type": "Весы медицинские",
+  "file": "vesy-meditsinskie.glb",
+  "ry": 180,
+  "title": "Bathroom scale",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/bL_hCXI0e4s",
+  "credit": "«Bathroom scale», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/bL_hCXI0e4s"
+ },
+ {
+  "type": "Компьютер",
+  "file": "kompyuter.glb",
+  "ry": 180,
+  "title": "Computer",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/7KNoiQlSxi",
+  "credit": "«Computer», CreativeTrio, CC0 — https://poly.pizza/m/7KNoiQlSxi"
+ },
+ {
+  "type": "ИБП",
+  "file": "ibp.glb",
+  "ry": 180,
+  "title": "Computer Tower",
+  "author": "Ethan Yawney",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/4TZXM3lO5KK",
+  "credit": "«Computer Tower», Ethan Yawney, CC-BY 3.0 — https://poly.pizza/m/4TZXM3lO5KK"
+ },
+ {
+  "type": "Шкаф телекоммуникационный 19″",
+  "file": "shkaf-telekommunikatsionnyy-19.glb",
+  "ry": 180,
+  "title": "server rack",
+  "author": "Jeremy Eyring",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/6ijQclm8jxw",
+  "credit": "«server rack», Jeremy Eyring, CC-BY 3.0 — https://poly.pizza/m/6ijQclm8jxw"
+ },
+ {
+  "type": "Шкаф телекоммуникационный настенный",
+  "file": "shkaf-telekommunikatsionnyy-nastennyy.glb",
+  "ry": 180,
+  "title": "mixed rack",
+  "author": "Silverstone78",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/0NOoJkllvPB",
+  "credit": "«mixed rack», Silverstone78, CC-BY 3.0 — https://poly.pizza/m/0NOoJkllvPB"
+ },
+ {
+  "type": "Камера цилиндрическая",
+  "file": "kamera-tsilindricheskaya.glb",
+  "ry": 180,
+  "title": "Security Camera",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/a6J7IDufQP",
+  "credit": "«Security Camera», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/a6J7IDufQP"
+ },
+ {
+  "type": "Камера поворотная (PTZ)",
+  "file": "kamera-povorotnaya-ptz.glb",
+  "ry": 180,
+  "title": "CCTV Camera",
+  "author": "Jörg H.",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/79z-QarmPO7",
+  "credit": "«CCTV Camera», Jörg H., CC-BY 3.0 — https://poly.pizza/m/79z-QarmPO7"
+ },
+ {
+  "type": "Кресло-коляска",
+  "file": "kreslo-kolyaska.glb",
+  "ry": 180,
+  "title": "Wheelchair",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/0gb5yuNcwbg",
+  "credit": "«Wheelchair», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/0gb5yuNcwbg"
+ },
+ {
+  "type": "Кондиционер (сплит-система)",
+  "file": "konditsioner-split-sistema.glb",
+  "ry": 180,
+  "title": "Air conditioner",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/5KohLH0xc8d",
+  "credit": "«Air conditioner», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/5KohLH0xc8d"
+ },
+ {
+  "type": "Щелевая лампа",
+  "file": "shchelevaya-lampa.glb",
+  "ry": 180,
+  "title": "Microscope",
+  "author": "Colonel Cthulu",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/05VXLT8kN4k",
+  "credit": "«Microscope», Colonel Cthulu, CC-BY 3.0 — https://poly.pizza/m/05VXLT8kN4k"
+ },
+ {
+  "type": "Кольпоскоп",
+  "file": "kolposkop.glb",
+  "ry": 180,
+  "title": "Microscope",
+  "author": "Username12",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/q9zNs4U5NG",
+  "credit": "«Microscope», Username12, CC-BY 3.0 — https://poly.pizza/m/q9zNs4U5NG"
+ },
+ {
+  "type": "Кресло офисное",
+  "file": "kreslo-ofisnoe.glb",
+  "ry": 180,
+  "title": "Office Chair",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/UfKvrZBK6C",
+  "credit": "«Office Chair», Quaternius, CC0 — https://poly.pizza/m/UfKvrZBK6C"
+ },
+ {
+  "type": "Кресло руководителя",
+  "file": "kreslo-rukovoditelya.glb",
+  "ry": 180,
+  "title": "Office Chair",
+  "author": "CMHT Oculus",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/dCEsSsJJ1Md",
+  "credit": "«Office Chair», CMHT Oculus, CC-BY 3.0 — https://poly.pizza/m/dCEsSsJJ1Md"
+ },
+ {
+  "type": "Кресло врача",
+  "file": "kreslo-vracha.glb",
+  "ry": 180,
+  "title": "Office Chair",
+  "author": "Ryan Donaldson",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/3txPAhYeu-x",
+  "credit": "«Office Chair», Ryan Donaldson, CC-BY 3.0 — https://poly.pizza/m/3txPAhYeu-x"
+ },
+ {
+  "type": "Стул посетителя",
+  "file": "stul-posetitelya.glb",
+  "ry": 180,
+  "title": "Chair",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/iMNqRzPwwe",
+  "credit": "«Chair», Quaternius, CC0 — https://poly.pizza/m/iMNqRzPwwe"
+ },
+ {
+  "type": "Стул медицинский винтовой",
+  "file": "stul-meditsinskiy-vintovoy.glb",
+  "ry": 180,
+  "title": "Chair",
+  "author": "CMHT Oculus",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/4i_KehfD3z1",
+  "credit": "«Chair», CMHT Oculus, CC-BY 3.0 — https://poly.pizza/m/4i_KehfD3z1"
+ },
+ {
+  "type": "Кровать функциональная",
+  "file": "krovat-funktsionalnaya.glb",
+  "ry": 180,
+  "title": "Bed Single",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/ianC28eMOF",
+  "credit": "«Bed Single», Quaternius, CC0 — https://poly.pizza/m/ianC28eMOF"
+ },
+ {
+  "type": "Кулер для воды",
+  "file": "kuler-dlya-vody.glb",
+  "ry": 180,
+  "title": "Water Cooler",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/zWi9p5FSxD",
+  "credit": "«Water Cooler», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/zWi9p5FSxD"
+ },
+ {
+  "type": "Холодильник бытовой",
+  "file": "kholodilnik-bytovoy.glb",
+  "ry": 180,
+  "title": "Kitchen Fridge",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/8sjRm8fnHh",
+  "credit": "«Kitchen Fridge», Quaternius, CC0 — https://poly.pizza/m/8sjRm8fnHh"
+ },
+ {
+  "type": "Холодильник фармацевтический",
+  "file": "kholodilnik-farmatsevticheskiy.glb",
+  "ry": 180,
+  "title": "Can Fridge",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/8OHbykvREu",
+  "credit": "«Can Fridge», Quaternius, CC0 — https://poly.pizza/m/8OHbykvREu"
+ },
+ {
+  "type": "МФУ лазерное",
+  "file": "mfu-lazernoe.glb",
+  "ry": 90,
+  "title": "Printer",
+  "author": "Mikael Ganehag Brorsson",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/6uy3vUnmbCJ",
+  "credit": "«Printer», Mikael Ganehag Brorsson, CC-BY 3.0 — https://poly.pizza/m/6uy3vUnmbCJ"
+ },
+ {
+  "type": "Принтер этикеток",
+  "file": "printer-etiketok.glb",
+  "ry": 180,
+  "title": "Printer",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/77K2TCL5Lz",
+  "credit": "«Printer», CreativeTrio, CC0 — https://poly.pizza/m/77K2TCL5Lz"
+ },
+ {
+  "type": "Стол процедурный",
+  "file": "stol-protsedurnyy.glb",
+  "ry": 180,
+  "title": "Lab Desk",
+  "author": "Colonel Cthulu",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/6KxaD6I6I48",
+  "credit": "«Lab Desk», Colonel Cthulu, CC-BY 3.0 — https://poly.pizza/m/6KxaD6I6I48"
+ },
+ {
+  "type": "Монитор 24″",
+  "file": "monitor-24.glb",
+  "ry": 180,
+  "title": "Monitor",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/PvSjEbz11k",
+  "credit": "«Monitor», CreativeTrio, CC0 — https://poly.pizza/m/PvSjEbz11k"
+ },
+ {
+  "type": "Монитор видеонаблюдения",
+  "file": "monitor-videonablyudeniya.glb",
+  "ry": 180,
+  "title": "Monitor",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/fN_jLmrWXxq",
+  "credit": "«Monitor», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/fN_jLmrWXxq"
+ },
+ {
+  "type": "Моноблок",
+  "file": "monoblok.glb",
+  "ry": 90,
+  "title": "Monitor",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/5qZ5IaClHHw",
+  "credit": "«Monitor», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/5qZ5IaClHHw"
+ },
+ {
+  "type": "Монитор пациента",
+  "file": "monitor-patsienta.glb",
+  "ry": 270,
+  "title": "Monitor",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/e8cELDeDuTr",
+  "credit": "«Monitor», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/e8cELDeDuTr"
+ },
+ {
+  "type": "Информационная панель",
+  "file": "informatsionnaya-panel.glb",
+  "ry": 180,
+  "title": "Flat Screen TV",
+  "author": "Alex Safayan",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/cQ6pt8VHR7G",
+  "credit": "«Flat Screen TV», Alex Safayan, CC-BY 3.0 — https://poly.pizza/m/cQ6pt8VHR7G"
+ },
+ {
+  "type": "Светильник линейный 1200",
+  "file": "svetilnik-lineynyy-1200.glb",
+  "ry": 180,
+  "title": "Flourescent Fixture",
+  "author": "Colin McKibben",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/b434Bd1ozKE",
+  "credit": "«Flourescent Fixture», Colin McKibben, CC-BY 3.0 — https://poly.pizza/m/b434Bd1ozKE"
+ },
+ {
+  "type": "Облучатель бактерицидный настенный",
+  "file": "obluchatel-bakteritsidnyy-nastennyy.glb",
+  "ry": 180,
+  "title": "Fluorescent Light",
+  "author": "Nick Slough",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/J8dFHQHQJZ",
+  "credit": "«Fluorescent Light», Nick Slough, CC-BY 3.0 — https://poly.pizza/m/J8dFHQHQJZ"
+ },
+ {
+  "type": "Светильник круглый накладной",
+  "file": "svetilnik-kruglyy-nakladnoy.glb",
+  "ry": 180,
+  "title": "Ceiling Light",
+  "author": "Jarlan Perez",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/7-ZyHe177WV",
+  "credit": "«Ceiling Light», Jarlan Perez, CC-BY 3.0 — https://poly.pizza/m/7-ZyHe177WV"
+ },
+ {
+  "type": "Светильник аварийный «Выход»",
+  "file": "svetilnik-avariynyy-vykhod.glb",
+  "ry": 90,
+  "title": "Fire Exit Sign",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/gpft2tHZv4",
+  "credit": "«Fire Exit Sign», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/gpft2tHZv4"
+ },
+ {
+  "type": "Светильник настенный",
+  "file": "svetilnik-nastennyy.glb",
+  "ry": 180,
+  "title": "Lamp Wall",
+  "author": "Kenney",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/74FEuNrLJ5",
+  "credit": "«Lamp Wall», Kenney, CC0 — https://poly.pizza/m/74FEuNrLJ5"
+ },
+ {
+  "type": "Светильник смотровой передвижной",
+  "file": "svetilnik-smotrovoy-peredvizhnoy.glb",
+  "ry": 180,
+  "title": "Lamp",
+  "author": "burunduk",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/OQ2HurCvOz",
+  "credit": "«Lamp», burunduk, CC-BY 3.0 — https://poly.pizza/m/OQ2HurCvOz"
+ },
+ {
+  "type": "Сейф для лекарственных средств",
+  "file": "seyf-dlya-lekarstvennykh-sredstv.glb",
+  "ry": 180,
+  "title": "Safe",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/N4egHD2Vms",
+  "credit": "«Safe», CreativeTrio, CC0 — https://poly.pizza/m/N4egHD2Vms"
+ },
+ {
+  "type": "Стеллаж",
+  "file": "stellazh.glb",
+  "ry": 180,
+  "title": "Shelves",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/OD78iJOQoN",
+  "credit": "«Shelves», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/OD78iJOQoN"
+ },
+ {
+  "type": "Стойка регистратуры",
+  "file": "stoyka-registratury.glb",
+  "ry": 180,
+  "title": "Desk",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/dptlMEX4tF_",
+  "credit": "«Desk», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/dptlMEX4tF_"
+ },
+ {
+  "type": "Стол письменный 1200×600",
+  "file": "stol-pismennyy-1200-600.glb",
+  "ry": 180,
+  "title": "Desk",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/YJyJam67hJ",
+  "credit": "«Desk», CreativeTrio, CC0 — https://poly.pizza/m/YJyJam67hJ"
+ },
+ {
+  "type": "Стол письменный 1400×700",
+  "file": "stol-pismennyy-1200-600.glb",
+  "ry": 180,
+  "title": "Desk",
+  "author": "CreativeTrio",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/YJyJam67hJ",
+  "credit": "«Desk», CreativeTrio, CC0 — https://poly.pizza/m/YJyJam67hJ"
+ },
+ {
+  "type": "Стол руководителя",
+  "file": "stol-rukovoditelya.glb",
+  "ry": 180,
+  "title": "Desk",
+  "author": "CMHT Oculus",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/7zuvXWL0v7f",
+  "credit": "«Desk», CMHT Oculus, CC-BY 3.0 — https://poly.pizza/m/7zuvXWL0v7f"
+ },
+ {
+  "type": "Стол приставной",
+  "file": "stol-pristavnoy.glb",
+  "ry": 180,
+  "title": "Computer Desk",
+  "author": "Zsky",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/OhXey2fljr",
+  "credit": "«Computer Desk», Zsky, CC-BY 3.0 — https://poly.pizza/m/OhXey2fljr"
+ },
+ {
+  "type": "Телефон IP",
+  "file": "telefon-ip.glb",
+  "ry": 180,
+  "title": "Office Phone",
+  "author": "dook",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/YxfMuchpUF",
+  "credit": "«Office Phone», dook, CC-BY 3.0 — https://poly.pizza/m/YxfMuchpUF"
+ },
+ {
+  "type": "Терминал электронной очереди",
+  "file": "terminal-elektronnoy-ocheredi.glb",
+  "ry": 180,
+  "title": "Voting machine",
+  "author": "jeremy",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/aT0tlNvHr4f",
+  "credit": "«Voting machine», jeremy, CC-BY 3.0 — https://poly.pizza/m/aT0tlNvHr4f"
+ },
+ {
+  "type": "Точка доступа Wi-Fi",
+  "file": "tochka-dostupa-wi-fi.glb",
+  "ry": 180,
+  "title": "Modern Router",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/6UHtXKKQJy",
+  "credit": "«Modern Router», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/6UHtXKKQJy"
+ },
+ {
+  "type": "Тумба подкатная",
+  "file": "tumba-podkatnaya.glb",
+  "ry": 180,
+  "title": "lisa's pedestals drawers 2 col",
+  "author": "Lisa Tixier",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/c8RZOw_aDG0",
+  "credit": "«lisa's pedestals drawers 2 col», Lisa Tixier, CC-BY 3.0 — https://poly.pizza/m/c8RZOw_aDG0"
+ },
+ {
+  "type": "Шкаф медицинский одностворчатый",
+  "file": "shkaf-meditsinskiy-odnostvorchatyy.glb",
+  "ry": 90,
+  "title": "Locker",
+  "author": "J-Toastie",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/aGmZ4jQD2y",
+  "credit": "«Locker», J-Toastie, CC-BY 3.0 — https://poly.pizza/m/aGmZ4jQD2y"
+ },
+ {
+  "type": "Шкаф медицинский двухстворчатый",
+  "file": "shkaf-meditsinskiy-dvukhstvorchatyy.glb",
+  "ry": 180,
+  "title": "Tall Cabinet",
+  "author": "Bouggles",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/z9U3UyVGPu",
+  "credit": "«Tall Cabinet», Bouggles, CC-BY 3.0 — https://poly.pizza/m/z9U3UyVGPu"
+ },
+ {
+  "type": "Шкаф для одежды",
+  "file": "shkaf-dlya-odezhdy.glb",
+  "ry": 180,
+  "title": "Closet",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/0Cuf7Rv4SfV",
+  "credit": "«Closet», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/0Cuf7Rv4SfV"
+ },
+ {
+  "type": "Шкаф для документов",
+  "file": "shkaf-dlya-dokumentov.glb",
+  "ry": 180,
+  "title": "Closet",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "url": "https://poly.pizza/m/2qdm7DZVG94",
+  "credit": "«Closet», Poly by Google, CC-BY 3.0 — https://poly.pizza/m/2qdm7DZVG94"
+ },
+ {
+  "type": "Диван",
+  "file": "divan.glb",
+  "ry": 180,
+  "title": "Sofa",
+  "author": "Quaternius",
+  "license": "CC0",
+  "url": "https://poly.pizza/m/vuo7KBehok",
+  "credit": "«Sofa», Quaternius, CC0 — https://poly.pizza/m/vuo7KBehok"
+ },
+ {
+  "type": "Вешалка напольная",
+  "file": "veshalka-napolnaya.glb",
+  "ry": 180,
+  "title": "coatRackStanding",
+  "author": "Kenney",
+  "license": "CC0",
+  "url": "https://kenney.nl/assets/furniture-kit",
+  "credit": "«coatRackStanding», Kenney, CC0 — https://kenney.nl/assets/furniture-kit"
+ },
+ {
+  "type": "Кушетка смотровая",
+  "file": "kushetka-smotrovaya.glb",
+  "ry": 0,
+  "title": "Кушетка смотровая",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Кушетка массажная",
+  "file": "kushetka-massazhnaya.glb",
+  "ry": 0,
+  "title": "Кушетка массажная",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Каталка медицинская",
+  "file": "katalka.glb",
+  "ry": 0,
+  "title": "Каталка медицинская",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Камера купольная",
+  "file": "kamera-kupolnaya.glb",
+  "ry": 0,
+  "title": "Камера купольная",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Камера «рыбий глаз»",
+  "file": "kamera-rybiy-glaz.glb",
+  "ry": 0,
+  "title": "Камера «рыбий глаз»",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Ростомер",
+  "file": "rostomer.glb",
+  "ry": 0,
+  "title": "Ростомер",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Секция стульев трёхместная",
+  "file": "sektsiya-stulev.glb",
+  "ry": 0,
+  "title": "Секция стульев трёхместная",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Вешалка гардеробная",
+  "file": "veshalka-garderobnaya.glb",
+  "ry": 0,
+  "title": "Вешалка гардеробная",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Аппарат УЗИ",
+  "file": "apparat-uzi.glb",
+  "ry": 0,
+  "title": "Аппарат УЗИ",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Электрокардиограф",
+  "file": "elektrokardiograf.glb",
+  "ry": 0,
+  "title": "Электрокардиограф",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Дефибриллятор",
+  "file": "defibrillyator.glb",
+  "ry": 0,
+  "title": "Дефибриллятор",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Негатоскоп",
+  "file": "negatoskop.glb",
+  "ry": 0,
+  "title": "Негатоскоп",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Аппарат Рота (таблица Сивцева)",
+  "file": "apparat-rota.glb",
+  "ry": 0,
+  "title": "Аппарат Рота (таблица Сивцева)",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Аспиратор хирургический",
+  "file": "aspirator.glb",
+  "ry": 0,
+  "title": "Аспиратор хирургический",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Стол инструментальный",
+  "file": "stol-instrumentalnyy.glb",
+  "ry": 0,
+  "title": "Стол инструментальный",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Стол манипуляционный",
+  "file": "stol-manipulyatsionnyy.glb",
+  "ry": 0,
+  "title": "Стол манипуляционный",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Стол перевязочный",
+  "file": "stol-perevyazochnyy.glb",
+  "ry": 0,
+  "title": "Стол перевязочный",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Стол пеленальный",
+  "file": "stol-pelenalnyy.glb",
+  "ry": 0,
+  "title": "Стол пеленальный",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Облучатель-рециркулятор",
+  "file": "obluchatel-retsirkulyator.glb",
+  "ry": 0,
+  "title": "Облучатель-рециркулятор",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Авторефкератометр",
+  "file": "avtorefkeratometr.glb",
+  "ry": 0,
+  "title": "Авторефкератометр",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Проектор знаков",
+  "file": "proektor-znakov.glb",
+  "ry": 0,
+  "title": "Проектор знаков",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Светильник хирургический передвижной",
+  "file": "svetilnik-khirurgicheskiy.glb",
+  "ry": 0,
+  "title": "Светильник хирургический передвижной",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Кресло гинекологическое",
+  "file": "kreslo-ginekologicheskoe.glb",
+  "ry": 0,
+  "title": "Кресло гинекологическое",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Светильник светодиодный 600×600",
+  "file": "svetilnik-panel-600.glb",
+  "ry": 0,
+  "title": "Светильник светодиодный 600×600",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Светильник для чистых помещений",
+  "file": "svetilnik-chistye-pomeshcheniya.glb",
+  "ry": 0,
+  "title": "Светильник для чистых помещений",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ },
+ {
+  "type": "Ширма медицинская",
+  "file": "shirma-meditsinskaya.glb",
+  "ry": 0,
+  "title": "Ширма медицинская",
+  "author": "разработчик системы",
+  "license": "CC0",
+  "url": "",
+  "credit": "собрана для базового каталога (tools/models3d.py), CC0"
+ }
+]

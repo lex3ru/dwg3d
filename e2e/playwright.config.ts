@@ -16,6 +16,9 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     locale: "ru-RU",
     trace: "retain-on-failure",
+    // E2E_GPU=1 — рисовать 3D видеокартой машины (замеры 8.2: «встроенная видеокарта»);
+    // без неё Chromium рисует программно и 3D медленнее, чем у человека
+    launchOptions: process.env.E2E_GPU ? { args: ["--enable-gpu", "--ignore-gpu-blocklist", "--use-angle=gl"] } : undefined,
   },
   projects: [
     { name: "компьютер", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, grepInvert: /@телефон/ },
