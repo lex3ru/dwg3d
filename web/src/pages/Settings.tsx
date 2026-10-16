@@ -25,12 +25,13 @@ interface Status {
 
 const TABS = [
   { key: "general", title: "Общие" },
+  { key: "inventory", title: "Учёт имущества" },
   { key: "status", title: "Состояние сервера" },
 ];
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "status" ? "status" : "general";
+  const tab = params.get("tab") === "status" ? "status" : params.get("tab") === "inventory" ? "inventory" : "general";
   return (
     <PageBody>
       <PageHeader title="Настройки" />
@@ -51,7 +52,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
-      {tab === "general" ? <General /> : <ServerStatus />}
+      {tab === "general" ? <General /> : tab === "inventory" ? <InventorySettings /> : <ServerStatus />}
     </PageBody>
   );
 }
@@ -97,9 +98,7 @@ function General() {
         <Field label="Срок хранения журнала, лет" hint="Записи старше удаляются автоматически раз в сутки." error={error?.field === "journal_years" ? error.message : undefined}>
           {(p) => <Input {...p} type="number" min={1} max={50} value={years} onChange={(e) => setYears(e.target.value)} className="w-32" />}
         </Field>
-        <p className="m-0 text-[13px] text-ink-2">
-          Вид инвентарного номера, размер наклеек, пороги различимости камер и параметры расчёта освещённости появятся здесь на этапах 5 и 7.
-        </p>
+        <p className="m-0 text-[13px] text-ink-2">Вид инвентарного номера и наклейки — на вкладке «Учёт имущества»; пороги камер и освещённость появятся на этапе 7.</p>
         <FormError message={error && !error.field ? error.message : null} />
         <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" disabled={save.isPending}>
@@ -107,6 +106,73 @@ function General() {
           </Button>
           {saved && <span className="text-sm text-ok">Сохранено</span>}
           {error?.code === "stale" && <Button onClick={() => settings.refetch()}>Обновить</Button>}
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+// 4.6 п. 2, 5.4.7, 7.3 п. 4: вид номера, наклейки, размеры файлов
+const INVENTORY_KEYS: [string, string, string][] = [
+  ["inventory_number_template", "Вид инвентарного номера", "Цифры нулями в конце: 000000 → 000154; ИН-0000 → ИН-0154. Номера выдаются подряд и после списания не повторяются."],
+  ["label_width_mm", "Наклейка: ширина, мм", ""],
+  ["label_height_mm", "Наклейка: высота, мм", "40×25 или 58×40 мм — под принтер этикеток; на нём печатается по одной наклейке на страницу."],
+  ["label_sheet_cols", "Лист А4: наклеек в ряду", ""],
+  ["label_sheet_rows", "Лист А4: рядов", ""],
+  ["label_sheet_top_mm", "Лист А4: поле сверху, мм", ""],
+  ["label_sheet_left_mm", "Лист А4: поле слева, мм", ""],
+  ["label_sheet_gap_mm", "Лист А4: промежуток между наклейками, мм", "Раскладка — под марку листа с готовыми наклейками."],
+  ["photo_max_mb", "Фото — до, МБ", ""],
+  ["document_max_mb", "Документ — до, МБ", ""],
+];
+
+function InventorySettings() {
+  const client = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => get<Settings>("/api/system/settings") });
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<ApiError | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!settings.data) return;
+    setValues(Object.fromEntries(INVENTORY_KEYS.map(([k]) => [k, String(settings.data.items.find((i) => i.key === k)?.value ?? "")])));
+  }, [settings.data]);
+  const save = useMutation({
+    mutationFn: () =>
+      patch<Settings>("/api/system/settings", {
+        version: settings.data!.version,
+        values: Object.fromEntries(INVENTORY_KEYS.map(([k]) => [k, k === "inventory_number_template" ? values[k] : Number(String(values[k]).replace(",", "."))])),
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(["settings"], data);
+      setSaved(true);
+    },
+    onError: (e) => setError(e as ApiError),
+  });
+  if (settings.isLoading) return <Loading />;
+  return (
+    <Card className="max-w-2xl p-6 max-md:p-4">
+      <form
+        className="grid gap-4 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setError(null);
+          setSaved(false);
+          save.mutate();
+        }}
+      >
+        {INVENTORY_KEYS.map(([k, title, hint]) => (
+          <Field key={k} label={title} hint={hint || undefined} error={error?.field === k ? error.message : undefined}>
+            {(p) => <Input {...p} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} className={k === "inventory_number_template" ? "font-mono" : "w-32"} />}
+          </Field>
+        ))}
+        <div className="sm:col-span-2">
+          <FormError message={error && !error.field ? error.message : null} />
+        </div>
+        <div className="flex items-center gap-3 sm:col-span-2">
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            Сохранить
+          </Button>
+          {saved && <span className="text-sm text-ok">Сохранено</span>}
         </div>
       </form>
     </Card>

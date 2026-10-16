@@ -47,3 +47,12 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 export function Loading() {
   return <div className="px-6 py-12 text-center text-sm text-ink-2">Загрузка…</div>;
 }
+
+// Длинный список слева (места, типы): на широком экране держится на месте и листается сам,
+// а содержимое справа листается вместе со страницей
+export const SIDE_LIST = "md:sticky md:top-6 md:max-h-[calc(100dvh-112px)] md:self-start md:overflow-y-auto md:pr-1";
+
+// Выбрали в списке другое — справа показываем его с начала
+export function toPageTop() {
+  document.querySelector("main")?.scrollTo({ top: 0 });
+}

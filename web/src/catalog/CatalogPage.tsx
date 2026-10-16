@@ -10,7 +10,7 @@ import { useCardTitle } from "@/shell/context";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { Field, FormError, Input } from "@/ui/form";
-import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
+import { Card, Chip, Empty, Loading, PageHeader, SIDE_LIST, toPageTop } from "@/ui/misc";
 import { CharDialog, DeferredInput, useInvalidateCatalog, useSerialPatch, useTree } from "./parts";
 import { TypeCard } from "./TypeCard";
 import { KINDS, LEVELS, type CharSet, type Characteristic, type Layer, type TypeBrief } from "./types";
@@ -97,8 +97,8 @@ function TypesSection({ typeId, tab, go }: { typeId: string | null; tab: TypeTab
   if (tree.isLoading) return <Loading />;
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
-      <div className={cn("flex flex-col gap-3", typeId && "max-md:hidden")}>
-        <label className="flex h-9 items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 max-md:h-11">
+      <div className={cn("flex flex-col gap-3", SIDE_LIST, typeId && "max-md:hidden")}>
+        <label className="sticky top-0 z-10 flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 max-md:h-11">
           <Search className="size-4 text-ink-3" />
           <input aria-label="Поиск типа" placeholder="Поиск типа" value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none" />
         </label>
@@ -124,7 +124,10 @@ function TypesSection({ typeId, tab, go }: { typeId: string | null; tab: TypeTab
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => go({ type: t.id, tab: null })}
+                  onClick={() => {
+                    go({ type: t.id, tab: null });
+                    toPageTop();
+                  }}
                   className={cn(
                     "flex cursor-pointer items-center gap-2 rounded-md border-0 px-2 py-1.5 text-left text-[13px] max-md:py-2.5",
                     t.id === typeId ? "bg-accent-soft font-medium text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2",

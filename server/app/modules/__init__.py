@@ -17,4 +17,4 @@ TIERS: dict[str, int] = {
 
 # что подключено к приложению сейчас; каждый модуль описан в своём module.py
 INSTALLED: list[str] = ["journal", "access", "files", "system", "building", "catalog",
-                        "planning"]
+                        "planning", "inventory"]

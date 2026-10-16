@@ -167,6 +167,13 @@ def _values(
     return dict(session.execute(q).all())  # type: ignore[arg-type]
 
 
+def values_of(
+    session: Session, *, type_id: uuid.UUID | None = None, model_id: uuid.UUID | None = None
+) -> dict[uuid.UUID, Any]:
+    """Значения характеристик уровня типа или модели — для модулей выше."""
+    return _values(session, type_id=type_id, model_id=model_id)
+
+
 def set_values(
     session: Session,
     actor: Actor | None,
@@ -685,6 +692,43 @@ def _type_values(session: Session, values: dict[str, Any]) -> dict[str, Any]:
     if "top_view" in out and out["top_view"] not in ("box", "icon"):
         raise AppError("Вид сверху — контур или значок.", field="top_view")
     return out
+
+
+def types_by_id(session: Session, ids: Any) -> dict[uuid.UUID, ItemType]:
+    """Типы по ключам — для модулей выше (учёт, планировка)."""
+    ids = list(set(ids))
+    if not ids:
+        return {}
+    return {t.id: t for t in session.scalars(select(ItemType).where(ItemType.id.in_(ids)))}
+
+
+def models_by_id(session: Session, ids: Any) -> dict[uuid.UUID, Model]:
+    ids = [i for i in set(ids) if i]
+    if not ids:
+        return {}
+    return {m.id: m for m in session.scalars(select(Model).where(Model.id.in_(ids)))}
+
+
+def type_ids(session: Session, layer_id: uuid.UUID | None = None, text: str | None = None
+             ) -> list[uuid.UUID]:
+    q = select(ItemType.id)
+    if layer_id is not None:
+        q = q.where(ItemType.layer_id == layer_id)
+    if text:
+        q = q.where(ItemType.name.ilike(f"%{text}%"))
+    return list(session.scalars(q))
+
+
+def models_of(session: Session, type_id: uuid.UUID) -> list[Model]:
+    return list(session.scalars(select(Model).where(Model.type_id == type_id)))
+
+
+def all_types(session: Session) -> list[ItemType]:
+    return list(session.scalars(select(ItemType).order_by(ItemType.name)))
+
+
+def layer_names(session: Session) -> dict[uuid.UUID, str]:
+    return dict(session.execute(select(Layer.id, Layer.name)).all())  # type: ignore[arg-type]
 
 
 def get_type(session: Session, type_id: uuid.UUID) -> ItemType:

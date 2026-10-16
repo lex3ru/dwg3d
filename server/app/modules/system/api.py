@@ -50,6 +50,11 @@ SETTINGS: dict[str, SettingDef] = {
 }
 
 
+def register(key: str, definition: SettingDef) -> None:
+    """Модули выше добавляют свои настройки (вид инвентарного номера, наклейки…)."""
+    SETTINGS.setdefault(key, definition)
+
+
 def get(session: Session, key: str) -> Any:
     row = session.get(Setting, key)
     return row.value if row is not None else SETTINGS[key].default

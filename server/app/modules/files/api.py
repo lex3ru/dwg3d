@@ -25,9 +25,10 @@ KINDS: dict[str, tuple[str, tuple[bytes, ...]]] = {
     "dwg": ("application/acad", (b"AC10",)),
     "dxf": ("application/dxf", (b"AutoCAD Binary DXF",)),
     "glb": ("model/gltf-binary", (b"glTF",)),
+    "heic": ("image/heic", ()),  # снимок с телефона: «ftypheic» на 4-м байте
 }
 TITLES = {"pdf": "PDF", "png": "PNG", "jpeg": "JPEG", "webp": "WebP", "dwg": "DWG",
-          "dxf": "DXF", "glb": "GLB"}
+          "dxf": "DXF", "glb": "GLB", "heic": "HEIC"}
 
 
 def _root() -> Path:
@@ -43,6 +44,8 @@ def _sniff(head: bytes) -> str | None:
     text = head.lstrip()
     if (text.startswith(b"0") and b"SECTION" in text[:40]) or text.startswith(b"999"):
         return "dxf"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"mif1", b"msf1", b"hevc"):
+        return "heic"
     for kind, (_, signatures) in KINDS.items():
         if any(head.startswith(s) for s in signatures):
             if kind == "webp" and head[8:12] != b"WEBP":
@@ -52,8 +55,9 @@ def _sniff(head: bytes) -> str | None:
 
 
 def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
-          accept: set[str]) -> StoredFile:
-    """Сохранить загруженный файл; `accept` — какие виды допустимы ("pdf", "png"…)."""
+          accept: set[str], limit: int = MAX_SIZE) -> StoredFile:
+    """Сохранить загруженный файл; `accept` — какие виды допустимы ("pdf", "png"…),
+    `limit` — наибольший размер в байтах (настройки модулей, 7.3 п. 4)."""
     root = _root()
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
@@ -65,8 +69,8 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
                 if not head:
                     head = chunk[:64]
                 size += len(chunk)
-                if size > MAX_SIZE:
-                    raise AppError(f"Файл больше {MAX_SIZE // 1024 // 1024} МБ.",
+                if size > min(limit, MAX_SIZE):
+                    raise AppError(f"Файл больше {min(limit, MAX_SIZE) // 1024 // 1024} МБ.",
                                    code="too_large")
                 digest.update(chunk)
                 tmp.write(chunk)

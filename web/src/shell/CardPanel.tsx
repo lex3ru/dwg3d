@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { UnitCard } from "@/inventory/UnitCard";
 import { UserCard } from "@/pages/UserCard";
 import { Button } from "@/ui/button";
 import { useCard } from "./context";
@@ -8,6 +9,7 @@ import { useCard } from "./context";
 // инвентарная единица, документ, тип) добавляются сюда на своих этапах.
 const CARDS: Record<string, (id: string) => ReactNode> = {
   user: (id) => <UserCard id={id} />,
+  unit: (id) => <UnitCard id={id} />,
 };
 
 export function CardPanel() {

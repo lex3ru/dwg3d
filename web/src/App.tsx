@@ -4,6 +4,11 @@ import { useLiveUpdates } from "@/lib/live";
 import { CatalogPage } from "@/catalog/CatalogPage";
 import { PurposesPage } from "@/catalog/PurposesPage";
 import { EditorPage } from "@/editor/Editor";
+import { DocumentPage } from "@/inventory/DocumentPage";
+import { DocumentsPage } from "@/inventory/DocumentsPage";
+import { PropertyPage } from "@/inventory/PropertyPage";
+import { QrPage } from "@/inventory/QrPage";
+import { WarehousePage } from "@/inventory/WarehousePage";
 import { Buildings } from "@/pages/Buildings";
 import { Journal } from "@/pages/Journal";
 import { PlanIndex } from "@/pages/PlanIndex";
@@ -24,6 +29,9 @@ const READY: Record<string, React.ReactNode> = {
   "/plan": <PlanIndex />,
   "/catalog": <CatalogPage />,
   "/purposes": <PurposesPage />,
+  "/property": <PropertyPage />,
+  "/warehouse": <WarehousePage />,
+  "/documents": <DocumentsPage />,
 };
 
 export function App() {
@@ -54,6 +62,8 @@ export function App() {
           <Route path="/plan/:buildingId/:floorId?" element={<EditorPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/scan" element={<Placeholder title="QR-сканер" stage={6} about="Камера телефона читает QR-метку на вещи или двери помещения и открывает карточку (6.5.12, 5.4.7)." />} />
+          {role === "admin" && <Route path="/documents/:docId" element={<DocumentPage />} />}
+          <Route path="/q/:code" element={<QrPage />} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
         </Route>
       </Routes>
