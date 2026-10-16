@@ -4,7 +4,7 @@
 // расчёт: новый модуль появляется в списке сам.
 
 import { useQuery } from "@tanstack/react-query";
-import { Calculator, Table2 } from "lucide-react";
+import { Table2 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { get, post } from "@/lib/api";
@@ -256,35 +256,35 @@ export function CalcSection({ store, list }: { store: EditorStore; list: CalcInf
   };
   const shown = list.find((c) => c.key === table);
   return (
-    <section aria-label="Расчёты" className="max-h-[45%] shrink-0 overflow-y-auto border-b border-line p-2">
-      <h3 className="m-0 flex items-center gap-1.5 px-1.5 pb-1 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">
-        <Calculator className="size-3.5" /> Расчёты
-      </h3>
+    <section aria-label="Расчёты" className="flex flex-col gap-1 p-2">
       {list.map((c) => {
         const active = on.includes(c.key);
         const r = results[c.key];
         return (
-          <div key={c.key} className="flex flex-col gap-1.5 rounded-md px-1.5 py-1">
-            <label className="flex cursor-pointer items-center gap-2 text-[13px]" title={c.about}>
+          <div key={c.key} className={cn("flex flex-col gap-2 rounded-lg border p-2.5", active ? "border-accent/40 bg-surface" : "border-line")}>
+            <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium">
               <input type="checkbox" checked={active} onChange={() => toggleCalc(store, c.key)} aria-label={c.title} />
               <span className="flex-1">{c.title}</span>
-              {active && r && <span className="font-mono text-[10px] text-ink-3">{r.took_ms} мс</span>}
+              {active && r && <span className="font-mono text-[10px] font-normal text-ink-3">{r.took_ms} мс</span>}
             </label>
+            {!active && <p className="m-0 text-[12px] text-ink-3">{c.about}</p>}
             {active &&
               c.options.map((o) => (
-                <select
-                  key={o.key}
-                  aria-label={o.title}
-                  value={options[c.key]?.[o.key] ?? o.default}
-                  onChange={(e) => store.set({ calcOptions: { ...options, [c.key]: { ...options[c.key], [o.key]: e.target.value } } })}
-                  className="h-8 rounded-md border border-line-strong bg-surface px-1.5 text-[12px] max-md:h-10"
-                >
-                  {o.choices.map(([v, t]) => (
-                    <option key={v} value={v}>
-                      {o.title}: {t}
-                    </option>
-                  ))}
-                </select>
+                <label key={o.key} className="flex flex-col gap-1 text-[11px] text-ink-2">
+                  {o.title}
+                  <select
+                    aria-label={o.title}
+                    value={options[c.key]?.[o.key] ?? o.default}
+                    onChange={(e) => store.set({ calcOptions: { ...options, [c.key]: { ...options[c.key], [o.key]: e.target.value } } })}
+                    className="h-8 rounded-md border border-line-strong bg-surface px-1.5 text-[12px] text-ink max-md:h-10"
+                  >
+                    {o.choices.map(([v, t]) => (
+                      <option key={v} value={v}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               ))}
             {active && r && (
               <div className="flex flex-col gap-1.5 text-[12px]" aria-label={`Итоги: ${c.title}`}>

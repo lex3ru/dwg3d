@@ -89,59 +89,29 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
     return (link?.units ?? []).filter((u) => ids.has(u.id));
   }, [link]);
   const broken = (link?.units ?? []).filter((u) => u.item_id && (u.state === "broken" || u.state === "repair")).length;
+  // по помещениям: сначала то, где ждут больше
+  const groups = useMemo(() => {
+    const out = new Map<string, LinkUnit[]>();
+    for (const u of units) {
+      const list = out.get(u.room_title);
+      if (list) list.push(u);
+      else out.set(u.room_title, [u]);
+    }
+    return [...out.entries()].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0], "ru", { numeric: true }));
+  }, [units]);
   if (!link) return null;
+  const head = "m-0 flex items-center justify-between px-1.5 pb-1 text-[12px] font-semibold tracking-wide text-ink-2 uppercase";
   return (
     <>
-      <section aria-label="Неразмещённые" className="max-h-64 shrink-0 overflow-y-auto border-b border-line p-2">
-        <h3 className="m-0 flex items-center justify-between px-1.5 pb-1 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">
-          Неразмещённые
-          <span className="font-mono font-normal text-ink-3">{units.length}</span>
-        </h3>
-        {units.length === 0 ? (
-          <p className="m-0 px-1.5 text-[12px] text-ink-3">Всё, что числится на этаже, стоит на плане.</p>
-        ) : (
-          <ul aria-label="Неразмещённые единицы" className="m-0 list-none p-0">
-            {units.map((u) => {
-              const t = cat.types.get(u.type_id);
-              const active = placingUnit === u.id;
-              return (
-                <li key={u.id}>
-                  <button
-                    type="button"
-                    draggable={!readOnly}
-                    disabled={readOnly}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("application/x-item-type", u.type_id);
-                      e.dataTransfer.setData("application/x-unit", u.id);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onClick={() => store.set(active ? { placing: null, placingUnit: null } : { placing: u.type_id, placingUnit: u.id, selection: [] })}
-                    aria-pressed={active}
-                    title={`${u.title}${u.number ? ` № ${u.number}` : ""} — ${u.room_title}. Перетащите на план или выберите и щёлкните по плану.`}
-                    className={cn(
-                      "flex w-full cursor-grab flex-col rounded-md border-0 px-1.5 py-1.5 text-left text-[13px] max-md:py-2.5",
-                      active ? "bg-accent-soft text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2",
-                    )}
-                  >
-                    <span className="truncate">
-                      {t?.name ?? u.title}
-                      {u.number && <span className="ml-1 font-mono text-[11px] text-ink-3">№ {u.number}</span>}
-                    </span>
-                    <span className="truncate text-[11px] text-ink-3">{u.room_title}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <label className="mt-1.5 flex cursor-pointer items-center gap-2 px-1.5 text-[12px] text-ink-2">
-          <input type="checkbox" checked={onlyBroken} onChange={(e) => store.set({ onlyBroken: e.target.checked })} />
-          Только неисправное{broken ? ` (${broken})` : ""}
-        </label>
-      </section>
+      <label className="flex cursor-pointer items-center gap-2 border-b border-line px-3.5 py-2 text-[12px] text-ink-2">
+        <input type="checkbox" checked={onlyBroken} onChange={(e) => store.set({ onlyBroken: e.target.checked })} />
+        Только неисправное на плане{broken ? ` (${broken})` : ""}
+      </label>
       {link.mismatch.length > 0 && (
-        <section aria-label="Сверка с учётом" className="max-h-40 shrink-0 overflow-y-auto border-b border-line p-2">
-          <h3 className="m-0 px-1.5 pb-1 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">Сверка с учётом</h3>
+        <section aria-label="Сверка с учётом" className="border-b border-line p-2">
+          <h3 className={head}>
+            Сверка с учётом <span className="font-mono font-normal text-warn">{link.mismatch.length}</span>
+          </h3>
           <ul className="m-0 list-none p-0 text-[12px]">
             {link.mismatch.map((m) => (
               <li key={`${m.room_id}${m.type_id}`} className="px-1.5 py-1">
@@ -154,6 +124,58 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
           </ul>
         </section>
       )}
+      <section aria-label="Неразмещённые" className="p-2">
+        <h3 className={head}>
+          Неразмещённые
+          <span className="font-mono font-normal text-ink-3">{units.length}</span>
+        </h3>
+        {units.length === 0 ? (
+          <p className="m-0 px-1.5 text-[12px] text-ink-3">Всё, что числится на этаже, стоит на плане.</p>
+        ) : (
+          <>
+            <p className="m-0 px-1.5 pb-1.5 text-[11px] text-ink-3">Перетащите на план или выберите и щёлкните по плану.</p>
+            <ul aria-label="Неразмещённые единицы" className="m-0 list-none p-0">
+              {groups.map(([room, list]) => (
+                <li key={room} className="pb-1.5">
+                  <div className="sticky top-0 z-10 bg-surface px-1.5 py-1 text-[11px] font-medium text-ink-2">
+                    {room || "без помещения"} <span className="font-mono font-normal text-ink-3">{list.length}</span>
+                  </div>
+                  <ul className="m-0 list-none p-0">
+                    {list.map((u) => {
+                      const t = cat.types.get(u.type_id);
+                      const active = placingUnit === u.id;
+                      return (
+                        <li key={u.id}>
+                          <button
+                            type="button"
+                            draggable={!readOnly}
+                            disabled={readOnly}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("application/x-item-type", u.type_id);
+                              e.dataTransfer.setData("application/x-unit", u.id);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => store.set(active ? { placing: null, placingUnit: null } : { placing: u.type_id, placingUnit: u.id, selection: [] })}
+                            aria-pressed={active}
+                            title={`${u.title}${u.number ? ` № ${u.number}` : ""} — ${u.room_title}`}
+                            className={cn(
+                              "flex w-full cursor-grab items-baseline gap-1 rounded-md border-0 px-1.5 py-1 text-left text-[13px] max-md:py-2.5",
+                              active ? "bg-accent-soft text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2",
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{t?.name ?? u.title}</span>
+                            {u.number && <span className="shrink-0 font-mono text-[11px] text-ink-3">{u.number}</span>}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
     </>
   );
 }

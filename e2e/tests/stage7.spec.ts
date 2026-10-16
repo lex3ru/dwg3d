@@ -61,6 +61,7 @@ test("С7: зона обзора камеры по уровням, угол ва
   });
   expect(r.ok()).toBeTruthy();
   await openPlan(page, `/plan/${f.building}/${f.floor}?mode=place`);
+  await page.getByRole("tab", { name: /^Расчёты/ }).click();
   const calcs = page.getByRole("region", { name: "Расчёты" });
   await calcs.getByRole("checkbox", { name: "Обзор камер" }).check();
   const summary = calcs.getByLabel("Итоги: Обзор камер");
@@ -110,6 +111,7 @@ test("С8: освещённость коридора — ряд светильн
   expect(r.ok()).toBeTruthy();
   const first = (await r.json()).items[0].id as string;
   await openPlan(page, `/plan/${f.building}/${f.floor}?mode=place`);
+  await page.getByRole("tab", { name: /^Расчёты/ }).click();
   const calcs = page.getByRole("region", { name: "Расчёты" });
   await calcs.getByRole("checkbox", { name: "Освещённость" }).check();
   const low = calcs.getByRole("list", { name: "Ниже нормы" });
@@ -117,6 +119,7 @@ test("С8: освещённость коридора — ряд светильн
   await expect(low).toContainText("214 Кабинет: ср. 0 лк при норме 500 — светильников нет");
 
   // светильник — рядом с шагом 3 м до конца коридора
+  await page.getByRole("tab", { name: "Слои" }).click();
   await page.getByRole("button", { name: "Показать слой Освещение" }).click();
   await page.goto(`/plan/${f.building}/${f.floor}?mode=place&item=${first}`);
   await expect(page.getByRole("heading", { name: "Светильник светодиодный 600×600" })).toBeVisible();
@@ -126,6 +129,7 @@ test("С8: освещённость коридора — ряд светильн
   await page.getByRole("button", { name: "До конца помещения" }).click();
   await page.getByRole("button", { name: "Поставить копии (3)" }).click();
   // шаг 3 м — концы коридора всё ещё темнее нормы
+  await page.getByRole("tab", { name: /^Расчёты/ }).click();
   await expect(calcs.getByRole("list", { name: "Ниже нормы" })).toContainText(/1К Коридор: ср\. \d+ лк при норме 200/);
   await expect.poll(async () => (await (await page.request.get(`/api/floors/${f.floor}/items`)).json()).items.length).toBe(4);
   // С8: уменьшить шаг — копии заново с шагом 1,5 м, пока подсветка не исчезнет
@@ -136,6 +140,7 @@ test("С8: освещённость коридора — ряд светильн
   await step.press("Enter");
   await page.getByRole("button", { name: "До конца помещения" }).click();
   await page.getByRole("button", { name: /^Поставить копии/ }).click();
+  await page.getByRole("tab", { name: /^Расчёты/ }).click();
   await expect(calcs.getByRole("list", { name: "Ниже нормы" })).not.toContainText("1К Коридор");
   await expect(page.getByText(/норма 200/).first()).toBeVisible();
 });

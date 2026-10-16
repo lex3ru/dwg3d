@@ -99,10 +99,11 @@ test("С12 и С13: выданное ждёт в «Неразмещённых»,
   await posted(page, "transfer", { from_place: wh.key, to_place: `r:${f.rooms["214"]}` }, units.map((id) => ({ unit_id: id })));
 
   await openPlan(page, `/plan/${f.building}/${f.floor}?mode=place`);
+  await page.getByRole("tab", { name: /^Учёт/ }).click();
   const unplaced = page.getByRole("list", { name: "Неразмещённые единицы" });
   await expect(unplaced.getByRole("button")).toHaveCount(2);
   await expect(unplaced.getByRole("button").first()).toContainText("Монитор 24″");
-  await expect(unplaced.getByRole("button").first()).toContainText("214 Кабинет");
+  await expect(unplaced).toContainText("214 Кабинет");
 
   // первый — перетаскиванием на стол в 214, второй — выбрать и щёлкнуть по плану
   const plan = page.getByRole("img", { name: "План этажа" });

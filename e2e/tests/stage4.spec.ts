@@ -72,6 +72,7 @@ async function typeId(page: Page, name: string): Promise<string> {
 }
 
 async function pick(page: Page, name: string) {
+  await page.getByRole("tab", { name: "Каталог" }).click();
   await page.getByLabel("Поиск в каталоге").fill(name);
   // у настенных и потолочных в строке ещё «на стену», «на потолок»
   return page.getByRole("list", { name: "Типы для расстановки" }).getByRole("button", { name }).first();
@@ -151,6 +152,7 @@ test("С8: светильник на потолок коридора и ряд �
   await page.goto(`/plan/${f.building}/${f.floor}`);
   await page.getByRole("tab", { name: "Расстановка" }).click();
   // освещение по умолчанию скрыто — включить
+  await page.getByRole("tab", { name: "Слои" }).click();
   await page.getByRole("button", { name: "Показать слой Освещение" }).click();
   await placeAt(page, "Светильник светодиодный 600×600", 1500, 1000);
   await expect(page.getByRole("heading", { name: "Светильник светодиодный 600×600" })).toBeVisible();
