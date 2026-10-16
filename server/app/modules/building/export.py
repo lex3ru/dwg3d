@@ -251,7 +251,8 @@ def layout(d: Drawing, paper: str, orientation: str, scale: int | None
     return scale, sheets, pw, ph
 
 
-def _svg(d: Drawing, sheet: Sheet, scale: int, aw: float, ah: float) -> str:
+def _svg(d: Drawing, sheet: Sheet, scale: int, aw: float, ah: float,
+         overlays: list[dict[str, Any]] | None = None) -> str:
     def tx(p: Pt) -> str:
         return f"{(p[0] - sheet.x0) / scale:.2f},{(sheet.y0 + sheet.h - p[1]) / scale:.2f}"
 
@@ -269,6 +270,12 @@ def _svg(d: Drawing, sheet: Sheet, scale: int, aw: float, ah: float) -> str:
         if layer != "Помещения":
             parts.append(f'<polyline points="{" ".join(tx(p) for p in poly)}" fill="none" '
                          f'stroke="#222" stroke-width="0.18"/>')
+    # поверх плана — фигуры модулей выше (предметы проекта): контур, заливка, пунктир
+    for o in overlays or []:
+        dash = ' stroke-dasharray="0.8,0.5"' if o.get("dash") else ""
+        parts.append(f'<polygon points="{" ".join(tx(tuple(p)) for p in o["points"])}" '
+                     f'fill="{o.get("fill", "none")}" fill-opacity="{o.get("opacity", 0.35)}" '
+                     f'stroke="{o.get("stroke", "#000")}" stroke-width="0.25"{dash}/>')
     for _, center, radius, start, end in d.arcs:
         a = (center[0] + radius * math.cos(math.radians(start)),
              center[1] + radius * math.sin(math.radians(start)))
@@ -284,6 +291,19 @@ def _svg(d: Drawing, sheet: Sheet, scale: int, aw: float, ah: float) -> str:
                      f'fill="#111">{escape(text)}</text>')
     parts.append("</g></svg>")
     return "".join(parts)
+
+
+def fit_svg(d: Drawing, aw: float, ah: float, overlays: list[dict[str, Any]]) -> tuple[str, int]:
+    """Весь этаж на одном листе aw × ah мм в самом крупном стандартном масштабе — с фигурами
+    поверх плана. Масштаб — для подписи."""
+    minx, miny, maxx, maxy = d.bbox
+    pad = 500
+    minx, miny, maxx, maxy = minx - pad, miny - pad, maxx + pad, maxy + pad
+    width, height = maxx - minx, maxy - miny
+    scale = next((s for s in SCALES if width / s <= aw and height / s <= ah), SCALES[-1])
+    sw, sh = aw * scale, ah * scale
+    sheet = Sheet(minx - (sw - width) / 2, miny - (sh - height) / 2, sw, sh, 0, 0)
+    return _svg(d, sheet, scale, aw, ah, overlays), scale
 
 
 def pdf(d: Drawing, *, paper: str, orientation: str, scale: int | None, title: str,

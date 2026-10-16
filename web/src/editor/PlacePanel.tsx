@@ -59,7 +59,7 @@ export function PlacePanel({ store, cat, readOnly, link, calcs }: { store: Edito
   const tabs: { key: Tab; title: string; icon: typeof Layers; badge?: number; warn?: boolean }[] = [
     ...(readOnly ? [] : [{ key: "catalog" as const, title: "Каталог", icon: LayoutGrid }]),
     { key: "layers", title: "Слои", icon: Layers },
-    ...(readOnly ? [] : [{ key: "stock" as const, title: "Учёт", icon: PackageCheck, badge: unplaced || undefined, warn: !!link?.mismatch.length }]),
+    ...(readOnly || !link ? [] : [{ key: "stock" as const, title: "Учёт", icon: PackageCheck, badge: unplaced || undefined, warn: !!link?.mismatch.length }]),
     ...(calcs.length ? [{ key: "calc" as const, title: "Расчёты", icon: Calculator, badge: calcsOn || undefined }] : []),
   ];
   const shown = tabs.some((t) => t.key === tab) ? tab : tabs[0]!.key;

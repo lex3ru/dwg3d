@@ -266,9 +266,11 @@ function ManyItems({ items, store, cat, readOnly, onRegister, link }: { items: I
               <Trash2 /> Убрать
             </Button>
           </div>
-          <Button size="sm" disabled={!unlinked.length} onClick={() => onRegister(unlinked.map((i) => i.id))}>
-            <PackagePlus /> Поставить на учёт ({unlinked.length})
-          </Button>
+          {link && (
+            <Button size="sm" disabled={!unlinked.length} onClick={() => onRegister(unlinked.map((i) => i.id))}>
+              <PackagePlus /> Поставить на учёт ({unlinked.length})
+            </Button>
+          )}
         </>
       )}
     </Section>

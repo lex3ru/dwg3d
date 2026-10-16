@@ -1,6 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router";
 import { get } from "@/lib/api";
 import type { BuildingSummary } from "@/pages/Buildings";
 import { lastBuilding } from "@/pages/PlanIndex";
@@ -83,11 +83,12 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 // Над меню — здание (6.3): одно доступное — просто название, несколько — выбор
 function BuildingSwitcher() {
   const { pathname } = useLocation();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const list = useQuery({ queryKey: ["buildings", false], queryFn: () => get<{ items: BuildingSummary[] }>("/api/buildings") });
   const items = list.data?.items ?? [];
   if (!items.length) return null;
-  const fromUrl = pathname.startsWith("/plan/") ? pathname.split("/")[2] : null;
+  const fromUrl = pathname.startsWith("/plan/") ? pathname.split("/")[2] : pathname === "/projects" ? params.get("building") : null;
   const current = items.find((b) => b.id === fromUrl) ?? items.find((b) => b.id === lastBuilding()) ?? items[0]!;
   return (
     <div className="border-b border-line px-4 py-3">
@@ -98,7 +99,15 @@ function BuildingSwitcher() {
         <select
           aria-label="Здание"
           value={current.id}
-          onChange={(e) => navigate(`/plan/${e.target.value}`)}
+          onChange={(e) => {
+            try {
+              localStorage.setItem("building", e.target.value);
+            } catch {
+              /* не запомнится */
+            }
+            // проекты — по зданию: остаёмся в списке проектов, иначе — план здания
+            navigate(pathname === "/projects" ? `/projects?building=${e.target.value}` : `/plan/${e.target.value}`);
+          }}
           className="mt-1 h-8 w-full rounded-md border border-line-strong bg-surface px-1.5 text-sm text-ink max-md:h-11"
         >
           {items.map((b) => (

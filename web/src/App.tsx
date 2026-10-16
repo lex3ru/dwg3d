@@ -18,6 +18,8 @@ import { Placeholder } from "@/pages/Placeholder";
 import { SearchPage } from "@/pages/SearchPage";
 import { SettingsPage } from "@/pages/Settings";
 import { Users } from "@/pages/Users";
+import { ProjectPage } from "@/projects/ProjectPage";
+import { ProjectsPage } from "@/projects/ProjectsPage";
 import { homeFor, MENU } from "@/shell/menu";
 import { Shell } from "@/shell/Shell";
 import { Loading } from "@/ui/misc";
@@ -33,6 +35,7 @@ const READY: Record<string, React.ReactNode> = {
   "/property": <PropertyPage />,
   "/warehouse": <WarehousePage />,
   "/documents": <DocumentsPage />,
+  "/projects": <ProjectsPage />,
 };
 
 export function App() {
@@ -64,6 +67,7 @@ export function App() {
           <Route path="/search" element={<SearchPage />} />
           <Route path="/scan" element={<ScanPage />} />
           {role === "admin" && <Route path="/documents/:docId" element={<DocumentPage />} />}
+          {role === "admin" && <Route path="/projects/:projectId" element={<ProjectPage />} />}
           <Route path="/q/:code" element={<QrPage />} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
         </Route>

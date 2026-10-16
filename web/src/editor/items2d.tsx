@@ -17,17 +17,20 @@ interface ShapeProps {
   pale: boolean;
   contents: number;
   unit?: string; // состояние связанной единицы (5.5, 6.5.2)
+  mark?: "added" | "moved" | "changed" | null; // в проекте: новое, перемещённое, изменённое (5.3.6)
 }
+
+export const PROJECT_COLOR = { added: "#2E7D32", moved: "#EF6C00", changed: "#1565C0", removed: "#C62828" } as const;
 
 // значок учёта на предмете: учтён и в работе — зелёный, неисправен — красный, в ремонте —
 // жёлтый, на хранении — серый
 const UNIT_COLOR: Record<string, string> = { in_use: "var(--ok)", broken: "var(--bad)", repair: "var(--warn)", storage: "var(--ink-3)" };
 
-export const ItemShape = memo(function ItemShape({ item, type, color, px, selected, warn, pale, contents, unit }: ShapeProps) {
+export const ItemShape = memo(function ItemShape({ item, type, color, px, selected, warn, pale, contents, unit, mark }: ShapeProps) {
   const { w, d } = sizeOf(type);
   const x = item.x ?? 0;
   const y = item.y ?? 0;
-  const stroke = selected ? "var(--accent)" : warn ? "var(--bad)" : color;
+  const stroke = selected ? "var(--accent)" : mark ? PROJECT_COLOR[mark] : warn ? "var(--bad)" : color;
   const icon = type?.top_view === "icon";
   // передняя сторона — +Y предмета: короткая черта у края
   const f0 = add([x, y], rot([-w / 4, d / 2], item.angle));
@@ -41,7 +44,7 @@ export const ItemShape = memo(function ItemShape({ item, type, color, px, select
         </>
       ) : (
         <>
-          <path d={toPath(rect(x, y, w, d, item.angle))} fill={color} fillOpacity={0.22} stroke={stroke} strokeWidth={(selected ? 3 : 1.2) * px} strokeDasharray={warn && !selected ? `${5 * px} ${3 * px}` : undefined} />
+          <path d={toPath(rect(x, y, w, d, item.angle))} fill={mark ? PROJECT_COLOR[mark] : color} fillOpacity={mark ? 0.3 : 0.22} stroke={stroke} strokeWidth={(selected ? 3 : mark ? 2.2 : 1.2) * px} strokeDasharray={warn && !selected ? `${5 * px} ${3 * px}` : undefined} />
           <line x1={f0[0]} y1={f0[1]} x2={f1[0]} y2={f1[1]} stroke={stroke} strokeWidth={2.5 * px} />
         </>
       )}
@@ -105,3 +108,20 @@ export function layerColor(layers: Map<string, Layer>, type: TypeBrief | undefin
 }
 
 export const WARN_ICON: Record<WarningCode, string> = { wall: "стена", door: "дверь", outside: "вне", overlap: "наложение" };
+
+// Что проект убирает из расстановки — пунктирным контуром, не выбирается
+export function RemovedShape({ item, type, px }: { item: Item; type: TypeBrief | undefined; px: number }) {
+  const { w, d } = sizeOf(type);
+  return (
+    <path
+      d={toPath(rect(item.x ?? 0, item.y ?? 0, w, d, item.angle))}
+      fill={PROJECT_COLOR.removed}
+      fillOpacity={0.06}
+      stroke={PROJECT_COLOR.removed}
+      strokeWidth={1.6 * px}
+      strokeDasharray={`${5 * px} ${4 * px}`}
+      style={{ pointerEvents: "none" }}
+      data-removed={item.id}
+    />
+  );
+}

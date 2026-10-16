@@ -67,6 +67,8 @@ export interface EditorState {
   onlyBroken: boolean; // фильтр «показать только неисправное» (6.5.2)
   askRemove: string[] | null; // убирают связанные предметы — спросить, что с единицами
   multiSelect: boolean; // на телефоне касание добавляет к выбранному (вместо Shift)
+  project: { id: string; name: string } | null; // режим проекта (5.3.6): правки — в проект
+  removedItems: Item[]; // что проект убирает из расстановки — пунктиром
   calcsOn: string[]; // включённые расчёты (5.3.7)
   calcOptions: Record<string, Record<string, string>>;
   calcResults: Record<string, CalcResult>;
@@ -117,6 +119,8 @@ export class EditorStore {
       onlyBroken: false,
       askRemove: null,
       multiSelect: false,
+      project: null,
+      removedItems: [],
       calcsOn: [],
       calcOptions: {},
       calcResults: {},
@@ -190,7 +194,7 @@ export class EditorStore {
     this.set({
       items: this.state.items.filter((i) => !gone.has(i.id) || fresh.has(i.id)).map((i) => {
         const f = fresh.get(i.id);
-        return f ? { ...i, version: f.version, room_id: f.room_id } : i;
+        return f ? { ...i, version: f.version, room_id: f.room_id, state: f.state } : i;
       }),
     });
   }

@@ -19,6 +19,7 @@ export interface Item {
   label: string;
   unit_id: string | null; // связанная инвентарная единица (5.5)
   params?: Record<string, unknown>; // параметры для расчётов: «модуль.параметр» (5.3.4)
+  state?: "added" | "moved" | "changed" | null; // в проекте: что с ним по сравнению с расстановкой
   version: number;
 }
 

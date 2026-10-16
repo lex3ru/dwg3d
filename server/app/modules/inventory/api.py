@@ -291,6 +291,45 @@ def room_stock(session: Session, floor_id: uuid.UUID) -> dict[tuple[str, uuid.UU
     return {(place, type_id): Decimal(qty) for place, type_id, qty in rows if qty}
 
 
+def storage_units(session: Session, type_ids: list[uuid.UUID]) -> list[Unit]:
+    """Единицы на складах и в ячейках (не списанные, не в составе другой) — что можно выдать
+    (спецификация и применение проекта, 5.3.6, 5.5)."""
+    if not type_ids:
+        return []
+    return list(
+        session.scalars(
+            select(Unit)
+            .where(
+                Unit.type_id.in_(type_ids),
+                or_(Unit.place.like("w:%"), Unit.place.like("c:%")),
+                Unit.state.in_(["storage", "in_use"]),
+                Unit.parent_id.is_(None),
+            )
+            .order_by(Unit.number)
+        )
+    )
+
+
+def storage_stock(session: Session, type_ids: list[uuid.UUID]) -> dict[uuid.UUID, Decimal]:
+    """Остатки количественного учёта на складах по типам."""
+    if not type_ids:
+        return {}
+    rows = session.execute(
+        select(StockMove.type_id, func.sum(StockMove.qty))
+        .where(
+            StockMove.type_id.in_(type_ids),
+            or_(StockMove.place.like("w:%"), StockMove.place.like("c:%")),
+        )
+        .group_by(StockMove.type_id)
+    ).all()
+    return {t: Decimal(q) for t, q in rows if q}
+
+
+def place_titles(session: Session, actor: Actor, keys: list[str]) -> dict[str, str]:
+    places = Places(session, actor)
+    return {k: places.title(k) for k in set(keys)}
+
+
 def doc_brief(doc: Document) -> dict[str, Any]:
     return {"id": doc.id, "title": doc_title(doc.kind, doc.number)}
 

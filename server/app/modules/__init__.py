@@ -12,9 +12,10 @@ TIERS: dict[str, int] = {
     "access": 2, "files": 2, "system": 2,
     "building": 3, "catalog": 3,
     "planning": 4, "inventory": 4,
-    "calc": 5, "reports": 5, "link": 5,
+    "calc": 5, "reports": 5, "link": 5, "projects": 5,
 }
 
 # что подключено к приложению сейчас; каждый модуль описан в своём module.py
 INSTALLED: list[str] = ["journal", "access", "files", "system", "building", "catalog",
-                        "planning", "inventory", "link", "calc"]
+                        "planning", "inventory", "link", "calc",
+                        "projects"]

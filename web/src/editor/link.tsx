@@ -183,6 +183,8 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
 // ---------------------------------------------------------------- справа: единица у предмета
 
 export function UnitBlock({ item, link, cat, onRegister, readOnly }: { item: Item; link: LinkView | undefined; cat: Catalog; onRegister: () => void; readOnly: boolean }) {
+  // в проекте учёта нет: что выдать со склада и что купить — при применении проекта
+  if (!link) return null;
   const unit = item.unit_id ? link?.units.find((u) => u.id === item.unit_id) : undefined;
   const gap = stockGap(link, item, cat);
   if (gap !== null) {

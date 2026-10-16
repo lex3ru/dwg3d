@@ -66,7 +66,8 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
 // Убрать выбранные; если среди них связанные с учётом — сначала спросить: только с плана,
 // вернуть на склад или списать (5.5)
 export function requestRemove(store: EditorStore, ids: Set<string>, cat?: Catalog) {
-  if (store.state.items.some((i) => ids.has(i.id) && i.unit_id)) store.set({ askRemove: [...ids] });
+  // в проекте учёт не трогается: убирается только из проекта
+  if (!store.state.project && store.state.items.some((i) => ids.has(i.id) && i.unit_id)) store.set({ askRemove: [...ids] });
   else removeItems(store, ids, cat);
 }
 

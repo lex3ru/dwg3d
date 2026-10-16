@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { footprint, gapsToWalls, normAngle, sizeOf, stickToWall, wallGeometry, type Gap, type Item, type WarningCode } from "./items";
 import { CalcWorld, calcLabels } from "./calc";
-import { GapLines, Ghosts, ItemShape, layerColor } from "./items2d";
+import { GapLines, Ghosts, ItemShape, layerColor, RemovedShape } from "./items2d";
 import { itemState, placeAt, type Catalog } from "./placement";
 import { addWall, nodeAt, snapPoint, splitWall, translate, wallAt, type Snap } from "./ops";
 import {
@@ -56,6 +56,7 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
   const lockedLayers = useEditor(store, (s) => s.lockedLayers);
   const unitStates = useEditor(store, (s) => s.unitStates);
   const calcResults = useEditor(store, (s) => s.calcResults);
+  const removedItems = useEditor(store, (s) => s.removedItems);
   const onlyBroken = useEditor(store, (s) => s.onlyBroken);
   const [gaps, setGaps] = useState<Gap[]>([]);
   const plan = useEditor(store, (s) => s.plan);
@@ -700,6 +701,9 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
     overlay.push(...calcLabels(calcResults, toScreen, view.scale));
   }
 
+  // проект убирает — пунктиром
+  if (mode === "place" && cat) for (const it of removedItems) if (!it.parent_id) world.push(<RemovedShape key={`rm${it.id}`} item={it} type={cat.types.get(it.type_id)} px={px} />);
+
   // подписи, не попавшие ни в одно помещение
   const placed = new Set(shapes.flatMap((r) => ("labels" in r ? r.labels : [r.label])));
   for (const r of plan.rooms) {
@@ -776,6 +780,7 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
           pale={mode === "build" || (!!t?.layer_id && lockedLayers.includes(t.layer_id)) || (onlyBroken && !BROKEN.has(unitStates[it.unit_id ?? ""] ?? ""))}
           contents={contents.get(it.id) ?? 0}
           unit={it.unit_id ? (unitStates[it.unit_id] ?? "in_use") : undefined}
+          mark={mode === "place" ? it.state : null}
         />,
       );
       if (it.label && mode === "place") {

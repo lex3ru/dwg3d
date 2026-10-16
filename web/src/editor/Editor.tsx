@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowUpDown, Box, Building, CircleHelp, Columns2, DoorOpen, FileUp, Image as ImageIcon, Maximize, Minus, MousePointer2, Plus, Printer,
+  ArrowUpDown, Box, Building, CircleHelp, Columns2, DoorOpen, FileUp, FolderKanban, Image as ImageIcon, Maximize, Minus, MousePointer2, Plus, Printer,
   Redo2, RectangleHorizontal, Ruler, Save, Scissors, Spline, Square, SquareDashed, Tag, Undo2, Wand2,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, api, get, patch, post } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -83,13 +83,21 @@ export function EditorPage() {
 function FloorEditor({ floorId }: { floorId: string }) {
   const me = useMe();
   const readOnly = me.role !== "admin";
+  const [params] = useSearchParams();
+  // режим проекта (5.3.6): та же расстановка с изменениями проекта; только администратор
+  const projectId = readOnly ? null : params.get("project");
   const view = useQuery({ queryKey: ["plan", floorId], queryFn: () => get<PlanView>(`/api/floors/${floorId}/plan`), refetchOnWindowFocus: false });
-  const items = useQuery({ queryKey: ["items", floorId], queryFn: () => get<{ items: Item[] }>(`/api/floors/${floorId}/items`), refetchOnWindowFocus: false });
+  const items = useQuery({
+    queryKey: ["items", floorId, projectId ?? ""],
+    queryFn: () => get<{ items: Item[]; removed?: Item[] }>(projectId ? `/api/projects/${projectId}/floors/${floorId}` : `/api/floors/${floorId}/items`),
+    refetchOnWindowFocus: false,
+  });
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => get<ProjectView>(`/api/projects/${projectId}`), enabled: !!projectId });
   // и архивные типы: предметы архивного типа остаются на плане
   const tree = useTree(true);
-  if (view.isLoading || items.isLoading || tree.isLoading) return <Loading />;
+  if (view.isLoading || items.isLoading || tree.isLoading || (projectId && project.isLoading)) return <Loading />;
   if (!view.data) return <Empty title="Этаж не найден" />;
-  return <Loaded data={view.data} items={items.data?.items ?? []} tree={tree.data} readOnly={readOnly} />;
+  return <Loaded key={projectId ?? "layout"} data={view.data} items={items.data?.items ?? []} removed={items.data?.removed ?? []} project={projectId ? (project.data ?? null) : null} tree={tree.data} readOnly={readOnly} />;
 }
 
 function startMode(readOnly: boolean, asked: string | null): Mode {
@@ -102,7 +110,7 @@ function startMode(readOnly: boolean, asked: string | null): Mode {
   }
 }
 
-function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; items: Item[]; tree: Tree | undefined; readOnly: boolean }) {
+function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: { data: PlanView; items: Item[]; removed: Item[]; project: ProjectView | null; tree: Tree | undefined; readOnly: boolean }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const client = useQueryClient();
@@ -116,10 +124,13 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
           rooms: data.rooms.map((r, index) => ({ ...r, index, label: r.id, labels: [r.id], status: "kept" as const })),
         },
       });
+    // проект: правится только расстановка, план — нет
+    if (project) s.set({ project: { id: project.id, name: project.name }, removedItems: removed, mode: "place" });
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.floor.id]);
-  useCardTitle(`${data.building.name} · ${data.floor.name}`);
+  useCardTitle(`${data.building.name} · ${data.floor.name}${project ? ` · проект «${project.name}»` : ""}`);
+  const itemsUrl = project ? `/api/projects/${project.id}/floors/${data.floor.id}` : `/api/floors/${data.floor.id}/items`;
 
   // ---------------------------------------------------------------- расстановка (5.3.2, 6.5.2)
 
@@ -144,7 +155,12 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       queue.current = queue.current.then(async () => {
         try {
           const body = toChanges(op, versions.current);
-          const r = await post<{ items: Item[]; deleted: string[]; notes: string[] }>(`/api/floors/${data.floor.id}/items/changes`, body);
+          const r = await post<{ items: Item[]; deleted: string[]; notes: string[]; removed?: Item[] }>(project ? `${itemsUrl}/changes` : `/api/floors/${data.floor.id}/items/changes`, body);
+          if (project) {
+            store.set({ removedItems: r.removed ?? [] });
+            client.invalidateQueries({ queryKey: ["project", project.id] });
+            client.invalidateQueries({ queryKey: ["projects"] });
+          }
           for (const i of r.items) versions.current.set(i.id, i.version);
           for (const id of r.deleted) versions.current.delete(id);
           store.itemsSaved(r.items, r.deleted);
@@ -157,7 +173,8 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
           if (r.notes.length) flash("ok", r.notes.join(" "));
         } catch (e) {
           flash("bad", `${(e as ApiError).message} Расстановка обновлена с сервера.`);
-          const fresh = await get<{ items: Item[] }>(`/api/floors/${data.floor.id}/items`);
+          const fresh = await get<{ items: Item[]; removed?: Item[] }>(itemsUrl);
+          if (project) store.set({ removedItems: fresh.removed ?? [] });
           versions.current = new Map(fresh.items.map((i) => [i.id, i.version]));
           store.set({ items: fresh.items, itemPast: [], itemFuture: [], selection: [] });
           client.invalidateQueries({ queryKey: ["link", data.floor.id] });
@@ -168,7 +185,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, data.floor.id]);
+  }, [store, data.floor.id, itemsUrl]);
   // расстановку изменили в другом окне — подхватить, когда своих действий в пути нет
   useEffect(() => {
     if (pendingOps.current) return;
@@ -540,7 +557,8 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
             <Plus /> этаж
           </Button>
         )}
-        {!readOnly && (
+        {!readOnly && <ProjectPicker buildingId={data.building.id} floorId={data.floor.id} project={project} />}
+        {!readOnly && !project && (
           <div role="tablist" aria-label="Режим" className="flex rounded-lg border border-line-strong p-0.5 max-md:hidden">
             {([["build", "Строительство"], ["place", "Расстановка"]] as const).map(([m, title]) => (
               <button
@@ -611,8 +629,9 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
             {message.text}
           </span>
         )}
-        {!readOnly && editMode === "place" && <span className="text-[13px] text-ink-2">{itemsBusy ? "Сохраняю расстановку…" : "Расстановка сохраняется сразу"}</span>}
-        {!readOnly && (
+        {/* постоянная ширина: надпись меняется на каждом действии, панель не должна прыгать */}
+        {!readOnly && editMode === "place" && <span className="inline-block w-48 text-right text-[13px] text-ink-2">{itemsBusy ? "Сохраняю…" : project ? "Проект сохраняется сразу" : "Расстановка сохраняется сразу"}</span>}
+        {!readOnly && !project && (
           <>
             {edits > 0 && <span className="text-[13px] text-ink-2">Несохранённые правки плана: {edits}</span>}
             <Button variant="primary" onClick={() => void startSave()} disabled={edits === 0 || save.isPending} className={cn(editMode === "place" && edits === 0 && "max-md:hidden")}>
@@ -622,10 +641,29 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      {project && (
+        // режим проекта — другим цветом и с названием, чтобы не спутать с «как есть» (6.5.2)
+        <div role="status" aria-label="Режим проекта" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 bg-violet-600 px-4 py-1.5 text-[13px] text-white">
+          <FolderKanban className="size-4" aria-hidden />
+          <b>Проект «{project.name}»</b>
+          <span className="opacity-90">правки меняют проект, расстановка остаётся как есть</span>
+          <span className="flex items-center gap-2 opacity-90">
+            <span className="inline-block size-2.5 rounded-sm bg-[#2E7D32]" /> новое
+            <span className="inline-block size-2.5 rounded-sm bg-[#EF6C00]" /> перемещённое
+            <span className="inline-block size-2.5 rounded-sm bg-[#1565C0]" /> изменённое
+            <span className="inline-block size-2.5 rounded-sm border border-dashed border-white" /> убранное
+          </span>
+          {project.conflicts.length > 0 && <span className="rounded bg-white/20 px-1.5">устарел: столкновений {project.conflicts.length}</span>}
+          <span className="flex-1" />
+          <Link to={`/projects/${project.id}`} className="text-white underline">
+            Открыть проект
+          </Link>
+        </div>
+      )}
+      <div className={cn("flex min-h-0 flex-1", project && "border-4 border-t-0 border-violet-600")}>
         {show2d && editMode === "place" && cat && (
           <aside aria-label="Слои и каталог" className="flex w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface max-md:hidden">
-            <PlacePanel store={store} cat={cat} readOnly={readOnly} link={link.data} calcs={calcs} />
+            <PlacePanel store={store} cat={cat} readOnly={readOnly} link={project ? undefined : link.data} calcs={calcs} />
           </aside>
         )}
         {!readOnly && show2d && editMode === "build" && (
@@ -697,7 +735,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         {show2d && (
           <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
             {editMode === "place" && cat && !selection.some((x) => x.kind === "room") ? (
-              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={link.data} onRegister={setRegistering} calcs={calcs} />
+              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={project ? undefined : link.data} onRegister={setRegistering} calcs={calcs} />
             ) : (
               <Properties
                 store={store}
@@ -1032,3 +1070,48 @@ function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
   );
 }
 
+
+export interface ProjectView {
+  id: string;
+  building_id: string;
+  name: string;
+  status: "draft" | "outdated" | "applied" | "archived";
+  status_title: string;
+  changes: number;
+  added: number;
+  moved: number;
+  removed: number;
+  rooms: string[];
+  floor_ids: string[];
+  conflicts: { item_id: string; floor_id: string; kind: string; text: string; x?: number; y?: number }[];
+  total: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+  archived: boolean;
+  version: number;
+}
+
+// «Как есть ▾ / Проект …» (5.3.1): расстановка или один из проектов здания
+function ProjectPicker({ buildingId, floorId, project }: { buildingId: string; floorId: string; project: ProjectView | null }) {
+  const navigate = useNavigate();
+  const list = useQuery({ queryKey: ["projects", buildingId], queryFn: () => get<{ items: ProjectView[] }>(`/api/projects?building_id=${buildingId}`) });
+  const items = list.data?.items ?? [];
+  return (
+    <select
+      aria-label="Расстановка или проект"
+      value={project?.id ?? ""}
+      onChange={(e) => navigate(`/plan/${buildingId}/${floorId}${e.target.value ? `?project=${e.target.value}` : "?mode=place"}`)}
+      className={cn("h-9 max-w-56 rounded-lg border px-2 text-sm max-md:h-11", project ? "border-violet-600 bg-violet-50 text-violet-900 dark:bg-violet-950 dark:text-violet-100" : "border-line-strong bg-surface text-ink")}
+    >
+      <option value="">Как есть</option>
+      {items.map((p) => (
+        <option key={p.id} value={p.id}>
+          Проект «{p.name}»{p.status === "outdated" ? " — устарел" : ""}
+        </option>
+      ))}
+      {project && !items.some((p) => p.id === project.id) && <option value={project.id}>Проект «{project.name}»</option>}
+    </select>
+  );
+}

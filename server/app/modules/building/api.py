@@ -675,6 +675,21 @@ search.register(_search)
 
 # ---------------------------------------------------------------- печать и выгрузка (5.1.8)
 
+def floor_svg(session: Session, actor: Actor, floor_id: uuid.UUID, width_mm: float,
+              height_mm: float, overlays: list[dict[str, Any]]) -> tuple[str, int]:
+    """План этажа рисунком SVG на листе заданного размера, с фигурами модулей выше поверх
+    (листы проекта, 5.3.6 п. 6). Возвращает рисунок и масштаб."""
+    from app.modules.building import export
+
+    floor = get_floor(session, actor, floor_id)
+    plan = Plan.model_validate(floor.plan or {})
+    rooms = [room_view(r) for r in live_rooms(session, floor.id)]
+    lifts = [lift_view(lift) for lift in session.scalars(
+        select(Lift).where(Lift.building_id == floor.building_id))]
+    return export.fit_svg(export.drawing(plan, rooms, lifts, str(floor.id)), width_mm,
+                          height_mm, overlays)
+
+
 def export_floor(session: Session, actor: Actor, floor_id: uuid.UUID, fmt: str,
                  paper: str = "A4", orientation: str = "landscape",
                  scale: int | None = None) -> tuple[bytes, str]:
