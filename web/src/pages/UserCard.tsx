@@ -12,7 +12,7 @@ import { Dialog } from "@/ui/dialog";
 import { Choice, Field, FormError, Input } from "@/ui/form";
 import { Loading } from "@/ui/misc";
 import { EntryView } from "./Journal";
-import { BuildingsNote, IssuedPasswordDialog, ROLE_TITLES, UserState } from "./Users";
+import { BuildingsPicker, IssuedPasswordDialog, ROLE_TITLES, UserState } from "./Users";
 
 // Карточка учётной записи (6.5.10): роль, здания, «Сбросить пароль», «Заблокировать»
 export function UserCard({ id }: { id: string }) {
@@ -25,12 +25,12 @@ export function UserCard({ id }: { id: string }) {
   });
   useCardTitle(user.data?.full_name);
 
-  const [form, setForm] = useState({ full_name: "", role: "viewer" });
+  const [form, setForm] = useState({ full_name: "", role: "viewer", building_ids: [] as string[] });
   const [error, setError] = useState<ApiError | null>(null);
   const [confirm, setConfirm] = useState<"reset" | "block" | null>(null);
   const [issued, setIssued] = useState<{ user: User; password: string; reset: boolean } | null>(null);
   useEffect(() => {
-    if (user.data) setForm({ full_name: user.data.full_name, role: user.data.role });
+    if (user.data) setForm({ full_name: user.data.full_name, role: user.data.role, building_ids: user.data.buildings.map((b) => b.id) });
     setError(null);
   }, [user.data]);
 
@@ -69,7 +69,8 @@ export function UserCard({ id }: { id: string }) {
   if (!user.data) return <p className="text-sm text-ink-2">Учётная запись не найдена.</p>;
   const u = user.data;
   const self = u.id === me.id;
-  const dirty = form.full_name !== u.full_name || form.role !== u.role;
+  const dirty =
+    form.full_name !== u.full_name || form.role !== u.role || [...form.building_ids].sort().join() !== u.buildings.map((b) => b.id).sort().join();
 
   return (
     <div className="flex flex-col gap-6">
@@ -111,7 +112,11 @@ export function UserCard({ id }: { id: string }) {
           ))}
           {self && <p className="m-0 text-[13px] text-ink-2">Свою роль сменить нельзя — это сделает другой администратор.</p>}
         </fieldset>
-        {form.role === "viewer" ? <BuildingsNote /> : <p className="m-0 text-[13px] text-ink-2">Администратору доступны все здания.</p>}
+        {form.role === "viewer" ? (
+          <BuildingsPicker value={form.building_ids} onChange={(building_ids) => setForm({ ...form, building_ids })} />
+        ) : (
+          <p className="m-0 text-[13px] text-ink-2">Администратору доступны все здания.</p>
+        )}
         {error && (
           <div className="flex flex-col gap-2">
             <FormError message={error.field === "full_name" ? null : error.message} />
@@ -127,7 +132,7 @@ export function UserCard({ id }: { id: string }) {
             <Button type="submit" variant="primary" disabled={save.isPending}>
               Сохранить
             </Button>
-            <Button onClick={() => setForm({ full_name: u.full_name, role: u.role })}>Отменить</Button>
+            <Button onClick={() => setForm({ full_name: u.full_name, role: u.role, building_ids: u.buildings.map((b) => b.id) })}>Отменить</Button>
           </div>
         )}
       </form>

@@ -1,5 +1,9 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { NavLink } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { NavLink, useLocation, useNavigate } from "react-router";
+import { get } from "@/lib/api";
+import type { BuildingSummary } from "@/pages/Buildings";
+import { lastBuilding } from "@/pages/PlanIndex";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { menuFor, titleFor, type MenuItem } from "./menu";
@@ -29,6 +33,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           </div>
         )}
       </div>
+      {!collapsed && <BuildingSwitcher />}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-2.5 py-4">
         {groups.map((group, i) => (
           <div key={group.name ?? `g${i}`} className="flex flex-col gap-0.5">
@@ -72,5 +77,37 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         {!collapsed && "Свернуть"}
       </button>
     </nav>
+  );
+}
+
+// Над меню — здание (6.3): одно доступное — просто название, несколько — выбор
+function BuildingSwitcher() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const list = useQuery({ queryKey: ["buildings", false], queryFn: () => get<{ items: BuildingSummary[] }>("/api/buildings") });
+  const items = list.data?.items ?? [];
+  if (!items.length) return null;
+  const fromUrl = pathname.startsWith("/plan/") ? pathname.split("/")[2] : null;
+  const current = items.find((b) => b.id === fromUrl) ?? items.find((b) => b.id === lastBuilding()) ?? items[0]!;
+  return (
+    <div className="border-b border-line px-4 py-3">
+      <div className="text-[11px] font-medium tracking-wide text-ink-3 uppercase">Здание</div>
+      {items.length === 1 ? (
+        <div className="truncate text-sm font-medium">{current.name}</div>
+      ) : (
+        <select
+          aria-label="Здание"
+          value={current.id}
+          onChange={(e) => navigate(`/plan/${e.target.value}`)}
+          className="mt-1 h-8 w-full rounded-md border border-line-strong bg-surface px-1.5 text-sm text-ink max-md:h-11"
+        >
+          {items.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }

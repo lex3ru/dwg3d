@@ -1,7 +1,10 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { MeProvider, useMeQuery } from "@/lib/auth";
 import { useLiveUpdates } from "@/lib/live";
+import { EditorPage } from "@/editor/Editor";
+import { Buildings } from "@/pages/Buildings";
 import { Journal } from "@/pages/Journal";
+import { PlanIndex } from "@/pages/PlanIndex";
 import { ForcedPassword, Login } from "@/pages/Login";
 import { Placeholder } from "@/pages/Placeholder";
 import { SearchPage } from "@/pages/SearchPage";
@@ -15,6 +18,8 @@ const READY: Record<string, React.ReactNode> = {
   "/users": <Users />,
   "/journal": <Journal />,
   "/settings": <SettingsPage />,
+  "/buildings": <Buildings />,
+  "/plan": <PlanIndex />,
 };
 
 export function App() {
@@ -42,6 +47,7 @@ export function App() {
           {MENU.filter((m) => m.roles.includes(role)).map((m) => (
             <Route key={m.path} path={m.path === "/" ? undefined : m.path} index={m.path === "/"} element={READY[m.path] ?? <Placeholder />} />
           ))}
+          <Route path="/plan/:buildingId/:floorId?" element={<EditorPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/scan" element={<Placeholder title="QR-сканер" stage={6} about="Камера телефона читает QR-метку на вещи или двери помещения и открывает карточку (6.5.12, 5.4.7)." />} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />

@@ -41,6 +41,10 @@ def main() -> None:
     admin.add_argument("--name", default="Администратор")
     admin.add_argument("--password", help="временный пароль (для автоматических тестов); "
                        "без него система придумает сама")
+    sample = sub.add_parser("sample", help="тестовое здание (ТЗ 7.2)")
+    sample.add_argument("which", choices=["polyclinic"])
+    sample.add_argument("--login", default="admin", help="от чьего имени (администратор)")
+    sample.add_argument("--name", default="Поликлиника")
     reset = sub.add_parser("reset-password",
                            help="временный пароль учётной записи, если войти некому")
     reset.add_argument("login")
@@ -80,6 +84,20 @@ def main() -> None:
         else:
             print(f"Администратор «{args.login}» заведён. Временный пароль: {temporary}")
             print("При первом входе система попросит сменить его.")
+    elif args.command == "sample":
+        from app.core.db import transaction
+        from app.main import installed_modules
+        from app.modules.access import api as access
+        from app.samples import polyclinic
+
+        installed_modules()
+        with transaction() as session:
+            account = access.find(session, args.login)
+            if account is None or account.role != "admin":
+                print(f"Администратора «{args.login}» нет.")
+                sys.exit(1)
+            result = polyclinic.create(session, access.actor_of(account), args.name)
+        print(f"Здание «{args.name}» создано: {result['building_id']}")
     elif args.command == "reset-password":
         from app.core.db import transaction
         from app.modules.access import api

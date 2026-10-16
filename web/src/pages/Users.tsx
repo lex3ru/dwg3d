@@ -109,13 +109,13 @@ function CreateUserDialog({
   onCreated: (user: User, password: string) => void;
 }) {
   const client = useQueryClient();
-  const [form, setForm] = useState({ full_name: "", login: "", role: "viewer", password: "" });
+  const [form, setForm] = useState({ full_name: "", login: "", role: "viewer", password: "", building_ids: [] as string[] });
   const [error, setError] = useState<ApiError | null>(null);
   const create = useMutation({
-    mutationFn: () => post<{ user: User; temporary_password: string }>("/api/users", { ...form, building_ids: [] }),
+    mutationFn: () => post<{ user: User; temporary_password: string }>("/api/users", form),
     onSuccess: (result) => {
       client.invalidateQueries({ queryKey: ["users"] });
-      setForm({ full_name: "", login: "", role: "viewer", password: "" });
+      setForm({ full_name: "", login: "", role: "viewer", password: "", building_ids: [] });
       onCreated(result.user, result.temporary_password);
     },
     onError: (e) => setError(e as ApiError),
@@ -148,7 +148,7 @@ function CreateUserDialog({
           <Choice name="role" value="viewer" checked={form.role === "viewer"} onChange={() => setForm({ ...form, role: "viewer" })} title="Просмотр" description="Смотрит выданные здания: план, 3D, расстановку, карточки — без стоимости, инвентарных номеров и проектов. Ничего не меняет." />
           <Choice name="role" value="admin" checked={form.role === "admin"} onChange={() => setForm({ ...form, role: "admin" })} title="Администратор" description="Видит и меняет всё во всех зданиях, заводит учётные записи." />
         </fieldset>
-        {form.role === "viewer" && <BuildingsNote />}
+        {form.role === "viewer" && <BuildingsPicker value={form.building_ids} onChange={(building_ids) => setForm({ ...form, building_ids })} />}
         <Field label="Временный пароль" hint="Можно не заполнять — система придумает сама и покажет." error={fieldError("password")}>
           {(p) => <Input {...p} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="off" />}
         </Field>
@@ -164,12 +164,27 @@ function CreateUserDialog({
   );
 }
 
-export function BuildingsNote() {
+// «Просмотр» выдаётся на здание (2.3)
+export function BuildingsPicker({ value, onChange, disabled }: { value: string[]; onChange: (ids: string[]) => void; disabled?: boolean }) {
+  const list = useQuery({ queryKey: ["buildings", false], queryFn: () => get<{ items: { id: string; name: string; address: string }[] }>("/api/buildings") });
+  const items = list.data?.items ?? [];
   return (
-    <div className="rounded-lg bg-surface-2 px-3 py-2.5 text-[13px] text-ink-2">
-      <span className="font-medium text-ink">Здания.</span> Зданий в системе пока нет. «Просмотр» видит только выданные здания — выдать их можно будет в
-      карточке учётной записи, когда здания появятся (этап 1).
-    </div>
+    <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
+      <legend className="mb-1.5 p-0 text-[13px] font-medium">Здания</legend>
+      {list.isLoading ? null : !items.length ? (
+        <p className="m-0 rounded-lg bg-surface-2 px-3 py-2.5 text-[13px] text-ink-2">Зданий в системе пока нет — их создают в «Управление › Здания». Без выданных зданий «просмотр» ничего не видит.</p>
+      ) : (
+        items.map((b) => (
+          <label key={b.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line-strong px-3 py-2 text-sm hover:bg-surface-2">
+            <input type="checkbox" disabled={disabled} checked={value.includes(b.id)} onChange={(e) => onChange(e.target.checked ? [...value, b.id] : value.filter((x) => x !== b.id))} />
+            <span className="flex flex-col">
+              {b.name}
+              {b.address && <span className="text-[12px] text-ink-2">{b.address}</span>}
+            </span>
+          </label>
+        ))
+      )}
+    </fieldset>
   );
 }
 

@@ -38,6 +38,9 @@ APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app APP_SECURE_COO
 APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app \
   uv run python -m app create-admin          # первый администратор, печатает пароль
 
+APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app \
+  uv run python -m app sample polyclinic     # тестовое здание «Поликлиника» (ТЗ 7.2)
+
 cd web && npm install && npm run dev          # интерфейс: http://localhost:5190
 cd e2e && npm install && npx playwright test  # сценарии; E2E_URL, E2E_ADMIN, E2E_PASSWORD
 ```

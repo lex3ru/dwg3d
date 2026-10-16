@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -65,7 +66,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AppError)
     async def app_error(_: Request, e: AppError) -> JSONResponse:
-        return JSONResponse(e.body(), status_code=e.status)
+        return JSONResponse(jsonable_encoder(e.body()), status_code=e.status)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(_: Request, e: RequestValidationError) -> JSONResponse:

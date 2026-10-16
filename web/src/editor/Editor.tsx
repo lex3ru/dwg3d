@@ -1,0 +1,776 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowUpDown, Box, Building, CircleHelp, Columns2, DoorOpen, FileUp, Image as ImageIcon, Maximize, Minus, MousePointer2, Plus, Printer,
+  Redo2, RectangleHorizontal, Ruler, Save, Scissors, Spline, Square, SquareDashed, Tag, Undo2, Wand2,
+} from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+import { ApiError, api, get, patch, post } from "@/lib/api";
+import { useMe } from "@/lib/auth";
+import { cn } from "@/lib/cn";
+import { formatDateTime } from "@/lib/format";
+import { useCardTitle } from "@/shell/context";
+import { Button } from "@/ui/button";
+import { Dialog } from "@/ui/dialog";
+import { FloorDialog } from "@/pages/Buildings";
+import { Choice, Field, FormError, Input } from "@/ui/form";
+import { Empty, Loading } from "@/ui/misc";
+import { Canvas, type WallDefaults } from "./Canvas";
+import { copy, paste, remove, type Clip } from "./ops";
+import { dist, type Check, type Lift, type Plan, type PlanView, type Pt } from "./plan";
+import { Properties, NumberField } from "./Properties";
+import { EditorStore, clearDraft, readDraft, useEditor, type Tool } from "./store";
+import { PDF_RENDER_WIDTH, underlayToWorld, worldToUnderlay } from "./Underlay";
+
+const View3D = lazy(() => import("./View3D"));
+
+type ViewMode = "2d" | "3d" | "both";
+
+const TOOLS: { tool: Tool; title: string; icon: typeof Square; key?: string }[] = [
+  { tool: "select", title: "Выбор", icon: MousePointer2, key: "V" },
+  { tool: "wall", title: "Стена", icon: Minus, key: "W" },
+  { tool: "arc", title: "Дуговая стена", icon: Spline, key: "A" },
+  { tool: "door", title: "Дверь", icon: DoorOpen, key: "D" },
+  { tool: "window", title: "Окно", icon: Columns2, key: "O" },
+  { tool: "passage", title: "Проход", icon: SquareDashed },
+  { tool: "glazing", title: "Витраж", icon: RectangleHorizontal },
+  { tool: "column", title: "Колонна", icon: Square },
+  { tool: "stair", title: "Лестница", icon: ArrowUpDown },
+  { tool: "lift", title: "Лифт", icon: Box },
+  { tool: "room", title: "Подпись помещения", icon: Tag, key: "R" },
+  { tool: "cut", title: "Разрезать стену", icon: Scissors },
+  { tool: "measure", title: "Измерить", icon: Ruler, key: "M" },
+];
+
+export function EditorPage() {
+  const { buildingId, floorId } = useParams();
+  const navigate = useNavigate();
+  const building = useQuery({
+    queryKey: ["building", buildingId],
+    queryFn: () => get<{ id: string; name: string; floors: { id: string; name: string; elevation: number }[] }>(`/api/buildings/${buildingId}`),
+  });
+  useEffect(() => {
+    try {
+      if (building.data) localStorage.setItem("building", building.data.id);
+    } catch {
+      /* не запомнится */
+    }
+  }, [building.data]);
+  useEffect(() => {
+    if (building.data && !floorId && building.data.floors.length) {
+      const ground = building.data.floors.find((f) => f.elevation >= 0) ?? building.data.floors[0]!;
+      navigate(`/plan/${buildingId}/${ground.id}`, { replace: true });
+    }
+  }, [building.data, floorId, buildingId, navigate]);
+  if (building.isLoading) return <Loading />;
+  if (!building.data) return <Empty title="Здание не найдено" />;
+  if (!building.data.floors.length) {
+    return <Empty title={`В здании «${building.data.name}» нет этажей`}>Добавьте этажи в «Управление › Здания».</Empty>;
+  }
+  if (!floorId) return <Loading />;
+  return <FloorEditor key={floorId} floorId={floorId} />;
+}
+
+function FloorEditor({ floorId }: { floorId: string }) {
+  const me = useMe();
+  const readOnly = me.role !== "admin";
+  const view = useQuery({ queryKey: ["plan", floorId], queryFn: () => get<PlanView>(`/api/floors/${floorId}/plan`), refetchOnWindowFocus: false });
+  if (view.isLoading) return <Loading />;
+  if (!view.data) return <Empty title="Этаж не найден" />;
+  return <Loaded data={view.data} readOnly={readOnly} />;
+}
+
+function Loaded({ data, readOnly }: { data: PlanView; readOnly: boolean }) {
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const client = useQueryClient();
+  const store = useMemo(() => {
+    const s = new EditorStore(data.floor.id, structuredClone(data.plan), data.plan_version, data.lifts);
+    // только чтение: помещения — как сохранены, проверку не спрашиваем
+    if (readOnly)
+      s.set({
+        check: {
+          issues: [], merges: [], splits: [], removed: [], needs_confirmation: false, slabs: data.slabs,
+          rooms: data.rooms.map((r, index) => ({ ...r, index, label: r.id, labels: [r.id], status: "kept" as const })),
+        },
+      });
+    return s;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.floor.id]);
+  useCardTitle(`${data.building.name} · ${data.floor.name}`);
+
+  // план с сервера обновился (чужое сохранение, лифты) — подхватить, если своих правок нет
+  useEffect(() => {
+    store.set({ lifts: data.lifts });
+    if (store.state.edits === 0 && store.state.baseVersion !== data.plan_version) store.saved(structuredClone(data.plan), data.plan_version);
+  }, [data, store]);
+
+  const [mode, setMode] = useState<ViewMode>(() => (params.get("view") as ViewMode) || "2d");
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event("editor:fit")), 50);
+    return () => clearTimeout(t);
+  }, [mode]);
+  useEffect(() => {
+    // прогулка из 2D — нужен 3D рядом с планом
+    const on = (e: Event) => {
+      setMode((m) => (m === "2d" ? "both" : m));
+      setWalkRequest((r) => ({ p: (e as CustomEvent<Pt>).detail, n: (r?.n ?? 0) + 1 }));
+    };
+    window.addEventListener("editor:walk-here", on);
+    return () => window.removeEventListener("editor:walk-here", on);
+  }, []);
+  const [wallDefaults, setWallDefaults] = useState<WallDefaults>({ thickness: 120, kind: "partition" });
+  const [lengthPrompt, setLengthPrompt] = useState<{ at: [number, number]; apply: (mm: number) => void } | null>(null);
+  const [calibration, setCalibration] = useState<[Pt, Pt] | null>(null);
+  const [saveState, setSaveState] = useState<{ preview: Check; keep: Record<number, string> } | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+  const [help, setHelp] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [addingFloor, setAddingFloor] = useState(false);
+  const [draft, setDraft] = useState(() => (readOnly ? null : readDraft(data.floor.id)));
+  const [walker, setWalker] = useState<{ p: Pt; angle: number } | null>(null);
+  const [walkRequest, setWalkRequest] = useState<{ p: Pt; n: number } | null>(null);
+  const clip = useRef<Clip | null>(null);
+  const edits = useEditor(store, (s) => s.edits);
+  const plan = useEditor(store, (s) => s.plan);
+  const check = useEditor(store, (s) => s.check);
+  const tool = useEditor(store, (s) => s.tool);
+  const snaps = useEditor(store, (s) => s.snaps);
+  const canUndo = useEditor(store, (s) => s.past.length > 0);
+  const canRedo = useEditor(store, (s) => s.future.length > 0);
+
+  // выделить помещение из адреса (?room=…) — поиск ведёт сюда
+  useEffect(() => {
+    const room = params.get("room");
+    const label = room && store.state.plan.rooms.find((r) => r.id === room);
+    if (label) store.set({ selection: [{ kind: "room", id: label.id }], focus: [label.x, label.y] });
+  }, [params, store]);
+
+  // проверка плана на сервере: помещения, замечания (5.1.5) — после каждой правки
+  useEffect(() => {
+    if (readOnly) return;
+    const t = setTimeout(() => {
+      post<Check>(`/api/floors/${data.floor.id}/plan/check`, { plan })
+        .then((c) => store.set({ check: c }))
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [plan, data.floor.id, readOnly, store]);
+
+  const flash = (tone: "ok" | "bad", text: string) => {
+    setMessage({ tone, text });
+    setTimeout(() => setMessage((m) => (m?.text === text ? null : m)), 6000);
+  };
+
+  // ---------------------------------------------------------------- сохранение (5.1.6)
+
+  const save = useMutation({
+    mutationFn: (body: { merges?: { rooms: string[]; keep: string }[]; confirm?: boolean }) =>
+      api<PlanView>("PUT", `/api/floors/${data.floor.id}/plan`, { plan: store.state.plan, plan_version: store.state.baseVersion, ...body }),
+    onSuccess: (saved) => {
+      store.saved(structuredClone(saved.plan), saved.plan_version);
+      // выделенная подпись получила ключ помещения
+      store.set({ selection: store.state.selection.map((s) => (s.kind === "room" && saved.label_ids?.[s.id] ? { ...s, id: saved.label_ids[s.id]! } : s)) });
+      setSaveState(null);
+      client.setQueryData(["plan", data.floor.id], saved);
+      client.invalidateQueries({ queryKey: ["building", data.building.id] });
+      flash("ok", "План сохранён.");
+    },
+    onError: (e: ApiError & { details?: Check }) => {
+      if (e.code === "needs_confirmation") return;
+      setSaveState(null);
+      flash("bad", e.message);
+    },
+  });
+
+  const startSave = async () => {
+    const preview = await post<Check>(`/api/floors/${data.floor.id}/plan/check`, { plan: store.state.plan });
+    store.set({ check: preview });
+    // несколько подписей в одном помещении — это и есть объединение, о нём спросит диалог
+    preview.issues = preview.issues.filter((i) => i.code !== "labels_together" || !preview.merges.length);
+    if (preview.needs_confirmation || preview.issues.length) {
+      setSaveState({ preview, keep: Object.fromEntries(preview.merges.map((m) => [m.index, m.rooms[0]!.id])) });
+      return;
+    }
+    save.mutate({});
+  };
+
+  const confirmSave = () => {
+    if (!saveState) return;
+    const merges = saveState.preview.merges.map((m) => ({ rooms: m.rooms.map((r) => r.id), keep: saveState.keep[m.index]! }));
+    save.mutate({ merges, confirm: true });
+  };
+
+  const fix = async () => {
+    const result = await post<{ plan: Plan; fixed: string[]; issues: unknown[] }>(`/api/floors/${data.floor.id}/plan/fix`, { plan: store.state.plan });
+    if (!result.fixed.length) {
+      flash("bad", "Автоматически исправлять нечего — оставшееся правится вручную.");
+      return;
+    }
+    store.commit(result.plan, []);
+    flash("ok", `Исправлено: ${result.fixed.join("; ")}.${result.issues.length ? ` Осталось вручную: ${result.issues.length}.` : ""}`);
+  };
+
+  // ---------------------------------------------------------------- лифты (сохраняются сразу)
+
+  const liftsChanged = () => client.invalidateQueries({ queryKey: ["plan"] });
+  const createLift = useCallback(
+    async (p: Pt) => {
+      try {
+        const lift = await post<Lift>(`/api/buildings/${data.building.id}/lifts`, { x: p[0], y: p[1], w: 2000, d: 2200, floor_ids: [data.floor.id] });
+        store.set({ lifts: [...store.state.lifts, lift], selection: [{ kind: "lift", id: lift.id }], tool: "select" });
+        liftsChanged();
+      } catch (e) {
+        flash("bad", (e as ApiError).message);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data.building.id, data.floor.id, store],
+  );
+  const changeLift = async (lift: Lift, change: Partial<Lift>) => {
+    try {
+      const updated = await patch<Lift>(`/api/lifts/${lift.id}`, change);
+      store.set({ lifts: store.state.lifts.map((l) => (l.id === lift.id ? updated : l)) });
+      liftsChanged();
+    } catch (e) {
+      flash("bad", (e as ApiError).message);
+    }
+  };
+  const deleteLift = async (lift: Lift) => {
+    await api("DELETE", `/api/lifts/${lift.id}`);
+    store.set({ lifts: store.state.lifts.filter((l) => l.id !== lift.id), selection: [] });
+    liftsChanged();
+  };
+
+  // ---------------------------------------------------------------- клавиатура (6.5.2)
+
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && (key === "z" || key === "я")) {
+        e.preventDefault();
+        if (e.shiftKey) store.redo();
+        else store.undo();
+      } else if (mod && (key === "y" || key === "н")) {
+        e.preventDefault();
+        store.redo();
+      } else if (mod && (key === "c" || key === "с")) {
+        clip.current = copy(store.state.plan, store.state.selection);
+      } else if (mod && (key === "v" || key === "м")) {
+        if (!clip.current) return;
+        const c = clip.current;
+        let sel: ReturnType<typeof paste> = [];
+        store.apply((p) => {
+          sel = paste(p, c, [500, -500]);
+        });
+        store.set({ selection: sel });
+      } else if (mod && (key === "s" || key === "ы")) {
+        e.preventDefault();
+        void startSave();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (store.state.selection.some((s) => s.kind !== "lift")) store.apply((p) => remove(p, store.state.selection.filter((s) => s.kind !== "lift")), []);
+      } else if (e.key === "Escape") {
+        store.set({ tool: "select", selection: [] });
+      } else if (e.key === "?") {
+        setHelp(true);
+      } else if (!mod) {
+        const t = TOOLS.find((x) => x.key?.toLowerCase() === key);
+        if (t) store.set({ tool: t.tool });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // ---------------------------------------------------------------- подложка (5.1.4 п. 5)
+
+  const uploadUnderlay = async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch("/api/files?accept=pdf,png,jpeg,webp", { method: "POST", body: form, headers: { "X-Requested-With": "app" }, credentials: "same-origin" });
+    const body = await response.json();
+    if (!response.ok) {
+      flash("bad", body?.error?.message ?? "Файл не загрузился.");
+      return;
+    }
+    const v = store.state.view;
+    const scale = body.content_type === "application/pdf" ? 42000 / PDF_RENDER_WIDTH : 10;
+    store.apply((p) => {
+      p.underlay = { file_id: body.id, page: 1, x: -v.x / v.scale, y: v.y / v.scale, scale, angle: 0, opacity: 0.5, visible: true };
+    });
+    flash("ok", "Подложка положена. Задайте масштаб: «Масштаб по двум точкам».");
+  };
+
+  const applyCalibration = (realMm: number) => {
+    if (!calibration) return;
+    const [a, b] = calibration;
+    store.apply((p) => {
+      const u = p.underlay!;
+      const k = realMm / dist(a, b);
+      const pa = worldToUnderlay(u, a[0], a[1]);
+      const scaled = { ...u, scale: u.scale * k, x: 0, y: 0 };
+      const at = underlayToWorld(scaled, pa[0], pa[1]);
+      p.underlay = { ...scaled, x: a[0] - at[0], y: a[1] - at[1] };
+    });
+    setCalibration(null);
+    store.set({ tool: "select" });
+  };
+
+  const floors = data.floors;
+  const unlabeled = check?.rooms.filter((r) => !r.label).length ?? 0;
+  const issues = check?.issues ?? [];
+  const autoIssues = issues.filter((i) => i.auto).length;
+
+  const show2d = mode !== "3d";
+  const show3d = mode !== "2d";
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* верх: этаж, вид, отмена, привязки, сохранение (5.3.1) */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2">
+        <label className="flex items-center gap-2 text-[13px] text-ink-2">
+          <Building className="size-4" aria-hidden />
+          <span className="sr-only">Этаж</span>
+          <select
+            aria-label="Этаж"
+            value={data.floor.id}
+            onChange={(e) => navigate(`/plan/${data.building.id}/${e.target.value}${mode !== "2d" ? `?view=${mode}` : ""}`)}
+            className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm text-ink max-md:h-11"
+          >
+            {[...floors].reverse().map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!readOnly && (
+          <Button size="sm" variant="ghost" onClick={() => setAddingFloor(true)} title="Добавить этаж">
+            <Plus /> этаж
+          </Button>
+        )}
+        <div role="radiogroup" aria-label="Вид" className="flex rounded-lg border border-line-strong p-0.5">
+          {(["2d", "3d", "both"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => {
+                setMode(m);
+                setParams((p) => {
+                  const out = new URLSearchParams(p);
+                  if (m === "2d") out.delete("view");
+                  else out.set("view", m);
+                  return out;
+                }, { replace: true });
+              }}
+              className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-10", mode === m ? "bg-accent text-white" : "bg-transparent text-ink hover:bg-surface-2")}
+            >
+              {m === "2d" ? "2D" : m === "3d" ? "3D" : "оба"}
+            </button>
+          ))}
+        </div>
+        {!readOnly && (
+          <>
+            <Button size="icon" variant="ghost" aria-label="Отменить (Ctrl+Z)" title="Отменить (Ctrl+Z)" disabled={!canUndo} onClick={() => store.undo()}>
+              <Undo2 />
+            </Button>
+            <Button size="icon" variant="ghost" aria-label="Повторить (Ctrl+Y)" title="Повторить (Ctrl+Y)" disabled={!canRedo} onClick={() => store.redo()}>
+              <Redo2 />
+            </Button>
+            <div className="flex items-center gap-1 text-[12px] text-ink-2 max-lg:hidden" role="group" aria-label="Привязки">
+              {([["nodes", "к стенам"], ["angles", "углы 45°"], ["grid", "сетка 100 мм"]] as const).map(([k, t]) => (
+                <label key={k} className="flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 hover:bg-surface-2">
+                  <input type="checkbox" checked={snaps[k]} onChange={(e) => store.set({ snaps: { ...snaps, [k]: e.target.checked } })} />
+                  {t}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        <Button size="icon" variant="ghost" aria-label="Показать весь этаж" title="Показать весь этаж" onClick={() => window.dispatchEvent(new Event("editor:fit"))}>
+          <Maximize />
+        </Button>
+        <Button size="icon" variant="ghost" aria-label="Печать и выгрузка" title="Печать и выгрузка" onClick={() => setPrinting(true)}>
+          <Printer />
+        </Button>
+        <Button size="icon" variant="ghost" aria-label="Подсказка по клавишам" title="Клавиши (?)" onClick={() => setHelp(true)}>
+          <CircleHelp />
+        </Button>
+        <div className="flex-1" />
+        {message && (
+          <span role="status" className={cn("max-w-md truncate text-[13px]", message.tone === "ok" ? "text-ok" : "text-bad")} title={message.text}>
+            {message.text}
+          </span>
+        )}
+        {!readOnly && (
+          <>
+            {edits > 0 && <span className="text-[13px] text-ink-2">Несохранённые правки: {edits}</span>}
+            <Button variant="primary" onClick={() => void startSave()} disabled={edits === 0 || save.isPending}>
+              <Save /> Сохранить план
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        {!readOnly && show2d && (
+          <aside aria-label="Инструменты" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface max-md:w-14">
+            <div className="grid grid-cols-1 gap-0.5 p-2">
+              {TOOLS.map((t) => (
+                <button
+                  key={t.tool}
+                  type="button"
+                  onClick={() => store.set({ tool: t.tool, selection: t.tool === "select" ? store.state.selection : [] })}
+                  aria-pressed={tool === t.tool}
+                  title={t.key ? `${t.title} (${t.key})` : t.title}
+                  className={cn("flex h-9 cursor-pointer items-center gap-2.5 rounded-lg border-0 px-2.5 text-left text-[13px] max-md:h-11 max-md:justify-center", tool === t.tool ? "bg-accent-soft font-medium text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2")}
+                >
+                  <t.icon className="size-[18px] shrink-0" aria-hidden />
+                  <span className="max-md:sr-only">{t.title}</span>
+                </button>
+              ))}
+            </div>
+            <UnderlayPanel store={store} onUpload={uploadUnderlay} />
+          </aside>
+        )}
+
+        <div className="relative flex min-w-0 flex-1">
+          {show2d && (
+            <div className={cn("relative min-w-0", show3d ? "w-1/2 border-r border-line" : "flex-1")}>
+              <Canvas
+                store={store}
+                readOnly={readOnly}
+                floorId={data.floor.id}
+                dbRooms={data.rooms}
+                wallDefaults={wallDefaults}
+                onCreateLift={createLift}
+                onLiftMoved={(lift, p) => void changeLift(lift, { x: p[0], y: p[1] })}
+                onCalibrate={(a, b) => setCalibration([a, b])}
+                onLengthPrompt={setLengthPrompt}
+                walker={walker}
+              />
+              {lengthPrompt && <LengthPrompt at={lengthPrompt.at} onApply={lengthPrompt.apply} onCancel={() => setLengthPrompt(null)} />}
+              {draft && (
+                <div className="absolute top-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-2.5 text-sm text-warn shadow">
+                  <span>
+                    Есть несохранённые правки этого этажа от {formatDateTime(draft.at)}
+                    {draft.base !== data.plan_version ? " — план с тех пор сохраняли, сверьте после восстановления" : ""}.
+                  </span>
+                  <Button size="sm" variant="primary" onClick={() => { store.commit(draft.plan); store.set({ edits: draft.edits || 1 }); setDraft(null); }}>
+                    Восстановить
+                  </Button>
+                  <Button size="sm" onClick={() => { clearDraft(data.floor.id); setDraft(null); }}>
+                    Отбросить
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {show3d && (
+            <div className="relative min-w-0 flex-1">
+              <Suspense fallback={<Loading />}>
+                <View3D buildingId={data.building.id} floorId={data.floor.id} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} />
+              </Suspense>
+            </div>
+          )}
+        </div>
+
+        {show2d && (
+          <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
+            <Properties
+              store={store}
+              readOnly={readOnly}
+              floors={floors}
+              floorId={data.floor.id}
+              wallDefaults={wallDefaults}
+              setWallDefaults={setWallDefaults}
+              onLiftChange={(l, c) => void changeLift(l, c)}
+              onLiftDelete={(l) => void deleteLift(l)}
+            />
+            {!readOnly && (
+              <section className="flex flex-col gap-2 px-4 py-4" aria-label="Проверка плана">
+                <h3 className="m-0 flex items-center justify-between text-sm font-semibold">
+                  Проверка плана
+                  <span className={cn("text-[12px] font-normal", issues.length ? "text-warn" : "text-ok")}>{issues.length ? `замечаний: ${issues.length}` : "без замечаний"}</span>
+                </h3>
+                {unlabeled > 0 && <p className="m-0 text-[12px] text-warn">Помещений без подписи: {unlabeled}. Подпишите их инструментом «Подпись помещения» — или они сохранятся без номера.</p>}
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                  {issues.slice(0, 30).map((issue, i) => (
+                    <li key={i} className="flex items-center gap-2 text-[13px]">
+                      <span className={cn("size-2 shrink-0 rounded-full", issue.auto ? "bg-warn" : "bg-bad")} />
+                      <span className="flex-1">
+                        {issue.message}
+                        <span className="block text-[11px] text-ink-3">{issue.auto ? "исправится автоматически" : "править вручную"}</span>
+                      </span>
+                      <Button size="sm" variant="ghost" onClick={() => store.set({ focus: [issue.x, issue.y], selection: issue.ids.map((id) => ({ kind: (plan.walls.some((w) => w.id === id) ? "wall" : plan.openings.some((o) => o.id === id) ? "opening" : "room") as "wall", id })) })}>
+                        Показать
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {autoIssues > 0 && (
+                  <Button size="sm" onClick={() => void fix()}>
+                    <Wand2 /> Исправить автоматически ({autoIssues})
+                  </Button>
+                )}
+              </section>
+            )}
+          </aside>
+        )}
+      </div>
+
+      <SaveDialog state={saveState} setState={setSaveState} onConfirm={confirmSave} pending={save.isPending} error={save.error && (save.error as ApiError).code !== "needs_confirmation" ? (save.error as ApiError).message : null} />
+      <CalibrateDialog open={calibration !== null} measured={calibration ? dist(calibration[0], calibration[1]) : 0} onApply={applyCalibration} onCancel={() => setCalibration(null)} />
+      <HelpDialog open={help} onOpenChange={setHelp} />
+      <FloorDialog
+        building={{ id: data.building.id, floors }}
+        floor={addingFloor ? "new" : null}
+        onClose={() => setAddingFloor(false)}
+        onDone={(floor) => {
+          client.invalidateQueries({ queryKey: ["building", data.building.id] });
+          client.invalidateQueries({ queryKey: ["buildings"] });
+          client.invalidateQueries({ queryKey: ["plan"] });
+          navigate(`/plan/${data.building.id}/${floor.id}${mode !== "2d" ? `?view=${mode}` : ""}`);
+        }}
+      />
+      <PrintDialog open={printing} onOpenChange={setPrinting} floorId={data.floor.id} unsaved={edits > 0 && !readOnly} />
+    </div>
+  );
+}
+
+function UnderlayPanel({ store, onUpload }: { store: EditorStore; onUpload: (f: File) => void }) {
+  const underlay = useEditor(store, (s) => s.plan.underlay);
+  const file = useRef<HTMLInputElement>(null);
+  const set = (patch: Partial<NonNullable<typeof underlay>>) => store.apply((p) => void (p.underlay = { ...p.underlay!, ...patch }));
+  return (
+    <section className="flex flex-col gap-2 border-t border-line p-3 max-md:hidden" aria-label="Подложка">
+      <h3 className="m-0 flex items-center gap-2 text-[13px] font-semibold">
+        <ImageIcon className="size-4" aria-hidden /> Подложка
+      </h3>
+      <input ref={file} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} />
+      {!underlay ? (
+        <>
+          <p className="m-0 text-[12px] text-ink-2">Скан плана (PDF или картинка) под этажом — чтобы обвести стены.</p>
+          <Button size="sm" onClick={() => file.current?.click()}>
+            <FileUp /> Положить подложку
+          </Button>
+        </>
+      ) : (
+        <>
+          <label className="flex items-center gap-2 text-[12px]">
+            <input type="checkbox" checked={underlay.visible} onChange={(e) => set({ visible: e.target.checked })} /> показывать
+          </label>
+          <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+            Прозрачность
+            <input type="range" min={0.05} max={1} step={0.05} value={underlay.opacity} onChange={(e) => store.preview({ ...store.state.plan, underlay: { ...underlay, opacity: Number(e.target.value) } })} onPointerUp={(e) => set({ opacity: Number((e.target as HTMLInputElement).value) })} />
+          </label>
+          <Button size="sm" onClick={() => store.set({ tool: "calibrate", selection: [] })}>
+            <Ruler /> Масштаб по двум точкам
+          </Button>
+          <div className="grid grid-cols-2 gap-1.5">
+            <NumberField label="X" unit="мм" value={underlay.x} onChange={(x) => set({ x })} />
+            <NumberField label="Y" unit="мм" value={underlay.y} onChange={(y) => set({ y })} />
+            <NumberField label="Поворот" unit="°" value={underlay.angle} onChange={(angle) => set({ angle })} digits={1} />
+            <NumberField label="Страница" value={underlay.page} min={1} onChange={(page) => set({ page: Math.round(page) })} />
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => store.apply((p) => void (p.underlay = null))}>
+            Убрать подложку
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+function LengthPrompt({ at, onApply, onCancel }: { at: [number, number]; onApply: (mm: number) => void; onCancel: () => void }) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      className="absolute z-10 flex items-center gap-1 rounded-lg border border-line bg-surface p-1.5 shadow-lg"
+      style={{ left: at[0] + 12, top: at[1] + 12 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const v = Number.parseFloat(text.replace(",", "."));
+        if (v > 0) onApply(v);
+      }}
+    >
+      <label className="text-[12px] text-ink-2" htmlFor="wall-length">
+        Длина
+      </label>
+      <input id="wall-length" autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Escape" && onCancel()} inputMode="decimal" className="h-8 w-24 rounded-md border border-line-strong px-2 font-mono text-[13px]" placeholder="мм" />
+    </form>
+  );
+}
+
+function SaveDialog({ state, setState, onConfirm, pending, error }: {
+  state: { preview: Check; keep: Record<number, string> } | null; setState: (s: { preview: Check; keep: Record<number, string> } | null) => void; onConfirm: () => void; pending: boolean; error: string | null;
+}) {
+  const p = state?.preview;
+  return (
+    <Dialog
+      open={state !== null}
+      onOpenChange={(o) => !o && setState(null)}
+      title="Сохранить план?"
+      description={p?.needs_confirmation ? "Сохранение изменит помещения — проверьте, что изменится." : "В плане есть замечания проверки."}
+      footer={
+        <>
+          <Button onClick={() => setState(null)}>Вернуться к плану</Button>
+          <Button variant="primary" onClick={onConfirm} disabled={pending}>
+            Сохранить
+          </Button>
+        </>
+      }
+    >
+      {p && p.issues.length > 0 && (
+        <div className="rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">
+          Замечаний проверки: {p.issues.length} ({p.issues.slice(0, 3).map((i) => i.message.toLowerCase()).join(", ")}
+          {p.issues.length > 3 ? "…" : ""}). План с замечаниями сохранить можно; 3D и печать построятся как есть.
+        </div>
+      )}
+      {p?.merges.map((m) => (
+        <fieldset key={m.index} className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="mb-1 p-0 text-sm font-medium">
+            Помещения {m.rooms.map((r) => r.title).join(" и ")} станут одним. Какое остаётся?
+          </legend>
+          {m.rooms.map((r) => (
+            <Choice key={r.id} name={`merge-${m.index}`} value={r.id} checked={state!.keep[m.index] === r.id} onChange={() => setState({ ...state!, keep: { ...state!.keep, [m.index]: r.id } })} title={r.title} description="номер и название остаются; предметы и имущество другого переходят сюда" />
+          ))}
+        </fieldset>
+      ))}
+      {p?.splits.map((s) => (
+        <p key={s.index} className="m-0 text-sm">
+          От помещения <b>{s.from.title}</b> отделилась часть — она станет новым помещением. Номер остаётся за частью с подписью; чтобы выбрать другую, передвиньте подпись.
+        </p>
+      ))}
+      {p && p.removed.length > 0 && (
+        <p className="m-0 text-sm">
+          Уйдут в архив (стен вокруг больше нет): <b>{p.removed.map((r) => r.title).join(", ")}</b>. История остаётся.
+        </p>
+      )}
+      {p && p.rooms.filter((r) => r.status === "new").length > 0 && (
+        <p className="m-0 text-sm text-ink-2">Новых помещений: {p.rooms.filter((r) => r.status === "new").length}.</p>
+      )}
+      <FormError message={error} />
+    </Dialog>
+  );
+}
+
+function CalibrateDialog({ open, measured, onApply, onCancel }: { open: boolean; measured: number; onApply: (mm: number) => void; onCancel: () => void }) {
+  const [text, setText] = useState("");
+  const v = Number.parseFloat(text.replace(",", "."));
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => !o && onCancel()}
+      title="Масштаб подложки"
+      description="Сколько на самом деле между двумя отмеченными точками?"
+      footer={
+        <>
+          <Button onClick={onCancel}>Отмена</Button>
+          <Button variant="primary" disabled={!(v > 0)} onClick={() => onApply(v)}>
+            Применить
+          </Button>
+        </>
+      }
+    >
+      <Field label="Расстояние, мм" hint={`Сейчас на подложке: ${Math.round(measured)} мм.`}>
+        {(p) => <Input {...p} autoFocus inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} placeholder="например, 6000" />}
+      </Field>
+    </Dialog>
+  );
+}
+
+// Печать этажа листами и выгрузка (5.1.8): печатается сохранённый план
+function PrintDialog({ open, onOpenChange, floorId, unsaved }: { open: boolean; onOpenChange: (o: boolean) => void; floorId: string; unsaved: boolean }) {
+  const [paper, setPaper] = useState("A4");
+  const [orientation, setOrientation] = useState("landscape");
+  const [scale, setScale] = useState("");
+  const select = "h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-sm max-md:h-11";
+  const pdf = `/api/floors/${floorId}/export.pdf?paper=${paper}&orientation=${orientation}${scale ? `&scale=${scale}` : ""}`;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Печать и выгрузка плана"
+      footer={
+        <>
+          <Button asChild>
+            <a href={`/api/floors/${floorId}/export.dxf`} download>
+              Скачать DXF
+            </a>
+          </Button>
+          <Button variant="primary" asChild>
+            <a href={pdf} target="_blank" rel="noreferrer">
+              <Printer /> Открыть PDF для печати
+            </a>
+          </Button>
+        </>
+      }
+    >
+      {unsaved && <p className="m-0 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">Печатается сохранённый план — несохранённые правки в него не попадут.</p>}
+      <div className="grid grid-cols-3 gap-3">
+        <label className="flex flex-col gap-1 text-[13px] font-medium">
+          Лист
+          <select className={select} value={paper} onChange={(e) => setPaper(e.target.value)}>
+            <option value="A4">А4</option>
+            <option value="A3">А3</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[13px] font-medium">
+          Ориентация
+          <select className={select} value={orientation} onChange={(e) => setOrientation(e.target.value)}>
+            <option value="landscape">альбомная</option>
+            <option value="portrait">книжная</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[13px] font-medium">
+          Масштаб
+          <select className={select} value={scale} onChange={(e) => setScale(e.target.value)}>
+            <option value="">по размеру листа</option>
+            {[50, 100, 200, 500].map((s) => (
+              <option key={s} value={s}>
+                1:{s}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="m-0 text-[13px] text-ink-2">Если этаж в выбранном масштабе не помещается, он печатается несколькими листами. Рамка с названием здания, этажа, масштабом и номером листа. DXF — в миллиметрах, по слоям: стены, перегородки, проёмы, колонны, лестницы, лифты, помещения.</p>
+    </Dialog>
+  );
+}
+
+function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const rows: [string, ReactNode][] = [
+    ["Ctrl+Z / Ctrl+Y", "отменить / повторить"],
+    ["Ctrl+C / Ctrl+V", "копировать / вставить выделенное"],
+    ["Delete", "удалить выделенное"],
+    ["Ctrl+S", "сохранить план"],
+    ["Esc", "закончить цепочку стен, снять выделение"],
+    ["Enter", "при рисовании стены — ввести длину"],
+    ["V W A D O R M", "выбор, стена, дуга, дверь, окно, подпись помещения, измерение"],
+    ["Колесо мыши", "приблизить / отдалить"],
+    ["Пробел + перетаскивание, средняя кнопка", "сдвинуть план"],
+    ["Shift + щелчок, рамка", "выделить несколько"],
+  ];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Клавиши редактора">
+      <table className="w-full border-collapse text-sm">
+        <tbody>
+          {rows.map(([k, v]) => (
+            <tr key={k}>
+              <td className="py-1.5 pr-4 font-mono text-[12px] whitespace-nowrap text-ink-2">{k}</td>
+              <td className="py-1.5">{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Dialog>
+  );
+}
+

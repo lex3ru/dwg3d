@@ -2,6 +2,7 @@
 база разработки из server/README.md); для тестов создаётся отдельная база app_test."""
 
 import os
+import tempfile
 from collections.abc import Iterator
 
 import psycopg
@@ -14,7 +15,7 @@ base, _, _ = ADMIN_URL.rpartition("/")
 os.environ["APP_DATABASE_URL"] = f"{base}/{TEST_DB}"
 os.environ["APP_SECURE_COOKIES"] = "false"
 os.environ["APP_STATIC_DIR"] = "/nonexistent"
-os.environ.setdefault("APP_DATA_DIR", "/tmp")
+os.environ["APP_DATA_DIR"] = tempfile.mkdtemp(prefix="app-data-")
 os.environ.setdefault("APP_BACKUP_DIR", "/nonexistent-backups")
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -49,6 +50,7 @@ def clean() -> Iterator[None]:
         s.execute(text("SET LOCAL journal.purge = 'on'"))
         s.execute(text("DELETE FROM journal.entry"))
         s.execute(text("TRUNCATE access.account, access.login_session, access.building_grant, "
+                       "building.building, files.file, "
                        "core.job, core.schedule_run, core.worker_beat, system.setting CASCADE"))
 
 
