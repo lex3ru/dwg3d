@@ -16,9 +16,14 @@ interface ShapeProps {
   warn: boolean;
   pale: boolean;
   contents: number;
+  unit?: string; // состояние связанной единицы (5.5, 6.5.2)
 }
 
-export const ItemShape = memo(function ItemShape({ item, type, color, px, selected, warn, pale, contents }: ShapeProps) {
+// значок учёта на предмете: учтён и в работе — зелёный, неисправен — красный, в ремонте —
+// жёлтый, на хранении — серый
+const UNIT_COLOR: Record<string, string> = { in_use: "var(--ok)", broken: "var(--bad)", repair: "var(--warn)", storage: "var(--ink-3)" };
+
+export const ItemShape = memo(function ItemShape({ item, type, color, px, selected, warn, pale, contents, unit }: ShapeProps) {
   const { w, d } = sizeOf(type);
   const x = item.x ?? 0;
   const y = item.y ?? 0;
@@ -41,6 +46,17 @@ export const ItemShape = memo(function ItemShape({ item, type, color, px, select
         </>
       )}
       {contents > 0 && <circle cx={x} cy={y} r={4 * px} fill={stroke} />}
+      {unit && (
+        <circle
+          data-unit-state={unit}
+          cx={add([x, y], rot([w / 2, -d / 2], item.angle))[0]}
+          cy={add([x, y], rot([w / 2, -d / 2], item.angle))[1]}
+          r={(unit === "broken" || unit === "repair" ? 5 : 3.5) * px}
+          fill={UNIT_COLOR[unit] ?? "var(--ok)"}
+          stroke="var(--surface)"
+          strokeWidth={1.2 * px}
+        />
+      )}
     </g>
   );
 });

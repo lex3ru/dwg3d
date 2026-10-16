@@ -276,6 +276,7 @@ def remove_file(link_id: uuid.UUID, actor: Admin, session: DB) -> dict[str, Any]
 class LabelsIn(BaseModel):
     unit_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5000)
     codes: list[str] = Field(default_factory=list, max_length=500)  # склады и ячейки
+    room_ids: list[uuid.UUID] = Field(default_factory=list, max_length=2000)  # на двери
     mode: str = "sheet"
     origin: str
 
@@ -299,6 +300,10 @@ def labels(body: LabelsIn, actor: Admin, session: DB) -> Response:
                 items.append(
                     {"code": c["label_code"], "number": "", "title": f"{wh.name} › {c['name']}"}
                 )
+    known = places.Places(session, actor)
+    for room_id in body.room_ids:
+        room = known.get(places.room_key(room_id))
+        items.append({"code": api.room_label(session, room_id), "number": "", "title": room.title})
     if not items:
         raise AppError("Не выбрано, что печатать.")
     data = printing.labels_pdf(

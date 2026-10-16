@@ -21,12 +21,14 @@ import { Canvas, type WallDefaults } from "./Canvas";
 import { ItemPanel } from "./ItemPanel";
 import { footprint, normAngle, warningsFor, type Item, type WarningCode } from "./items";
 import { PlacePanel } from "./PlacePanel";
-import { copyItems, removeItems, toChanges, type Catalog } from "./placement";
+import { LabelsOffer, RegisterDialog, RemoveDialog, useLink, useLinkInStore, type Registered } from "./link";
+import { copyItems, requestRemove, toChanges, type Catalog } from "./placement";
 import { copy, paste, remove, type Clip } from "./ops";
 import { dist, type Check, type Lift, type Plan, type PlanView, type Pt } from "./plan";
 import { Properties, NumberField } from "./Properties";
 import { EditorStore, clearDraft, layersChosen, readDraft, useEditor, type ItemOp, type Mode, type Tool } from "./store";
 import { PDF_RENDER_WIDTH, underlayToWorld, worldToUnderlay } from "./Underlay";
+import { useIsPhone, WalkBar } from "./Walk";
 
 const View3D = lazy(() => import("./View3D"));
 
@@ -141,15 +143,23 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       queue.current = queue.current.then(async () => {
         try {
           const body = toChanges(op, versions.current);
-          const r = await post<{ items: Item[]; deleted: string[] }>(`/api/floors/${data.floor.id}/items/changes`, body);
+          const r = await post<{ items: Item[]; deleted: string[]; notes: string[] }>(`/api/floors/${data.floor.id}/items/changes`, body);
           for (const i of r.items) versions.current.set(i.id, i.version);
           for (const id of r.deleted) versions.current.delete(id);
           store.itemsSaved(r.items, r.deleted);
+          // связанные с учётом: перенос в другое помещение — перемещение (С13), убрали — в «Неразмещённые»
+          const linked = [...Object.values(op.before), ...Object.values(op.after)].some((i) => i?.unit_id);
+          if (linked || r.notes.length) {
+            client.invalidateQueries({ queryKey: ["link", data.floor.id] });
+            client.invalidateQueries({ queryKey: ["inventory"] });
+          }
+          if (r.notes.length) flash("ok", r.notes.join(" "));
         } catch (e) {
           flash("bad", `${(e as ApiError).message} Расстановка обновлена с сервера.`);
           const fresh = await get<{ items: Item[] }>(`/api/floors/${data.floor.id}/items`);
           versions.current = new Map(fresh.items.map((i) => [i.id, i.version]));
           store.set({ items: fresh.items, itemPast: [], itemFuture: [], selection: [] });
+          client.invalidateQueries({ queryKey: ["link", data.floor.id] });
         } finally {
           pendingOps.current -= 1;
           if (!pendingOps.current) setItemsBusy(false);
@@ -233,12 +243,41 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
     return () => clearTimeout(t);
   }, [items, plan, check, cat, data.rooms]);
 
-  // выделить помещение из адреса (?room=…) — поиск ведёт сюда
+  // выделить помещение из адреса (?room=…) — поиск ведёт сюда; предмет (?item=…) — карточка
+  // единицы, «Показать на плане»
   useEffect(() => {
     const room = params.get("room");
     const label = room && store.state.plan.rooms.find((r) => r.id === room);
     if (label) store.set({ selection: [{ kind: "room", id: label.id }], focus: [label.x, label.y] });
-  }, [params, store]);
+    const itemId = params.get("item");
+    const item = itemId && store.state.items.find((i) => i.id === itemId);
+    if (item) {
+      store.set({ mode: "place", selection: [{ kind: "item", id: item.id }] });
+      // помещение предмета во весь экран — после того, как план впишется в окно
+      const outline = data.rooms.find((r) => r.id === item.room_id)?.outline;
+      const t = setTimeout(() => {
+        const bottom = (document.querySelector('[aria-label="Обход"]') as HTMLElement | null)?.offsetHeight ?? 0;
+        if (outline) window.dispatchEvent(new CustomEvent("editor:fit-room", { detail: { outline, bottom } }));
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [params, store, data.rooms]);
+
+  // на телефоне — только расстановка (обход, 6.5.12): строительство недоступно
+  const phone = useIsPhone();
+  useEffect(() => {
+    if (phone && !readOnly && store.state.mode === "build") store.set({ mode: "place", selection: [], tool: "select", placing: null });
+  }, [phone, readOnly, store]);
+
+  // связь с учётом (5.5): единицы этажа, неразмещённые, сверка
+  const link = useLink(data.floor.id);
+  useLinkInStore(store, link.data);
+  const [registering, setRegistering] = useState<string[] | null>(null);
+  const [registered, setRegistered] = useState<Registered | null>(null);
+  const linkChanged = () => {
+    client.invalidateQueries({ queryKey: ["link", data.floor.id] });
+    client.invalidateQueries({ queryKey: ["inventory"] });
+  };
 
   // проверка плана на сервере: помещения, замечания (5.1.5) — после каждой правки
   useEffect(() => {
@@ -414,7 +453,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       e.preventDefault();
       void startSave();
     } else if (e.key === "Delete" || e.key === "Backspace") {
-      if (ids.size) removeItems(store, ids, cat ?? undefined);
+      if (ids.size) requestRemove(store, ids, cat ?? undefined);
     } else if (e.key === "Escape") {
       store.set({ placing: null, selection: [] });
     } else if (e.key === "?") {
@@ -497,7 +536,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
           </Button>
         )}
         {!readOnly && (
-          <div role="tablist" aria-label="Режим" className="flex rounded-lg border border-line-strong p-0.5">
+          <div role="tablist" aria-label="Режим" className="flex rounded-lg border border-line-strong p-0.5 max-md:hidden">
             {([["build", "Строительство"], ["place", "Расстановка"]] as const).map(([m, title]) => (
               <button
                 key={m}
@@ -571,7 +610,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         {!readOnly && (
           <>
             {edits > 0 && <span className="text-[13px] text-ink-2">Несохранённые правки плана: {edits}</span>}
-            <Button variant="primary" onClick={() => void startSave()} disabled={edits === 0 || save.isPending}>
+            <Button variant="primary" onClick={() => void startSave()} disabled={edits === 0 || save.isPending} className={cn(editMode === "place" && edits === 0 && "max-md:hidden")}>
               <Save /> Сохранить план
             </Button>
           </>
@@ -581,7 +620,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
       <div className="flex min-h-0 flex-1">
         {show2d && editMode === "place" && cat && (
           <aside aria-label="Слои и каталог" className="flex w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface max-md:hidden">
-            <PlacePanel store={store} cat={cat} readOnly={readOnly} />
+            <PlacePanel store={store} cat={cat} readOnly={readOnly} link={link.data} />
           </aside>
         )}
         {!readOnly && show2d && editMode === "build" && (
@@ -623,6 +662,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
                 warnings={warnings}
                 floorHeight={data.floor.height}
               />
+              {phone && !readOnly && editMode === "place" && cat && <WalkBar store={store} cat={cat} link={link.data} rooms={data.rooms} onRegister={setRegistering} />}
               {lengthPrompt && <LengthPrompt at={lengthPrompt.at} onApply={lengthPrompt.apply} onCancel={() => setLengthPrompt(null)} />}
               {draft && (
                 <div className="absolute top-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-2.5 text-sm text-warn shadow">
@@ -652,7 +692,7 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         {show2d && (
           <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
             {editMode === "place" && cat && !selection.some((x) => x.kind === "room") ? (
-              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} />
+              <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={link.data} onRegister={setRegistering} />
             ) : (
               <Properties
                 store={store}
@@ -712,6 +752,35 @@ function Loaded({ data, items: serverItems, tree, readOnly }: { data: PlanView; 
         }}
       />
       <PrintDialog open={printing} onOpenChange={setPrinting} floorId={data.floor.id} unsaved={edits > 0 && !readOnly} />
+      {cat && (
+        <>
+          <RegisterDialog
+            open={registering !== null}
+            onClose={() => setRegistering(null)}
+            floorId={data.floor.id}
+            items={items.filter((i) => registering?.includes(i.id))}
+            cat={cat}
+            onDone={(r) => {
+              const linked = new Map(r.items.map((i) => [i.id, i]));
+              for (const i of r.items) versions.current.set(i.id, i.version);
+              store.set({ items: store.state.items.map((i) => (linked.has(i.id) ? { ...i, unit_id: linked.get(i.id)!.unit_id, version: linked.get(i.id)!.version } : i)), itemPast: [], itemFuture: [] });
+              setRegistering(null);
+              setRegistered(r);
+              linkChanged();
+            }}
+          />
+          <LabelsOffer result={registered} onClose={() => setRegistered(null)} />
+          <RemoveDialog
+            store={store}
+            cat={cat}
+            onDone={(text, deleted) => {
+              for (const id of deleted) versions.current.delete(id);
+              flash("ok", text);
+              linkChanged();
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

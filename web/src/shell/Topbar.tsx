@@ -41,10 +41,10 @@ export function Crumbs() {
   );
 }
 
-export function SearchBox({ autoFocus, className }: { autoFocus?: boolean; className?: string }) {
-  const [text, setText] = useState("");
-  const [open, setOpen] = useState(false);
-  const [debounced, setDebounced] = useState("");
+export function SearchBox({ autoFocus, className, initial = "" }: { autoFocus?: boolean; className?: string; initial?: string }) {
+  const [text, setText] = useState(initial);
+  const [open, setOpen] = useState(!!initial);
+  const [debounced, setDebounced] = useState(initial);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(text.trim()), 200);

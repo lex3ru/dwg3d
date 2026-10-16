@@ -2,12 +2,13 @@ import { Eye, EyeOff, Lock, LockOpen, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TypeBrief } from "@/catalog/types";
 import { cn } from "@/lib/cn";
+import { UnplacedSection, type LinkView } from "./link";
 import { placeable, type Catalog } from "./placement";
 import { useEditor, type EditorStore } from "./store";
 
 // Слева в «Расстановке» (5.3.1): слои — показать, скрыть, заблокировать; каталог — поиск,
 // слой, перетаскивание на план (или выбор и щелчок по плану — на телефоне).
-export function PlacePanel({ store, cat, readOnly }: { store: EditorStore; cat: Catalog; readOnly: boolean }) {
+export function PlacePanel({ store, cat, readOnly, link }: { store: EditorStore; cat: Catalog; readOnly: boolean; link: LinkView | undefined }) {
   const items = useEditor(store, (s) => s.items);
   const hidden = useEditor(store, (s) => s.hiddenLayers);
   const locked = useEditor(store, (s) => s.lockedLayers);
@@ -67,6 +68,7 @@ export function PlacePanel({ store, cat, readOnly }: { store: EditorStore; cat: 
           );
         })}
       </section>
+      <UnplacedSection store={store} cat={cat} link={link} readOnly={readOnly} />
       {!readOnly && (
         <section aria-label="Каталог" className="flex min-h-0 flex-1 flex-col p-2">
           <h3 className="m-0 px-1.5 pb-1.5 text-[12px] font-semibold tracking-wide text-ink-2 uppercase">Каталог</h3>
@@ -89,7 +91,7 @@ export function PlacePanel({ store, cat, readOnly }: { store: EditorStore; cat: 
           </div>
           <ul aria-label="Типы для расстановки" className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-0">
             {types.map((t) => (
-              <TypeRow key={t.id} t={t} color={cat.layers.get(t.layer_id ?? "")?.color ?? "#607D8B"} active={placing === t.id} onPick={() => store.set({ placing: placing === t.id ? null : t.id, selection: [] })} />
+              <TypeRow key={t.id} t={t} color={cat.layers.get(t.layer_id ?? "")?.color ?? "#607D8B"} active={placing === t.id} onPick={() => store.set({ placing: placing === t.id ? null : t.id, placingUnit: null, selection: [] })} />
             ))}
             {!types.length && <li className="px-1.5 py-2 text-[12px] text-ink-3">Ничего не нашлось.</li>}
           </ul>

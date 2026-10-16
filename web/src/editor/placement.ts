@@ -23,7 +23,7 @@ export function itemState(store: EditorStore, cat: Catalog, item: Item): { shown
 
 // Поставить тип в точку: на пол — как есть, к стене — спиной к ближайшей, на потолок —
 // под потолком; в вместилище, если точка внутри него (5.3.2 п. 1, 4)
-export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt, faces: Face[], floorHeight: number, free = false): Item | null {
+export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt, faces: Face[], floorHeight: number, free = false, unit?: { id: string; model_id: string | null }): Item | null {
   const { w, d } = sizeOf(type);
   const s = store.state;
   const container = type.container
@@ -42,13 +42,14 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
     floor_id: s.floorId,
     room_id: container?.room_id ?? null,
     type_id: type.id,
-    model_id: null,
+    model_id: unit?.model_id ?? null,
     parent_id: container?.id ?? null,
     x: container ? null : p[0],
     y: container ? null : p[1],
     angle: 0,
     z: defaultZ(type, floorHeight),
     label: "",
+    unit_id: unit?.id ?? null,
     version: 1,
   };
   if (!container && !free) {
@@ -59,6 +60,13 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
   // поставили в скрытый слой — слой показывается, иначе предмет пропал бы из виду
   if (type.layer_id && s.hiddenLayers.includes(type.layer_id)) store.setLayers(s.hiddenLayers.filter((l) => l !== type.layer_id), s.lockedLayers);
   return item;
+}
+
+// Убрать выбранные; если среди них связанные с учётом — сначала спросить: только с плана,
+// вернуть на склад или списать (5.5)
+export function requestRemove(store: EditorStore, ids: Set<string>, cat?: Catalog) {
+  if (store.state.items.some((i) => ids.has(i.id) && i.unit_id)) store.set({ askRemove: [...ids] });
+  else removeItems(store, ids, cat);
 }
 
 // Убрать выбранные; содержимое убранного вместилища остаётся на его месте
@@ -88,6 +96,7 @@ export function copyItems(store: EditorStore, source: Item[], offset: Pt): Sel[]
     parent_id: i.parent_id ? (fresh.get(i.parent_id) ?? i.parent_id) : null,
     x: i.x === null ? null : i.x + offset[0],
     y: i.y === null ? null : i.y + offset[1],
+    unit_id: null, // копия — новая вещь, на учёт её ставят отдельно
     version: 1,
   }));
   const sel = source.map((i) => ({ kind: "item" as const, id: fresh.get(i.id)! }));
@@ -96,13 +105,13 @@ export function copyItems(store: EditorStore, source: Item[], offset: Pt): Sel[]
 }
 
 export function copiesAt(store: EditorStore, item: Item, points: Pt[]) {
-  const copies = points.map((p) => ({ ...item, id: newItemId(), parent_id: null, x: p[0], y: p[1], version: 1, label: item.label }));
+  const copies = points.map((p) => ({ ...item, id: newItemId(), parent_id: null, x: p[0], y: p[1], version: 1, label: item.label, unit_id: null }));
   store.changeItems([...store.state.items, ...copies], [{ kind: "item", id: item.id }, ...copies.map((c) => ({ kind: "item" as const, id: c.id }))]);
 }
 
 // ---------------------------------------------------------------- на сервер
 
-const FIELDS = ["x", "y", "angle", "z", "parent_id", "label", "model_id"] as const;
+const FIELDS = ["x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id"] as const;
 
 export interface Changes {
   create: Record<string, unknown>[];

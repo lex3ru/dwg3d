@@ -3,6 +3,7 @@
 
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -60,6 +61,23 @@ HEADER_FIELDS = (
     "reason",
     "note",
 )
+
+
+# Подписчики (связь с планом, 5.5): документ переместил или списал единицы — вызываются в
+# той же транзакции
+UnitsHook = Callable[[Session, Actor, list[Unit]], None]
+_units_hooks: list[UnitsHook] = []
+
+
+def on_units_changed(hook: UnitsHook) -> None:
+    _units_hooks.append(hook)
+
+
+def _units_changed(session: Session, actor: Actor, units: list[Unit]) -> None:
+    if units:
+        session.flush()
+        for hook in _units_hooks:
+            hook(session, actor, units)
 
 
 def _d(v: Any) -> Decimal:
@@ -561,6 +579,7 @@ def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Doc
     doc.posted_by = actor.full_name
     doc.version += 1
     _journal(session, actor, doc, p, "inventory.document_post", "Проведён")
+    _units_changed(session, actor, p.units)
     return doc
 
 
@@ -721,6 +740,7 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
     doc.cancelled_by_id = back.id
     doc.version += 1
     _journal(session, actor, doc, p, "inventory.document_cancel", "Отменён")
+    _units_changed(session, actor, p.units)
     return back
 
 

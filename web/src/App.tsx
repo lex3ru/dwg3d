@@ -8,6 +8,7 @@ import { DocumentPage } from "@/inventory/DocumentPage";
 import { DocumentsPage } from "@/inventory/DocumentsPage";
 import { PropertyPage } from "@/inventory/PropertyPage";
 import { QrPage } from "@/inventory/QrPage";
+import { ScanPage } from "@/inventory/ScanPage";
 import { WarehousePage } from "@/inventory/WarehousePage";
 import { Buildings } from "@/pages/Buildings";
 import { Journal } from "@/pages/Journal";
@@ -61,7 +62,7 @@ export function App() {
           ))}
           <Route path="/plan/:buildingId/:floorId?" element={<EditorPage />} />
           <Route path="/search" element={<SearchPage />} />
-          <Route path="/scan" element={<Placeholder title="QR-сканер" stage={6} about="Камера телефона читает QR-метку на вещи или двери помещения и открывает карточку (6.5.12, 5.4.7)." />} />
+          <Route path="/scan" element={<ScanPage />} />
           {role === "admin" && <Route path="/documents/:docId" element={<DocumentPage />} />}
           <Route path="/q/:code" element={<QrPage />} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />

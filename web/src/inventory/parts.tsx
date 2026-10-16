@@ -167,7 +167,7 @@ export function UnitPicker({ onPick, place, label = "Добавить едини
 }
 
 // Печать QR-меток: листом А4 или на принтер этикеток (5.4.7)
-export async function printLabels(body: { unit_ids?: string[]; codes?: string[] }, mode: "sheet" | "printer" = "sheet") {
+export async function printLabels(body: { unit_ids?: string[]; codes?: string[]; room_ids?: string[] }, mode: "sheet" | "printer" = "sheet") {
   const r = await fetch("/api/inventory/labels.pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "app" },

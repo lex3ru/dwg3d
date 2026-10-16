@@ -38,6 +38,9 @@ class Item(Base):
     angle: Mapped[float] = mapped_column(Float, default=0)
     z: Mapped[float] = mapped_column(Float, default=0)
     label: Mapped[str] = mapped_column(String(100), default="")
+    # связанная инвентарная единица (5.5): ключ из учёта, одна единица — не больше одного
+    # предмета; что за единица, проверяет модуль связи
+    unit_id: Mapped[uuid.UUID | None] = mapped_column(UUID, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     version: Mapped[int] = mapped_column(Integer, default=1)

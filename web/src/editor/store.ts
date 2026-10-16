@@ -60,6 +60,12 @@ export interface EditorState {
   itemPast: ItemOp[];
   itemFuture: ItemOp[];
   placing: string | null; // тип, который ставится щелчком по плану
+  placingUnit: string | null; // …и инвентарная единица из «Неразмещённых» (5.5)
+  unitStates: Record<string, string>; // состояние связанных единиц — значок на предмете
+  unitModels: Record<string, string | null>; // модель единицы — предмет встаёт с ней
+  onlyBroken: boolean; // фильтр «показать только неисправное» (6.5.2)
+  askRemove: string[] | null; // убирают связанные предметы — спросить, что с единицами
+  multiSelect: boolean; // на телефоне касание добавляет к выбранному (вместо Shift)
   ghosts: Pt[]; // где встанут копии (ряд, сетка)
   hiddenLayers: string[];
   lockedLayers: string[];
@@ -101,6 +107,12 @@ export class EditorStore {
       itemPast: [],
       itemFuture: [],
       placing: null,
+      placingUnit: null,
+      unitStates: {},
+      unitModels: {},
+      onlyBroken: false,
+      askRemove: null,
+      multiSelect: false,
       ghosts: [],
       ...layerView(),
     };

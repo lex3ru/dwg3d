@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownToLine, ArrowUpFromLine, Plus, QrCode, Search, Truck, Warehouse as WarehouseIcon, XCircle } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, MapPin, Plus, QrCode, Search, Truck, Warehouse as WarehouseIcon, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { ApiError, get, post, query } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { PageBody } from "@/shell/Shell";
@@ -172,6 +172,19 @@ function PlaceView({ place, onBack }: { place: string; onBack: () => void }) {
           <XCircle /> Расход / списание
         </Button>
       </div>
+      {p.room_id && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <Link to={`/plan/${p.building_id}/${p.floor_id}?room=${p.room_id}&mode=place`}>
+              <MapPin /> На плане
+            </Link>
+          </Button>
+          {/* С10: метки на кабинет — на дверь (обход выбирает помещение по ней) и на вещи */}
+          <Button size="sm" onClick={() => void printLabels({ room_ids: [p.room_id!], unit_ids: data.data!.units.map((u) => u.id) }).catch((e) => setError((e as Error).message))}>
+            <QrCode /> Метки на помещение ({data.data.units.length + 1})
+          </Button>
+        </div>
+      )}
       <FormError message={error} />
       <div className="text-[13px] text-ink-2">
         Единиц: {data.data.units.length}, позиций остатков: {data.data.balances.length}, остаточная стоимость: {money(total)}

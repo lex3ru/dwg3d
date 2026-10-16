@@ -17,6 +17,7 @@ export interface Item {
   angle: number;
   z: number;
   label: string;
+  unit_id: string | null; // связанная инвентарная единица (5.5)
   version: number;
 }
 

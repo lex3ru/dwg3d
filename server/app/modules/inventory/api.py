@@ -12,9 +12,22 @@ from app.core import search
 from app.core.actor import Actor
 from app.core.errors import AppError, Conflict, NotFound
 from app.modules.catalog import api as catalog
-from app.modules.inventory.models import Cell, StockMove, Unit, UnitEvent, Warehouse
-from app.modules.inventory.places import Places, room_key
-from app.modules.inventory.units import visible
+from app.modules.inventory import documents as docs
+from app.modules.inventory.documents import on_units_changed
+from app.modules.inventory.models import (
+    Cell,
+    Document,
+    RoomLabel,
+    StockMove,
+    Unit,
+    UnitEvent,
+    Warehouse,
+)
+from app.modules.inventory.places import Places, admin, label_code, room_key
+from app.modules.inventory.rules import doc_title
+from app.modules.inventory.units import title_of, visible
+
+__all__ = ["on_units_changed", "room_key"]
 from app.modules.system import api as system
 
 # ---------------------------------------------------------------- настройки (7.1)
@@ -198,4 +211,109 @@ def resolve_label(session: Session, actor: Actor, code: str) -> dict[str, Any]:
     cell = session.scalar(select(Cell).where(Cell.label_code == code))
     if cell is not None and actor.is_admin:
         return {"kind": "cell", "id": cell.id, "href": f"/warehouse?place=c:{cell.id}"}
+    door = session.scalar(select(RoomLabel).where(RoomLabel.label_code == code))
+    if door is not None:
+        try:
+            room = Places(session, actor).get(room_key(door.room_id))
+        except (NotFound, AppError):
+            room = None
+        if room is not None:
+            return {
+                "kind": "room",
+                "id": door.room_id,
+                "href": f"/plan/{room.building_id}/{room.floor_id}?room={door.room_id}&mode=place",
+            }
     raise NotFound("Метка не найдена — или эта вещь вам недоступна.")
+
+
+def room_label(session: Session, room_id: uuid.UUID) -> str:
+    """Код метки на двери помещения; заводится при первой печати."""
+    row = session.get(RoomLabel, room_id)
+    if row is None:
+        row = RoomLabel(room_id=room_id, label_code=label_code())
+        session.add(row)
+        session.flush()
+    return row.label_code
+
+
+# ---------------------------------------------------------------- для связи с планом (5.5)
+
+
+def units_by_id(session: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, Unit]:
+    if not ids:
+        return {}
+    return {u.id: u for u in session.scalars(select(Unit).where(Unit.id.in_(ids)))}
+
+
+def floor_units(session: Session, actor: Actor, floor_id: uuid.UUID) -> list[Unit]:
+    """Единицы, что числятся в помещениях этажа (не списанные)."""
+    return list(
+        session.scalars(
+            select(Unit)
+            .where(
+                visible(actor),
+                Unit.floor_id == floor_id,
+                Unit.place.like("r:%"),
+                Unit.state != "written_off",
+            )
+            .order_by(Unit.number)
+        )
+    )
+
+
+def unit_briefs(session: Session, actor: Actor, units: list[Unit]) -> list[dict[str, Any]]:
+    types = catalog.types_by_id(session, [u.type_id for u in units])
+    models = catalog.models_by_id(session, [u.model_id for u in units if u.model_id])
+    numbers = actor.sees_inventory_numbers
+    return [
+        {
+            "id": u.id,
+            "number": u.number if numbers else "",
+            "title": title_of(types[u.type_id].name, models.get(u.model_id)),
+            "type_id": u.type_id,
+            "model_id": u.model_id,
+            "parent_id": u.parent_id,
+            "state": u.state,
+            "place": u.place,
+            "room_id": u.place[2:] if u.place.startswith("r:") else None,
+        }
+        for u in units
+    ]
+
+
+def room_stock(session: Session, floor_id: uuid.UUID) -> dict[tuple[str, uuid.UUID], Decimal]:
+    """Остатки количественного учёта по помещениям этажа: (место, тип) → количество."""
+    rows = session.execute(
+        select(StockMove.place, StockMove.type_id, func.sum(StockMove.qty))
+        .where(StockMove.floor_id == floor_id, StockMove.place.like("r:%"))
+        .group_by(StockMove.place, StockMove.type_id)
+    ).all()
+    return {(place, type_id): Decimal(qty) for place, type_id, qty in rows if qty}
+
+
+def doc_brief(doc: Document) -> dict[str, Any]:
+    return {"id": doc.id, "title": doc_title(doc.kind, doc.number)}
+
+
+def post_document(
+    session: Session,
+    actor: Actor,
+    kind: str,
+    header: dict[str, Any],
+    lines: list[dict[str, Any]],
+) -> Document:
+    """Составить документ и сразу провести (целиком или никак, 5.4.4)."""
+    admin(actor)
+    doc = docs.create_document(session, actor, kind, header)
+    doc = docs.update_document(session, actor, doc.id, doc.version, {}, lines)
+    return docs.post(session, actor, doc.id, doc.version)
+
+
+def created_units(session: Session, doc: Document) -> list[list[Unit]]:
+    """Единицы, заведённые документом, — по строкам."""
+    out = []
+    for line in docs.lines_of(session, doc):
+        ids = [uuid.UUID(i) for i in line.created_units]
+        found = units_by_id(session, ids)
+        out.append([found[i] for i in ids if i in found])
+    return out

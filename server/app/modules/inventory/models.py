@@ -48,6 +48,19 @@ class Warehouse(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class RoomLabel(Base):
+    """QR-метка на двери помещения (6.5.8, 6.5.12): обход выбирает помещение по ней.
+    Заводится, когда метку печатают впервые."""
+
+    __tablename__ = "room_label"
+    __table_args__ = S
+
+    room_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("building.room.id"), primary_key=True
+    )
+    label_code: Mapped[str] = mapped_column(String(24), unique=True)
+
+
 class Cell(Base):
     """Ячейка склада: стеллаж, полка — один уровень, своя метка."""
 

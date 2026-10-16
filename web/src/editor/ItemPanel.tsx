@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround, AlignStartHorizontal, AlignStartVertical,
-  AlignVerticalSpaceAround, Copy, PackageOpen, Rows3, Trash2,
+  AlignVerticalSpaceAround, Copy, PackageOpen, PackagePlus, Rows3, Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TypeFull } from "@/catalog/types";
 import { get } from "@/lib/api";
 import { Button } from "@/ui/button";
 import { align, arrayCopies, distribute, fitAlong, footprint, sizeOf, WARNING_TEXT, type Align, type Item, type Placed, type WarningCode } from "./items";
-import { copiesAt, copyItems, removeItems, standalone, type Catalog } from "./placement";
+import { registrable, UnitBlock, type LinkView } from "./link";
+import { copiesAt, copyItems, requestRemove, standalone, type Catalog } from "./placement";
 import { type Pt, type Room } from "./plan";
 import { NumberField, Segmented, TextField } from "./Properties";
 import { useEditor, type EditorStore } from "./store";
@@ -25,7 +26,7 @@ function Section({ title, children }: { title: ReactNode; children: ReactNode })
 const roomTitle = (r: Room | undefined) => (r ? [r.number, r.name].filter(Boolean).join(" ") || "помещение без номера" : "вне помещений");
 
 // Справа в «Расстановке» (5.3.1, 5.3.2): свойства выбранного предмета или нескольких
-export function ItemPanel({ store, cat, rooms, readOnly, warnings }: { store: EditorStore; cat: Catalog; rooms: Room[]; readOnly: boolean; warnings: Map<string, WarningCode[]> }) {
+export function ItemPanel({ store, cat, rooms, readOnly, warnings, link, onRegister }: { store: EditorStore; cat: Catalog; rooms: Room[]; readOnly: boolean; warnings: Map<string, WarningCode[]>; link: LinkView | undefined; onRegister: (ids: string[]) => void }) {
   const items = useEditor(store, (s) => s.items);
   const selection = useEditor(store, (s) => s.selection);
   const chosen = useMemo(() => {
@@ -34,12 +35,13 @@ export function ItemPanel({ store, cat, rooms, readOnly, warnings }: { store: Ed
   }, [items, selection]);
   const roomsById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
 
-  if (chosen.length === 1) return <OneItem key={chosen[0]!.id} item={chosen[0]!} store={store} cat={cat} roomsById={roomsById} readOnly={readOnly} warnings={warnings.get(chosen[0]!.id) ?? []} />;
-  if (chosen.length > 1) return <ManyItems items={chosen} store={store} cat={cat} readOnly={readOnly} />;
+  if (chosen.length === 1)
+    return <OneItem key={chosen[0]!.id} item={chosen[0]!} store={store} cat={cat} roomsById={roomsById} readOnly={readOnly} warnings={warnings.get(chosen[0]!.id) ?? []} link={link} onRegister={onRegister} />;
+  if (chosen.length > 1) return <ManyItems items={chosen} store={store} cat={cat} readOnly={readOnly} onRegister={onRegister} link={link} />;
   return <FloorSummary store={store} cat={cat} roomsById={roomsById} warnings={warnings} />;
 }
 
-function OneItem({ item, store, cat, roomsById, readOnly, warnings }: { item: Item; store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; readOnly: boolean; warnings: WarningCode[] }) {
+function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegister }: { item: Item; store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; readOnly: boolean; warnings: WarningCode[]; link: LinkView | undefined; onRegister: (ids: string[]) => void }) {
   const items = useEditor(store, (s) => s.items);
   const t = cat.types.get(item.type_id);
   const layer = t?.layer_id ? cat.layers.get(t.layer_id) : undefined;
@@ -146,11 +148,12 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings }: { item: It
                 <Copy /> Копия
               </Button>
             )}
-            <Button size="sm" variant="danger" onClick={() => removeItems(store, new Set([item.id]), cat)}>
+            <Button size="sm" variant="danger" onClick={() => requestRemove(store, new Set([item.id]), cat)}>
               <Trash2 /> Убрать
             </Button>
           </div>
         )}
+        <UnitBlock item={item} link={link} cat={cat} onRegister={() => onRegister([item.id])} readOnly={readOnly} />
       </Section>
       {t?.container && (
         <Section title={`Внутри (${contents.length})`}>
@@ -221,7 +224,8 @@ function CopiesSection({ item, store, cat, room }: { item: Item; store: EditorSt
   );
 }
 
-function ManyItems({ items, store, cat, readOnly }: { items: Item[]; store: EditorStore; cat: Catalog; readOnly: boolean }) {
+function ManyItems({ items, store, cat, readOnly, onRegister, link }: { items: Item[]; store: EditorStore; cat: Catalog; readOnly: boolean; onRegister: (ids: string[]) => void; link: LinkView | undefined }) {
+  const unlinked = registrable(link, items, cat);
   const free = items.filter((i) => !i.parent_id);
   const placed: Placed[] = free.map((i) => ({ item: i, type: cat.types.get(i.type_id), poly: footprint(i, cat.types.get(i.type_id)) }));
   const move = (to: Map<string, Pt>) => store.changeItems(store.state.items.map((i) => (to.has(i.id) ? { ...i, x: to.get(i.id)![0], y: to.get(i.id)![1] } : i)));
@@ -256,10 +260,13 @@ function ManyItems({ items, store, cat, readOnly }: { items: Item[]; store: Edit
             <Button size="sm" onClick={() => copyItems(store, free, [500, -500])}>
               <Copy /> Копии
             </Button>
-            <Button size="sm" variant="danger" onClick={() => removeItems(store, new Set(items.map((i) => i.id)), cat)}>
+            <Button size="sm" variant="danger" onClick={() => requestRemove(store, new Set(items.map((i) => i.id)), cat)}>
               <Trash2 /> Убрать
             </Button>
           </div>
+          <Button size="sm" disabled={!unlinked.length} onClick={() => onRegister(unlinked.map((i) => i.id))}>
+            <PackagePlus /> Поставить на учёт ({unlinked.length})
+          </Button>
         </>
       )}
     </Section>

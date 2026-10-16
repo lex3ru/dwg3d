@@ -44,6 +44,7 @@ type Drag =
   | { kind: "rotate"; id: string; base: Item[] };
 
 const OPENING_TOOLS: OpeningKind[] = ["door", "window", "passage", "glazing"];
+const BROKEN = new Set(["broken", "repair"]);
 
 export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCreateLift, onLiftMoved, onCalibrate, onLengthPrompt, walker, cat, warnings, floorHeight }: Props) {
   const mode = useEditor(store, (s) => s.mode);
@@ -52,6 +53,8 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
   const ghosts = useEditor(store, (s) => s.ghosts);
   const hiddenLayers = useEditor(store, (s) => s.hiddenLayers);
   const lockedLayers = useEditor(store, (s) => s.lockedLayers);
+  const unitStates = useEditor(store, (s) => s.unitStates);
+  const onlyBroken = useEditor(store, (s) => s.onlyBroken);
   const [gaps, setGaps] = useState<Gap[]>([]);
   const plan = useEditor(store, (s) => s.plan);
   const view = useEditor(store, (s) => s.view);
@@ -107,9 +110,25 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
 
   useEffect(() => {
     const onFit = () => fit();
+    // обход: помещение во весь экран (6.5.12)
+    const onFitRoom = (e: Event) => {
+      const { outline, bottom = 0 } = (e as CustomEvent<{ outline: Pt[]; bottom?: number }>).detail;
+      if (!outline?.length) return;
+      const xs = outline.map((p) => p[0]);
+      const ys = outline.map((p) => p[1]);
+      const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      // снизу экран занят панелью обхода
+      const h = size.h - bottom;
+      const scale = Math.min((size.w - 40) / Math.max(maxX - minX, 1000), (h - 40) / Math.max(maxY - minY, 1000));
+      store.set({ view: { scale, x: size.w / 2 - ((minX + maxX) / 2) * scale, y: h / 2 + ((minY + maxY) / 2) * scale } });
+    };
     window.addEventListener("editor:fit", onFit);
-    return () => window.removeEventListener("editor:fit", onFit);
-  }, [fit]);
+    window.addEventListener("editor:fit-room", onFitRoom);
+    return () => {
+      window.removeEventListener("editor:fit", onFit);
+      window.removeEventListener("editor:fit-room", onFitRoom);
+    };
+  }, [fit, size, store]);
 
   useEffect(() => {
     setChain([]);
@@ -222,8 +241,9 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
     const v = s.view;
     if (s.placing && cat && !readOnly) {
       const t = cat.types.get(s.placing);
-      if (t) placeAt(store, cat, t, p, faces, floorHeight, e.altKey);
-      if (!e.shiftKey) store.set({ placing: null });
+      const unit = s.placingUnit ? { id: s.placingUnit, model_id: s.unitModels[s.placingUnit] ?? null } : undefined;
+      if (t) placeAt(store, cat, t, p, faces, floorHeight, e.altKey, unit);
+      if (!e.shiftKey || unit) store.set({ placing: null, placingUnit: null });
       return;
     }
     const r = svg.current!.getBoundingClientRect();
@@ -241,12 +261,12 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
         drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y };
         return;
       }
-      if (!e.shiftKey) store.set({ selection: [] });
+      if (!e.shiftKey && !s.multiSelect) store.set({ selection: [] });
       drag.current = readOnly || e.pointerType === "touch" ? { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y } : { kind: "box", start: p, now: p };
       return;
     }
     let sel = s.selection.filter((x) => x.kind === "item");
-    if (e.shiftKey) sel = isSelected(sel, "item", hit.id) ? sel.filter((x) => x.id !== hit.id) : [...sel, { kind: "item", id: hit.id }];
+    if (e.shiftKey || s.multiSelect) sel = isSelected(sel, "item", hit.id) ? sel.filter((x) => x.id !== hit.id) : [...sel, { kind: "item", id: hit.id }];
     else if (!isSelected(sel, "item", hit.id)) sel = [{ kind: "item", id: hit.id }];
     store.set({ selection: sel });
     drag.current = readOnly ? { kind: "pan", sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y } : { kind: "items", start: p, base: s.items, ids: sel.map((x) => x.id), moved: false };
@@ -745,8 +765,9 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
           px={px}
           selected={isSelected(selection, "item", it.id)}
           warn={mode === "place" && warnings.has(it.id)}
-          pale={mode === "build" || (!!t?.layer_id && lockedLayers.includes(t.layer_id))}
+          pale={mode === "build" || (!!t?.layer_id && lockedLayers.includes(t.layer_id)) || (onlyBroken && !BROKEN.has(unitStates[it.unit_id ?? ""] ?? ""))}
           contents={contents.get(it.id) ?? 0}
+          unit={it.unit_id ? (unitStates[it.unit_id] ?? "in_use") : undefined}
         />,
       );
       if (it.label && mode === "place") {
@@ -847,13 +868,15 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
 
   const cursorStyle = mode === "place" ? (placing ? "copy" : "default") : readOnly || tool === "select" ? (drag.current?.kind === "pan" ? "grabbing" : "default") : "crosshair";
 
-  // перетаскивание типа из каталога слева
+  // перетаскивание типа из каталога слева — или единицы из «Неразмещённых» (С12)
   const onDrop = (e: React.DragEvent) => {
     const typeId = e.dataTransfer.getData("application/x-item-type");
     if (!typeId || !cat || readOnly) return;
     e.preventDefault();
     const t = cat.types.get(typeId);
-    if (t) placeAt(store, cat, t, toWorld(e.clientX, e.clientY), faces, floorHeight, e.altKey);
+    const unitId = e.dataTransfer.getData("application/x-unit");
+    const unit = unitId ? { id: unitId, model_id: store.state.unitModels[unitId] ?? null } : undefined;
+    if (t) placeAt(store, cat, t, toWorld(e.clientX, e.clientY), faces, floorHeight, e.altKey, unit);
   };
   return (
     <svg

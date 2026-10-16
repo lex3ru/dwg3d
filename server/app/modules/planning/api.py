@@ -9,6 +9,7 @@
 import math
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -25,7 +26,7 @@ from app.modules.journal import api as journal
 from app.modules.planning.models import Item
 
 LIMIT = 20_000  # мм: координата дальше 20 км от начала плана — ошибка ввода
-FIELDS = ("x", "y", "angle", "z", "parent_id", "label", "model_id")
+FIELDS = ("x", "y", "angle", "z", "parent_id", "label", "model_id", "unit_id")
 
 
 def item_view(item: Item) -> dict[str, Any]:
@@ -41,6 +42,7 @@ def item_view(item: Item) -> dict[str, Any]:
         "angle": item.angle,
         "z": item.z,
         "label": item.label,
+        "unit_id": item.unit_id,
         "version": item.version,
     }
 
@@ -246,6 +248,7 @@ class _Batch:
             label="",
             version=1,
         )
+        self.link(item, values.get("unit_id"))
         self.type_names[t.id] = t.name
         self.items[item.id] = item
         self.place(item, {"z": _default_z(t, self.floor.height), **values})
@@ -262,6 +265,8 @@ class _Batch:
             model_id = _uuid(changes["model_id"], "model_id")
             _model(self.session, item.type_id, model_id)
             item.model_id = model_id
+        if "unit_id" in changes:
+            self.link(item, changes["unit_id"])
         # вынуть из вместилища — поставить рядом с ним, если точку не дали
         if "parent_id" in changes and changes["parent_id"] in (None, "") and item.parent_id:
             parent = self.items[item.parent_id]
@@ -271,6 +276,20 @@ class _Batch:
         if item not in self.created and item not in self.updated:
             self.updated.append(item)
         return item
+
+    def link(self, item: Item, value: Any) -> None:
+        """Связь с инвентарной единицей (5.5): одна единица — один предмет. Что за единица
+        и где числится, проверяет модуль связи."""
+        unit_id = _uuid(value, "unit_id")
+        if unit_id is not None:
+            here = any(i.unit_id == unit_id and i.id != item.id for i in self.items.values())
+            gone = {i.id for i in self.deleted}
+            other = self.session.scalar(
+                select(Item.id).where(Item.unit_id == unit_id, Item.id != item.id)
+            )
+            if here or (other is not None and other not in gone):
+                raise Conflict("Эта инвентарная единица уже стоит на плане.", code="linked")
+        item.unit_id = unit_id
 
     def delete(self, values: dict[str, Any]) -> None:
         item = self.mine(values.get("id"), values.get("version"))
@@ -302,7 +321,7 @@ def apply_changes(
     if not actor.is_admin:
         raise Forbidden()
     if not (changes.create or changes.update or changes.delete):
-        return {"items": [], "deleted": []}
+        return {"items": [], "deleted": [], "notes": []}
     batch = _Batch(session, actor, floor_id)
     for values in changes.delete:
         batch.delete(values)
@@ -341,6 +360,13 @@ def apply_changes(
             item.version += 1
             item.updated_at = now
     session.flush()
+    # модули выше (связь с учётом) узнают, что стоит где теперь; вложенные — вместе со
+    # своими вместилищами, их помещение могло смениться
+    ids = {i.id for i in touched}
+    moved_along = [i for i in batch.items.values() if i.parent_id in ids and i.id not in ids]
+    notes: list[str] = []
+    for hook in _changed_hooks:
+        notes.extend(hook(session, actor, [*touched, *moved_along], batch.deleted))
 
     rooms_before = {i.room_id for i in batch.deleted}
     room_ids = {i.room_id for i in touched} | rooms_before
@@ -373,7 +399,11 @@ def apply_changes(
         before=before or None,
         after=after or None,
     )
-    return {"items": [item_view(i) for i in touched], "deleted": [str(i) for i in deleted_ids]}
+    return {
+        "items": [item_view(i) for i in touched],
+        "deleted": [str(i) for i in deleted_ids],
+        "notes": notes,
+    }
 
 
 def _room_titles(session: Session, actor: Actor, ids: set[uuid.UUID | None]) -> list[str]:
@@ -382,6 +412,56 @@ def _room_titles(session: Session, actor: Actor, ids: set[uuid.UUID | None]) -> 
         if rid is None:
             continue
         out.append(building.room_title(building.get_room(session, actor, rid)))
+    return out
+
+
+# ---------------------------------------------------------------- для модулей выше
+
+# (session, actor, поставленные и изменённые, убранные) → пояснения для человека
+ChangedHook = Callable[[Session, Actor, list[Item], list[Item]], list[str]]
+_changed_hooks: list[ChangedHook] = []
+
+
+def on_items_changed(hook: ChangedHook) -> None:
+    """Подписаться на действия расстановки: вызывается в той же транзакции; ошибка в
+    подписчике отменяет всё действие."""
+    _changed_hooks.append(hook)
+
+
+def items_of_units(session: Session, unit_ids: list[uuid.UUID]) -> dict[uuid.UUID, Item]:
+    if not unit_ids:
+        return {}
+    rows = session.scalars(select(Item).where(Item.unit_id.in_(unit_ids)))
+    return {i.unit_id: i for i in rows if i.unit_id}
+
+
+def items_by_id(session: Session, item_ids: list[uuid.UUID]) -> dict[uuid.UUID, Item]:
+    if not item_ids:
+        return {}
+    return {i.id: i for i in session.scalars(select(Item).where(Item.id.in_(item_ids)))}
+
+
+def floor_items_raw(session: Session, floor_id: uuid.UUID) -> list[Item]:
+    return list(session.scalars(select(Item).where(Item.floor_id == floor_id)))
+
+
+def link_unit(session: Session, item: Item, unit_id: uuid.UUID | None) -> None:
+    """Связать предмет с единицей (постановка на учёт с плана)."""
+    item.unit_id = unit_id
+    item.version += 1
+    item.updated_at = datetime.now(UTC)
+
+
+def remove_items(session: Session, actor: Actor, items: list[Item]) -> list[str]:
+    """Убрать предметы с плана (их единицы ушли документом) — обычным действием
+    расстановки, с записью в журнал. Ключи убранных."""
+    out: list[str] = []
+    by_floor: dict[uuid.UUID, list[Item]] = {}
+    for item in items:
+        by_floor.setdefault(item.floor_id, []).append(item)
+    for floor_id, rows in by_floor.items():
+        r = apply_changes(session, actor, floor_id, Changes(delete=[{"id": i.id} for i in rows]))
+        out.extend(r["deleted"])
     return out
 
 

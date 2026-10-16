@@ -27,6 +27,10 @@ export function UnitCard({ id }: { id: string }) {
   const refresh = useInvalidateInventory();
   const navigate = useNavigate();
   const unit = useQuery({ queryKey: ["inventory", "unit", id], queryFn: () => get<UnitFull>(`/api/inventory/units/${id}`) });
+  const placed = useQuery({
+    queryKey: ["inventory", "unit-item", id],
+    queryFn: () => get<{ item: { item_id: string; floor_id: string; building_id: string } | null }>(`/api/link/units/${id}`),
+  });
   const [tab, setTab] = useState<Tab>("main");
   const [error, setError] = useState<string | null>(null);
   const photo = useRef<HTMLInputElement>(null);
@@ -66,6 +70,10 @@ export function UnitCard({ id }: { id: string }) {
     else client.setQueryData(["inventory", "unit", id], body);
     refresh();
   };
+  // «Показать на плане» (С17): этаж с подсвеченным предметом, если единица стоит на плане,
+  // иначе — её помещение
+  const where = u.place?.room_id ? `/plan/${u.place.building_id}/${u.place.floor_id}?room=${u.place.room_id}` : null;
+  const onPlan = placed.data?.item ? `/plan/${placed.data.item.building_id}/${placed.data.item.floor_id}?item=${placed.data.item.item_id}&mode=place` : where;
   const tabs: [Tab, string][] = [
     ["main", "Основное"],
     ...(admin ? ([["cost", "Стоимость"]] as [Tab, string][]) : []),
@@ -114,10 +122,10 @@ export function UnitCard({ id }: { id: string }) {
       </div>
       {admin && live && (
         <div className="flex flex-wrap gap-1.5">
-          {u.place?.room_id && (
+          {onPlan && (
             <Button size="sm" asChild>
-              <Link to={`/plan/${u.place.building_id}/${u.place.floor_id}?room=${u.place.room_id}`}>
-                <MapPin /> На плане
+              <Link to={onPlan}>
+                <MapPin /> {placed.data?.item ? "Показать на плане" : "Помещение на плане"}
               </Link>
             </Button>
           )}
@@ -141,9 +149,9 @@ export function UnitCard({ id }: { id: string }) {
           </Button>
         </div>
       )}
-      {!admin && u.place?.room_id && (
+      {!admin && onPlan && (
         <Button size="sm" asChild className="self-start">
-          <Link to={`/plan/${u.place.building_id}/${u.place.floor_id}?room=${u.place.room_id}`}>
+          <Link to={onPlan}>
             <MapPin /> Показать на плане
           </Link>
         </Button>
