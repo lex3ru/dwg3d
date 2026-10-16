@@ -2,13 +2,13 @@ import uuid
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.auth import CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
-from app.modules.building import api
+from app.modules.building import api, drawings
 from app.modules.building.plan import Plan
 
 router = APIRouter(prefix="/api", tags=["building"])
@@ -187,3 +187,32 @@ def export_floor(floor_id: uuid.UUID, fmt: str, actor: CurrentActor, session: DB
     disposition = "inline" if fmt == "pdf" else "attachment"
     return Response(data, media_type=media, headers={
         "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(name)}"})
+
+
+# ---------------------------------------------------------------- чертежи (5.1.3)
+
+@router.post("/buildings/{building_id}/drawings", status_code=201)
+def upload_drawing(building_id: uuid.UUID, file: UploadFile, actor: CurrentActor, session: DB
+                   ) -> dict[str, Any]:
+    drawing = drawings.upload(session, actor, building_id, file.file, file.filename or "чертёж")
+    return drawings.view(drawing)
+
+
+@router.get("/buildings/{building_id}/drawings")
+def list_drawings(building_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+    return {"items": [drawings.view(d) for d in drawings.drawings(session, actor, building_id)]}
+
+
+@router.get("/drawings/{drawing_id}")
+def get_drawing(drawing_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+    return drawings.view(drawings.get(session, actor, drawing_id), full=True)
+
+
+class ConvertIn(BaseModel):
+    parts: list[dict[str, Any]]
+
+
+@router.post("/drawings/{drawing_id}/convert")
+def convert_drawing(drawing_id: uuid.UUID, body: ConvertIn, actor: CurrentActor, session: DB
+                    ) -> dict[str, Any]:
+    return {"job_id": drawings.start_convert(session, actor, drawing_id, body.parts)}

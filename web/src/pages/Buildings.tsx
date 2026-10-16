@@ -6,6 +6,7 @@ import { ApiError, api, get, patch, post, query } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
 import type { FloorInfo } from "@/editor/plan";
+import { DrawingsSection } from "./Drawings";
 import { PageBody } from "@/shell/Shell";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
@@ -180,7 +181,7 @@ function BuildingCard({ id }: { id: string }) {
           </table>
         </div>
       )}
-      <p className="m-0 px-4 py-3 text-[13px] text-ink-2">Загрузка чертежей DWG и DXF появится на этапе 2 «Перевод чертежей».</p>
+      <DrawingsSection buildingId={b.id} buildingName={b.name} floors={b.floors} />
       <BuildingDialog open={editing} onOpenChange={setEditing} building={b} onDone={refresh} />
       <FloorDialog building={b} floor={floorDialog} onClose={() => setFloorDialog(null)} onDone={refresh} />
     </Card>

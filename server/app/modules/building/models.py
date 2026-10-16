@@ -39,6 +39,10 @@ class Floor(Base):
     plan_version: Mapped[int] = mapped_column(Integer, default=1)
     plan_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, default=1)
+    # из какого чертежа и какой его части переведён план (5.1.3 п. 4)
+    source_drawing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("building.drawing.id", ondelete="SET NULL"))
+    source_part: Mapped[str | None] = mapped_column(String(20))
 
 
 class Room(Base):
@@ -88,3 +92,26 @@ class Lift(Base):
     door_side: Mapped[int] = mapped_column(Integer, default=0)
     floor_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
     stop_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
+
+
+class Drawing(Base):
+    """Загруженный чертёж DWG/DXF (5.1.3): исходный файл хранится; части — что нашлось на
+    листе (этажи), результаты — что получилось из каждой части."""
+
+    __tablename__ = "drawing"
+    __table_args__ = {"schema": "building"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    building_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("building.building.id", ondelete="CASCADE"), index=True)
+    file_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("files.file.id"))
+    name: Mapped[str] = mapped_column(String(300))
+    # analyzing → ready → converting → done; failed — с причиной
+    status: Mapped[str] = mapped_column(String(20), default="analyzing")
+    error: Mapped[str | None] = mapped_column(String(2000))
+    parts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    results: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(UUID)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 server_default=func.now())

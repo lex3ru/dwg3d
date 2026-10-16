@@ -77,8 +77,9 @@ e2e:
     - uv run python -m app migrate
     - uv run python -m app create-admin --password "$E2E_TEMP_PASSWORD"
     - APP_STATIC_DIR=$CI_PROJECT_DIR/web/dist uv run python -m app serve --port 8000 > server.log 2>&1 &
+    - uv run python -m app worker > worker.log 2>&1 &
     - timeout 60 sh -c 'until curl -sf http://localhost:8000/api/health; do sleep 1; done'
     - cd ../e2e && npm ci --no-audit --no-fund && npx playwright test
   artifacts:
     when: on_failure
-    paths: [e2e/test-results, server/server.log]
+    paths: [e2e/test-results, server/server.log, server/worker.log]

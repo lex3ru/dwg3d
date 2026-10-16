@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Outlet } from "react-router";
+import { JobNotices } from "@/lib/jobs";
 import { CardPanel } from "./CardPanel";
 import { ShellProvider } from "./context";
 import { Sidebar } from "./Sidebar";
@@ -43,6 +44,7 @@ export function Shell() {
           <TabBar />
         </div>
       </div>
+      <JobNotices />
     </ShellProvider>
   );
 }

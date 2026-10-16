@@ -116,12 +116,19 @@ def analyze(plan: Plan) -> Analysis:
     parts = [union] if isinstance(union, Polygon) else list(getattr(union, "geoms", []))
     rooms: list[RoomShape] = []
     slabs: list[Polygon] = []
+    parts = [p for p in parts if isinstance(p, Polygon) and not p.is_empty]
+    shells = [Polygon(p.exterior) for p in parts]
+    slabs = _slabs(union)
     for part in parts:
-        if not isinstance(part, Polygon) or part.is_empty:
-            continue
-        slabs.append(Polygon(part.exterior))
         for ring in part.interiors:
             hole = Polygon(ring)
+            # стены-острова внутри помещения (ядро, колонна стен) — не его площадь
+            islands = [s for s in shells if s.within(hole)]
+            if islands:
+                hole = hole.difference(unary_union(islands))
+                if not isinstance(hole, Polygon):
+                    hole = max(getattr(hole, "geoms", []), key=lambda g: g.area,
+                               default=Polygon())
             if hole.area >= 0.25e6:  # меньше 0,25 м² — щель между стенами, не помещение
                 rooms.append(RoomShape(hole))
     for label in plan.rooms:
@@ -131,6 +138,22 @@ def analyze(plan: Plan) -> Analysis:
                 room.labels.append(label.id)
                 break
     return Analysis(rooms=rooms, issues=check(plan, rooms), slabs=slabs)
+
+
+SLAB_GAP = 2500.0  # мм: разрывы в наружных стенах до 2 × столько перекрытие закрывает
+
+
+def _slabs(union: BaseGeometry) -> list[Polygon]:
+    """Перекрытие — очертание этажа: всё, что обнесено стенами, с закрытыми разрывами
+    фасада (проём без распознанной стены, недорисованный угол), без дыр внутри."""
+    if union.is_empty:
+        return []
+    closed = union.buffer(SLAB_GAP, quad_segs=2).buffer(-SLAB_GAP, quad_segs=2)
+    out = []
+    for p in (closed.geoms if hasattr(closed, "geoms") else [closed]):
+        if isinstance(p, Polygon) and not p.is_empty and p.area > 1e6:
+            out.append(Polygon(p.exterior))
+    return out
 
 
 # ---------------------------------------------------------------- проверка (5.1.5)

@@ -22,8 +22,11 @@ KINDS: dict[str, tuple[str, tuple[bytes, ...]]] = {
     "png": ("image/png", (b"\x89PNG\r\n\x1a\n",)),
     "jpeg": ("image/jpeg", (b"\xff\xd8\xff",)),
     "webp": ("image/webp", (b"RIFF",)),
+    "dwg": ("application/acad", (b"AC10",)),
+    "dxf": ("application/dxf", (b"AutoCAD Binary DXF",)),
 }
-TITLES = {"pdf": "PDF", "png": "PNG", "jpeg": "JPEG", "webp": "WebP"}
+TITLES = {"pdf": "PDF", "png": "PNG", "jpeg": "JPEG", "webp": "WebP", "dwg": "DWG",
+          "dxf": "DXF"}
 
 
 def _root() -> Path:
@@ -35,6 +38,10 @@ def path_of(sha256: str) -> Path:
 
 
 def _sniff(head: bytes) -> str | None:
+    # текстовый DXF: группы «код — значение», начинается с секции или комментария
+    text = head.lstrip()
+    if (text.startswith(b"0") and b"SECTION" in text[:40]) or text.startswith(b"999"):
+        return "dxf"
     for kind, (_, signatures) in KINDS.items():
         if any(head.startswith(s) for s in signatures):
             if kind == "webp" and head[8:12] != b"WEBP":
@@ -55,7 +62,7 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
         try:
             while chunk := stream.read(1024 * 1024):
                 if not head:
-                    head = chunk[:16]
+                    head = chunk[:64]
                 size += len(chunk)
                 if size > MAX_SIZE:
                     raise AppError(f"Файл больше {MAX_SIZE // 1024 // 1024} МБ.",

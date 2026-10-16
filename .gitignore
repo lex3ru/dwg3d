@@ -26,6 +26,7 @@ dist/
 
 # the rewrite: local backups of a test installation
 /deploy/backups/
+/server/.dev-data/
 /e2e/test-results/
 /e2e/playwright-report/
 

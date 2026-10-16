@@ -457,8 +457,9 @@ def fix_plan(actor: Actor, plan: Plan) -> dict[str, Any]:
 
 def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
               plan_version: int, merges: list[dict[str, Any]] | None = None,
-              confirm: bool = False) -> dict[str, Any]:
-    """Сохранить план этажа с помещениями (5.1.6) — целиком или никак."""
+              confirm: bool = False, auto_merge: bool = False) -> dict[str, Any]:
+    """Сохранить план этажа с помещениями (5.1.6) — целиком или никак. auto_merge —
+    при объединении остаётся первое помещение (перевод чертежа заново)."""
     _require_admin(actor)
     floor = session.get(Floor, floor_id, with_for_update=True)
     if floor is None:
@@ -470,6 +471,10 @@ def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
                        code="stale")
     analysis = geometry.analyze(plan)
     change = _changes(session, floor, plan, analysis, merges or [])
+    if auto_merge and change.unresolved:
+        merges = [{"rooms": [str(r) for r in ids], "keep": str(ids[0])}
+                  for _, ids in change.unresolved]
+        change = _changes(session, floor, plan, analysis, merges)
     if change.unresolved or (change.needs_confirmation and not confirm):
         error = Conflict("Сохранение изменит помещения — подтвердите.",
                          code="needs_confirmation")
