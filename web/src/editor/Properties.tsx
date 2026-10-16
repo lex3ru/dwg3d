@@ -1,6 +1,7 @@
 import { Footprints, Scissors, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { usePurposes } from "@/catalog/parts";
 import { Button } from "@/ui/button";
 import { remove } from "./ops";
 import { OPENING_TITLES, centerline, dist, polylineLength, type FloorInfo, type Lift, type OpeningKind, type Plan } from "./plan";
@@ -88,6 +89,40 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
         ))}
       </div>
     </div>
+  );
+}
+
+// Назначение помещения из справочника (5.2): от него — норма освещённости и рабочая поверхность
+function PurposeField({ value, onChange, disabled }: { value: string | null; onChange: (v: string | null) => void; disabled?: boolean }) {
+  const list = usePurposes(true);
+  const items = list.data?.items ?? [];
+  const current = items.find((p) => p.id === value);
+  return (
+    <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+      Назначение
+      <select
+        aria-label="Назначение"
+        value={value ?? ""}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="h-8 rounded-md border border-line-strong bg-surface px-2 text-[13px] text-ink max-md:h-11"
+      >
+        <option value="">не задано</option>
+        {items
+          .filter((p) => !p.archived || p.id === value)
+          .map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.archived ? " (в архиве)" : ""}
+            </option>
+          ))}
+      </select>
+      {current && (
+        <span className="text-ink-3">
+          норма {current.norm} лк на высоте {(current.surface / 1000).toLocaleString("ru-RU")} м
+        </span>
+      )}
+    </label>
   );
 }
 
@@ -251,7 +286,7 @@ export function Properties({
         <div className="text-[13px] text-ink-2">
           Площадь: <span className="font-mono text-ink">{shape ? `${shape.area.toLocaleString("ru-RU")} м²` : "подпись вне помещений"}</span>
         </div>
-        <p className="m-0 text-[12px] text-ink-3">Назначение помещения (норма освещённости) выбирается из справочника, когда он появится (этап 3).</p>
+        <PurposeField value={r.purpose_id} disabled={ro} onChange={(purpose_id) => set({ purpose_id })} />
       </Section>
     );
   }

@@ -1,0 +1,214 @@
+"""Каталог (5.2; С4, С5): слои, наборы, типы, модели, значения, назначения, Excel, 3D."""
+
+import io
+import json
+import struct
+
+from app.core.db import transaction
+from app.modules.catalog.module import seed
+from tests.conftest import login, make_client
+
+
+def seeded(admin) -> dict:  # type: ignore[no-untyped-def]
+    with transaction() as s:
+        assert seed(s)
+    with transaction() as s:
+        assert seed(s) is None  # второй раз — ничего: правки администратора не трогаются
+    return admin.get("/api/catalog").json()
+
+
+def test_base_catalog_is_loaded_once(admin) -> None:
+    tree = seeded(admin)
+    assert [x["name"] for x in tree["layers"]] == [
+        "Мебель",
+        "Оборудование",
+        "Видеонаблюдение",
+        "Освещение",
+    ]
+    assert len(tree["sets"]) == 6 and len(tree["types"]) == 109 and len(tree["purposes"]) == 20
+    camera = next(t for t in tree["types"] if t["name"] == "Камера купольная")
+    full = admin.get(f"/api/catalog/types/{camera['id']}").json()
+    assert full["mount"] == "ceiling" and len(full["models"]) == 2
+    chars = {c["id"]: c["name"] for c in full["characteristics"]}
+    values = {chars[k]: v for k, v in full["models"][0]["values"].items() if v is not None}
+    assert values["Разрешение по горизонтали"] == 2688
+    assert values["Угол обзора по горизонтали, макс."] == 103
+
+
+def test_c4_new_type_with_characteristics_and_model(admin) -> None:
+    tree = seeded(admin)
+    equipment = next(x for x in tree["layers"] if x["name"] == "Оборудование")
+    medical = next(x for x in tree["sets"] if x["name"] == "Медицинское изделие")
+    r = admin.post(
+        "/api/catalog/types",
+        json={
+            "name": "Аппарат УЗИ портативный",
+            "layer_id": equipment["id"],
+            "set_ids": [medical["id"]],
+            "width": 400,
+            "depth": 300,
+            "height": 150,
+            "mount": "floor",
+            "accounting": "piece",
+            "life_months": 84,
+            "price": 950000,
+        },
+    )
+    assert r.status_code == 201, r.text
+    t = r.json()
+    ru = admin.post(
+        "/api/catalog/characteristics",
+        json={
+            "type_id": t["id"],
+            "name": "Класс риска",
+            "kind": "choice",
+            "choices": ["1", "2а", "2б", "3"],
+            "level": "type",
+        },
+    ).json()
+    admin.post(
+        "/api/catalog/characteristics",
+        json={
+            "type_id": t["id"],
+            "name": "Дата калибровки датчика",
+            "kind": "date",
+            "level": "item",
+        },
+    )
+    r = admin.put(f"/api/catalog/types/{t['id']}/values", json={"values": {ru["id"]: "2б"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["values"][ru["id"]] == "2б"
+    r = admin.put(f"/api/catalog/types/{t['id']}/values", json={"values": {ru["id"]: "4"}})
+    assert r.status_code == 400 and "нет в списке" in r.json()["error"]["message"]
+    t = admin.post(
+        f"/api/catalog/types/{t['id']}/models",
+        json={"manufacturer": "Mindray", "name": "M7", "price": 1250000},
+    ).json()
+    model = t["models"][0]
+    reg = next(c for c in t["characteristics"] if c["name"] == "Регистрационное удостоверение")
+    r = admin.put(
+        f"/api/catalog/models/{model['id']}/values", json={"values": {reg["id"]: "РЗН 2020/1234"}}
+    )
+    assert r.json()["models"][0]["values"][reg["id"]] == "РЗН 2020/1234"
+    # уровень «вещь» задаётся у инвентарной единицы, не у типа
+    item = next(c for c in t["characteristics"] if c["name"] == "Дата калибровки датчика")
+    r = admin.put(
+        f"/api/catalog/types/{t['id']}/values", json={"values": {item["id"]: "01.01.2026"}}
+    )
+    assert r.status_code == 400
+
+
+def test_c5_new_layer_with_types(admin) -> None:
+    layer = admin.post("/api/catalog/layers", json={"name": "СКУД", "color": "#7B1FA2"}).json()
+    for name in ("Считыватель", "Электрозамок"):
+        r = admin.post(
+            "/api/catalog/types",
+            json={"name": name, "layer_id": layer["id"], "mount": "wall", "mount_height": 1200},
+        )
+        assert r.status_code == 201
+    tree = admin.get("/api/catalog").json()
+    assert tree["layers"][-1]["name"] == "СКУД" and tree["layers"][-1]["types"] == 2
+    r = admin.delete(f"/api/catalog/layers/{layer['id']}")
+    assert r.status_code == 409 and "скрыть" in r.json()["error"]["message"]
+    assert (
+        admin.patch(f"/api/catalog/layers/{layer['id']}", json={"visible": False}).json()["visible"]
+        is False
+    )
+    r = admin.post("/api/catalog/layers", json={"name": "скуд"})
+    assert r.status_code == 409
+
+
+def test_viewer_sees_no_prices_and_changes_nothing(admin, app) -> None:
+    seeded(admin)
+    admin.post(
+        "/api/users",
+        json={"login": "viewer1", "full_name": "В", "role": "viewer", "password": "Temporary-1"},
+    )
+    with make_client(app) as viewer:
+        login(viewer, "viewer1", "Temporary-1")
+        viewer.post("/api/auth/password", json={"current": "Temporary-1", "new": "Viewer-pass-1"})
+        tree = viewer.get("/api/catalog").json()
+        assert all("price" not in t for t in tree["types"])
+        full = viewer.get(f"/api/catalog/types/{tree['types'][0]['id']}").json()
+        assert "price" not in full and all("price" not in m for m in full["models"])
+        assert viewer.post("/api/catalog/layers", json={"name": "Х"}).status_code == 403
+        assert viewer.get("/api/catalog/export.xlsx").status_code == 403
+
+
+def test_excel_round_trip_and_all_or_nothing(admin) -> None:
+    seeded(admin)
+    data = admin.get("/api/catalog/export.xlsx").content
+    r = admin.post("/api/catalog/import", files={"file": ("каталог.xlsx", io.BytesIO(data))})
+    assert r.json() == {"created": {}, "updated": {}, "errors": [], "ok": True, "applied": False}
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(data))
+    wb["Типы"].append(["Стойка капельничная", "Мебель", None, 500, 500, 1800, "на пол"])
+    wb["Типы"].append(["Тумба", "Нет такого слоя"])
+    out = io.BytesIO()
+    wb.save(out)
+    r = admin.post(
+        "/api/catalog/import",
+        params={"apply": True},
+        files={"file": ("каталог.xlsx", io.BytesIO(out.getvalue()))},
+    ).json()
+    assert r["applied"] is False and r["errors"][0]["sheet"] == "Типы"
+    assert "Нет такого слоя" in r["errors"][0]["message"]
+    names = {t["name"] for t in admin.get("/api/catalog").json()["types"]}
+    assert "Стойка капельничная" not in names  # ошибка в одной строке — не загружено ничего
+
+    wb["Типы"].delete_rows(wb["Типы"].max_row)
+    out = io.BytesIO()
+    wb.save(out)
+    r = admin.post(
+        "/api/catalog/import",
+        params={"apply": True},
+        files={"file": ("каталог.xlsx", io.BytesIO(out.getvalue()))},
+    ).json()
+    assert r["applied"] is True and r["created"] == {"Типы": ["Стойка капельничная"]}
+
+
+def glb(size=(1.2, 0.8, 0.6)) -> bytes:  # type: ignore[no-untyped-def]
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0, "scale": [1, 1, 1], "translation": [5, 0, 0]}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        "accessors": [
+            {"componentType": 5126, "count": 2, "type": "VEC3", "min": [0, 0, 0], "max": list(size)}
+        ],
+    }
+    text = json.dumps(doc).encode()
+    text += b" " * ((4 - len(text) % 4) % 4)
+    body = struct.pack("<I4s", len(text), b"JSON") + text
+    return struct.pack("<4sII", b"glTF", 2, 12 + len(body)) + body
+
+
+def test_3d_model_is_measured(admin) -> None:
+    t = admin.post(
+        "/api/catalog/types", json={"name": "Кушетка", "width": 1900, "depth": 650, "height": 700}
+    ).json()
+    r = admin.post(
+        f"/api/catalog/types/{t['id']}/model3d",
+        files={"file": ("кушетка.glb", io.BytesIO(glb((1.9, 0.7, 0.65))))},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["model_size"] == [1.9, 0.7, 0.65] and r.json()["model_url"]
+    r = admin.post(
+        f"/api/catalog/types/{t['id']}/model3d",
+        files={"file": ("кушетка.glb", io.BytesIO(b"not a glb at all, no"))},
+    )
+    assert r.status_code == 400
+
+
+def test_purposes(admin) -> None:
+    p = admin.post(
+        "/api/catalog/purposes", json={"name": "Кабинет врача", "surface": 800, "norm": 500}
+    ).json()
+    assert admin.post("/api/catalog/purposes", json={"name": "кабинет врача"}).status_code == 409
+    r = admin.patch(f"/api/catalog/purposes/{p['id']}", json={"version": p["version"], "norm": 400})
+    assert r.json()["norm"] == 400
+    admin.post(f"/api/catalog/purposes/{p['id']}/archive")
+    assert admin.get("/api/catalog/purposes").json()["items"] == []

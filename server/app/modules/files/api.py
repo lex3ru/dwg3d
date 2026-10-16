@@ -24,9 +24,10 @@ KINDS: dict[str, tuple[str, tuple[bytes, ...]]] = {
     "webp": ("image/webp", (b"RIFF",)),
     "dwg": ("application/acad", (b"AC10",)),
     "dxf": ("application/dxf", (b"AutoCAD Binary DXF",)),
+    "glb": ("model/gltf-binary", (b"glTF",)),
 }
 TITLES = {"pdf": "PDF", "png": "PNG", "jpeg": "JPEG", "webp": "WebP", "dwg": "DWG",
-          "dxf": "DXF"}
+          "dxf": "DXF", "glb": "GLB"}
 
 
 def _root() -> Path:

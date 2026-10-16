@@ -28,6 +28,18 @@ def migrate() -> None:
             conn.execute(text("SELECT pg_advisory_unlock(7310001)"))
 
 
+def seed() -> None:
+    from app.core.db import transaction
+    from app.main import installed_modules
+
+    for module in installed_modules():
+        if module.seed:
+            with transaction() as session:
+                done = module.seed(session)
+            if done:
+                logging.getLogger("app").info("seed: %s", done)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -57,6 +69,7 @@ def main() -> None:
         import uvicorn
 
         migrate()
+        seed()
         uvicorn.run("app.main:create_app", factory=True, host=args.host, port=args.port,
                     proxy_headers=True, forwarded_allow_ips="*")
     elif args.command == "worker":

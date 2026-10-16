@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { MeProvider, useMeQuery } from "@/lib/auth";
 import { useLiveUpdates } from "@/lib/live";
+import { CatalogPage } from "@/catalog/CatalogPage";
+import { PurposesPage } from "@/catalog/PurposesPage";
 import { EditorPage } from "@/editor/Editor";
 import { Buildings } from "@/pages/Buildings";
 import { Journal } from "@/pages/Journal";
@@ -20,6 +22,8 @@ const READY: Record<string, React.ReactNode> = {
   "/settings": <SettingsPage />,
   "/buildings": <Buildings />,
   "/plan": <PlanIndex />,
+  "/catalog": <CatalogPage />,
+  "/purposes": <PurposesPage />,
 };
 
 export function App() {
