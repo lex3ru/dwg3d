@@ -1,14 +1,11 @@
-# the build context of service images is the repository root: keep it to what they copy
-.git
-legacy
-backups
-docs
-e2e
-frontend
-deploy/backups
-**/.venv
-**/node_modules
+# в образ идут только сервер и интерфейс (deploy/Dockerfile)
+*
+!server/
+!web/
+server/.venv
+server/.pytest_cache
+server/.ruff_cache
+server/tests
 **/__pycache__
-**/.pytest_cache
-**/.ruff_cache
-**/tests
+web/node_modules
+web/dist

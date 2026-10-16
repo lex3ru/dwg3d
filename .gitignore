@@ -17,11 +17,17 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
+*.tsbuildinfo
 .ruff_cache/
 
 # the second, microservice version (legacy2/)
 /legacy2/deploy/backups/
 /legacy2/tools/acceptance/.state.json
+
+# the rewrite: local backups of a test installation
+/deploy/backups/
+/e2e/test-results/
+/e2e/playwright-report/
 
 # real drawings of the user's buildings: data, not code
 /Поэтажные планы *.dxf

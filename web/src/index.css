@@ -1,0 +1,97 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Цвета — по макетам интерфейса: нейтральная основа, синий акцент (6.7 п. 3).
+   Состояния вещей — одинаково везде (6.1 п. 4): ok, bad, repair, stored. */
+:root {
+  --ground: #f3f4f6;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --line: #e1e5ea;
+  --line-strong: #cfd5dc;
+  --ink: #1b1f24;
+  --ink-2: #5a6472;
+  --ink-3: #6b7480;
+  --accent: #1f5fcc;
+  --accent-hover: #174a9e;
+  --accent-soft: #e8f0fd;
+  --accent-ink: #174a9e;
+  --ok-soft: #e6f4ec;
+  --ok: #1a6b43;
+  --bad-soft: #fdecea;
+  --bad: #a8201a;
+  --warn-soft: #fef3e2;
+  --warn: #8a4f05;
+  --muted-soft: #eef0f3;
+  --muted: #47505c;
+}
+.dark {
+  --ground: #111418;
+  --surface: #1a1e24;
+  --surface-2: #20252c;
+  --line: #2c323a;
+  --line-strong: #3a414b;
+  --ink: #e6e9ed;
+  --ink-2: #a3acb8;
+  --ink-3: #8b95a2;
+  --accent: #5b8ff0;
+  --accent-hover: #7aa5f4;
+  --accent-soft: #1d2b44;
+  --accent-ink: #a9c4f7;
+  --ok-soft: #15301f;
+  --ok: #7fd3a2;
+  --bad-soft: #3a1a18;
+  --bad: #f2a29c;
+  --warn-soft: #362712;
+  --warn: #f0c27a;
+  --muted-soft: #252b33;
+  --muted: #b3bcc7;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-muted: var(--muted);
+  --color-muted-soft: var(--muted-soft);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

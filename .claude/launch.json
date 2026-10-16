@@ -2,6 +2,32 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "server",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd server && APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app APP_SECURE_COOKIES=false APP_STATIC_DIR=/nonexistent APP_DATA_DIR=/tmp APP_BACKUP_DIR=/tmp exec uv run python -m app serve --host 127.0.0.1 --port 8010"
+      ],
+      "port": 8010
+    },
+    {
+      "name": "worker",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd server && APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app exec uv run python -m app worker"
+      ]
+    },
+    {
+      "name": "ui",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec npx vite --port 5190 --strictPort"
+      ],
+      "port": 5190
+    },
+    {
       "name": "twin-web",
       "runtimeExecutable": "sh",
       "runtimeArgs": [

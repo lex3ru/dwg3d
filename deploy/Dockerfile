@@ -1,0 +1,28 @@
+# Образ приложения: сервер (Python) и собранный интерфейс. Он же — обработчик фоновых
+# задач (другая команда). Контекст сборки — корень репозитория.
+
+FROM node:24-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS server
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+WORKDIR /app
+COPY server/pyproject.toml server/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY server/ ./
+
+FROM python:3.12-slim-bookworm
+RUN useradd --system --uid 10001 --home /app app && mkdir -p /data && chown app /data
+WORKDIR /app
+COPY --from=server /app /app
+COPY --from=web /web/dist /app/web
+ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 APP_STATIC_DIR=/app/web APP_DATA_DIR=/data
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+CMD ["python", "-m", "app", "serve"]

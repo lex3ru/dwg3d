@@ -1,0 +1,31 @@
+# HTTPS (8.4 п. 1). CADDY_TLS: internal — свой сертификат для локальной сети (корневой
+# сертификат ставится на устройства, его можно скачать по http://<сервер>/ca.crt);
+# адрес электронной почты — настоящий сертификат Let's Encrypt для доступа извне (8.5 п. 3).
+{
+	auto_https disable_redirects
+}
+
+{$SITE_ADDRESS} {
+	tls {$CADDY_TLS}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+	reverse_proxy app:8000
+}
+
+:80 {
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+	handle {
+		redir {$PUBLIC_URL}{uri} permanent
+	}
+}
