@@ -53,7 +53,7 @@ export function WarehousePage() {
   const isOpen = (id: string, byDefault: boolean) => toggled.get(id) ?? (q ? true : byDefault || selectedIn.has(id));
   const toggle = (id: string, now: boolean) => setToggled((m) => new Map(m).set(id, !now));
   const item = (key: string, title: string, sub = false) => (
-    <button key={key} type="button" onClick={() => choose(key)} className={cn("flex w-full cursor-pointer items-center rounded-md border-0 px-2 py-1.5 text-left text-[13px] max-md:py-2.5", sub && "pl-6", place === key ? "bg-accent-soft font-medium text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2")}>
+    <button key={key} type="button" onClick={() => choose(key)} className={cn("flex w-full cursor-pointer items-center rounded-md border-0 px-2 py-1.5 text-left text-[13px] max-md:min-h-11 max-md:py-2.5", sub && "pl-6", place === key ? "bg-accent-soft font-medium text-accent-ink" : "bg-transparent text-ink hover:bg-surface-2")}>
       {title}
     </button>
   );
@@ -95,7 +95,7 @@ export function WarehousePage() {
             const open = isOpen(b.id, b.id === home);
             return (
               <section key={b.id}>
-                <button type="button" onClick={() => toggle(b.id, open)} aria-expanded={open} className="w-full cursor-pointer border-0 bg-transparent p-0 py-1 text-left text-[12px] font-semibold tracking-wide text-ink-2 uppercase">
+                <button type="button" onClick={() => toggle(b.id, open)} aria-expanded={open} className="w-full cursor-pointer border-0 bg-transparent p-0 py-1 text-left text-[12px] font-semibold tracking-wide text-ink-2 uppercase max-md:min-h-11">
                   {open ? "▾" : "▸"} {b.name}
                 </button>
                 {open &&
@@ -103,7 +103,7 @@ export function WarehousePage() {
                     const fOpen = isOpen(f.id, false);
                     return (
                       <div key={f.id}>
-                        <button type="button" onClick={() => toggle(f.id, fOpen)} aria-expanded={fOpen} className="w-full cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-left text-[13px] text-ink-2 hover:bg-surface-2">
+                        <button type="button" onClick={() => toggle(f.id, fOpen)} aria-expanded={fOpen} className="w-full cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-left text-[13px] text-ink-2 hover:bg-surface-2 max-md:min-h-11">
                           {fOpen ? "▾" : "▸"} {f.name} <span className="text-[11px] text-ink-3">{f.rooms.length}</span>
                         </button>
                         {fOpen && f.rooms.map((r) => item(r.key, r.title, true))}

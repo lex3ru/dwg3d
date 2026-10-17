@@ -4,7 +4,6 @@
 расхождения, освещённость, устаревшие проекты), — отдельным запросом."""
 
 import uuid
-from datetime import date
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -27,7 +26,7 @@ def summary(session: Session, actor: Actor, building_id: uuid.UUID) -> dict[str,
     _admin(actor)
     b = building.get_building(session, actor, building_id)
     q = f"building_id={b.id}"
-    cost = inventory.cost_statement(session, actor, date.today(), ["building"], b.id)["total"]
+    cost = inventory.cost_now(session, actor, b.id)
     return {
         "building": {"id": b.id, "name": b.name},
         "attention": [

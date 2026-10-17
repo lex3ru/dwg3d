@@ -25,7 +25,7 @@ def test_base_catalog_is_loaded_once(admin) -> None:
         "Видеонаблюдение",
         "Освещение",
     ]
-    assert len(tree["sets"]) == 6 and len(tree["types"]) == 109 and len(tree["purposes"]) == 20
+    assert len(tree["sets"]) == 6 and len(tree["types"]) == 109 and len(tree["purposes"]) == 23
     camera = next(t for t in tree["types"] if t["name"] == "Камера купольная")
     full = admin.get(f"/api/catalog/types/{camera['id']}").json()
     assert full["mount"] == "ceiling" and len(full["models"]) == 2

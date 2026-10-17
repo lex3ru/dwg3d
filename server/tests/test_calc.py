@@ -139,8 +139,8 @@ def test_c8_illuminance_by_room_against_norms(admin) -> None:
     changes(admin, f["id"], create=[{"type_id": lamp, "model_id": model, "x": 4500, "y": 2000}])
     result = run(admin, "light", f["id"])
     table = {row[0]: row for row in result["table"]["rows"]}
-    assert table["214 Кабинет"][3] == "500" and table["214 Кабинет"][4] == "0"
-    assert table["215 Кабинет"][2] == "0.0"  # коридор — на полу
+    assert table["214 Кабинет"][3] == "400" and table["214 Кабинет"][4] == "0"
+    assert table["215 Кабинет"][2] == "0.8"  # коридор медорганизации — 0,8 м (СП 52, стр. 116)
     assert 30 < float(table["215 Кабинет"][4]) < 200  # один светильник — ниже нормы 200
     low = [x["text"] for x in result["issues"]["rows"]]
     assert any(t.startswith("214 Кабинет") and "светильников нет" in t for t in low)

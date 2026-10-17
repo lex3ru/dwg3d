@@ -6,6 +6,7 @@ from datetime import date
 from typing import Any, BinaryIO
 
 from sqlalchemy import Select, func, or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -528,45 +529,63 @@ def registry(
     limit: int = 100,
     **filters: Any,
 ) -> dict[str, Any]:
+    # 8.1: до 50 000 единиц — сортировка и итоги по лёгким строкам, целиком читается
+    # только показываемая страница
     q = registry_query(session, actor, **filters)
-    units = list(session.scalars(q))
-    types = catalog.types_by_id(session, [u.type_id for u in units])
-    models = catalog.models_by_id(session, [u.model_id for u in units])
+    light = q.with_only_columns(
+        Unit.id, Unit.number, Unit.type_id, Unit.place, Unit.state, Unit.commissioned_on,
+        Unit.price, Unit.responsible, Unit.life_months, Unit.value_base, Unit.value_date,
+    )
+    rows = session.execute(light).all()
+    by = sort.lstrip("-")
+    types = catalog.types_by_id(session, {r.type_id for r in rows}) if by == "title" or (
+        by == "number" and not actor.sees_inventory_numbers) else {}
     places = Places(session, actor)
     key = {
-        "number": lambda u: u.number,
-        "title": lambda u: (types[u.type_id].name, u.number),
-        "place": lambda u: (places.title(u.place), u.number),
-        "state": lambda u: (u.state, u.number),
-        "commissioned_on": lambda u: (u.commissioned_on, u.number),
-        "price": lambda u: (float(u.price or 0), u.number),
-        "responsible": lambda u: (u.responsible, u.number),
-    }.get(sort.lstrip("-"), lambda u: u.number)
-    if not actor.sees_inventory_numbers and sort.lstrip("-") == "number":
-        key = lambda u: (types[u.type_id].name, str(u.id))  # noqa: E731
-    units.sort(key=key, reverse=sort.startswith("-"))
+        "number": lambda r: r.number,
+        "title": lambda r: (types[r.type_id].name, r.number),
+        "place": lambda r: (places.title(r.place), r.number),
+        "state": lambda r: (r.state, r.number),
+        "commissioned_on": lambda r: (r.commissioned_on, r.number),
+        "price": lambda r: (float(r.price or 0), r.number),
+        "responsible": lambda r: (r.responsible, r.number),
+    }.get(by, lambda r: r.number)
+    if not actor.sees_inventory_numbers and by == "number":
+        key = lambda r: (types[r.type_id].name, str(r.id))  # noqa: E731
+    if by == "place":
+        places.preload(r.place for r in rows)
+        titles = {p: places.title(p) for p in {r.place for r in rows}}
+        key = lambda r: (titles[r.place], r.number)  # noqa: E731
+    rows.sort(key=key, reverse=sort.startswith("-"))
+    page = [r.id for r in rows[offset : offset + limit]]
+    loaded = {u.id: u for u in session.scalars(select(Unit).where(Unit.id.in_(page)))}
+    units = [loaded[i] for i in page]
+    places.preload(u.place for u in units)
+    types = catalog.types_by_id(session, {u.type_id for u in units})
+    models = catalog.models_by_id(session, {u.model_id for u in units})
     out: dict[str, Any] = {
-        "total": len(units),
-        "items": [
-            unit_brief(u, actor, places, types, models) for u in units[offset : offset + limit]
-        ],
+        "total": len(rows),
+        "items": [unit_brief(u, actor, places, types, models) for u in units],
     }
     if actor.sees_cost:
-        out["sum_price"] = round(sum(float(u.price or 0) for u in units), 2)
-        out["sum_value"] = round(sum(value_now(u) for u in units), 2)
+        today = date.today()
+        out["sum_price"] = round(sum(float(r.price or 0) for r in rows), 2)
+        out["sum_value"] = round(sum(
+            0.0 if r.state == "written_off" else residual(
+                r.price, r.commissioned_on, r.life_months, r.value_base, r.value_date, today)
+            for r in rows), 2)
     return out
 
 
-def events_at(session: Session, unit_ids: list[uuid.UUID], at: date) -> dict[uuid.UUID, UnitEvent]:
-    """Последнее событие каждой единицы на дату (место, состояние, оценка тогда)."""
-    if not unit_ids:
+def events_at(session: Session, unit_ids: Any, at: date) -> dict[uuid.UUID, UnitEvent]:
+    """Последнее событие каждой единицы на дату (место, состояние, оценка тогда). unit_ids —
+    список или подзапрос: 50 000 единиц (8.1) лучше отобрать в базе, чем перечислять."""
+    if isinstance(unit_ids, list) and not unit_ids:
         return {}
     rows = session.scalars(
         select(UnitEvent)
         .where(UnitEvent.unit_id.in_(unit_ids), UnitEvent.date <= at, UnitEvent.undone.is_(False))
-        .order_by(UnitEvent.unit_id, UnitEvent.date, UnitEvent.seq)
+        .order_by(UnitEvent.unit_id, UnitEvent.date.desc(), UnitEvent.seq.desc())
+        .ext(distinct_on(UnitEvent.unit_id))
     )
-    out: dict[uuid.UUID, UnitEvent] = {}
-    for e in rows:
-        out[e.unit_id] = e
-    return out
+    return {e.unit_id: e for e in rows}

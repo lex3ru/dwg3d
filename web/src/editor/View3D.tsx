@@ -102,17 +102,17 @@ export default function View3D({ floorId, floors, plan, lifts, onWalker, walkReq
       </Canvas>
       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
         <div role="radiogroup" aria-label="Как смотреть" className="flex rounded-lg border border-line-strong bg-surface p-0.5 shadow-sm">
-          <button type="button" role="radio" aria-checked={mode === "orbit"} onClick={() => setMode("orbit")} className={cn("flex h-8 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] max-md:h-10", mode === "orbit" ? "bg-accent text-white" : "bg-transparent text-ink")}>
+          <button type="button" role="radio" aria-checked={mode === "orbit"} onClick={() => setMode("orbit")} className={cn("flex h-8 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] max-md:h-11", mode === "orbit" ? "bg-accent text-on-accent" : "bg-transparent text-ink")}>
             <OrbitIcon className="size-4" /> Обзор
           </button>
-          <button type="button" role="radio" aria-checked={mode === "walk"} onClick={() => setMode("walk")} className={cn("flex h-8 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] max-md:h-10", mode === "walk" ? "bg-accent text-white" : "bg-transparent text-ink")}>
+          <button type="button" role="radio" aria-checked={mode === "walk"} onClick={() => setMode("walk")} className={cn("flex h-8 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] max-md:h-11", mode === "walk" ? "bg-accent text-on-accent" : "bg-transparent text-ink")}>
             <Footprints className="size-4" /> Прогулка
           </button>
         </div>
         {mode === "orbit" && (
           <div role="radiogroup" aria-label="Что показывать" className="flex rounded-lg border border-line-strong bg-surface p-0.5 shadow-sm">
             {([["floor", "Этаж"], ["below", "Здание до этажа"]] as const).map(([v, t]) => (
-              <button key={v} type="button" role="radio" aria-checked={scope === v} onClick={() => setScope(v)} className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-10", scope === v ? "bg-accent text-white" : "bg-transparent text-ink")}>
+              <button key={v} type="button" role="radio" aria-checked={scope === v} onClick={() => setScope(v)} className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-11", scope === v ? "bg-accent text-on-accent" : "bg-transparent text-ink")}>
                 {t}
               </button>
             ))}

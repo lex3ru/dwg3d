@@ -91,8 +91,8 @@ function MainTab({ t, ro, onGone }: { t: TypeFull; ro: boolean; onGone: () => vo
             ))}
           </select>
         </label>
-        <NumberField label="Срок службы" unit="мес." value={t.life_months ?? 0} min={0} disabled={ro} onChange={(v) => set({ life_months: v || null })} />
-        {"price" in t && <NumberField label="Ориентировочная цена" unit="₽" value={Number(t.price ?? 0)} min={0} digits={2} disabled={ro} onChange={(v) => set({ price: v })} />}
+        <NumberField label="Срок службы" unit="мес." hint="Для остаточной стоимости: она убывает равномерно до нуля за этот срок. 0 — не убывает." value={t.life_months ?? 0} min={0} disabled={ro} onChange={(v) => set({ life_months: v || null })} />
+        {"price" in t && <NumberField label="Ориентировочная цена" unit="₽" hint="Для сметы проектов, когда у модели нет своей цены." value={Number(t.price ?? 0)} min={0} digits={2} disabled={ro} onChange={(v) => set({ price: v })} />}
       </div>
       <Segmented<Mount> label="Установка" value={t.mount} disabled={ro} onChange={(mount) => set({ mount })} options={(Object.keys(MOUNTS) as Mount[]).map((m) => ({ value: m, title: MOUNTS[m] }))} />
       <div className={grid}>
@@ -105,7 +105,7 @@ function MainTab({ t, ro, onGone }: { t: TypeFull; ro: boolean; onGone: () => vo
       </div>
       <Segmented label="Вид учёта" value={t.accounting} disabled={ro} onChange={(accounting) => set({ accounting })} options={[{ value: "piece", title: "поштучно — у каждой вещи номер" }, { value: "quantity", title: "количеством — остаток" }]} />
       <div className={grid}>
-        <TextField label="Единица измерения" value={t.unit} disabled={ro} onChange={(unit) => set({ unit: unit || "шт." })} />
+        <TextField label="Единица измерения" hint="Для учёта количеством: шт., упак., м, л…" value={t.unit} disabled={ro} onChange={(unit) => set({ unit: unit || "шт." })} />
         <label className="flex items-center gap-2 self-end text-sm">
           <input type="checkbox" checked={t.container} disabled={ro} onChange={(e) => set({ container: e.target.checked })} /> может содержать другие (шкаф, стойка)
         </label>
@@ -221,7 +221,7 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
                 <label className="flex items-center gap-2 text-[13px]">
                   <input type="checkbox" checked={tr.fit} onChange={(e) => void setTransform({ fit: e.target.checked })} /> Вписать в габариты типа (растянуть по осям)
                 </label>
-                {!tr.fit && <NumberField label="Масштаб" value={tr.scale} digits={3} min={0.0001} onChange={(scale) => void setTransform({ scale })} />}
+                {!tr.fit && <NumberField label="Масштаб" hint="Во сколько раз увеличить модель; 1 — как в файле. «Подогнать по ширине» посчитает сам." value={tr.scale} digits={3} min={0.0001} onChange={(scale) => void setTransform({ scale })} />}
                 {!tr.fit && fitScale && Math.abs(fitScale - 1) > 0.01 && (
                   <Button size="sm" onClick={() => void setTransform({ scale: Number((tr.scale * fitScale).toFixed(4)) })}>
                     Подогнать по ширине (×{fitScale.toFixed(3)})

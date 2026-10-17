@@ -14,7 +14,6 @@ import { dateRu, type Doc } from "./types";
 
 // Инвентаризация (5.4.6, 6.5.8): ведомости — черновые (идёт обход) и проведённые
 export function CountsPage() {
-  const navigate = useNavigate();
   const list = useQuery({ queryKey: ["inventory", "counts"], queryFn: () => get<{ items: Doc[] }>("/api/inventory/counts") });
   const [creating, setCreating] = useState(false);
   return (
@@ -37,15 +36,13 @@ export function CountsPage() {
           <ul className="m-0 list-none p-0">
             {list.data.items.map((d) => (
               <li key={d.id}>
-                <button type="button" onClick={() => navigate(`/inventory/${d.id}`)} className="flex min-h-12 w-full cursor-pointer items-center gap-3 border-0 border-b border-line bg-transparent px-4 py-2 text-left hover:bg-surface-2">
+                <Link to={`/inventory/${d.id}`} className="flex min-h-12 w-full items-center gap-3 border-b border-line px-4 py-2 text-ink no-underline hover:bg-surface-2">
                   <span className="min-w-0 flex-1">
-                    <Link to={`/inventory/${d.id}`} className="font-medium text-ink">
-                      {d.title}
-                    </Link>
+                    <span className="font-medium">{d.title}</span>
                     <span className="block text-[12px] text-ink-3">от {dateRu(d.date)} · {d.created_by}</span>
                   </span>
                   <Chip tone={STATUS[d.status][1]}>{d.status === "draft" ? "идёт обход" : STATUS[d.status][0]}</Chip>
-                </button>
+                </Link>
               </li>
             ))}
           </ul>

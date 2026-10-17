@@ -287,7 +287,7 @@ function RegistryTab() {
                 )}
                 {visibleCols.map((c) => (
                   <th key={c} className="border-b border-line px-3 py-2 font-medium whitespace-nowrap">
-                    <button type="button" onClick={() => sortBy(c)} className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2">
+                    <button type="button" onClick={() => sortBy(c)} className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 max-md:min-h-11">
                       {COLUMNS.find((x) => x[0] === c)![1]}
                       {sort === c ? " ↑" : sort === `-${c}` ? " ↓" : ""}
                     </button>

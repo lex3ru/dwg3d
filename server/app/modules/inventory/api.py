@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core import search
 from app.core.actor import Actor
 from app.core.errors import AppError, Conflict, NotFound
+from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.inventory import documents as docs
 from app.modules.inventory.documents import on_units_changed
@@ -24,7 +25,7 @@ from app.modules.inventory.models import (
     Warehouse,
 )
 from app.modules.inventory.places import Places, admin, label_code, room_key
-from app.modules.inventory.rules import doc_title
+from app.modules.inventory.rules import doc_title, residual
 from app.modules.inventory.units import title_of, visible
 
 __all__ = ["on_units_changed", "room_key"]
@@ -391,10 +392,55 @@ def cost_statement(
     return cost.statement(session, actor, at, group_by, building_id)
 
 
+def cost_now(session: Session, actor: Actor, building_id: uuid.UUID) -> dict[str, Any]:
+    """Стоимость имущества здания сейчас (главная, 6.5.1): по текущему состоянию единиц, без
+    ведомости на дату — она перебирает историю всех 50 000 единиц (8.1)."""
+    admin(actor)
+    today = date.today()
+    rows = session.execute(
+        select(
+            Unit.price, Unit.commissioned_on, Unit.life_months, Unit.value_base, Unit.value_date
+        ).where(
+            Unit.building_id == building_id,
+            Unit.state != "written_off",
+            Unit.commissioned_on <= today,
+        )
+    ).all()
+    stock = session.scalar(
+        select(func.coalesce(func.sum(StockMove.amount), 0)).where(
+            StockMove.building_id == building_id
+        )
+    )
+    initial = sum(float(r.price or 0) for r in rows) + float(stock or 0)
+    value = sum(
+        residual(r.price, r.commissioned_on, r.life_months, r.value_base, r.value_date, today)
+        for r in rows
+    ) + float(stock or 0)
+    return {"initial": round(initial, 2), "value": round(value, 2), "units": len(rows)}
+
+
 def cost_xlsx(statement: dict[str, Any]) -> bytes:
     from app.modules.inventory import excel
 
     return excel.statement_export(statement)
+
+
+def _touches_building(session: Session, building_id: uuid.UUID) -> Any:
+    """Условие на документ и его строку: касается здания — его помещений, складов, ячеек или
+    единиц, что в нём числятся."""
+    from app.modules.inventory.models import DocLine
+
+    keys = [f"r:{r}" for r in building.room_ids_of(session, building_id)]
+    whs = list(session.scalars(select(Warehouse.id).where(Warehouse.building_id == building_id)))
+    cells = session.scalars(select(Cell.id).where(Cell.warehouse_id.in_(whs)))
+    keys += [f"w:{w}" for w in whs] + [f"c:{c}" for c in cells]
+    return or_(
+        Document.from_place.in_(keys),
+        Document.to_place.in_(keys),
+        DocLine.from_place.in_(keys),
+        DocLine.to_place.in_(keys),
+        DocLine.unit_id.in_(select(Unit.id).where(Unit.building_id == building_id)),
+    )
 
 
 def movement_rows(
@@ -404,18 +450,28 @@ def movement_rows(
     admin(actor)
     from app.modules.inventory.models import DocLine
 
-    rows = session.execute(
+    q = (
         select(Document, DocLine)
         .join(DocLine, DocLine.document_id == Document.id)
         .where(Document.status != "draft", Document.date >= since, Document.date <= until)
         .order_by(Document.date, Document.kind, Document.number, DocLine.position)
-    ).all()
+    )
+    if building_id is not None:
+        # 8.1: 20 000 документов — отбор по зданию в базе, а не перебором строк
+        q = q.where(_touches_building(session, building_id))
+    rows = session.execute(q).all()
     unit_ids = [ln.unit_id for _, ln in rows if ln.unit_id]
     units_ = units_by_id(session, unit_ids)
     types = catalog.types_by_id(
         session, [ln.type_id for _, ln in rows if ln.type_id] + [u.type_id for u in units_.values()]
     )
     places = Places(session, actor)
+    places.preload(
+        k
+        for doc, ln in rows
+        for k in (ln.from_place, ln.to_place, doc.from_place, doc.to_place)
+    )
+    places.preload(u.place for u in units_.values())
     out = []
     for doc, ln in rows:
         u = units_.get(ln.unit_id) if ln.unit_id else None
@@ -509,6 +565,25 @@ def latest_documents(session: Session, actor: Actor, limit: int = 8) -> list[dic
     return docs.documents(session, actor, limit=limit)
 
 
+def unit_values_rows(session: Session, building_id: uuid.UUID | None) -> list[list[Any]]:
+    """Характеристики «у каждой вещи» для полной выгрузки (7.4): номер, вещь, характеристика,
+    значение; характеристики типов и моделей — в выгрузке каталога."""
+    q = select(Unit.number, Unit.type_id, Unit.values).where(Unit.values != {})
+    if building_id is not None:
+        q = q.where(Unit.building_id == building_id)
+    rows = session.execute(q.order_by(Unit.number)).all()
+    chars = catalog.characteristics_by_id(session, {k for r in rows for k in (r.values or {})})
+    types = catalog.types_by_id(session, {r.type_id for r in rows})
+    out: list[list[Any]] = []
+    for r in rows:
+        for key, value in (r.values or {}).items():
+            ch = chars.get(uuid.UUID(key))
+            if ch is None or value in (None, ""):
+                continue
+            out.append([r.number, types[r.type_id].name, ch.name, catalog.format_value(ch, value)])
+    return out
+
+
 def unit_files(session: Session, building_id: uuid.UUID | None) -> list[tuple[str, uuid.UUID, str]]:
     """Файлы имущества для полной выгрузки: (папка, файл, подпись)."""
     from app.modules.inventory.models import DocFile, UnitFile
@@ -522,8 +597,17 @@ def unit_files(session: Session, building_id: uuid.UUID | None) -> list[tuple[st
     for u in session.scalars(select(Unit).where(Unit.photo_file_id.is_not(None))):
         if building_id is None or u.building_id == building_id:
             out.append(("имущество", u.photo_file_id, f"{u.number} фото"))  # type: ignore[arg-type]
-    for f, d in session.execute(
-        select(DocFile, Document).join(Document, Document.id == DocFile.document_id)
-    ).all():
+    q2 = select(DocFile, Document).join(Document, Document.id == DocFile.document_id)
+    if building_id is not None:
+        from app.modules.inventory.models import DocLine
+
+        q2 = q2.where(
+            Document.id.in_(
+                select(Document.id)
+                .outerjoin(DocLine, DocLine.document_id == Document.id)
+                .where(_touches_building(session, building_id))
+            )
+        )
+    for f, d in session.execute(q2).all():
         out.append(("документы", f.file_id, doc_title(d.kind, d.number)))
     return out

@@ -72,17 +72,32 @@ class Places:
 
     def _room(self, room_id: uuid.UUID) -> Place:
         room = building.get_room(self.session, self.actor, room_id)
+        return self._room_place(room, self._floor_name(room.floor_id))
+
+    @staticmethod
+    def _room_place(room: Any, floor_name: str) -> Place:
         title = building.room_title(room)
         return Place(
             room_key(room.id),
             "room",
-            f"{self._floor_name(room.floor_id)} › {title}",
+            f"{floor_name} › {title}",
             title,
             room.building_id,
             room.floor_id,
             room.id,
             None,
         )
+
+    def preload(self, keys: Any) -> None:
+        """Помещения среди ключей — одним запросом, а не по одному (8.1)."""
+        ids = []
+        for key in {k for k in keys if k and k.startswith("r:") and k not in self._cache}:
+            try:
+                ids.append(uuid.UUID(key[2:]))
+            except ValueError:
+                continue
+        for room, floor_name in building.rooms_with_floor(self.session, self.actor, ids):
+            self._cache[room_key(room.id)] = self._room_place(room, floor_name)
 
     def get(self, key: str | None) -> Place:
         if not key:

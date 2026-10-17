@@ -847,9 +847,8 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
 # ---------------------------------------------------------------- вид и список
 
 
-def doc_view(session: Session, actor: Actor, doc: Document, full: bool = True) -> dict[str, Any]:
-    places = Places(session, actor)
-    out: dict[str, Any] = {
+def _head(doc: Document, places: Places) -> dict[str, Any]:
+    return {
         "id": doc.id,
         "kind": doc.kind,
         "kind_title": KINDS[doc.kind],
@@ -876,6 +875,11 @@ def doc_view(session: Session, actor: Actor, doc: Document, full: bool = True) -
         "posted_at": doc.posted_at,
         "version": doc.version,
     }
+
+
+def doc_view(session: Session, actor: Actor, doc: Document, full: bool = True) -> dict[str, Any]:
+    places = Places(session, actor)
+    out = _head(doc, places)
     lines = lines_of(session, doc)
     unit_ids = [line.unit_id for line in lines if line.unit_id]
     created_ids = [uuid.UUID(u) for line in lines for u in line.created_units]
@@ -990,7 +994,28 @@ def documents(
         )
     if unit_id:
         q = q.where(Document.id.in_(select(DocLine.document_id).where(DocLine.unit_id == unit_id)))
-    return [doc_view(session, actor, d, full=False) for d in session.scalars(q.limit(limit))]
+    found = list(session.scalars(q.limit(limit)))
+    # список (8.1: 20 000 документов): шапка, число строк и сумма — одним запросом на все,
+    # места — пачкой; строки целиком — только в карточке документа
+    places = Places(session, actor)
+    places.preload(k for d in found for k in (d.from_place, d.to_place))
+    amount = func.coalesce(
+        Unit.price, func.coalesce(DocLine.price, 0) * func.coalesce(DocLine.qty, 0)
+    )
+    sums = {
+        doc_id: (n, float(total or 0))
+        for doc_id, n, total in session.execute(
+            select(DocLine.document_id, func.count(), func.sum(func.round(amount, 2)))
+            .outerjoin(Unit, Unit.id == DocLine.unit_id)
+            .where(DocLine.document_id.in_([d.id for d in found]))
+            .group_by(DocLine.document_id)
+        )
+    }
+    out = []
+    for d in found:
+        n, total = sums.get(d.id, (0, 0.0))
+        out.append(_head(d, places) | {"lines": n, "total": total, "files": [], "warnings": []})
+    return out
 
 
 def attach_file(session: Session, actor: Actor, doc_id: uuid.UUID, file_id: uuid.UUID) -> None:

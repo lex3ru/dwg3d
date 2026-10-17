@@ -8,6 +8,7 @@ import { CountPage } from "@/inventory/CountPage";
 import { CountsPage } from "@/inventory/CountsPage";
 import { DocumentPage } from "@/inventory/DocumentPage";
 import { DocumentsPage } from "@/inventory/DocumentsPage";
+import { HelpPage } from "@/help/Help";
 import { HomePage } from "@/home/HomePage";
 import { PropertyPage } from "@/inventory/PropertyPage";
 import { QrPage } from "@/inventory/QrPage";
@@ -95,6 +96,7 @@ export function App() {
           <Route path="/plan/:buildingId/:floorId?" element={<EditorPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/scan" element={<ScanPage />} />
+          <Route path="/help" element={<HelpPage />} />
           {role === "admin" && <Route path="/documents/:docId" element={<DocumentPage />} />}
           {role === "admin" && <Route path="/projects/:projectId" element={<ProjectPage />} />}
           {role === "admin" && <Route path="/inventory/:countId" element={<CountPage />} />}

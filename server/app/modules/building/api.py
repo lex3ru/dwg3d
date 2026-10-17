@@ -300,6 +300,25 @@ def live_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
                                 .order_by(Room.number, Room.name)))
 
 
+def room_ids_of(session: Session, building_id: uuid.UUID) -> list[uuid.UUID]:
+    """Все помещения здания, и убранные тоже — по ним документы прошлых лет."""
+    return list(session.scalars(select(Room.id).where(Room.building_id == building_id)))
+
+
+def rooms_with_floor(session: Session, actor: Actor, room_ids: Iterable[uuid.UUID]
+                     ) -> list[tuple[Room, str]]:
+    """Помещения пачкой с названием их этажа — для подписей мест (8.1: тысячи помещений
+    одним запросом); помещения недоступных зданий пропускаются."""
+    ids = list(set(room_ids))
+    out: list[tuple[Room, str]] = []
+    for i in range(0, len(ids), 5000):
+        rows = session.execute(select(Room, Floor.name).join(Floor, Floor.id == Room.floor_id)
+                               .where(Room.id.in_(ids[i:i + 5000])))
+        out += [(room, name) for room, name in rows
+                if actor.is_admin or actor.can_see_building(room.building_id)]
+    return out
+
+
 def get_room(session: Session, actor: Actor, room_id: uuid.UUID) -> Room:
     room = session.get(Room, room_id)
     if room is None:

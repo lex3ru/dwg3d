@@ -57,7 +57,9 @@ def statement(
         return floors[fid]
 
     units = list(session.scalars(select(Unit).where(Unit.commissioned_on <= at)))
-    snaps = events_at(session, [u.id for u in units], at)
+    snaps = events_at(session, select(Unit.id).where(Unit.commissioned_on <= at), at)
+    if "place" in group_by:
+        places.preload(e.place for e in snaps.values())
     types = catalog.types_by_id(session, [u.type_id for u in units])
     groups: dict[tuple[str, ...], dict[str, Any]] = defaultdict(
         lambda: {"units": 0, "qty_items": 0, "initial": Decimal(0), "value": Decimal(0)}
@@ -68,15 +70,16 @@ def statement(
     ) -> tuple[str, ...]:
         t = types.get(type_id) or catalog.get_type(session, type_id)
         types[type_id] = t
+        # только запрошенные разбивки: название места на 50 000 единиц дорого (8.1)
         values = {
-            "building": building_name(bid),
-            "floor": floor_name(fid),
-            "place": places.title(place),
-            "layer": layers.get(t.layer_id, "без слоя") if t.layer_id else "без слоя",
-            "type": t.name,
-            "department": department or "—",
+            "building": lambda: building_name(bid),
+            "floor": lambda: floor_name(fid),
+            "place": lambda: places.title(place),
+            "layer": lambda: layers.get(t.layer_id, "без слоя") if t.layer_id else "без слоя",
+            "type": lambda: t.name,
+            "department": lambda: department or "—",
         }
-        return tuple(values[g] for g in group_by)
+        return tuple(values[g]() for g in group_by)
 
     for u in units:
         snap = snaps.get(u.id)

@@ -48,6 +48,9 @@ BACKUP_AT="0 2 * * *"
 KEEP_DAILY=30
 KEEP_MONTHLY=12
 
+# процессов приложения — по числу ядер сервера: тяжёлый отчёт не задерживает остальных
+APP_WORKERS=4
+
 TZ=Europe/Moscow
 POSTGRES_PASSWORD=$password
 ENV

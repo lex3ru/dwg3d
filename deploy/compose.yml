@@ -12,6 +12,7 @@ x-app: &app
   environment:
     APP_DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app
     APP_BACKUP_DIR: /backups
+    APP_WORKERS: ${APP_WORKERS:-4}
     TZ: ${TZ:-Europe/Moscow}
   volumes:
     - files:/data

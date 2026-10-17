@@ -46,6 +46,8 @@ def main() -> None:
     serve = sub.add_parser("serve", help="приложение (с миграцией базы)")
     serve.add_argument("--host", default="0.0.0.0")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--workers", type=int, default=0,
+                       help="процессов приложения (по умолчанию APP_WORKERS, 4)")
     sub.add_parser("worker", help="обработчик фоновых задач")
     sub.add_parser("migrate", help="обновить базу до текущей версии")
     admin = sub.add_parser("create-admin", help="первый администратор, если его ещё нет")
@@ -54,9 +56,13 @@ def main() -> None:
     admin.add_argument("--password", help="временный пароль (для автоматических тестов); "
                        "без него система придумает сама")
     sample = sub.add_parser("sample", help="тестовое здание (ТЗ 7.2)")
-    sample.add_argument("which", choices=["polyclinic"])
+    sample.add_argument("which", choices=["polyclinic", "volume"],
+                        help="polyclinic — «Поликлиника»; "
+                             "volume — стенд объёмов 8.1 (на отдельной базе)")
     sample.add_argument("--login", default="admin", help="от чьего имени (администратор)")
     sample.add_argument("--name", default="Поликлиника")
+    sample.add_argument("--scale", type=float, default=1.0,
+                        help="volume: доля объёмов 8.1 (для пробы)")
     reset = sub.add_parser("reset-password",
                            help="временный пароль учётной записи, если войти некому")
     reset.add_argument("login")
@@ -70,8 +76,11 @@ def main() -> None:
 
         migrate()
         seed()
+        from app.core.config import config
+
         uvicorn.run("app.main:create_app", factory=True, host=args.host, port=args.port,
-                    proxy_headers=True, forwarded_allow_ips="*")
+                    proxy_headers=True, forwarded_allow_ips="*",
+                    workers=args.workers or config().workers)
     elif args.command == "worker":
         from app.core import tasks
         from app.main import installed_modules
@@ -97,6 +106,12 @@ def main() -> None:
         else:
             print(f"Администратор «{args.login}» заведён. Временный пароль: {temporary}")
             print("При первом входе система попросит сменить его.")
+    elif args.command == "sample" and args.which == "volume":
+        from app.main import create_app
+        from app.samples import volume
+
+        create_app()  # модули регистрируют настройки и обработчики
+        print(volume.create(args.login, args.scale))
     elif args.command == "sample":
         from app.core.db import transaction
         from app.main import installed_modules

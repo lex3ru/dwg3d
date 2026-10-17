@@ -132,7 +132,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
           </>
         )}
         {!item.parent_id && <CalcParams item={item} list={calcs} readOnly={readOnly} onChange={(params) => set({ params })} />}
-        <TextField label="Подпись на плане" value={item.label} placeholder="необязательно" disabled={readOnly} onChange={(label) => set({ label })} />
+        <TextField label="Подпись на плане" hint="Видна рядом с предметом и в отчётах, например «К-3» у камеры." value={item.label} placeholder="необязательно" disabled={readOnly} onChange={(label) => set({ label })} />
         {!readOnly && !parent && containers.length > 0 && (
           <label className="flex flex-col gap-1 text-[12px] text-ink-2">
             Положить в

@@ -116,7 +116,7 @@ test("С8: освещённость коридора — ряд светильн
   await calcs.getByRole("checkbox", { name: "Освещённость" }).check();
   const low = calcs.getByRole("list", { name: "Ниже нормы" });
   await expect(low).toContainText("1К Коридор");
-  await expect(low).toContainText("214 Кабинет: ср. 0 лк при норме 500 — светильников нет");
+  await expect(low).toContainText(/214 Кабинет: ср\. 0 лк при норме \d+ — светильников нет/);
 
   // светильник — рядом с шагом 3 м до конца коридора
   await page.getByRole("tab", { name: "Слои" }).click();

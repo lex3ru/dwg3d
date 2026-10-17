@@ -568,7 +568,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
                 role="tab"
                 aria-selected={editMode === m}
                 onClick={() => setEditMode(m)}
-                className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-10", editMode === m ? "bg-ink text-surface" : "bg-transparent text-ink hover:bg-surface-2")}
+                className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-11", editMode === m ? "bg-ink text-surface" : "bg-transparent text-ink hover:bg-surface-2")}
               >
                 {title}
               </button>
@@ -591,7 +591,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
                   return out;
                 }, { replace: true });
               }}
-              className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-10", mode === m ? "bg-accent text-white" : "bg-transparent text-ink hover:bg-surface-2")}
+              className={cn("h-8 cursor-pointer rounded-md border-0 px-3 text-[13px] max-md:h-11", mode === m ? "bg-accent text-on-accent" : "bg-transparent text-ink hover:bg-surface-2")}
             >
               {m === "2d" ? "2D" : m === "3d" ? "3D" : "оба"}
             </button>
@@ -864,7 +864,7 @@ function UnderlayPanel({ store, onUpload }: { store: EditorStore; onUpload: (f: 
             <NumberField label="X" unit="мм" value={underlay.x} onChange={(x) => set({ x })} />
             <NumberField label="Y" unit="мм" value={underlay.y} onChange={(y) => set({ y })} />
             <NumberField label="Поворот" unit="°" value={underlay.angle} onChange={(angle) => set({ angle })} digits={1} />
-            <NumberField label="Страница" value={underlay.page} min={1} onChange={(page) => set({ page: Math.round(page) })} />
+            <NumberField label="Страница" hint="Какую страницу PDF положить подложкой." value={underlay.page} min={1} onChange={(page) => set({ page: Math.round(page) })} />
           </div>
           <Button size="sm" variant="ghost" onClick={() => store.apply((p) => void (p.underlay = null))}>
             Убрать подложку

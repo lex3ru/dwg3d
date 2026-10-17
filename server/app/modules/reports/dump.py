@@ -32,12 +32,17 @@ README = """Полная выгрузка: {name}
   Помещения.xlsx  — этажи и помещения (номер, название, назначение, площадь)
   Расстановка.xlsx — предметы на плане: этаж, помещение, тип, модель, координаты (мм),
                      поворот, высота, инвентарный номер
-  Имущество.xlsx  — инвентарные единицы со всеми характеристиками
+  Имущество.xlsx  — инвентарные единицы: номер, наименование, модель, место, состояние,
+                     ответственный, стоимость
+  Характеристики.xlsx — значения характеристик у каждой вещи (номер, характеристика, значение)
   Остатки.xlsx    — количественный учёт по местам
   Документы.xlsx  — строки документов: что, откуда, куда, когда
   История.xlsx    — журнал изменений: кто, когда, что было и что стало
+  Каталог.xlsx    — каталог целиком: слои, наборы характеристик, типы, модели со значениями
+                     характеристик, назначения помещений (загружается обратно в систему)
 Файлы:
   файлы/чертежи, файлы/подложки, файлы/имущество, файлы/документы, файлы/3D-модели
+Описание столбцов — docs/EXPORT.md в составе системы.
 """
 
 
@@ -170,7 +175,23 @@ def run(session: Session, payload: dict[str, Any], progress: tasks.Progress) -> 
             step += 1
             progress(step, total, f"{b.name}: имущество")
             z.writestr(
-                f"{root}Имущество.xlsx", inventory.registry_xlsx(session, actor, building_id=b.id)
+                f"{root}Имущество.xlsx",
+                inventory.registry_xlsx(session, actor, building_id=b.id, written_off=True),
+            )
+            z.writestr(
+                f"{root}Характеристики.xlsx",
+                report.xlsx(
+                    report.Report(
+                        title=f"{b.name} — характеристики имущества",
+                        sections=[
+                            report.Section(
+                                "Характеристики",
+                                ["Инв. №", "Наименование", "Характеристика", "Значение"],
+                                inventory.unit_values_rows(session, b.id),
+                            )
+                        ],
+                    )
+                ),
             )
             step += 1
             stock = inventory.balance_rows(session, actor, building_id=b.id)
@@ -280,6 +301,7 @@ def run(session: Session, payload: dict[str, Any], progress: tasks.Progress) -> 
                 put_file(folder, file_id, label)
             step += 2
         root = ""
+        z.writestr("Каталог.xlsx", catalog.export_xlsx(session))
         for t in catalog.all_types(session):
             if t.model_file_id:
                 put_file("3D-модели", t.model_file_id, t.name)

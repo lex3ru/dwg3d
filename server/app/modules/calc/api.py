@@ -185,6 +185,15 @@ def _scalars(value: Any) -> dict[str, Any]:
     }
 
 
+def _named(session: Session, t: Any, model_id: uuid.UUID | None) -> dict[str, Any]:
+    """Характеристики типа и модели — на весь запрос: главная считает все этажи здания, и
+    каталог не перечитывается для каждого (8.1)."""
+    memo = session.info.setdefault("calc.named", {})
+    if (t.id, model_id) not in memo:
+        memo[(t.id, model_id)] = catalog.named_values(session, t, model_id)
+    return memo[(t.id, model_id)]
+
+
 def _things(
     session: Session,
     floor: Any,
@@ -239,7 +248,7 @@ def _things(
                 }
             )
     models = catalog.models_by_id(session, [r["model_id"] for r in rows if r["model_id"]])
-    first: dict[uuid.UUID, Any] = {}
+    first: dict[uuid.UUID, Any] = session.info.setdefault(f"calc.first.{calc.key}", {})
     values: dict[tuple[uuid.UUID, uuid.UUID | None], dict[str, Any]] = {}
     out, missing = [], []
     for r in rows:
@@ -258,7 +267,7 @@ def _things(
                     m
                     for m in live
                     if all(
-                        catalog.named_values(session, t, m.id).get(n) not in (None, "")
+                        _named(session, t, m.id).get(n) not in (None, "")
                         for n in calc.needs
                     )
                 ]
@@ -268,7 +277,7 @@ def _things(
                 note = f"модель не выбрана — взята {model.manufacturer} {model.name}"
         key = (t.id, model.id if model else None)
         if key not in values:
-            values[key] = catalog.named_values(session, t, model.id if model else None)
+            values[key] = _named(session, t, model.id if model else None)
         thing = Thing(
             id=r["id"],
             type=t,

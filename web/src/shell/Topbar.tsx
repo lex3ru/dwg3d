@@ -3,6 +3,7 @@ import { DropdownMenu } from "radix-ui";
 import { Check, ChevronRight, KeyRound, LogOut, Moon, QrCode, Search, Sun, SunMoon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { HelpButton } from "@/help/Help";
 import { get, post, query } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -28,16 +29,16 @@ export function Crumbs() {
   const { pathname } = useLocation();
   const { cardTitle } = useShell();
   const item = findItem(pathname);
-  const parts = [item?.group, item ? titleFor(item, me.role) : pathname === "/search" ? "Поиск" : null, cardTitle].filter(Boolean) as string[];
+  const parts = [item?.group, item ? titleFor(item, me.role) : pathname === "/search" ? "Поиск" : pathname === "/help" ? "Справка" : null, cardTitle].filter(Boolean) as string[];
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink-2" aria-label="Где я">
+    <nav className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink-2" aria-label="Где я">
       {parts.map((part, i) => (
         <span key={i} className={cn("flex min-w-0 items-center gap-1.5", i === parts.length - 1 && "text-ink")}>
           {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-ink-3" aria-hidden />}
           <span className="truncate">{part}</span>
         </span>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -188,6 +189,7 @@ export function Topbar() {
       <Link to="/scan" aria-label="QR-сканер" className="inline-flex size-[38px] items-center justify-center rounded-lg border border-line-strong text-ink max-md:hidden">
         <QrCode className="size-[18px]" />
       </Link>
+      <HelpButton />
       <UserMenu />
     </header>
   );

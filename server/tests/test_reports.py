@@ -97,7 +97,22 @@ def test_home_counts_what_needs_attention(admin) -> None:
 
 
 def test_full_export_is_an_archive_readable_without_the_system(admin) -> None:
-    b, *_ = setup(admin)
+    b, _, _, got, types = setup(admin)
+    # у кушетки — своя характеристика «у каждой вещи»: она должна попасть в архив
+    couch = types["Кушетка смотровая"]["id"]
+    ch = admin.post(
+        "/api/catalog/characteristics",
+        json={"type_id": couch, "name": "Цвет обивки", "kind": "text", "level": "item"},
+    ).json()
+    unit_id = admin.get(f"/api/inventory/documents/{got['id']}").json()["lines"][0][
+        "created_units"
+    ][0]["id"]
+    unit = admin.get(f"/api/inventory/units/{unit_id}").json()
+    r = admin.patch(
+        f"/api/inventory/units/{unit_id}",
+        json={"version": unit["version"], "values": {"values": {ch["id"]: "бежевый"}}},
+    )
+    assert r.status_code == 200, r.text
     r = admin.post("/api/reports/exports", params={"building_id": b["id"]})
     assert r.status_code == 202
     job_id = r.json()["job_id"]
@@ -112,6 +127,8 @@ def test_full_export_is_an_archive_readable_without_the_system(admin) -> None:
         "Помещения.xlsx",
         "Расстановка.xlsx",
         "Имущество.xlsx",
+        "Характеристики.xlsx",
+        "Каталог.xlsx",
         "Остатки.xlsx",
         "Документы.xlsx",
         "История.xlsx",
@@ -124,3 +141,12 @@ def test_full_export_is_an_archive_readable_without_the_system(admin) -> None:
     ws = load_workbook(io.BytesIO(z.read("Расстановка.xlsx"))).active
     assert [c.value for c in ws[3]][:3] == ["Этаж", "Помещение", "Тип"]
     assert ws.max_row == 6  # заголовок, пустая строка, шапка и три предмета
+    # каталог — тот же файл, что «Выгрузить в Excel» в каталоге: загружается обратно
+    assert "Типы" in load_workbook(io.BytesIO(z.read("Каталог.xlsx"))).sheetnames
+    chars = load_workbook(io.BytesIO(z.read("Характеристики.xlsx"))).active
+    assert [c.value for c in chars[4]] == [
+        unit["number"],
+        "Кушетка смотровая",
+        "Цвет обивки",
+        "бежевый",
+    ]

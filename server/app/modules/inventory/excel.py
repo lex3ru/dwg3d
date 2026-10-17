@@ -11,8 +11,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, BinaryIO
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -515,18 +517,20 @@ def t_models(session: Session, type_id: uuid.UUID) -> list[Any]:
 
 
 def _book(title: str, head: list[str], rows: list[list[Any]], widths: list[int]) -> bytes:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = title[:31]
-    ws.append(head)
-    for c in ws[1]:
-        c.font = Font(bold=True)
-        c.fill = LIGHT
+    # потоком: реестр на 50 000 строк не держится в памяти целиком (8.1)
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title[:31])
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+    cells = []
+    for v in head:
+        c = WriteOnlyCell(ws, value=v)
+        c.font, c.fill = Font(bold=True), LIGHT
+        cells.append(c)
+    ws.append(cells)
     for r in rows:
         ws.append(r)
-    for i, w in enumerate(widths, 1):
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
-    ws.freeze_panes = "A2"
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

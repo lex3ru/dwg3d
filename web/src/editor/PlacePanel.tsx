@@ -81,7 +81,7 @@ export function PlacePanel({ store, cat, readOnly, link, calcs }: { store: Edito
           >
             <t.icon className="size-4" aria-hidden />
             {t.title}
-            {t.badge !== undefined && <span className="absolute top-0.5 right-1 min-w-4 rounded-full bg-accent px-1 font-mono text-[10px] leading-4 text-white">{t.badge}</span>}
+            {t.badge !== undefined && <span className="absolute top-0.5 right-1 min-w-4 rounded-full bg-accent px-1 font-mono text-[10px] leading-4 text-on-accent">{t.badge}</span>}
             {t.warn && t.badge === undefined && <span className="absolute top-1 right-2 size-1.5 rounded-full bg-warn" />}
           </button>
         ))}

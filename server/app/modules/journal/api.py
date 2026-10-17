@@ -8,7 +8,8 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import String, bindparam, cast, delete, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 from app.core import events
@@ -94,9 +95,14 @@ def entries_for(session: Session, refs: list[str]) -> list[Entry]:
     """Все записи, что касаются хоть одной из ссылок (полная выгрузка, 7.4), — по порядку."""
     if not refs:
         return []
-    out: dict[int, Entry] = {}
-    for i in range(0, len(refs), 200):
-        part = refs[i : i + 200]
-        for e in session.scalars(select(Entry).where(Entry.refs.overlap(part))):
-            out[e.id] = e
-    return [out[k] for k in sorted(out)]
+    # массив — подзапросом: по готовому списку PostgreSQL оценивает выборку по его значениям,
+    # решает, что подойдёт полжурнала, и перебирает его целиком вместо индекса
+    # (8.1: 2 с против 30 мс на здание)
+    wanted = select(
+        cast(bindparam("refs", type_=ARRAY(String(100))), ARRAY(String(100)))
+    ).scalar_subquery()
+    return list(
+        session.scalars(
+            select(Entry).where(Entry.refs.overlap(wanted)).order_by(Entry.id), {"refs": refs}
+        )
+    )

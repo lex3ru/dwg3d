@@ -96,12 +96,15 @@ th {{ background: #eee; text-align: left; font-weight: 600; }}
 
 
 def xlsx(r: Report) -> bytes:
+    # потоком (write-only): листы на десятки тысяч строк не держатся в памяти целиком (8.1)
     from openpyxl import Workbook
+    from openpyxl.cell import WriteOnlyCell
     from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
 
-    wb = Workbook()
-    wb.remove(wb.active)
+    wb = Workbook(write_only=True)
     used: set[str] = set()
+    bold, fill = Font(bold=True), PatternFill("solid", fgColor="EEEEEE")
     for s in r.sections or [Section("Лист", [], [])]:
         name = "".join(ch for ch in s.title if ch not in "[]:*?/\\")[:31] or "Лист"
         base, n = name, 2
@@ -110,28 +113,33 @@ def xlsx(r: Report) -> bytes:
             n += 1
         used.add(name)
         ws = wb.create_sheet(name)
-        ws.append([r.title])
-        ws["A1"].font = Font(bold=True, size=12)
-        if r.subtitle:
-            ws.append([r.subtitle])
-        ws.append([])
-        ws.append(s.columns)
-        head = ws.max_row
-        for c in ws[head]:
-            c.font = Font(bold=True)
-            c.fill = PatternFill("solid", fgColor="EEEEEE")
-        for row in s.rows:
-            ws.append(list(row))
-        if s.total:
-            ws.append(list(s.total))
-            for c in ws[ws.max_row]:
-                c.font = Font(bold=True)
         for i, col in enumerate(s.columns, 1):
             width = max(
                 [len(str(col))] + [len(str(row[i - 1])) for row in s.rows if i - 1 < len(row)] + [8]
             )
-            ws.column_dimensions[ws.cell(head, i).column_letter].width = min(60, width + 2)
-        ws.freeze_panes = ws.cell(head + 1, 1)
+            ws.column_dimensions[get_column_letter(i)].width = min(60, width + 2)
+        head = 4 if r.subtitle else 3
+        ws.freeze_panes = f"A{head + 1}"
+
+        def styled(values: list[Any], font: Any, fill_: Any = None, ws: Any = ws) -> list[Any]:
+            out = []
+            for v in values:
+                c = WriteOnlyCell(ws, value=v)
+                c.font = font
+                if fill_ is not None:
+                    c.fill = fill_
+                out.append(c)
+            return out
+
+        ws.append(styled([r.title], Font(bold=True, size=12)))
+        if r.subtitle:
+            ws.append([r.subtitle])
+        ws.append([])
+        ws.append(styled(list(s.columns), bold, fill))
+        for row in s.rows:
+            ws.append(list(row))
+        if s.total:
+            ws.append(styled(list(s.total), bold))
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

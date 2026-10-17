@@ -16,9 +16,10 @@
   --line: #e1e5ea;
   --line-strong: #cfd5dc;
   --ink: #1b1f24;
-  --ink-2: #5a6472;
-  --ink-3: #6b7480;
+  --ink-2: #4f5866;
+  --ink-3: #5f6874;
   --accent: #1f5fcc;
+  --on-accent: #ffffff;
   --accent-hover: #174a9e;
   --accent-soft: #e8f0fd;
   --accent-ink: #174a9e;
@@ -41,6 +42,8 @@
   --ink-2: #a3acb8;
   --ink-3: #8b95a2;
   --accent: #5b8ff0;
+  /* светлый синий тёмной темы — с тёмным текстом: белый на нём 3,2 : 1 (8.6 п. 2) */
+  --on-accent: #0b1220;
   --accent-hover: #7aa5f4;
   --accent-soft: #1d2b44;
   --accent-ink: #a9c4f7;
@@ -69,6 +72,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
+  --color-on-accent: var(--on-accent);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
   --color-bad: var(--bad);

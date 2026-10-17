@@ -1,5 +1,5 @@
 import { Footprints, Scissors, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -13,8 +13,10 @@ import type { WallDefaults } from "./Canvas";
 // Свойства выбранного (5.3.1 «справа»): числа правятся на месте, Enter или уход с поля —
 // один шаг отмены.
 
-export function NumberField({ label, value, unit, onChange, step = 1, min, max, disabled, digits = 0 }: {
+export function NumberField({ label, value, unit, onChange, step = 1, min, max, disabled, digits = 0, hint }: {
   label: string; value: number; unit?: string; onChange: (v: number) => void; step?: number; min?: number; max?: number; disabled?: boolean; digits?: number;
+  // подсказка под полем, где неочевидно, что писать (8.6 п. 3)
+  hint?: string;
 }) {
   const shown = Number(value.toFixed(digits));
   const [text, setText] = useState(String(shown));
@@ -25,13 +27,15 @@ export function NumberField({ label, value, unit, onChange, step = 1, min, max, 
       if (v !== shown) onChange(v);
     } else setText(String(shown));
   };
-  return (
+  const hintId = useId();
+  const field = (
     <label className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
       <span className="flex items-center gap-1.5">
         <input
           type="text"
           inputMode="decimal"
+          aria-describedby={hint ? hintId : undefined}
           value={text}
           disabled={disabled}
           step={step}
@@ -47,16 +51,29 @@ export function NumberField({ label, value, unit, onChange, step = 1, min, max, 
       </span>
     </label>
   );
+  return hint ? <Hinted id={hintId} hint={hint}>{field}</Hinted> : field;
 }
 
-export function TextField({ label, value, onChange, placeholder, disabled }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean }) {
+// подсказка — описанием поля (aria-describedby), а не частью его названия
+function Hinted({ id, hint, children }: { id: string; hint: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {children}
+      <span id={id} className="text-[11px] leading-snug text-ink-3">{hint}</span>
+    </div>
+  );
+}
+
+export function TextField({ label, value, onChange, placeholder, disabled, hint }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; hint?: string }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
-  return (
+  const hintId = useId();
+  const field = (
     <label className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
       <input
         value={text}
+        aria-describedby={hint ? hintId : undefined}
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}
@@ -69,6 +86,7 @@ export function TextField({ label, value, onChange, placeholder, disabled }: { l
       />
     </label>
   );
+  return hint ? <Hinted id={hintId} hint={hint}>{field}</Hinted> : field;
 }
 
 export function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
@@ -84,7 +102,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
             aria-checked={value === o.value}
             disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={cn("h-7 flex-1 cursor-pointer rounded border-0 px-2 text-[12px] max-md:h-10", value === o.value ? "bg-accent text-white" : "bg-transparent text-ink hover:bg-surface-2")}
+            className={cn("h-7 flex-1 cursor-pointer rounded border-0 px-2 text-[12px] max-md:h-11", value === o.value ? "bg-accent text-on-accent" : "bg-transparent text-ink hover:bg-surface-2")}
           >
             {o.title}
           </button>
@@ -231,7 +249,7 @@ export function Properties({
         </div>
         <Segmented label="Вид" value={wall.kind} disabled={ro} onChange={(kind) => set({ kind })} options={[{ value: "partition", title: "Перегородка" }, { value: "bearing", title: "Несущая" }]} />
         {Math.abs(wall.bulge) > 1e-9 && (
-          <NumberField label="Стрелка дуги" unit="мм" value={(wall.bulge * dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!)) / 2} disabled={ro} onChange={(s) => set({ bulge: Math.max(-1, Math.min(1, (2 * s) / dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!))) })} />
+          <NumberField label="Стрелка дуги" unit="мм" hint="Насколько середина дуги отходит от прямой между концами; 0 — прямая стена." value={(wall.bulge * dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!)) / 2} disabled={ro} onChange={(s) => set({ bulge: Math.max(-1, Math.min(1, (2 * s) / dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!))) })} />
         )}
       </Section>
     );
@@ -249,8 +267,8 @@ export function Properties({
         <div className={grid2}>
           <NumberField label="Ширина" unit="мм" value={o.width} min={100} max={length} disabled={ro} onChange={(width) => set({ width })} />
           <NumberField label="Высота" unit="мм" value={o.height} min={100} disabled={ro} onChange={(height) => set({ height })} />
-          {(o.kind === "window" || o.kind === "glazing") && <NumberField label="Подоконник" unit="мм" value={o.sill} min={0} disabled={ro} onChange={(sill) => set({ sill })} />}
-          <NumberField label="От начала стены" unit="мм" value={o.at - o.width / 2} min={0} max={length - o.width} disabled={ro} onChange={(s) => set({ at: s + o.width / 2 })} />
+          {(o.kind === "window" || o.kind === "glazing") && <NumberField label="Подоконник" unit="мм" hint="Высота низа окна от пола." value={o.sill} min={0} disabled={ro} onChange={(sill) => set({ sill })} />}
+          <NumberField label="От начала стены" unit="мм" hint="Расстояние от начала стены до края проёма." value={o.at - o.width / 2} min={0} max={length - o.width} disabled={ro} onChange={(s) => set({ at: s + o.width / 2 })} />
         </div>
         {o.kind === "door" && (
           <>
@@ -258,7 +276,7 @@ export function Properties({
             <Segmented label="Открывается" value={o.side} disabled={ro} onChange={(side) => set({ side })} options={[{ value: "left", title: "Влево" }, { value: "right", title: "Вправо" }]} />
           </>
         )}
-        <TextField label="Обозначение" value={o.label ?? ""} placeholder="Д-201" disabled={ro} onChange={(label) => set({ label: label || null })} />
+        <TextField label="Обозначение" hint="Марка проёма по проекту, печатается на плане." value={o.label ?? ""} placeholder="Д-201" disabled={ro} onChange={(label) => set({ label: label || null })} />
       </Section>
     );
   }
@@ -328,7 +346,7 @@ export function Properties({
           <NumberField label="Ширина марша" unit="мм" value={s.width} min={600} disabled={ro} onChange={(width) => set({ width })} />
           <NumberField label="Длина" unit="мм" value={s.length} min={500} disabled={ro} onChange={(length) => set({ length })} />
           <NumberField label="Ступеней" value={s.steps} min={2} max={60} disabled={ro} onChange={(steps) => set({ steps: Math.round(steps) })} />
-          <NumberField label="Направление" unit="°" value={s.angle} disabled={ro} onChange={(angle) => set({ angle })} />
+          <NumberField label="Направление" unit="°" hint="Куда идёт подъём: 0° — вправо по плану, 90° — вверх." value={s.angle} disabled={ro} onChange={(angle) => set({ angle })} />
         </div>
       </Section>
     );

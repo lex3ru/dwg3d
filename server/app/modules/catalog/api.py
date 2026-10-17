@@ -142,6 +142,21 @@ def format_value(ch: Characteristic, value: Any) -> str:
     return str(value)
 
 
+def characteristics_by_id(session: Session, ids: Any) -> dict[uuid.UUID, Characteristic]:
+    ids = list({uuid.UUID(str(i)) for i in ids})
+    if not ids:
+        return {}
+    q = select(Characteristic).where(Characteristic.id.in_(ids))
+    return {c.id: c for c in session.scalars(q)}
+
+
+def export_xlsx(session: Session) -> bytes:
+    """Каталог целиком в Excel (5.2.6) — для полной выгрузки (7.4)."""
+    from app.modules.catalog import excel
+
+    return excel.export(session)
+
+
 def characteristics_of(session: Session, item_type: ItemType) -> list[Characteristic]:
     """Характеристики типа: из его наборов, затем свои."""
     set_ids = [
