@@ -88,7 +88,7 @@ export function ProjectsPage() {
                   </td>
                   <td className="border-b border-line px-3 py-2 text-ink-2">{p.rooms.length ? `${p.rooms.slice(0, 3).join(", ")}${p.rooms.length > 3 ? ` и ещё ${p.rooms.length - 3}` : ""}` : "—"}</td>
                   <td className="border-b border-line px-3 py-2 font-mono text-[12px]">
-                    <span className="text-[#2E7D32]">+{p.added}</span> <span className="text-[#EF6C00]">~{p.moved}</span> <span className="text-[#C62828]">−{p.removed}</span>
+                    <span className="text-ok">+{p.added}</span> <span className="text-warn">~{p.moved}</span> <span className="text-bad">−{p.removed}</span>
                   </td>
                   <td className="border-b border-line px-3 py-2">
                     <Chip tone={STATUS_TONE[p.status]}>{p.status_title}</Chip>

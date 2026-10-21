@@ -664,7 +664,8 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
         </div>
       )}
       <div className={cn("flex min-h-0 flex-1", project && "border-4 border-t-0 border-violet-600")}>
-        {show2d && editMode === "place" && cat && (
+        {/* в «Расстановке» каталог и свойства — и при одном 3D: ставить можно и там */}
+        {editMode === "place" && cat && (
           <aside aria-label="Слои и каталог" className="flex w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-surface max-md:hidden">
             <PlacePanel store={store} cat={cat} readOnly={readOnly} link={project ? undefined : link.data} calcs={calcs} />
           </aside>
@@ -735,7 +736,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           )}
         </div>
 
-        {show2d && (
+        {(show2d || (editMode === "place" && cat)) && (
           <aside aria-label="Свойства" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface max-lg:hidden">
             {editMode === "place" && cat && !selection.some((x) => x.kind === "room") ? (
               <ItemPanel store={store} cat={cat} rooms={data.rooms} readOnly={readOnly} warnings={warnings} link={project ? undefined : link.data} onRegister={setRegistering} calcs={calcs} />

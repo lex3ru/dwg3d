@@ -24,6 +24,22 @@ export function itemState(store: EditorStore, cat: Catalog, item: Item): { shown
 // Поставить тип в точку: на пол — как есть, к стене — спиной к ближайшей, на потолок —
 // под потолком; в вместилище, если точка внутри него (5.3.2 п. 1, 4)
 export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt, faces: Face[], floorHeight: number, free = false, unit?: { id: string; model_id: string | null }): Item | null {
+  const planned = planPlacement(store, cat, type, p, faces, floorHeight, free, unit);
+  if (!planned) {
+    window.dispatchEvent(new CustomEvent("editor:flash", { detail: `«${type.name}» сам на план не ставится — положите его в шкаф или стойку: перетащите прямо на них.` }));
+    return null;
+  }
+  const { item, container } = planned;
+  const s = store.state;
+  store.changeItems([...s.items, item], [{ kind: "item", id: container?.id ?? item.id }]);
+  // поставили в скрытый слой — слой показывается, иначе предмет пропал бы из виду
+  if (type.layer_id && s.hiddenLayers.includes(type.layer_id)) store.setLayers(s.hiddenLayers.filter((l) => l !== type.layer_id), s.lockedLayers);
+  return item;
+}
+
+// Где и как встанет тип, поставленный в точку, — без изменения расстановки: для самой
+// постановки и для «призрака» под курсором в 3D. null — тип сам на план не ставится.
+export function planPlacement(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt, faces: Face[], floorHeight: number, free = false, unit?: { id: string; model_id: string | null }): { item: Item; container?: Item } | null {
   const { w, d } = sizeOf(type);
   const s = store.state;
   const container = type.container
@@ -33,10 +49,7 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
         const st = itemState(store, cat, i);
         return st.shown && !st.locked && pointInPolygon(p, footprint(i, cat.types.get(i.type_id)));
       });
-  if (!container && !standalone(type)) {
-    window.dispatchEvent(new CustomEvent("editor:flash", { detail: `«${type.name}» сам на план не ставится — положите его в шкаф или стойку: перетащите прямо на них.` }));
-    return null;
-  }
+  if (!container && !standalone(type)) return null;
   const item: Item = {
     id: newItemId(),
     floor_id: s.floorId,
@@ -57,10 +70,19 @@ export function placeAt(store: EditorStore, cat: Catalog, type: TypeBrief, p: Pt
     const stick = stickToWall(faces, p, w, d, type.mount === "wall" ? 1500 : 200);
     if (stick && type.mount !== "ceiling") Object.assign(item, { x: stick.x, y: stick.y, angle: stick.angle });
   }
-  store.changeItems([...s.items, item], [{ kind: "item", id: container?.id ?? item.id }]);
-  // поставили в скрытый слой — слой показывается, иначе предмет пропал бы из виду
-  if (type.layer_id && s.hiddenLayers.includes(type.layer_id)) store.setLayers(s.hiddenLayers.filter((l) => l !== type.layer_id), s.lockedLayers);
-  return item;
+  return { item, container: container ?? undefined };
+}
+
+// Перетаскиваемый тип: пока идёт перетаскивание, браузер не отдаёт данные, только их виды, —
+// id типа кладётся и в вид, чтобы 3D мог показать, где встанет предмет
+const TYPE_MARK = "application/x-type-";
+export function markDraggedType(dt: DataTransfer, typeId: string) {
+  dt.setData("application/x-item-type", typeId);
+  dt.setData(TYPE_MARK + typeId, "");
+}
+export function draggedType(dt: DataTransfer): string | null {
+  const mark = [...dt.types].find((t) => t.startsWith(TYPE_MARK));
+  return mark ? mark.slice(TYPE_MARK.length) : null;
 }
 
 // Убрать выбранные; если среди них связанные с учётом — сначала спросить: только с плана,

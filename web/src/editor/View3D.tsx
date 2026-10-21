@@ -87,7 +87,7 @@ export default function View3D({ floorId, floors, plan, lifts, onWalker, walkReq
             {cat &&
               (d.floor.id === floorId ? (
                 <>
-                  <Items3D items={items} cat={cat} hidden={hidden} selected={selected} interactive={!readOnly && editMode === "place" && mode === "orbit"} store={store} plan={plan} />
+                  <Items3D items={items} cat={cat} hidden={hidden} selected={selected} interactive={!readOnly && editMode === "place" && mode === "orbit"} store={store} plan={plan} floorHeight={current.height} />
                   {editMode === "place" && <CalcLines3D store={store} />}
                 </>
               ) : (

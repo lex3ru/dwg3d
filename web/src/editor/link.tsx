@@ -14,7 +14,7 @@ import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { Choice, Field, FormError, Input } from "@/ui/form";
 import type { Item } from "./items";
-import { removeItems, type Catalog } from "./placement";
+import { markDraggedType, removeItems, type Catalog } from "./placement";
 import { useEditor, type EditorStore } from "./store";
 
 export interface LinkUnit {
@@ -133,7 +133,7 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
           <p className="m-0 px-1.5 text-[12px] text-ink-3">Всё, что числится на этаже, стоит на плане.</p>
         ) : (
           <>
-            <p className="m-0 px-1.5 pb-1.5 text-[11px] text-ink-3">Перетащите на план или выберите и щёлкните по плану.</p>
+            <p className="m-0 px-1.5 pb-1.5 text-[11px] text-ink-3">Перетащите на план или в 3D — или выберите и щёлкните там.</p>
             <ul aria-label="Неразмещённые единицы" className="m-0 list-none p-0">
               {groups.map(([room, list]) => (
                 <li key={room} className="pb-1.5">
@@ -151,7 +151,7 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
                             draggable={!readOnly}
                             disabled={readOnly}
                             onDragStart={(e) => {
-                              e.dataTransfer.setData("application/x-item-type", u.type_id);
+                              markDraggedType(e.dataTransfer, u.type_id);
                               e.dataTransfer.setData("application/x-unit", u.id);
                               e.dataTransfer.effectAllowed = "copy";
                             }}

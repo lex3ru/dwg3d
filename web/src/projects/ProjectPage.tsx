@@ -44,7 +44,7 @@ interface SpecRow {
   sum: number;
 }
 
-const WHAT_TONE: Record<CompareRow["what"], string> = { добавлен: "text-[#2E7D32]", перемещён: "text-[#EF6C00]", изменён: "text-[#1565C0]", убран: "text-[#C62828]" };
+const WHAT_TONE: Record<CompareRow["what"], string> = { добавлен: "text-ok", перемещён: "text-warn", изменён: "text-accent-ink", убран: "text-bad" };
 
 async function download(url: string) {
   const r = await fetch(url, { credentials: "same-origin" });

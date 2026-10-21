@@ -1,18 +1,20 @@
 import { useGLTF } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { placeModel, transformOf } from "@/catalog/model3d";
 import type { TypeBrief } from "@/catalog/types";
 import { normAngle, sizeOf, stickToWall, wallGeometry, type Item } from "./items";
-import type { Catalog } from "./placement";
+import { draggedType, placeAt, planPlacement, type Catalog } from "./placement";
 import type { Plan } from "./plan";
 import type { EditorStore } from "./store";
 
 // Предметы в 3D (5.1.7, 5.3.3): 3D-модель типа или фигура по габаритам в цвете слоя.
 // Предметы одного типа рисуются одним набором экземпляров — 2 000 предметов этажа идут
 // плавно (8.2). Выбор, перемещение по полу (настенные — вдоль стены), поворот: Shift и
-// движение мыши (шаг 15°, Alt — свободно).
+// движение мыши (шаг 15°, Alt — свободно). Постановка — как на плане: тип из каталога
+// перетаскивается в сцену или выбирается и ставится щелчком; где он встанет, показывает
+// полупрозрачный «призрак» с прилипанием к стене.
 
 const M = 0.001;
 
@@ -27,7 +29,7 @@ interface Group {
   items: Item[];
 }
 
-export function Items3D({ items, cat, hidden, selected, interactive, store, plan }: {
+export function Items3D({ items, cat, hidden, selected, interactive, store, plan, floorHeight = 3300 }: {
   items: Item[];
   cat: Catalog;
   hidden: string[];
@@ -35,6 +37,7 @@ export function Items3D({ items, cat, hidden, selected, interactive, store, plan
   interactive: boolean;
   store?: EditorStore;
   plan?: Plan;
+  floorHeight?: number;
 }) {
   const groups = useMemo(() => {
     const out = new Map<string, Group>();
@@ -49,9 +52,11 @@ export function Items3D({ items, cat, hidden, selected, interactive, store, plan
     return [...out.values()];
   }, [items, cat, hidden]);
   const root = useRef<THREE.Group>(null);
-  useDrag(root, interactive ? store : undefined, cat, plan);
+  const [ghost, setGhost] = useState<Item | null>(null);
+  useDrag(root, interactive ? store : undefined, cat, plan, floorHeight, setGhost);
   return (
     <group ref={root}>
+      {ghost && <Ghost item={ghost} type={cat.types.get(ghost.type_id)} color={cat.layers.get(cat.types.get(ghost.type_id)?.layer_id ?? "")?.color ?? "#2f6fde"} />}
       {groups.map((g) =>
         g.type?.model_url ? (
           <Suspense key={g.type.id} fallback={<Boxes group={g} />}>
@@ -133,10 +138,25 @@ function Highlight({ item, type }: { item: Item; type: TypeBrief | undefined }) 
 
 const highlight = new THREE.LineBasicMaterial({ color: "#2f6fde", depthTest: false });
 
+// где встанет предмет: полупрозрачные габариты в цвете слоя с рёбрами
+function Ghost({ item, type, color }: { item: Item; type: TypeBrief | undefined; color: string }) {
+  const { w, d, h } = sizeOf(type);
+  const box = useMemo(() => new THREE.BoxGeometry(w * M, h * M, d * M).translate(0, (h / 2) * M, 0), [w, d, h]);
+  const edges = useMemo(() => new THREE.EdgesGeometry(box), [box]);
+  const fill = useMemo(() => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false }), [color]);
+  const matrix = useMemo(() => matrixOf(item), [item]);
+  return (
+    <group matrix={matrix} matrixAutoUpdate={false} name="ghost">
+      <mesh geometry={box} material={fill} raycast={() => null} />
+      <lineSegments geometry={edges} material={highlight} raycast={() => null} />
+    </group>
+  );
+}
+
 // Перетаскивание в 3D: по плоскости пола этажа; настенные — вдоль стены; Shift — поворот.
 // Луч пускается только при нажатии (а не на каждое движение мыши по 2 000 предметам), и
 // раньше, чем вращение сцены: нажатие на предмет сцену не вращает.
-function useDrag(root: React.RefObject<THREE.Group | null>, store: EditorStore | undefined, cat: Catalog, plan: Plan | undefined) {
+function useDrag(root: React.RefObject<THREE.Group | null>, store: EditorStore | undefined, cat: Catalog, plan: Plan | undefined, floorHeight: number, setGhost: (g: Item | null) => void) {
   const { camera, gl, controls } = useThree();
   const faces = useMemo(() => (plan ? wallGeometry(plan).faces : []), [plan]);
   useEffect(() => {
@@ -147,8 +167,95 @@ function useDrag(root: React.RefObject<THREE.Group | null>, store: EditorStore |
       const rect = el.getBoundingClientRect();
       return new THREE.Vector2(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
     };
+    // точка плана (мм) под курсором: стены, пол, колонны этажа — без предметов (луч по 2 000
+    // предметов на каждое движение мыши дорог), мимо них — плоскость пола. Попали в стену —
+    // предмет встаёт перед ней: в бок — с этой стороны, в верх — со стороны камеры
+    const pick = (cx: number, cy: number, type: TypeBrief): [number, number] | null => {
+      const r = root.current;
+      if (!r) return null;
+      ray.setFromCamera(ndc(cx, cy), camera);
+      const floorY = new THREE.Vector3().setFromMatrixPosition(r.matrixWorld).y;
+      const scene = (r.parent?.children ?? []).filter((c) => c !== r);
+      const hit = ray.intersectObjects(scene, true)[0];
+      let at: THREE.Vector3 | null = hit?.point.clone() ?? null;
+      let push: [number, number] | null = null;
+      if (hit?.face && at && at.y > floorY + 0.05) {
+        const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+        if (Math.abs(n.y) < 0.3) push = [n.x, -n.z];
+        else if (n.y > 0.7) {
+          const toCamera: [number, number] = [camera.position.x - at.x, -(camera.position.z - at.z)];
+          const len = Math.hypot(...toCamera) || 1;
+          push = [(toCamera[0] / len) * 1.6, (toCamera[1] / len) * 1.6]; // через толщину стены
+        }
+      }
+      if (!at) at = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorY), new THREE.Vector3());
+      if (!at) return null;
+      const local = r.worldToLocal(at);
+      const p: [number, number] = [local.x / M, -local.z / M];
+      if (!push) return p;
+      const step = sizeOf(type).d / 2 + 20;
+      return [p[0] + push[0] * step, p[1] + push[1] * step];
+    };
+    const unitOf = (unitId: string | null) => (unitId ? { id: unitId, model_id: store.state.unitModels[unitId] ?? null } : undefined);
+    const preview = (typeId: string | null, cx: number, cy: number, free: boolean) => {
+      const t = typeId ? cat.types.get(typeId) : undefined;
+      const p = t ? pick(cx, cy, t) : null;
+      const planned = t && p ? planPlacement(store, cat, t, p, faces, floorHeight, free) : null;
+      setGhost(planned && !planned.container ? planned.item : null);
+    };
+    // выбран тип в каталоге — щелчок по сцене ставит его (с Shift — несколько раз)
+    const place = (e: PointerEvent) => {
+      const s = store.state;
+      const t = s.placing ? cat.types.get(s.placing) : undefined;
+      const p = t ? pick(e.clientX, e.clientY, t) : null;
+      if (!t || !p) return false;
+      e.stopPropagation();
+      const unit = unitOf(s.placingUnit);
+      placeAt(store, cat, t, p, faces, floorHeight, e.altKey, unit);
+      if (!e.shiftKey || unit) {
+        store.set({ placing: null, placingUnit: null });
+        setGhost(null);
+      }
+      return true;
+    };
+    let frame = 0;
+    const hover = (e: PointerEvent) => {
+      const placing = store.state.placing;
+      el.style.cursor = placing ? "copy" : "";
+      if (!placing) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        preview(store.state.placing, e.clientX, e.clientY, e.altKey);
+      });
+    };
+    const leave = () => setGhost(null);
+    // тип или единица из «Неразмещённых» — перетаскиванием из панели слева
+    const over = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("application/x-item-type")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      const typeId = draggedType(e.dataTransfer);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        preview(typeId, e.clientX, e.clientY, e.altKey);
+      });
+    };
+    const drop = (e: DragEvent) => {
+      const typeId = e.dataTransfer?.getData("application/x-item-type");
+      cancelAnimationFrame(frame);
+      frame = 0;
+      setGhost(null);
+      if (!typeId) return;
+      e.preventDefault();
+      const t = cat.types.get(typeId);
+      const p = t ? pick(e.clientX, e.clientY, t) : null;
+      if (t && p) placeAt(store, cat, t, p, faces, floorHeight, e.altKey, unitOf(e.dataTransfer!.getData("application/x-unit") || null));
+    };
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || !root.current) return;
+      if (store.state.placing && place(e)) return;
       ray.setFromCamera(ndc(e.clientX, e.clientY), camera);
       const hit = ray.intersectObjects(root.current.children, true).find((h) => h.instanceId !== undefined && (h.object.userData.items as Item[] | undefined)?.[h.instanceId]);
       if (!hit) return;
@@ -205,7 +312,28 @@ function useDrag(root: React.RefObject<THREE.Group | null>, store: EditorStore |
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     };
+    // выбор типа сняли (Esc, другой режим) — «призрак» и курсор уходят сразу
+    const stop = store.subscribe(() => {
+      if (store.state.placing) return;
+      el.style.cursor = "";
+      setGhost(null);
+    });
     el.addEventListener("pointerdown", down, { capture: true });
-    return () => el.removeEventListener("pointerdown", down, { capture: true });
-  }, [store, gl, camera, controls, cat, faces, root]);
+    el.addEventListener("pointermove", hover);
+    el.addEventListener("pointerleave", leave);
+    el.addEventListener("dragover", over);
+    el.addEventListener("dragleave", leave);
+    el.addEventListener("drop", drop);
+    return () => {
+      stop();
+      cancelAnimationFrame(frame);
+      el.style.cursor = "";
+      el.removeEventListener("pointerdown", down, { capture: true });
+      el.removeEventListener("pointermove", hover);
+      el.removeEventListener("pointerleave", leave);
+      el.removeEventListener("dragover", over);
+      el.removeEventListener("dragleave", leave);
+      el.removeEventListener("drop", drop);
+    };
+  }, [store, gl, camera, controls, cat, faces, root, floorHeight, setGhost]);
 }

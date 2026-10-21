@@ -294,7 +294,7 @@ function FloorSummary({ store, cat, roomsById, warnings }: { store: EditorStore;
     <>
       <Section title="Расстановка этажа">
         <p className="m-0 text-[13px] text-ink-2">
-          Предметов: {items.length}. Перетащите тип из каталога слева на план; выбранный предмет двигается мышью, поворачивается ручкой (шаг 15°, Alt — свободно), Delete — убрать, Ctrl+D — копия.
+          Предметов: {items.length}. Перетащите тип из каталога слева на план или в 3D; выбранный предмет двигается мышью, поворачивается ручкой (шаг 15°, Alt — свободно), Delete — убрать, Ctrl+D — копия.
         </p>
       </Section>
       <section className="flex flex-col gap-2 px-4 py-4" aria-label="Предупреждения расстановки">

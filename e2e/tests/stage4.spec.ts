@@ -229,3 +229,38 @@ test("Вложение: коммутатор — в стойку 19″, со с�
   await expect.poll(async () => (await items(page, f.floor)).length).toBe(0);
   expect(rack.room_id).toBe(f.rooms["215"]);
 });
+
+test("Постановка в 3D: перетаскиванием из каталога и щелчком — в помещение, не в стену", async ({ page }) => {
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  await page.goto(`/plan/${f.building}/${f.floor}?mode=place&view=3d`);
+  const scene = page.locator("canvas");
+  await expect(scene).toBeVisible();
+  await page.waitForTimeout(800); // сцена вписалась в окно
+  // каталог и свойства — и при одном 3D
+  await expect(page.getByRole("complementary", { name: "Слои и каталог" })).toBeVisible();
+  const rooms = Object.values(f.rooms);
+
+  // перетаскиванием: центр сцены — на перегородке между кабинетами, стол встаёт перед ней
+  await (await pick(page, "Стол письменный 1200×600")).dragTo(scene);
+  await expect.poll(async () => (await items(page, f.floor)).length).toBe(1);
+  const [desk] = await items(page, f.floor);
+  expect(rooms).toContain(desk!.room_id);
+  await expect(page.getByRole("complementary", { name: "Свойства" })).toContainText("Стол письменный 1200×600");
+
+  // щелчком: выбран тип — щелчок по сцене ставит его
+  await (await pick(page, "Шкаф для документов")).click();
+  const box = (await scene.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.62, box.y + box.height * 0.55);
+  await expect.poll(async () => (await items(page, f.floor)).length).toBe(2);
+  const placed = await items(page, f.floor);
+  expect(placed.every((i) => rooms.includes(i.room_id!))).toBeTruthy();
+  // после постановки тип снят: следующий щелчок ничего не ставит
+  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.5);
+  await page.waitForTimeout(400);
+  expect(await items(page, f.floor)).toHaveLength(2);
+
+  // отмена — как на плане
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await items(page, f.floor)).length).toBe(1);
+});

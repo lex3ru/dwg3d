@@ -4,7 +4,7 @@ import type { TypeBrief } from "@/catalog/types";
 import { cn } from "@/lib/cn";
 import { CalcSection, type CalcInfo } from "./calc";
 import { UnplacedSection, type LinkView } from "./link";
-import { placeable, type Catalog } from "./placement";
+import { markDraggedType, placeable, type Catalog } from "./placement";
 import { useEditor, type EditorStore } from "./store";
 
 // Слева в «Расстановке» (5.3.1) — вкладками, одна во всю высоту: каталог (поиск, слой,
@@ -172,7 +172,7 @@ export function PlacePanel({ store, cat, readOnly, link, calcs }: { store: Edito
               ))}
               {!types.length && <li className="px-1.5 py-2 text-[12px] text-ink-3">Ничего не нашлось.</li>}
             </ul>
-            <p className="m-0 px-1.5 pt-1.5 text-[11px] text-ink-3">Перетащите на план — или выберите и щёлкните по плану (Shift — несколько раз).</p>
+            <p className="m-0 px-1.5 pt-1.5 text-[11px] text-ink-3">Перетащите на план или в 3D — или выберите и щёлкните там (Shift — несколько раз).</p>
           </section>
         )}
       </div>
@@ -188,7 +188,7 @@ function TypeRow({ t, color, active, onPick }: { t: TypeBrief; color: string; ac
         type="button"
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.setData("application/x-item-type", t.id);
+          markDraggedType(e.dataTransfer, t.id);
           e.dataTransfer.effectAllowed = "copy";
         }}
         onClick={onPick}
