@@ -13,11 +13,11 @@ TIERS: dict[str, int] = {
     "building": 3, "catalog": 3,
     "planning": 4, "inventory": 4,
     "calc": 5, "link": 5, "projects": 5,
-    # отчёты собирают данные всех модулей — над всеми
-    "reports": 6,
+    # отчёты и перенос здания собирают данные всех модулей — над всеми
+    "reports": 6, "transfer": 6,
 }
 
 # что подключено к приложению сейчас; каждый модуль описан в своём module.py
 INSTALLED: list[str] = ["journal", "access", "files", "system", "building", "catalog",
                         "planning", "inventory", "link", "calc",
-                        "projects", "reports"]
+                        "projects", "reports", "transfer"]

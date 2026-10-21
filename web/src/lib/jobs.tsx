@@ -14,6 +14,7 @@ export interface Job {
   progress: { done: number; total: number | null };
   message: string | null;
   error: string | null;
+  result?: Record<string, unknown> | null;
 }
 
 interface Watched {

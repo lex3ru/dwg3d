@@ -522,3 +522,26 @@ def floor_guard(session: Session, floor_id: uuid.UUID) -> None:
             f"На этаже стоят предметы ({count}) — сначала уберите их в режиме «Расстановка».",
             code="not_empty",
         )
+
+
+# ---------------------------------------------------------------- перенос здания
+
+
+def transfer_export(session: Session, actor: Actor, building_id: uuid.UUID) -> list[dict[str, Any]]:
+    from app.modules.planning import transfer
+
+    return transfer.export(session, actor, building_id)
+
+
+def transfer_load(
+    session: Session,
+    actor: Actor,
+    items: list[dict[str, Any]],
+    floors: dict[str, uuid.UUID],
+    types: dict[str, uuid.UUID | None],
+    models: dict[str, uuid.UUID | None],
+    units: dict[str, uuid.UUID],
+) -> int:
+    from app.modules.planning import transfer
+
+    return transfer.load(session, actor, items, floors, types, models, units)

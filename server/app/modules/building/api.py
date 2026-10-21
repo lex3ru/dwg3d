@@ -760,3 +760,21 @@ def export_floor(session: Session, actor: Actor, floor_id: uuid.UUID, fmt: str,
                       title=building.name, organization=system.get(session, "organization_name"),
                       floor=floor.name, overlays=overlays)
     return data, f"{name}.pdf"
+
+
+# ---------------------------------------------------------------- перенос здания
+
+
+def transfer_export(session: Session, actor: Actor, building_id: uuid.UUID
+                    ) -> tuple[dict[str, Any], list[uuid.UUID], set[str]]:
+    from app.modules.building import transfer
+
+    return transfer.export(session, actor, building_id)
+
+
+def transfer_load(session: Session, actor: Actor, data: dict[str, Any], name: str,
+                  purposes: dict[str, str | None], files: dict[str, uuid.UUID]
+                  ) -> dict[str, Any]:
+    from app.modules.building import transfer
+
+    return transfer.load(session, actor, data, name, purposes, files)

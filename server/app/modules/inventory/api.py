@@ -611,3 +611,39 @@ def unit_files(session: Session, building_id: uuid.UUID | None) -> list[tuple[st
     for f, d in session.execute(q2).all():
         out.append(("документы", f.file_id, doc_title(d.kind, d.number)))
     return out
+
+
+# ---------------------------------------------------------------- перенос здания
+
+
+def transfer_export(
+    session: Session, actor: Actor, building_id: uuid.UUID
+) -> tuple[dict[str, Any], list[uuid.UUID], set[uuid.UUID], set[uuid.UUID]]:
+    from app.modules.inventory import transfer
+
+    return transfer.export(session, actor, building_id)
+
+
+def transfer_check(session: Session, data: dict[str, Any]) -> dict[str, Any]:
+    from app.modules.inventory import transfer
+
+    return transfer.check(session, data)
+
+
+def transfer_load(
+    session: Session,
+    actor: Actor,
+    data: dict[str, Any],
+    building_id: uuid.UUID,
+    rooms: dict[str, uuid.UUID],
+    types: dict[str, uuid.UUID | None],
+    models: dict[str, uuid.UUID | None],
+    item_chars: dict[tuple[str, str], str],
+    files: dict[str, uuid.UUID],
+    renumber: bool,
+) -> dict[str, Any]:
+    from app.modules.inventory import transfer
+
+    return transfer.load(
+        session, actor, data, building_id, rooms, types, models, item_chars, files, renumber
+    )

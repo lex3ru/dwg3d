@@ -1193,3 +1193,22 @@ def tree(session: Session, actor: Actor, archived: bool = False) -> dict[str, An
         "types": [type_brief(t, actor) for t in session.scalars(types)],
         "purposes": [purpose_view(p) for p in purposes(session)],
     }
+
+
+# ---------------------------------------------------------------- перенос здания
+
+
+def transfer_export(
+    session: Session, type_ids: set[uuid.UUID], model_ids: set[uuid.UUID], purpose_ids: set[str]
+) -> tuple[dict[str, Any], list[uuid.UUID]]:
+    from app.modules.catalog import transfer
+
+    return transfer.export(session, type_ids, model_ids, purpose_ids)
+
+
+def transfer_load(
+    session: Session, actor: Actor, data: dict[str, Any], files: dict[str, uuid.UUID], apply: bool
+) -> dict[str, Any]:
+    from app.modules.catalog import transfer
+
+    return transfer.load(session, actor, data, files, apply)

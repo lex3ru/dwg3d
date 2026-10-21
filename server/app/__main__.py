@@ -83,9 +83,11 @@ def main() -> None:
                     workers=args.workers or config().workers)
     elif args.command == "worker":
         from app.core import tasks
-        from app.main import installed_modules
+        from app.main import create_app
 
-        installed_modules()  # модули регистрируют свои задачи
+        # модули регистрируют задачи, настройки и обработчики (как в приложении): без
+        # настроек задача, которой нужен, например, шаблон инвентарного номера, падает
+        create_app()
         stopping = False
 
         def stop(*_: object) -> None:

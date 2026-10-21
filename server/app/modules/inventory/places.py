@@ -222,7 +222,7 @@ def create_warehouse(session: Session, actor: Actor, v: dict[str, Any]) -> Wareh
     fields = _warehouse_fields(session, actor, v)
     if "name" not in fields:
         raise AppError("Укажите название склада.", field="name")
-    wh = Warehouse(id=uuid.uuid4(), label_code=label_code(), version=1, note="", **fields)
+    wh = Warehouse(id=uuid.uuid4(), label_code=label_code(), version=1, **{"note": "", **fields})
     session.add(wh)
     session.flush()
     journal.record(

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, FileDown, FileUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError, api, get, patch, post, query } from "@/lib/api";
@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
 import type { FloorInfo } from "@/editor/plan";
 import { DrawingsSection } from "./Drawings";
+import { TransferImportDialog } from "./Transfer";
 import { PageBody } from "@/shell/Shell";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
@@ -35,6 +36,7 @@ export function Buildings() {
   const [archived, setArchived] = useState(false);
   const list = useQuery({ queryKey: ["buildings", archived], queryFn: () => get<{ items: BuildingSummary[] }>(`/api/buildings${query({ archived: archived ? "true" : undefined })}`) });
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const selected = params.get("b") ?? list.data?.items[0]?.id ?? null;
   return (
     <PageBody>
@@ -42,9 +44,14 @@ export function Buildings() {
         title="Здания"
         subtitle="Здания, этажи и их планы"
         actions={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            <Plus /> Новое здание
-          </Button>
+          <>
+            <Button onClick={() => setImporting(true)}>
+              <FileUp /> Загрузить из файла
+            </Button>
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              <Plus /> Новое здание
+            </Button>
+          </>
         }
       />
       <div className="grid items-start gap-5 lg:grid-cols-[320px_1fr]">
@@ -78,6 +85,7 @@ export function Buildings() {
         {selected ? <BuildingCard id={selected} /> : null}
       </div>
       <BuildingDialog open={creating} onOpenChange={setCreating} onDone={(b) => setParams({ b: b.id })} />
+      <TransferImportDialog open={importing} onClose={() => setImporting(false)} />
     </PageBody>
   );
 }
@@ -117,6 +125,11 @@ function BuildingCard({ id }: { id: string }) {
           </Button>
           <Button size="sm" variant="primary" onClick={() => setFloorDialog("new")}>
             <Plus /> Добавить этаж
+          </Button>
+          <Button size="sm" asChild>
+            <a href={`/api/buildings/${id}/transfer.zip`} download title="Файл для загрузки на другой установке: этажи, мебель и оборудование, учёт">
+              <FileDown /> Выгрузить для переноса
+            </a>
           </Button>
           <Button size="sm" onClick={() => act.mutate(() => post(`/api/buildings/${id}/${b.archived ? "unarchive" : "archive"}`))}>
             {b.archived ? <ArchiveRestore /> : <Archive />} {b.archived ? "Вернуть из архива" : "В архив"}

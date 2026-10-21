@@ -57,3 +57,55 @@ test("справка «просмотра» — только о том, что �
   await expect(viewer.getByText("Нарисовать план этажа с нуля")).toHaveCount(0);
   await expect(viewer.getByRole("region", { name: "Сценарии" })).toHaveCount(0);
 });
+
+test("перенос здания: выгрузка пакета и загрузка с проверкой — этажи, предметы, учёт", async ({ page }) => {
+  await loginAdmin(page);
+  const H = { "X-Requested-With": "app" };
+  const name = unique("Перенос-");
+  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name } })).json();
+  const floor = await (await page.request.post(`/api/buildings/${b.id}/floors`, { headers: H, data: { name: "1 этаж" } })).json();
+  const wall = (id: string, a: string, z: string) => ({ id, a, b: z, thickness: 300, kind: "bearing" });
+  const saved = await (
+    await page.request.put(`/api/floors/${floor.id}/plan`, {
+      headers: H,
+      data: { plan_version: 1, plan: { nodes: { a: [0, 0], b: [6000, 0], c: [6000, 4000], d: [0, 4000] }, walls: [wall("w1", "a", "b"), wall("w2", "b", "c"), wall("w3", "c", "d"), wall("w4", "d", "a")], rooms: [{ id: "new-1", x: 3000, y: 2000, number: "101", name: "Кабинет" }] } },
+    })
+  ).json();
+  const room = saved.rooms[0].id;
+  const tree = await (await page.request.get("/api/catalog")).json();
+  const desk = tree.types.find((t: { name: string }) => t.name === "Стол письменный 1200×600").id;
+  const doc = await (await page.request.post("/api/inventory/documents", { headers: H, data: { kind: "receipt", header: { to_place: `r:${room}` }, lines: [{ type_id: desk, qty: 2, price: 9900 }] } })).json();
+  expect((await page.request.post(`/api/inventory/documents/${doc.id}/post`, { headers: H, data: { version: doc.version } })).ok()).toBeTruthy();
+  const unit = (await (await page.request.get(`/api/inventory/documents/${doc.id}`)).json()).lines[0].created_units[0].id;
+  await page.request.post(`/api/floors/${floor.id}/items/changes`, { headers: H, data: { create: [{ type_id: desk, x: 3000, y: 2000, unit_id: unit }] } });
+
+  // выгрузка — из карточки здания
+  await page.goto(`/buildings?b=${b.id}`);
+  const link = page.getByRole("link", { name: "Выгрузить для переноса" });
+  await expect(link).toHaveAttribute("href", `/api/buildings/${b.id}/transfer.zip`);
+  const pkg = await page.request.get(`/api/buildings/${b.id}/transfer.zip`);
+  expect(pkg.ok()).toBeTruthy();
+
+  // загрузка — в ту же установку: номера заняты, каталог совпал
+  await page.getByRole("button", { name: "Загрузить из файла" }).click();
+  const dialog = page.getByRole("dialog", { name: "Загрузить здание из файла" });
+  await dialog.getByLabel("Файл пакета").setInputFiles({ name: "перенос.zip", mimeType: "application/zip", buffer: await pkg.body() });
+  const report = dialog.getByLabel("Проверка пакета");
+  await expect(report).toContainText("Инвентарных единиц: 2");
+  await expect(report).toContainText("Предметов: 1");
+  await expect(report).toContainText("всё нашлось на этой установке");
+  await expect(dialog.getByRole("alert")).toContainText("уже заняты");
+  await expect(dialog.getByRole("button", { name: "Загрузить" })).toBeDisabled();
+  await dialog.getByLabel(/Выдать этим единицам новые номера/).check();
+  await dialog.getByLabel("Название здания").fill(`${name} копия`);
+  await dialog.getByRole("button", { name: "Загрузить" }).click();
+  await expect(page.getByRole("heading", { name: `${name} копия` })).toBeVisible({ timeout: 30_000 });
+  const copy = new URL(page.url()).searchParams.get("b")!;
+  const info = await (await page.request.get(`/api/buildings/${copy}`)).json();
+  expect(info.floors).toHaveLength(1);
+  const items = (await (await page.request.get(`/api/floors/${info.floors[0].id}/items`)).json()).items;
+  expect(items).toHaveLength(1);
+  expect(items[0].unit_id).toBeTruthy();
+  const units = (await (await page.request.get("/api/inventory/units", { params: { building_id: copy } })).json()).items;
+  expect(units).toHaveLength(2);
+});
