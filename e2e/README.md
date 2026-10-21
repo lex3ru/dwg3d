@@ -39,3 +39,17 @@ npx playwright test
 ```bash
 E2E_VOLUME=1 E2E_URL=http://localhost:8011 npx playwright test tests/volume.spec.ts
 ```
+
+## Чистка базы разработки после прогонов
+
+Тесты заводят здания, учётные записи, склады и типы с суффиксом прогона и не удаляют их.
+`clean-dev-db.sql` убирает всё это вместе с документами, журналом и ненужными файлами,
+оставляя «Поликлинику», «Лабораторный корпус» и «Тестовое» (список — в начале файла).
+Сначала проба (в конце — ROLLBACK, видно, что и сколько удалится), затем по-настоящему:
+
+```bash
+(cat e2e/clean-dev-db.sql; echo 'ROLLBACK;') | docker exec -i planuchet-devdb psql -U app -d app -q
+(cat e2e/clean-dev-db.sql; echo 'COMMIT;') | docker exec -i planuchet-devdb psql -U app -d app -q
+```
+
+Только для базы разработки, не для рабочей установки.

@@ -1,7 +1,9 @@
+import type { TypeBrief } from "@/catalog/types";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { footprint, gapsToWalls, normAngle, sizeOf, stickToWall, wallGeometry, type Gap, type Item, type WarningCode } from "./items";
 import { CalcWorld, calcLabels } from "./calc";
-import { GapLines, Ghosts, ItemShape, layerColor, RemovedShape } from "./items2d";
+import { GapLines, Ghosts, ItemShape, layerColor, RemovedShape, TopViewDefs } from "./items2d";
+import { hasTopView } from "./topview";
 import { itemState, placeAt, type Catalog } from "./placement";
 import { addWall, nodeAt, snapPoint, splitWall, translate, wallAt, type Snap } from "./ops";
 import {
@@ -762,6 +764,12 @@ export function Canvas({ store, readOnly, floorId, dbRooms, wallDefaults, onCrea
 
   // предметы (5.3.2); в «Строительстве» — бледно
   if (cat) {
+    const drawn = new Map<string, TypeBrief>();
+    for (const it of items) {
+      const t = cat.types.get(it.type_id);
+      if (t && hasTopView(t)) drawn.set(t.id, t);
+    }
+    world.push(<TopViewDefs key="topviews" types={[...drawn.values()]} px={px} />);
     const contents = new Map<string, number>();
     for (const it of items) if (it.parent_id) contents.set(it.parent_id, (contents.get(it.parent_id) ?? 0) + 1);
     for (const it of items) {

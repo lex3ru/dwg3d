@@ -2,9 +2,10 @@ import { memo } from "react";
 import type { Layer, TypeBrief } from "@/catalog/types";
 import { sizeOf, type Gap, type Item, type WarningCode } from "./items";
 import { add, rect, rot, toPath, type Pt } from "./plan";
+import { useTopView } from "./topview";
 
-// Предметы на 2D-плане (5.3.2): контур по габаритам в цвете слоя или значок; передняя
-// сторона отмечена. Каждый предмет — отдельный запомненный элемент: при перетаскивании
+// Предметы на 2D-плане (5.3.2): вид сверху из 3D-модели типа (topview.ts), без модели —
+// контур по габаритам в цвете слоя; значок; передняя сторона отмечена. Каждый предмет — отдельный запомненный элемент: при перетаскивании
 // одного остальные 2 000 не перерисовываются (8.2).
 
 interface ShapeProps {
@@ -32,15 +33,27 @@ export const ItemShape = memo(function ItemShape({ item, type, color, px, select
   const y = item.y ?? 0;
   const stroke = selected ? "var(--accent)" : mark ? PROJECT_COLOR[mark] : warn ? "var(--bad)" : color;
   const icon = type?.top_view === "icon";
+  const view = useTopView(type);
   // передняя сторона — +Y предмета: короткая черта у края
   const f0 = add([x, y], rot([-w / 4, d / 2], item.angle));
   const f1 = add([x, y], rot([w / 4, d / 2], item.angle));
   return (
-    <g opacity={pale ? 0.3 : 1} data-item={item.id}>
+    // попадание по предмету редактор считает сам (Canvas, hitItem) — браузеру не нужно
+    // проверять сложные контуры на каждое движение мыши
+    <g opacity={pale ? 0.3 : 1} data-item={item.id} pointerEvents="none">
       {icon ? (
         <>
           <circle cx={x} cy={y} r={Math.max(Math.min(w, d) / 2, 6 * px)} fill={color} fillOpacity={0.35} stroke={stroke} strokeWidth={(selected ? 3 : 1.5) * px} />
           <path d={`M${x},${y}L${add([x, y], rot([0, Math.max(d / 2, 10 * px)], item.angle)).join(",")}`} stroke={stroke} strokeWidth={1.5 * px} />
+        </>
+      ) : view && type ? (
+        <>
+          {/* чертёж вида сверху — общий на тип (TopViewDefs), в координатах предмета: x вправо,
+              y к передней стороне; цвет и толщина контура — свои у предмета */}
+          <use href={`#tv-${type.id}`} transform={`translate(${x} ${y}) rotate(${item.angle})`} fill={mark ? PROJECT_COLOR[mark] : color} fillOpacity={mark ? 0.3 : 0.2} stroke={stroke} />
+          {(selected || warn || mark) && (
+            <path d={toPath(rect(x, y, w, d, item.angle))} fill="none" stroke={stroke} strokeWidth={(selected ? 1.5 : 1.8) * px} strokeDasharray={`${5 * px} ${3 * px}`} strokeOpacity={selected ? 0.7 : 1} />
+          )}
         </>
       ) : (
         <>
@@ -60,6 +73,33 @@ export const ItemShape = memo(function ItemShape({ item, type, color, px, select
           strokeWidth={1.2 * px}
         />
       )}
+    </g>
+  );
+});
+
+// Чертежи вида сверху — по одному на тип, в <defs>: 2 000 предметов ссылаются на них через
+// <use>, а не несут каждый свои длинные пути (8.2)
+export function TopViewDefs({ types, px }: { types: TypeBrief[]; px: number }) {
+  return (
+    <defs>
+      {types.map((t) => (
+        <TopViewDef key={t.id} type={t} px={px} />
+      ))}
+    </defs>
+  );
+}
+
+const TopViewDef = memo(function TopViewDef({ type, px }: { type: TypeBrief; px: number }) {
+  const view = useTopView(type);
+  if (!view) return null;
+  // мелкий на экране — только силуэт: линии деталей там не видны, а перерисовка 2 000
+  // предметов с ними медленнее (8.2)
+  const { w, d } = sizeOf(type);
+  const detailed = Math.max(w, d) / px >= 28;
+  return (
+    <g id={`tv-${type.id}`}>
+      <path d={detailed ? view.fill : view.coarse} fillRule="evenodd" strokeWidth={1.1 * px} strokeLinejoin="round" />
+      {detailed && <path d={view.lines} fill="none" strokeWidth={0.8 * px} strokeLinecap="round" strokeOpacity={0.85} />}
     </g>
   );
 });

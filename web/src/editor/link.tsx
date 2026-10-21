@@ -110,17 +110,50 @@ export function UnplacedSection({ store, cat, link, readOnly }: { store: EditorS
       {link.mismatch.length > 0 && (
         <section aria-label="Сверка с учётом" className="border-b border-line p-2">
           <h3 className={head}>
-            Сверка с учётом <span className="font-mono font-normal text-warn">{link.mismatch.length}</span>
+            Количество: план и учёт <span className="font-mono font-normal text-warn">{link.mismatch.length}</span>
           </h3>
+          <p className="m-0 px-1.5 pb-1 text-[11px] leading-snug text-ink-3">
+            Стулья, светильники и другое, что учитывается количеством, с планом поштучно не связываются — сверяется, сколько стоит в помещении на плане и сколько там числится. Не хватает на плане — поставьте недостающее (или, если вещей правда меньше, спишите лишнее в «Складе»); на плане больше — поставьте разницу на учёт.
+          </p>
           <ul className="m-0 list-none p-0 text-[12px]">
-            {link.mismatch.map((m) => (
-              <li key={`${m.room_id}${m.type_id}`} className="px-1.5 py-1">
-                <span className="text-ink">{m.type_name}</span> <span className="text-ink-3">· {m.room_title}</span>
-                <span className="block text-warn">
-                  на плане {m.on_plan}, по учёту {m.in_stock.toLocaleString("ru-RU")} {m.unit}
-                </span>
-              </li>
-            ))}
+            {link.mismatch.map((m) => {
+              const n = (v: number) => v.toLocaleString("ru-RU");
+              const fewer = m.on_plan < m.in_stock;
+              const diff = Math.abs(m.in_stock - m.on_plan);
+              return (
+                <li key={`${m.room_id}${m.type_id}`} className="flex flex-col gap-1 rounded-md px-1.5 py-1.5 hover:bg-surface-2">
+                  <span>
+                    <span className="text-ink">{m.type_name}</span> <span className="text-ink-3">· {m.room_title}</span>
+                  </span>
+                  <span className="text-warn">
+                    {fewer
+                      ? `Числится ${n(m.in_stock)} ${m.unit}, на плане ${n(m.on_plan)} — не хватает на плане ${n(diff)}`
+                      : `На плане ${n(m.on_plan)}, числится ${n(m.in_stock)} ${m.unit} — ${n(diff)} не на учёте`}
+                  </span>
+                  {!readOnly && (
+                    <span className="flex gap-1.5">
+                      {fewer ? (
+                        <Button size="sm" onClick={() => store.set({ placing: m.type_id, placingUnit: null, selection: [] })}>
+                          Поставить
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            store.set({
+                              placing: null,
+                              selection: store.state.items.filter((i) => i.type_id === m.type_id && i.room_id === m.room_id && !i.parent_id).map((i) => ({ kind: "item" as const, id: i.id })),
+                            })
+                          }
+                        >
+                          Выбрать на плане
+                        </Button>
+                      )}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

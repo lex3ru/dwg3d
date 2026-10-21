@@ -262,7 +262,7 @@ function ViewTab({ t, ro }: { t: TypeFull; ro: boolean }) {
           disabled={ro}
           onChange={(top_view) => void set({ top_view })}
           options={[
-            { value: "box", title: "контур по габаритам" },
+            { value: "box", title: t.model_url ? "по 3D-модели" : "контур по габаритам" },
             { value: "icon", title: "значок" },
           ]}
         />
