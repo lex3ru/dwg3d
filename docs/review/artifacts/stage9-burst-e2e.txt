@@ -1,0 +1,2 @@
+/api/inventory/cost?group_by=building,floor,layer x50: codes {200: 50}, p50 0.58s, p95 0.79s, max 0.79s, wall 0.8s
+/api/inventory/cost?group_by=building,floor,layer x200: codes {200: 200}, p50 1.40s, p95 1.93s, max 1.96s, wall 2.0s

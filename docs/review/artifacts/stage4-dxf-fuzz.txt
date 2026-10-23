@@ -1,0 +1,7 @@
+01-empty.dxf               OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+02-one-line.dxf            OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+03-text-only.dxf           OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+04-50k-random-lines.dxf    05-huge-coords.dxf         OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+06-degenerate.dxf          OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+07-recursive-block.dxf     OK parts=0 rooms/issues=[] | 0.0s peak=0MB
+08-3000-inserts.dxf        OK parts=1 rooms/issues=[(0, 0)] | 47.7s peak=68MB

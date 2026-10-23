@@ -1,0 +1,7 @@
+save v1: 200
+rooms: ['101', '102']
+save v2 without confirm: 409 Сохранение изменит помещения — подтвердите. | details: {'rooms': [{'index': 0, 'id': 'b4ded042-c8c5-40f7-84e4-b8f9150f1633', 'label': 'b4ded042-c8c5-40f7-84e4-b8f9150f1633', 'labels': ['b4ded042-c8c5-40f7-84e4-b8f9150f1633'], 'number': '101', 'name': '', 'area': 45.36, 'outline': [[150.0, 150.0], [8550.0, 150.0], [8550.0, 5550.0], [150.0, 5550.0]], 'x': 2350.0, 'y': 2850.0, 'status': 'kept'}], 'merges': [], 'splits': [], 'removed': [{'id': '93e63cf7-3
+save v2 with confirm: 200 
+unit place after room removed: 1 этаж › 102 | archived room key: True
+floor count lists the unit: False
+registry by floor shows the unit: True

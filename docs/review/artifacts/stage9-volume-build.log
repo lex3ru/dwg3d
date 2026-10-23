@@ -1,0 +1,9 @@
+12:34:02
+2026-10-21 12:44:44,237 INFO app.volume: документов 18730 из 20000 (662 с)
+2026-10-21 12:44:49,923 INFO app.volume: документов 19230 из 20000 (668 с)
+2026-10-21 12:44:55,670 INFO app.volume: документов 19730 из 20000 (673 с)
+2026-10-21 12:44:58,612 INFO app.volume: документов 20000 из 20000 (676 с)
+2026-10-21 12:45:02,377 INFO app.volume: готово: {'buildings': 20, 'floors': 429, 'rooms': 9867, 'items': 200164, 'units': 50000, 'stock_positions': 5019, 'documents': 20000, 'users': 100, 'seconds': 680}
+{'buildings': 20, 'floors': 429, 'rooms': 9867, 'items': 200164, 'units': 50000, 'stock_positions': 5019, 'documents': 20000, 'users': 100, 'seconds': 680}
+12:45:02
+exit 0

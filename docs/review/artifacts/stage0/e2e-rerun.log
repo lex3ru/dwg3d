@@ -1,0 +1,165 @@
+
+Running 14 tests using 1 worker
+
+
+  ok  1 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема (18.5s)
+
+  ok  2 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема (17.1s)
+  ok  3 [компьютер] › tests\stage4.spec.ts:88:1 › С6: расстановка кабинета — из каталога на план, шкаф к стене, поворот, 3D (2.4s)
+  ok  4 [компьютер] › tests\stage4.spec.ts:149:1 › С8: светильник на потолок коридора и ряд с шагом 3 м до конца коридора (1.3s)
+  x   5 [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит (6.7s)
+  ok  6 [компьютер] › tests\stage4.spec.ts:212:1 › Вложение: коммутатор — в стойку 19″, со стойкой и уходит (1.6s)
+  x   7 [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада (7.7s)
+
+  ok  8 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема (16.1s)
+
+  ok  9 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема (17.2s)
+  ok 10 [компьютер] › tests\stage4.spec.ts:88:1 › С6: расстановка кабинета — из каталога на план, шкаф к стене, поворот, 3D (2.6s)
+  ok 11 [компьютер] › tests\stage4.spec.ts:149:1 › С8: светильник на потолок коридора и ряд с шагом 3 м до конца коридора (1.1s)
+  x  12 [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит (6.8s)
+  ok 13 [компьютер] › tests\stage4.spec.ts:212:1 › Вложение: коммутатор — в стойку 19″, со стойкой и уходит (1.7s)
+  x  14 [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада (7.7s)
+
+
+  1) [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+    Expected: 3
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" getByRole('img', { name: 'План этажа' }).locator('[data-item]') with timeout 5000ms
+      - waiting for getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+        14 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      203 |   await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+      204 |   await viewer.goto(`/plan/${f.building}/${f.floor}`);
+    > 205 |   await expect(viewer.getByRole("img", { name: "План этажа" }).locator("[data-item]")).toHaveCount(3);
+          |                                                                                        ^
+      206 |   await expect(viewer.getByRole("region", { name: "Слои" })).toBeVisible();
+      207 |   await expect(viewer.getByRole("region", { name: "Каталог" })).toHaveCount(0);
+      208 |   await expect(viewer.getByRole("tab", { name: "Расстановка" })).toHaveCount(0);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage4.spec.ts:205:88
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+    Expected: 3
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" getByRole('img', { name: 'План этажа' }).locator('[data-item]') with timeout 5000ms
+      - waiting for getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+        14 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      203 |   await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+      204 |   await viewer.goto(`/plan/${f.building}/${f.floor}`);
+    > 205 |   await expect(viewer.getByRole("img", { name: "План этажа" }).locator("[data-item]")).toHaveCount(3);
+          |                                                                                        ^
+      206 |   await expect(viewer.getByRole("region", { name: "Слои" })).toBeVisible();
+      207 |   await expect(viewer.getByRole("region", { name: "Каталог" })).toHaveCount(0);
+      208 |   await expect(viewer.getByRole("tab", { name: "Расстановка" })).toHaveCount(0);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage4.spec.ts:205:88
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер-repeat1\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер-repeat1\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-rerun\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер-repeat1\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('dialog', { name: 'Проект применён' })
+    Expected substring: "Оформлено «Перемещение"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" getByRole('dialog', { name: 'Проект применён' }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Проект применён' })
+
+
+      152 |   await apply.getByRole("button", { name: "Применить" }).click();
+      153 |   const done = page.getByRole("dialog", { name: "Проект применён" });
+    > 154 |   await expect(done).toContainText("Оформлено «Перемещение");
+          |                      ^
+      155 |   await done.getByRole("button", { name: "Готово" }).click();
+      156 |   await expect(page.getByText("применён", { exact: true })).toBeVisible();
+      157 |   const after = await layout(page, f.floor);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage8.spec.ts:154:22
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('dialog', { name: 'Проект применён' })
+    Expected substring: "Оформлено «Перемещение"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" getByRole('dialog', { name: 'Проект применён' }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Проект применён' })
+
+
+      152 |   await apply.getByRole("button", { name: "Применить" }).click();
+      153 |   const done = page.getByRole("dialog", { name: "Проект применён" });
+    > 154 |   await expect(done).toContainText("Оформлено «Перемещение");
+          |                      ^
+      155 |   await done.getByRole("button", { name: "Готово" }).click();
+      156 |   await expect(page.getByText("применён", { exact: true })).toBeVisible();
+      157 |   const after = await layout(page, f.floor);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage8.spec.ts:154:22
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер-repeat1\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер-repeat1\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-rerun\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер-repeat1\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+    [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+    [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+    [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+  10 passed (1.9m)

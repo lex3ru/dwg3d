@@ -1,0 +1,97 @@
+Downloading Chrome for Testing 153.0.8010.12 (playwright chromium v1243)[2m from https://cdn.playwright.dev/builds/cft/153.0.8010.12/win64/chrome-win64.zip[22m
+|                                                                                |   0% of 195.6 MiB
+|■■■■■■■■                                                                        |  10% of 195.6 MiB
+|■■■■■■■■■■■■■■■■                                                                |  20% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 195.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 195.6 MiB
+Chrome for Testing 153.0.8010.12 (playwright chromium v1243) downloaded to C:\Users\Admin\AppData\Local\ms-playwright\chromium-1243
+Downloading FFmpeg (playwright ffmpeg v1011)[2m from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-win64.zip[22m
+Error: Request to https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-win64.zip timed out after 30000ms
+    at ClientRequest.<anonymous> (C:\Users\Admin\PycharmProjects\dwg3d\e2e\node_modules\playwright-core\lib\coreBundle.js:8793:15)
+    at Object.onceWrapper (node:events:622:28)
+    at ClientRequest.emit (node:events:508:28)
+    at TLSSocket.emitRequestTimeout (node:_http_client:927:9)
+    at Object.onceWrapper (node:events:622:28)
+    at TLSSocket.emit (node:events:520:35)
+    at Socket._onTimeout (node:net:604:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Downloading FFmpeg (playwright ffmpeg v1011)[2m from https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-win64.zip[22m
+Error: Request to https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-win64.zip timed out after 30000ms
+    at ClientRequest.<anonymous> (C:\Users\Admin\PycharmProjects\dwg3d\e2e\node_modules\playwright-core\lib\coreBundle.js:8793:15)
+    at Object.onceWrapper (node:events:622:28)
+    at ClientRequest.emit (node:events:508:28)
+    at TLSSocket.emitRequestTimeout (node:_http_client:927:9)
+    at Object.onceWrapper (node:events:622:28)
+    at TLSSocket.emit (node:events:520:35)
+    at Socket._onTimeout (node:net:604:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Downloading FFmpeg (playwright ffmpeg v1011)[2m from https://cdn.playwright.dev/builds/ffmpeg/1011/ffmpeg-win64.zip[22m
+|                                                                                |   1% of 1.3 MiB
+|■■■■■■■■                                                                        |  10% of 1.3 MiB
+|■■■■■■■■■■■■■■■■                                                                |  20% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  51% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 1.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 1.3 MiB
+FFmpeg (playwright ffmpeg v1011) downloaded to C:\Users\Admin\AppData\Local\ms-playwright\ffmpeg-1011
+Downloading Chrome Headless Shell 153.0.8010.12 (playwright chromium-headless-shell v1243)[2m from https://cdn.playwright.dev/builds/cft/153.0.8010.12/win64/chrome-headless-shell-win64.zip[22m
+|                                                                                |   0% of 114.6 MiB
+|■■■■■■■■                                                                        |  10% of 114.6 MiB
+|■■■■■■■■■■■■■■■■                                                                |  20% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 114.6 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 114.6 MiB
+Chrome Headless Shell 153.0.8010.12 (playwright chromium-headless-shell v1243) downloaded to C:\Users\Admin\AppData\Local\ms-playwright\chromium_headless_shell-1243
+Downloading Winldd (playwright winldd v1007)[2m from https://cdn.playwright.dev/dbazure/download/playwright/builds/winldd/1007/winldd-win64.zip[22m
+Error: Request to https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/winldd/1007/winldd-win64.zip timed out after 30000ms
+    at ClientRequest.<anonymous> (C:\Users\Admin\PycharmProjects\dwg3d\e2e\node_modules\playwright-core\lib\coreBundle.js:8793:15)
+    at Object.onceWrapper (node:events:622:28)
+    at ClientRequest.emit (node:events:508:28)
+    at TLSSocket.emitRequestTimeout (node:_http_client:927:9)
+    at Object.onceWrapper (node:events:622:28)
+    at TLSSocket.emit (node:events:520:35)
+    at Socket._onTimeout (node:net:604:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Downloading Winldd (playwright winldd v1007)[2m from https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/winldd/1007/winldd-win64.zip[22m
+Error: Request to https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/winldd/1007/winldd-win64.zip timed out after 30000ms
+    at ClientRequest.<anonymous> (C:\Users\Admin\PycharmProjects\dwg3d\e2e\node_modules\playwright-core\lib\coreBundle.js:8793:15)
+    at Object.onceWrapper (node:events:622:28)
+    at ClientRequest.emit (node:events:508:28)
+    at TLSSocket.emitRequestTimeout (node:_http_client:927:9)
+    at Object.onceWrapper (node:events:622:28)
+    at TLSSocket.emit (node:events:520:35)
+    at Socket._onTimeout (node:net:604:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Downloading Winldd (playwright winldd v1007)[2m from https://cdn.playwright.dev/builds/winldd/1007/winldd-win64.zip[22m
+|■■■■■■■■                                                                        |  12% of 0.1 MiB
+|■■■■■■■■■■■■■■■■                                                                |  25% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  37% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  63% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  75% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  88% of 0.1 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 0.1 MiB
+Winldd (playwright winldd v1007) downloaded to C:\Users\Admin\AppData\Local\ms-playwright\winldd-1007
+
+real	2m55.104s
+user	0m0.090s
+sys	0m0.030s

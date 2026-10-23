@@ -1,0 +1,26 @@
+own building: Проекты-mvht9qt0
+open: 200 cookie: ['share']
+200 me                             {"id": "27ff1e62-1b0e-45f6-8e49-a50e5170c168", "login": "guest", "full_name": "Гость по ссылке (зонд)", "role": "guest", "role_title": "гость по ссылке", "build
+200 buildings                      {"items": [{"id": "50459aff-63ce-456b-9a70-092699c35ea3", "name": "Проекты-mvht9qt0", "address": "", "archived": false, "archived_at": null, "floors": 1, "rooms
+200 building own                   {"id": "50459aff-63ce-456b-9a70-092699c35ea3", "name": "Проекты-mvht9qt0", "address": "", "archived": false, "archived_at": null, "floors": [{"id": "de6ecae1-16
+404 building other                 {"error": {"code": "not_found", "message": "Здание не найдено."}}
+404 plan other                     {"error": {"code": "not_found", "message": "Здание не найдено."}}
+404 items other                    {"error": {"code": "not_found", "message": "Здание не найдено."}}
+own items: 3 linked to units: 1 fields: ['angle', 'floor_id', 'id', 'label', 'model_id', 'params', 'parent_id', 'room_id', 'type_id', 'unit_id', 'version', 'x', 'y', 'z']
+200 item linked                    {"id": "bbc68388-005b-489d-8de1-a3e46eb0c97e", "floor_id": "de6ecae1-16d1-4d36-b4d2-9aea91a09f2c", "room_id": "343ef788-d6f7-4be7-b0a4-c9faaf86ce66", "type_id":
+200 catalog                        {"layers": [{"id": "d214b445-addc-4203-8f43-ff2df6a499ea", "name": "Мебель", "color": "#8D6E63", "icon": "", "note": "Столы, кресла, шкафы, кушетки", "position"
+catalog mentions price: False | keys of first type: ['accounting', 'archived', 'container', 'depth', 'height', 'icon', 'id', 'layer_id', 'model_credit', 'model_size', 'model_transform', 'model_url', 'mount', 'mount_height', 'name', 'top_view', 'unit', 'version', 'width']
+200 catalog type                   {"id": "76905ac4-a981-47f2-a36a-9d1a18dc4a56", "name": "Автоклав", "layer_id": "48a14302-df80-43c5-aa27-0a94f4b2f6a4", "mount": "floor", "width": 600.0, "depth"
+type mentions price: False
+403 units
+403 search
+403 projects
+403 calc
+403 link floor
+403 journal
+403 q code
+403 floor export
+403 reports
+403 home
+403 POST items/changes
+after revoke: 401 Нужно войти в систему.

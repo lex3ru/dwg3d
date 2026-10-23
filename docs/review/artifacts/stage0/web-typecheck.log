@@ -1,0 +1,8 @@
+
+> planuchet-web@0.1.0 typecheck
+> tsc -b
+
+
+real	0m11.915s
+user	0m0.060s
+sys	0m0.076s

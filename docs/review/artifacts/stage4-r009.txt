@@ -1,0 +1,15 @@
+convert v1: done
+rooms v1: ['101', '102']
+item room: 102
+link/register: 200 
+unit place: 1 этаж › 102
+convert v2 onto same floor (worker): done 
+rooms after v2: ['101'] | 102 still live: False | 101 same id: True
+item room after v2: 102 (archived)
+unit place after v2: 1 этаж › 102 | key: r:3df22949-266f-4e6d-a6fb-700c1f1302ba
+building: a63eb963-8c85-4fe4-8e55-2a9236e9d352 floor: 740bd7ae-4e67-4df4-aad3-92100d0805c3
+control: PUT same plan via API: 200 
+item room after API save: 101
+unit place after API save: 1 этаж › 101
+  journal: inventory.document_post | Проведён «Перемещение ПМ-00011» (1 этаж › 101): единиц: 1
+  journal: inventory.document_post | Проведён «Ввод остатков ВО-00005»: единиц: 1

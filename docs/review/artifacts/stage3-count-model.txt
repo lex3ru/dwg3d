@@ -1,0 +1,7 @@
+receipt with model: 200
+count 2: set stock 9: 204
+  post (counted 9): 400 Документ не проведён: строка 1: «Бахилы» на месте «Склад «cnt-1792571966»» — 0, нужно 1
+  balances: [('Зонд М-1792571966', 10.0)]
+count 3: set stock 11: 204
+  post (counted 11): 200 posted
+  balances: [('Зонд М-1792571966', 10.0), ('', 1.0)]

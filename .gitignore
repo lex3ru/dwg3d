@@ -1,8 +1,17 @@
+# IDE и ОС
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
 # local settings and data
 .env
 /backups/
 *.dwg
 !legacy/backend/tests/**/*.dwg
+CLAUDE.local.md
+.claude/settings.local.json
 
 # the first, single-application version (legacy/); /backups/ above is its stack's
 /legacy/.tools/

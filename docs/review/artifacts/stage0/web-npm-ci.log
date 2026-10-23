@@ -1,0 +1,11 @@
+
+added 194 packages in 20s
+npm notice
+npm notice New minor version of npm available! 11.11.0 -> 11.21.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.1
+npm notice To update run: npm install -g npm@11.21.1
+npm notice
+
+real	0m21.379s
+user	0m0.060s
+sys	0m0.045s

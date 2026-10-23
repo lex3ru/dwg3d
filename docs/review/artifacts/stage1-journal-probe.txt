@@ -1,0 +1,12 @@
+modules\files\api.py:57 store: add@94
+modules\inventory\api.py:111 rooms_continued: add@125, add@154
+modules\inventory\api.py:230 room_label: add@235
+modules\inventory\counts.py:281 mark: add@295
+modules\inventory\counts.py:322 add_extra: add@347
+modules\inventory\counts.py:360 set_stock: add@382, delete@376
+modules\inventory\documents.py:155 update_document: delete@171, add@174
+modules\inventory\documents.py:225 delete_draft: delete@229
+modules\inventory\documents.py:1021 attach_file: add@1023
+modules\projects\api.py:365 change_floor: add@393, delete@401
+modules\projects\api.py:387 put: add@393
+modules\projects\api.py:398 drop: delete@401

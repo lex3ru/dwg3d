@@ -1,0 +1,18 @@
+=== run 1
+type: Бахилы | warehouse: race-1792571718
+receipt 10: 200 balance: [('Бахилы', 10.0, 1000.0)]
+A: two writeoffs of 8: [(200, 'posted'), (400, 'Документ не проведён: строка 1: «Бахилы» на месте «Склад «race-1792571718»» — 2, нужно 8')] -> balance: [('Бахилы', 2.0, 200.0)]
+B: same receipt posted twice: [(200, 'posted'), (200, 'posted')] -> balance: [('Бахилы', 12.0, 1200.0)]
+B: document status/version: posted 3
+=== run 2
+type: Бахилы | warehouse: race-1792571719
+receipt 10: 200 balance: [('Бахилы', 10.0, 1000.0)]
+A: two writeoffs of 8: [(200, 'posted'), (400, 'Документ не проведён: строка 1: «Бахилы» на месте «Склад «race-1792571719»» — 2, нужно 8')] -> balance: [('Бахилы', 2.0, 200.0)]
+B: same receipt posted twice: [(200, 'posted'), (200, 'posted')] -> balance: [('Бахилы', 12.0, 1200.0)]
+B: document status/version: posted 3
+=== run 3
+type: Бахилы | warehouse: race-1792571719
+receipt 10: 200 balance: [('Бахилы', 10.0, 1000.0)]
+A: two writeoffs of 8: [(200, 'posted'), (200, 'posted')] -> balance: []
+B: same receipt posted twice: [(200, 'posted'), (200, 'posted')] -> balance: [('Бахилы', 4.0, 400.0)]
+B: document status/version: posted 3

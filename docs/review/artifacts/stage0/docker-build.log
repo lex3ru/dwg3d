@@ -1,0 +1,1574 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.38kB 0.0s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+#2 DONE 0.1s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/node:24-alpine
+#4 DONE 1.2s
+
+#5 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#5 DONE 1.7s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 2.3s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 259B done
+#6 DONE 0.0s
+
+#7 [server 1/5] FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+#7 resolve ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 0.0s done
+#7 DONE 0.0s
+
+#8 [web 1/6] FROM docker.io/library/node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
+#8 resolve docker.io/library/node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f 0.0s done
+#8 DONE 0.0s
+
+#9 [libredwg 1/4] FROM docker.io/library/debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
+#9 resolve docker.io/library/debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 0.0s done
+#9 DONE 0.1s
+
+#10 [stage-3 1/7] FROM docker.io/library/python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2
+#10 resolve docker.io/library/python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2 0.0s done
+#10 sha256:b52d28f2ade3944bb78458d2d77f25816d73cb5566d86dd897c9b8829a853ad8 0B / 249B 0.2s
+#10 sha256:b52d28f2ade3944bb78458d2d77f25816d73cb5566d86dd897c9b8829a853ad8 249B / 249B 0.2s done
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 0B / 13.68MB 0.3s
+#10 sha256:fd4548892b7d74acf5f52391380b45441b4ec55f6c2e1506030c2af26fd3e3f6 0B / 3.34MB 0.2s
+#10 ...
+
+#11 [internal] load build context
+#11 transferring context: 7.55MB 0.5s done
+#11 DONE 0.5s
+
+#10 [stage-3 1/7] FROM docker.io/library/python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 1.05MB / 13.68MB 0.8s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 2.10MB / 13.68MB 1.1s
+#10 sha256:fd4548892b7d74acf5f52391380b45441b4ec55f6c2e1506030c2af26fd3e3f6 1.05MB / 3.34MB 1.2s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 3.15MB / 13.68MB 1.4s
+#10 sha256:fd4548892b7d74acf5f52391380b45441b4ec55f6c2e1506030c2af26fd3e3f6 2.10MB / 3.34MB 1.4s
+#10 sha256:fd4548892b7d74acf5f52391380b45441b4ec55f6c2e1506030c2af26fd3e3f6 3.34MB / 3.34MB 1.5s done
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 4.19MB / 13.68MB 1.8s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 5.24MB / 13.68MB 2.1s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 6.29MB / 13.68MB 2.7s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 7.34MB / 13.68MB 3.2s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 8.39MB / 13.68MB 3.6s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 9.44MB / 13.68MB 4.1s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 10.49MB / 13.68MB 4.5s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 11.53MB / 13.68MB 5.1s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 12.58MB / 13.68MB 5.6s
+#10 sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 13.68MB / 13.68MB 5.8s done
+#10 DONE 6.0s
+
+#9 [libredwg 1/4] FROM docker.io/library/debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 11.53MB / 28.25MB 6.0s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 13.63MB / 28.25MB 6.6s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 15.73MB / 28.25MB 7.8s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 17.83MB / 28.25MB 8.7s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 19.92MB / 28.25MB 9.8s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 22.02MB / 28.25MB 10.5s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 24.12MB / 28.25MB 11.4s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 26.21MB / 28.25MB 12.2s
+#9 sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 28.25MB / 28.25MB 12.8s done
+#9 extracting sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26
+#9 extracting sha256:11422d7ca1a44390a32bd8d8d9dc5946b4d053b3bbd9507d682e35584ba84a26 0.6s done
+#9 DONE 13.5s
+
+#10 [stage-3 1/7] FROM docker.io/library/python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2
+#10 extracting sha256:fd4548892b7d74acf5f52391380b45441b4ec55f6c2e1506030c2af26fd3e3f6 0.1s done
+#10 extracting sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db
+#10 extracting sha256:87463122edacdc60df8c7840549960acce4dfb91a2b2aa36f563f62e0cd991db 0.3s done
+#10 DONE 6.4s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 ...
+
+#10 [stage-3 1/7] FROM docker.io/library/python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2
+#10 extracting sha256:b52d28f2ade3944bb78458d2d77f25816d73cb5566d86dd897c9b8829a853ad8 0.0s done
+#10 DONE 6.4s
+
+#13 [stage-3 2/7] RUN apt-get update  && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b     libfontconfig1 fonts-dejavu-core  && rm -rf /var/lib/apt/lists/*
+#13 0.692 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#13 0.763 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#13 0.825 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#13 0.808 Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+#13 3.220 Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+#13 3.555 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [354 kB]
+#13 3.886 Fetched 9393 kB in 5s (1965 kB/s)
+#13 3.886 Reading package lists...
+#13 4.257 Reading package lists...
+#13 4.602 Building dependency tree...
+#13 4.674 Reading state information...
+#13 4.759 The following additional packages will be installed:
+#13 4.759   fontconfig fontconfig-config libbrotli1 libdatrie1 libexpat1 libfreetype6
+#13 4.760   libfribidi0 libglib2.0-0 libgraphite2-3 libpng16-16 libthai-data libthai0
+#13 4.760 Suggested packages:
+#13 4.760   low-memory-monitor
+#13 4.760 Recommended packages:
+#13 4.760   libglib2.0-data shared-mime-info xdg-user-dirs
+#13 4.798 The following NEW packages will be installed:
+#13 4.798   fontconfig fontconfig-config fonts-dejavu-core libbrotli1 libdatrie1
+#13 4.798   libexpat1 libfontconfig1 libfreetype6 libfribidi0 libglib2.0-0
+#13 4.798   libgraphite2-3 libharfbuzz0b libpango-1.0-0 libpangoft2-1.0-0 libpng16-16
+#13 4.799   libthai-data libthai0
+#13 5.273 0 upgraded, 17 newly installed, 0 to remove and 0 not upgraded.
+#13 5.273 Need to get 7298 kB of archives.
+#13 5.273 After this operation, 16.1 MB of additional disk space will be used.
+#13 5.273 Get:1 http://deb.debian.org/debian-security bookworm-security/main amd64 libexpat1 amd64 2.5.0-1+deb12u4 [106 kB]
+#13 5.728 Get:2 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6 [275 kB]
+#13 5.833 Get:3 http://deb.debian.org/debian-security bookworm-security/main amd64 libpng16-16 amd64 1.6.39-2+deb12u6 [277 kB]
+#13 6.132 Get:4 http://deb.debian.org/debian bookworm/main amd64 libfreetype6 amd64 2.12.1+dfsg-5+deb12u4 [398 kB]
+#13 6.652 Get:5 http://deb.debian.org/debian bookworm/main amd64 fonts-dejavu-core all 2.37-6 [1068 kB]
+#13 6.850 Get:6 http://deb.debian.org/debian bookworm/main amd64 fontconfig-config amd64 2.14.1-4 [315 kB]
+#13 7.151 Get:7 http://deb.debian.org/debian bookworm/main amd64 libfontconfig1 amd64 2.14.1-4 [386 kB]
+#13 7.779 Get:8 http://deb.debian.org/debian bookworm/main amd64 fontconfig amd64 2.14.1-4 [449 kB]
+#13 7.913 Get:9 http://deb.debian.org/debian bookworm/main amd64 libdatrie1 amd64 0.2.13-2+b1 [43.3 kB]
+#13 8.091 Get:10 http://deb.debian.org/debian bookworm/main amd64 libfribidi0 amd64 1.0.8-2.1 [65.0 kB]
+#13 8.986 Get:11 http://deb.debian.org/debian bookworm/main amd64 libglib2.0-0 amd64 2.74.6-2+deb12u9 [1403 kB]
+#13 9.085 Get:12 http://deb.debian.org/debian bookworm/main amd64 libgraphite2-3 amd64 1.3.14-1+deb12u1 [74.6 kB]
+#13 9.565 Get:13 http://deb.debian.org/debian bookworm/main amd64 libharfbuzz0b amd64 6.0.0+dfsg-3 [1945 kB]
+#13 9.740 Get:14 http://deb.debian.org/debian bookworm/main amd64 libthai-data all 0.1.29-1 [176 kB]
+#13 9.907 Get:15 http://deb.debian.org/debian bookworm/main amd64 libthai0 amd64 0.1.29-1 [57.5 kB]
+#13 ...
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 1.098 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#12 1.178 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#12 1.243 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#12 1.235 Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+#12 3.888 Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+#12 4.100 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [354 kB]
+#12 4.559 Fetched 9393 kB in 5s (1784 kB/s)
+#12 4.559 Reading package lists...
+#12 4.923 Reading package lists...
+#12 5.276 Building dependency tree...
+#12 5.366 Reading state information...
+#12 5.460 The following additional packages will be installed:
+#12 5.460   binutils binutils-common binutils-x86-64-linux-gnu bzip2 cpp cpp-12 dpkg-dev
+#12 5.460   g++ g++-12 gcc gcc-12 libasan8 libatomic1 libbinutils libbrotli1
+#12 5.460   libc-dev-bin libc6-dev libcc1-0 libcrypt-dev libctf-nobfd0 libctf0 libcurl4
+#12 5.460   libdpkg-perl libexpat1 libgcc-12-dev libgdbm-compat4 libgdbm6 libgomp1
+#12 5.460   libgprofng0 libgssapi-krb5-2 libisl23 libitm1 libjansson4 libk5crypto3
+#12 5.460   libkeyutils1 libkrb5-3 libkrb5support0 libldap-2.5-0 liblsan0 libmpc3
+#12 5.460   libmpfr6 libncursesw6 libnghttp2-14 libnsl-dev libnsl2 libperl5.36
+#12 5.460   libpkgconf3 libpsl5 libpython3-stdlib libpython3.11-minimal
+#12 5.460   libpython3.11-stdlib libquadmath0 libreadline8 librtmp1 libsasl2-2
+#12 5.460   libsasl2-modules-db libsqlite3-0 libssh2-1 libssl3 libstdc++-12-dev
+#12 5.460   libtirpc-common libtirpc-dev libtirpc3 libtsan2 libubsan1 linux-libc-dev
+#12 5.460   make media-types openssl patch perl perl-modules-5.36 pkgconf pkgconf-bin
+#12 5.460   python3-minimal python3.11 python3.11-minimal readline-common rpcsvc-proto
+#12 5.461 Suggested packages:
+#12 5.461   binutils-doc bzip2-doc cpp-doc gcc-12-locales cpp-12-doc debian-keyring
+#12 5.461   g++-multilib g++-12-multilib gcc-12-doc gcc-multilib manpages-dev autoconf
+#12 5.461   automake libtool flex bison gdb gcc-doc gcc-12-multilib glibc-doc gnupg | sq
+#12 5.461   | sqop | pgpainless-cli sensible-utils git bzr gdbm-l10n krb5-doc krb5-user
+#12 5.461   libstdc++-12-doc make-doc ed diffutils-doc perl-doc
+#12 5.461   libterm-readline-gnu-perl | libterm-readline-perl-perl
+#12 5.461   libtap-harness-archive-perl python3-doc python3-tk python3-venv
+#12 5.461   python3.11-venv python3.11-doc binfmt-support readline-doc
+#12 5.461 Recommended packages:
+#12 5.461   fakeroot gnupg | sq | sqop | pgpainless-cli libalgorithm-merge-perl manpages
+#12 5.461   manpages-dev libc-devtools libfile-fcntllock-perl liblocale-gettext-perl
+#12 5.461   krb5-locales libldap-common libgpm2 publicsuffix libsasl2-modules netbase
+#12 5.702 The following NEW packages will be installed:
+#12 5.702   binutils binutils-common binutils-x86-64-linux-gnu build-essential bzip2
+#12 5.702   ca-certificates cpp cpp-12 curl dpkg-dev g++ g++-12 gcc gcc-12 libasan8
+#12 5.702   libatomic1 libbinutils libbrotli1 libc-dev-bin libc6-dev libcc1-0
+#12 5.702   libcrypt-dev libctf-nobfd0 libctf0 libcurl4 libdpkg-perl libexpat1
+#12 5.703   libgcc-12-dev libgdbm-compat4 libgdbm6 libgomp1 libgprofng0 libgssapi-krb5-2
+#12 5.703   libisl23 libitm1 libjansson4 libk5crypto3 libkeyutils1 libkrb5-3
+#12 5.703   libkrb5support0 libldap-2.5-0 liblsan0 libmpc3 libmpfr6 libncursesw6
+#12 5.703   libnghttp2-14 libnsl-dev libnsl2 libperl5.36 libpkgconf3 libpsl5
+#12 5.703   libpython3-stdlib libpython3.11-minimal libpython3.11-stdlib libquadmath0
+#12 5.703   libreadline8 librtmp1 libsasl2-2 libsasl2-modules-db libsqlite3-0 libssh2-1
+#12 5.703   libssl3 libstdc++-12-dev libtirpc-common libtirpc-dev libtirpc3 libtsan2
+#12 5.703   libubsan1 linux-libc-dev make media-types openssl patch perl
+#12 5.703   perl-modules-5.36 pkg-config pkgconf pkgconf-bin python3 python3-minimal
+#12 5.703   python3.11 python3.11-minimal readline-common rpcsvc-proto xz-utils
+#12 ...
+
+#13 [stage-3 2/7] RUN apt-get update  && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b     libfontconfig1 fonts-dejavu-core  && rm -rf /var/lib/apt/lists/*
+#13 10.14 Get:16 http://deb.debian.org/debian bookworm/main amd64 libpango-1.0-0 amd64 1.50.12+ds-1 [212 kB]
+#13 10.25 Get:17 http://deb.debian.org/debian bookworm/main amd64 libpangoft2-1.0-0 amd64 1.50.12+ds-1 [47.4 kB]
+#13 10.33 debconf: delaying package configuration, since apt-utils is not installed
+#13 10.35 Fetched 7298 kB in 5s (1340 kB/s)
+#13 10.37 Selecting previously unselected package libexpat1:amd64.
+#13 10.37 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6701 files and directories currently installed.)
+#13 10.37 Preparing to unpack .../00-libexpat1_2.5.0-1+deb12u4_amd64.deb ...
+#13 10.38 Unpacking libexpat1:amd64 (2.5.0-1+deb12u4) ...
+#13 10.41 Selecting previously unselected package libbrotli1:amd64.
+#13 10.41 Preparing to unpack .../01-libbrotli1_1.0.9-2+b6_amd64.deb ...
+#13 10.41 Unpacking libbrotli1:amd64 (1.0.9-2+b6) ...
+#13 10.45 Selecting previously unselected package libpng16-16:amd64.
+#13 10.45 Preparing to unpack .../02-libpng16-16_1.6.39-2+deb12u6_amd64.deb ...
+#13 10.45 Unpacking libpng16-16:amd64 (1.6.39-2+deb12u6) ...
+#13 10.50 Selecting previously unselected package libfreetype6:amd64.
+#13 10.50 Preparing to unpack .../03-libfreetype6_2.12.1+dfsg-5+deb12u4_amd64.deb ...
+#13 10.50 Unpacking libfreetype6:amd64 (2.12.1+dfsg-5+deb12u4) ...
+#13 10.54 Selecting previously unselected package fonts-dejavu-core.
+#13 10.54 Preparing to unpack .../04-fonts-dejavu-core_2.37-6_all.deb ...
+#13 10.54 Unpacking fonts-dejavu-core (2.37-6) ...
+#13 10.63 Selecting previously unselected package fontconfig-config.
+#13 10.63 Preparing to unpack .../05-fontconfig-config_2.14.1-4_amd64.deb ...
+#13 10.70 Unpacking fontconfig-config (2.14.1-4) ...
+#13 10.75 Selecting previously unselected package libfontconfig1:amd64.
+#13 10.75 Preparing to unpack .../06-libfontconfig1_2.14.1-4_amd64.deb ...
+#13 10.76 Unpacking libfontconfig1:amd64 (2.14.1-4) ...
+#13 10.81 Selecting previously unselected package fontconfig.
+#13 10.81 Preparing to unpack .../07-fontconfig_2.14.1-4_amd64.deb ...
+#13 10.82 Unpacking fontconfig (2.14.1-4) ...
+#13 10.87 Selecting previously unselected package libdatrie1:amd64.
+#13 10.87 Preparing to unpack .../08-libdatrie1_0.2.13-2+b1_amd64.deb ...
+#13 10.88 Unpacking libdatrie1:amd64 (0.2.13-2+b1) ...
+#13 10.92 Selecting previously unselected package libfribidi0:amd64.
+#13 10.93 Preparing to unpack .../09-libfribidi0_1.0.8-2.1_amd64.deb ...
+#13 10.93 Unpacking libfribidi0:amd64 (1.0.8-2.1) ...
+#13 10.98 Selecting previously unselected package libglib2.0-0:amd64.
+#13 10.98 Preparing to unpack .../10-libglib2.0-0_2.74.6-2+deb12u9_amd64.deb ...
+#13 10.98 Unpacking libglib2.0-0:amd64 (2.74.6-2+deb12u9) ...
+#13 11.08 Selecting previously unselected package libgraphite2-3:amd64.
+#13 11.08 Preparing to unpack .../11-libgraphite2-3_1.3.14-1+deb12u1_amd64.deb ...
+#13 11.08 Unpacking libgraphite2-3:amd64 (1.3.14-1+deb12u1) ...
+#13 11.12 Selecting previously unselected package libharfbuzz0b:amd64.
+#13 11.12 Preparing to unpack .../12-libharfbuzz0b_6.0.0+dfsg-3_amd64.deb ...
+#13 11.12 Unpacking libharfbuzz0b:amd64 (6.0.0+dfsg-3) ...
+#13 11.18 Selecting previously unselected package libthai-data.
+#13 11.18 Preparing to unpack .../13-libthai-data_0.1.29-1_all.deb ...
+#13 11.18 Unpacking libthai-data (0.1.29-1) ...
+#13 11.22 Selecting previously unselected package libthai0:amd64.
+#13 11.22 Preparing to unpack .../14-libthai0_0.1.29-1_amd64.deb ...
+#13 11.22 Unpacking libthai0:amd64 (0.1.29-1) ...
+#13 11.26 Selecting previously unselected package libpango-1.0-0:amd64.
+#13 11.26 Preparing to unpack .../15-libpango-1.0-0_1.50.12+ds-1_amd64.deb ...
+#13 11.27 Unpacking libpango-1.0-0:amd64 (1.50.12+ds-1) ...
+#13 11.31 Selecting previously unselected package libpangoft2-1.0-0:amd64.
+#13 11.31 Preparing to unpack .../16-libpangoft2-1.0-0_1.50.12+ds-1_amd64.deb ...
+#13 11.31 Unpacking libpangoft2-1.0-0:amd64 (1.50.12+ds-1) ...
+#13 11.34 Setting up libexpat1:amd64 (2.5.0-1+deb12u4) ...
+#13 11.34 Setting up libgraphite2-3:amd64 (1.3.14-1+deb12u1) ...
+#13 11.35 Setting up libdatrie1:amd64 (0.2.13-2+b1) ...
+#13 11.36 Setting up libglib2.0-0:amd64 (2.74.6-2+deb12u9) ...
+#13 11.37 No schema files found: doing nothing.
+#13 11.38 Setting up libbrotli1:amd64 (1.0.9-2+b6) ...
+#13 11.38 Setting up libfribidi0:amd64 (1.0.8-2.1) ...
+#13 11.39 Setting up libpng16-16:amd64 (1.6.39-2+deb12u6) ...
+#13 11.40 Setting up fonts-dejavu-core (2.37-6) ...
+#13 11.44 Setting up libthai-data (0.1.29-1) ...
+#13 11.45 Setting up fontconfig-config (2.14.1-4) ...
+#13 11.50 debconf: unable to initialize frontend: Dialog
+#13 11.50 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#13 11.50 debconf: falling back to frontend: Readline
+#13 11.50 debconf: unable to initialize frontend: Readline
+#13 11.50 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC contains: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.36.0 /usr/local/share/perl/5.36.0 /usr/lib/x86_64-linux-gnu/perl5/5.36 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.36 /usr/share/perl/5.36 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 7.)
+#13 11.50 debconf: falling back to frontend: Teletype
+#13 11.60 Setting up libthai0:amd64 (0.1.29-1) ...
+#13 11.60 Setting up libfreetype6:amd64 (2.12.1+dfsg-5+deb12u4) ...
+#13 11.61 Setting up libharfbuzz0b:amd64 (6.0.0+dfsg-3) ...
+#13 11.62 Setting up libfontconfig1:amd64 (2.14.1-4) ...
+#13 11.63 Setting up fontconfig (2.14.1-4) ...
+#13 11.64 Regenerating fonts cache... done.
+#13 13.65 Setting up libpango-1.0-0:amd64 (1.50.12+ds-1) ...
+#13 13.65 Setting up libpangoft2-1.0-0:amd64 (1.50.12+ds-1) ...
+#13 13.66 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+#13 DONE 13.8s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 ...
+
+#14 [stage-3 3/7] RUN useradd --system --uid 10001 --home /app app && mkdir -p /data && chown app /data
+#14 0.233 useradd warning: app's uid 10001 is greater than SYS_UID_MAX 999
+#14 DONE 0.3s
+
+#15 [stage-3 4/7] WORKDIR /app
+#15 DONE 0.0s
+
+#16 [server 2/5] WORKDIR /app
+#16 CACHED
+
+#17 [server 3/5] COPY server/pyproject.toml server/uv.lock ./
+#17 DONE 0.1s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 ...
+
+#18 [server 4/5] RUN uv sync --frozen --no-dev --no-install-project
+#18 0.314 Using CPython 3.12.12 interpreter at: /usr/local/bin/python3
+#18 0.314 Creating virtual environment at: .venv
+#18 0.685 Downloading psycopg-binary (5.0MiB)
+#18 0.686 Downloading pillow (6.6MiB)
+#18 0.686 Downloading uvloop (4.3MiB)
+#18 0.688 Downloading lxml (5.0MiB)
+#18 0.688 Downloading sqlalchemy (4.5MiB)
+#18 0.689 Downloading pydantic-core (2.1MiB)
+#18 0.689 Downloading fonttools (5.2MiB)
+#18 0.719 Downloading numpy (16.0MiB)
+#18 0.719 Downloading shapely (2.2MiB)
+#18 0.720 Downloading ezdxf (5.5MiB)
+#18 0.720 Downloading brotli (1.4MiB)
+#18 0.721 Downloading pyphen (2.0MiB)
+#18 7.900  Downloaded brotli
+#18 10.04  Downloaded pyphen
+#18 10.26  Downloaded pydantic-core
+#18 10.58  Downloaded shapely
+#18 ...
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 16.64 0 upgraded, 85 newly installed, 0 to remove and 0 not upgraded.
+#12 16.64 Need to get 86.6 MB of archives.
+#12 16.64 After this operation, 355 MB of additional disk space will be used.
+#12 16.64 Get:1 http://deb.debian.org/debian-security bookworm-security/main amd64 perl-modules-5.36 all 5.36.0-7+deb12u4 [2817 kB]
+#12 16.99 Get:2 http://deb.debian.org/debian bookworm/main amd64 libgdbm6 amd64 1.23-3 [72.2 kB]
+#12 17.10 Get:3 http://deb.debian.org/debian bookworm/main amd64 libgdbm-compat4 amd64 1.23-3 [48.2 kB]
+#12 18.15 Get:4 http://deb.debian.org/debian-security bookworm-security/main amd64 libperl5.36 amd64 5.36.0-7+deb12u4 [4208 kB]
+#12 23.51 Get:5 http://deb.debian.org/debian-security bookworm-security/main amd64 perl amd64 5.36.0-7+deb12u4 [239 kB]
+#12 24.17 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 libssl3 amd64 3.0.22-1~deb12u1 [2039 kB]
+#12 26.71 Get:7 http://deb.debian.org/debian-security bookworm-security/main amd64 libpython3.11-minimal amd64 3.11.2-6+deb12u9 [821 kB]
+#12 26.82 Get:8 http://deb.debian.org/debian-security bookworm-security/main amd64 libexpat1 amd64 2.5.0-1+deb12u4 [106 kB]
+#12 27.28 Get:9 http://deb.debian.org/debian-security bookworm-security/main amd64 python3.11-minimal amd64 3.11.2-6+deb12u9 [2055 kB]
+#12 27.41 Get:10 http://deb.debian.org/debian bookworm/main amd64 python3-minimal amd64 3.11.2-1+b1 [26.3 kB]
+#12 27.72 Get:11 http://deb.debian.org/debian bookworm/main amd64 media-types all 10.0.0 [26.1 kB]
+#12 27.72 Get:12 http://deb.debian.org/debian bookworm/main amd64 libncursesw6 amd64 6.4-4 [134 kB]
+#12 27.73 Get:13 http://deb.debian.org/debian bookworm/main amd64 libkrb5support0 amd64 1.20.1-2+deb12u5 [33.2 kB]
+#12 27.85 Get:14 http://deb.debian.org/debian bookworm/main amd64 libk5crypto3 amd64 1.20.1-2+deb12u5 [79.7 kB]
+#12 27.93 Get:15 http://deb.debian.org/debian bookworm/main amd64 libkeyutils1 amd64 1.6.3-2 [8808 B]
+#12 28.22 Get:16 http://deb.debian.org/debian bookworm/main amd64 libkrb5-3 amd64 1.20.1-2+deb12u5 [332 kB]
+#12 28.43 Get:17 http://deb.debian.org/debian bookworm/main amd64 libgssapi-krb5-2 amd64 1.20.1-2+deb12u5 [135 kB]
+#12 28.52 Get:18 http://deb.debian.org/debian bookworm/main amd64 libtirpc-common all 1.3.3+ds-1 [14.0 kB]
+#12 28.67 Get:19 http://deb.debian.org/debian bookworm/main amd64 libtirpc3 amd64 1.3.3+ds-1 [85.2 kB]
+#12 28.73 Get:20 http://deb.debian.org/debian bookworm/main amd64 libnsl2 amd64 1.3.0-2 [39.5 kB]
+#12 28.84 Get:21 http://deb.debian.org/debian bookworm/main amd64 readline-common all 8.2-1.3 [69.0 kB]
+#12 29.06 Get:22 http://deb.debian.org/debian bookworm/main amd64 libreadline8 amd64 8.2-1.3 [166 kB]
+#12 29.56 Get:23 http://deb.debian.org/debian bookworm/main amd64 libsqlite3-0 amd64 3.40.1-2+deb12u2 [839 kB]
+#12 ...
+
+#18 [server 4/5] RUN uv sync --frozen --no-dev --no-install-project
+#18 15.56  Downloaded uvloop
+#18 16.30  Downloaded sqlalchemy
+#18 17.12  Downloaded psycopg-binary
+#18 17.28  Downloaded lxml
+#18 17.39  Downloaded fonttools
+#18 17.87  Downloaded ezdxf
+#18 18.58  Downloaded pillow
+#18 23.51  Downloaded numpy
+#18 23.51 Prepared 51 packages in 24.26s
+#18 23.64 Installed 51 packages in 134ms
+#18 24.33 Bytecode compiled 2639 files in 685ms
+#18 24.33  + alembic==1.20.0
+#18 24.33  + annotated-doc==0.0.5
+#18 24.33  + annotated-types==0.8.0
+#18 24.33  + anyio==4.15.1
+#18 24.33  + argon2-cffi==25.1.0
+#18 24.33  + argon2-cffi-bindings==26.1.0
+#18 24.33  + brotli==1.2.0
+#18 24.33  + cffi==2.1.1
+#18 24.33  + click==8.5.0
+#18 24.33  + cssselect2==0.10.1
+#18 24.33  + et-xmlfile==2.0.0
+#18 24.33  + ezdxf==1.4.4
+#18 24.33  + fastapi==0.143.2
+#18 24.33  + fonttools==4.67.0
+#18 24.33  + h11==0.16.0
+#18 24.33  + httptools==0.9.0
+#18 24.33  + idna==3.20
+#18 24.33  + lxml==6.1.3
+#18 24.33  + mako==1.4.3
+#18 24.33  + markupsafe==3.0.4
+#18 24.33  + numpy==2.5.4
+#18 24.33  + openpyxl==3.1.5
+#18 24.33  + opentelemetry-api==1.45.1
+#18 24.33  + pillow==12.3.0
+#18 24.33  + psycopg==3.3.6
+#18 24.33  + psycopg-binary==3.3.6
+#18 24.33  + pycparser==3.11
+#18 24.33  + pydantic==2.14.1
+#18 24.33  + pydantic-core==2.50.1
+#18 24.33  + pydantic-settings==2.16.0
+#18 24.33  + pydyf==0.13.0
+#18 24.33  + pyparsing==3.3.3
+#18 24.33  + pyphen==0.18.1
+#18 24.33  + python-dotenv==1.2.4
+#18 24.33  + python-multipart==0.0.32
+#18 24.33  + pyyaml==6.0.3
+#18 24.33  + segno==1.6.6
+#18 24.33  + shapely==2.2.0
+#18 24.33  + sqlalchemy==2.1.4
+#18 24.33  + starlette==1.8.0
+#18 24.33  + tinycss2==1.5.1
+#18 24.33  + tinyhtml5==2.1.0
+#18 24.33  + typing-extensions==4.16.0
+#18 24.33  + typing-inspection==0.4.4
+#18 24.33  + uvicorn==0.54.0
+#18 24.33  + uvloop==0.23.0
+#18 24.33  + watchfiles==1.3.0
+#18 24.33  + weasyprint==70.0
+#18 24.33  + webencodings==0.6.1
+#18 24.33  + websockets==17.2
+#18 24.33  + zopfli==0.4.3
+#18 DONE 24.5s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 32.21 Get:24 http://deb.debian.org/debian-security bookworm-security/main amd64 libpython3.11-stdlib amd64 3.11.2-6+deb12u9 [1798 kB]
+#12 32.67 Get:25 http://deb.debian.org/debian-security bookworm-security/main amd64 python3.11 amd64 3.11.2-6+deb12u9 [575 kB]
+#12 33.13 Get:26 http://deb.debian.org/debian bookworm/main amd64 libpython3-stdlib amd64 3.11.2-1+b1 [9312 B]
+#12 33.13 Get:27 http://deb.debian.org/debian bookworm/main amd64 python3 amd64 3.11.2-1+b1 [26.3 kB]
+#12 33.13 Get:28 http://deb.debian.org/debian bookworm/main amd64 bzip2 amd64 1.0.8-5+b1 [49.8 kB]
+#12 36.59 Get:29 http://deb.debian.org/debian-security bookworm-security/main amd64 openssl amd64 3.0.22-1~deb12u1 [1442 kB]
+#12 37.90 Get:30 http://deb.debian.org/debian-security bookworm-security/main amd64 ca-certificates all 20250419~deb12u2 [161 kB]
+#12 38.69 Get:31 http://deb.debian.org/debian-security bookworm-security/main amd64 xz-utils amd64 5.4.1-1+deb12u2 [471 kB]
+#12 ...
+
+#19 [server 5/5] COPY server/ ./
+#19 DONE 0.1s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 ...
+
+#20 [web 2/6] WORKDIR /web
+#20 CACHED
+
+#21 [web 3/6] COPY web/package.json web/package-lock.json ./
+#21 CACHED
+
+#22 [web 4/6] RUN npm ci --no-audit --no-fund
+#22 CACHED
+
+#23 [web 5/6] COPY web/ ./
+#23 DONE 0.0s
+
+#24 [web 6/6] RUN npm run build
+#24 0.524 
+#24 0.524 > planuchet-web@0.1.0 build
+#24 0.524 > tsc -b && vite build
+#24 0.524 
+#24 ...
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 40.59 Get:32 http://deb.debian.org/debian bookworm/main amd64 binutils-common amd64 2.40-2 [2487 kB]
+#12 40.72 Get:33 http://deb.debian.org/debian bookworm/main amd64 libbinutils amd64 2.40-2 [572 kB]
+#12 40.79 Get:34 http://deb.debian.org/debian bookworm/main amd64 libctf-nobfd0 amd64 2.40-2 [153 kB]
+#12 40.83 Get:35 http://deb.debian.org/debian bookworm/main amd64 libctf0 amd64 2.40-2 [89.8 kB]
+#12 40.98 Get:36 http://deb.debian.org/debian bookworm/main amd64 libgprofng0 amd64 2.40-2 [812 kB]
+#12 41.03 Get:37 http://deb.debian.org/debian bookworm/main amd64 libjansson4 amd64 2.14-2 [40.8 kB]
+#12 43.54 Get:38 http://deb.debian.org/debian bookworm/main amd64 binutils-x86-64-linux-gnu amd64 2.40-2 [2246 kB]
+#12 43.63 Get:39 http://deb.debian.org/debian bookworm/main amd64 binutils amd64 2.40-2 [65.0 kB]
+#12 43.68 Get:40 http://deb.debian.org/debian bookworm/main amd64 libc-dev-bin amd64 2.36-9+deb12u14 [48.1 kB]
+#12 ...
+
+#24 [web 6/6] RUN npm run build
+#24 7.927 vite v8.3.4 building client environment for production...
+#24 7.937 transforming...
+#24 8.292 ✓ 2706 modules transformed.
+#24 8.415 rendering chunks...
+#24 8.541 computing gzip size...
+#24 8.551 dist/index.html                                                       1.09 kB │ gzip:   0.63 kB
+#24 8.551 dist/assets/ibm-plex-mono-vietnamese-500-normal-C8zxqsMH.woff         5.61 kB
+#24 8.551 dist/assets/ibm-plex-mono-vietnamese-400-normal-DDuiU_S-.woff         5.62 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BIfNGwUT.woff       5.77 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-DMdlQ8Kv.woff       5.82 kB
+#24 8.551 dist/assets/ibm-plex-mono-vietnamese-400-normal-BulugwFq.woff2        5.86 kB
+#24 8.551 dist/assets/ibm-plex-mono-vietnamese-500-normal-DZ4AoWbu.woff2        6.04 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff         6.39 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-600-normal-DgdngZtN.woff         6.58 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-500-normal-BEb3_waV.woff         6.58 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-xuaO2J-f.woff2      6.91 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BqneJy0T.woff2      6.97 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-400-normal-CEL4l2ZJ.woff           7.20 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-500-normal-Ael50iVv.woff           7.20 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2        8.20 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-400-normal-BSMlKf0J.woff2          8.35 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-500-normal-e4dixQRQ.woff2        8.41 kB
+#24 8.551 dist/assets/ibm-plex-mono-cyrillic-500-normal-Bq9vWWag.woff2          8.46 kB
+#24 8.551 dist/assets/ibm-plex-sans-vietnamese-600-normal-DpPYBSTl.woff2        8.46 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff              8.76 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-500-normal-CuWXN6rf.woff              9.14 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-600-normal-D-CqTdkO.woff              9.22 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2             9.94 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff      10.28 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-600-normal-DzTrcv_p.woff2            10.36 kB
+#24 8.551 dist/assets/ibm-plex-sans-greek-500-normal-JMMifIXV.woff2            10.37 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-DB5PtV2g.woff      10.59 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-Bz0x94Yp.woff      10.61 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-ext-400-normal-D3D2R8hC.woff         11.76 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-ext-500-normal-CZ70TYgx.woff         11.76 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2     12.14 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-DUMzJB7m.woff2     12.30 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-Cs5J6C77.woff2     12.30 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff             13.14 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff             13.15 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-ext-400-normal-BmRBH3aV.woff2        13.34 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-ext-500-normal-CAhNIIs5.woff2        13.43 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff          13.51 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-500-normal-ByOcLdNv.woff          13.85 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-600-normal-BGq0mW3O.woff          13.88 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff         14.36 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2            14.70 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-500-normal-D0aIdm-b.woff         14.73 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-600-normal-DIrixKbi.woff         14.77 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2         14.80 kB
+#24 8.551 dist/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2            14.88 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-500-normal-CocWQlwt.woff2         15.00 kB
+#24 8.551 dist/assets/ibm-plex-sans-cyrillic-600-normal-71GNu3SW.woff2         15.04 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2        15.98 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-600-normal-DOrvGEcy.woff2        16.44 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-ext-500-normal-DakdToA3.woff2        16.45 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff             22.10 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2            22.58 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff             23.87 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-500-normal-BgVn5rGT.woff             23.91 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2            24.18 kB
+#24 8.551 dist/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2            24.25 kB
+#24 8.551 dist/assets/pdf.worker.min-CjEcRF4W.mjs                           1,264.34 kB
+#24 8.551 dist/assets/index-CBWSoN9N.css                                       46.64 kB │ gzip:   9.09 kB
+#24 8.551 dist/assets/rolldown-runtime-XKyaHtl9.js                              0.72 kB │ gzip:   0.42 kB
+#24 8.551 dist/assets/ModelPreview-MQuewaxv.js                                  1.49 kB │ gzip:   0.74 kB
+#24 8.551 dist/assets/View3D-DSKdT0Ou.js                                       26.06 kB │ gzip:   9.84 kB
+#24 8.551 dist/assets/jsQR-Ct1FLwmy.js                                        129.98 kB │ gzip:  47.50 kB
+#24 8.551 dist/assets/model3d-BfqCBnY2.js                                     389.54 kB │ gzip: 105.32 kB
+#24 8.551 dist/assets/pdf-CmUkDA09.js                                         430.24 kB │ gzip: 129.30 kB
+#24 8.551 dist/assets/OrbitControls-rovVnhyh.js                               628.73 kB │ gzip: 169.94 kB
+#24 8.551 dist/assets/index-D1MPY9Mi.js                                       888.06 kB │ gzip: 259.85 kB
+#24 8.551 
+#24 8.561 ✓ built in 633ms
+#24 DONE 8.6s
+
+#12 [libredwg 2/4] RUN apt-get update && apt-get install -y --no-install-recommends         build-essential ca-certificates curl pkg-config python3 xz-utils     && rm -rf /var/lib/apt/lists/*
+#12 52.36 Get:41 http://deb.debian.org/debian-security bookworm-security/main amd64 linux-libc-dev amd64 6.1.190-1 [2409 kB]
+#12 52.82 Get:42 http://deb.debian.org/debian bookworm/main amd64 libcrypt-dev amd64 1:4.4.33-2 [118 kB]
+#12 54.29 Get:43 http://deb.debian.org/debian bookworm/main amd64 libtirpc-dev amd64 1.3.3+ds-1 [191 kB]
+#12 54.86 Get:44 http://deb.debian.org/debian bookworm/main amd64 libnsl-dev amd64 1.3.0-2 [66.4 kB]
+#12 55.23 Get:45 http://deb.debian.org/debian bookworm/main amd64 rpcsvc-proto amd64 1.4.3-1 [63.3 kB]
+#12 77.76 Get:46 http://deb.debian.org/debian bookworm/main amd64 libc6-dev amd64 2.36-9+deb12u14 [1904 kB]
+#12 77.94 Get:47 http://deb.debian.org/debian bookworm/main amd64 libisl23 amd64 0.25-1.1 [683 kB]
+#12 78.09 Get:48 http://deb.debian.org/debian bookworm/main amd64 libmpfr6 amd64 4.2.0-1 [701 kB]
+#12 78.14 Get:49 http://deb.debian.org/debian bookworm/main amd64 libmpc3 amd64 1.3.1-1 [51.5 kB]
+#12 79.18 Get:50 http://deb.debian.org/debian bookworm/main amd64 cpp-12 amd64 12.2.0-14+deb12u1 [9768 kB]
+#12 82.59 Get:51 http://deb.debian.org/debian bookworm/main amd64 cpp amd64 4:12.2.0-3 [6836 B]
+#12 82.60 Get:52 http://deb.debian.org/debian bookworm/main amd64 libcc1-0 amd64 12.2.0-14+deb12u1 [41.7 kB]
+#12 82.60 Get:53 http://deb.debian.org/debian bookworm/main amd64 libgomp1 amd64 12.2.0-14+deb12u1 [116 kB]
+#12 82.61 Get:54 http://deb.debian.org/debian bookworm/main amd64 libitm1 amd64 12.2.0-14+deb12u1 [26.1 kB]
+#12 82.61 Get:55 http://deb.debian.org/debian bookworm/main amd64 libatomic1 amd64 12.2.0-14+deb12u1 [9376 B]
+#12 83.23 Get:56 http://deb.debian.org/debian bookworm/main amd64 libasan8 amd64 12.2.0-14+deb12u1 [2193 kB]
+#12 83.42 Get:57 http://deb.debian.org/debian bookworm/main amd64 liblsan0 amd64 12.2.0-14+deb12u1 [969 kB]
+#12 83.62 Get:58 http://deb.debian.org/debian bookworm/main amd64 libtsan2 amd64 12.2.0-14+deb12u1 [2197 kB]
+#12 83.82 Get:59 http://deb.debian.org/debian bookworm/main amd64 libubsan1 amd64 12.2.0-14+deb12u1 [883 kB]
+#12 83.95 Get:60 http://deb.debian.org/debian bookworm/main amd64 libquadmath0 amd64 12.2.0-14+deb12u1 [145 kB]
+#12 91.55 Get:61 http://deb.debian.org/debian bookworm/main amd64 libgcc-12-dev amd64 12.2.0-14+deb12u1 [2437 kB]
+#12 92.60 Get:62 http://deb.debian.org/debian bookworm/main amd64 gcc-12 amd64 12.2.0-14+deb12u1 [19.3 MB]
+#12 101.3 Get:63 http://deb.debian.org/debian bookworm/main amd64 gcc amd64 4:12.2.0-3 [5216 B]
+#12 113.4 Get:64 http://deb.debian.org/debian bookworm/main amd64 libstdc++-12-dev amd64 12.2.0-14+deb12u1 [2047 kB]
+#12 114.4 Get:65 http://deb.debian.org/debian bookworm/main amd64 g++-12 amd64 12.2.0-14+deb12u1 [10.7 MB]
+#12 117.7 Get:66 http://deb.debian.org/debian bookworm/main amd64 g++ amd64 4:12.2.0-3 [1356 B]
+#12 117.9 Get:67 http://deb.debian.org/debian bookworm/main amd64 make amd64 4.3-4.1 [396 kB]
+#12 118.5 Get:68 http://deb.debian.org/debian bookworm/main amd64 libdpkg-perl all 1.21.23 [604 kB]
+#12 118.7 Get:69 http://deb.debian.org/debian bookworm/main amd64 patch amd64 2.7.6-7 [128 kB]
+#12 123.7 Get:70 http://deb.debian.org/debian bookworm/main amd64 dpkg-dev all 1.21.23 [1354 kB]
+#12 123.8 Get:71 http://deb.debian.org/debian bookworm/main amd64 build-essential amd64 12.9 [7704 B]
+#12 123.9 Get:72 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6 [275 kB]
+#12 124.0 Get:73 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10 [20.3 kB]
+#12 124.0 Get:74 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10 [59.7 kB]
+#12 124.2 Get:75 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5 [183 kB]
+#12 124.4 Get:76 http://deb.debian.org/debian bookworm/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3 [72.4 kB]
+#12 125.0 Get:77 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1 [58.7 kB]
+#12 125.0 Get:78 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2 [60.8 kB]
+#12 125.0 Get:79 http://deb.debian.org/debian-security bookworm-security/main amd64 libssh2-1 amd64 1.10.0-3+deb12u1 [176 kB]
+#12 125.3 Get:80 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u15 [392 kB]
+#12 125.7 Get:81 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u15 [316 kB]
+#12 126.0 Get:82 http://deb.debian.org/debian bookworm/main amd64 libpkgconf3 amd64 1.8.1-1 [36.1 kB]
+#12 126.0 Get:83 http://deb.debian.org/debian bookworm/main amd64 pkgconf-bin amd64 1.8.1-1 [29.5 kB]
+#12 126.3 Get:84 http://deb.debian.org/debian bookworm/main amd64 pkgconf amd64 1.8.1-1 [25.9 kB]
+#12 126.3 Get:85 http://deb.debian.org/debian bookworm/main amd64 pkg-config amd64 1.8.1-1 [13.7 kB]
+#12 126.4 debconf: delaying package configuration, since apt-utils is not installed
+#12 126.4 Fetched 86.6 MB in 2min 4s (697 kB/s)
+#12 126.4 Selecting previously unselected package perl-modules-5.36.
+#12 126.4 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6096 files and directories currently installed.)
+#12 126.4 Preparing to unpack .../0-perl-modules-5.36_5.36.0-7+deb12u4_all.deb ...
+#12 126.5 Unpacking perl-modules-5.36 (5.36.0-7+deb12u4) ...
+#12 126.6 Selecting previously unselected package libgdbm6:amd64.
+#12 126.6 Preparing to unpack .../1-libgdbm6_1.23-3_amd64.deb ...
+#12 126.7 Unpacking libgdbm6:amd64 (1.23-3) ...
+#12 126.7 Selecting previously unselected package libgdbm-compat4:amd64.
+#12 126.7 Preparing to unpack .../2-libgdbm-compat4_1.23-3_amd64.deb ...
+#12 126.7 Unpacking libgdbm-compat4:amd64 (1.23-3) ...
+#12 126.7 Selecting previously unselected package libperl5.36:amd64.
+#12 126.7 Preparing to unpack .../3-libperl5.36_5.36.0-7+deb12u4_amd64.deb ...
+#12 126.7 Unpacking libperl5.36:amd64 (5.36.0-7+deb12u4) ...
+#12 127.0 Selecting previously unselected package perl.
+#12 127.0 Preparing to unpack .../4-perl_5.36.0-7+deb12u4_amd64.deb ...
+#12 127.0 Unpacking perl (5.36.0-7+deb12u4) ...
+#12 127.0 Selecting previously unselected package libssl3:amd64.
+#12 127.0 Preparing to unpack .../5-libssl3_3.0.22-1~deb12u1_amd64.deb ...
+#12 127.0 Unpacking libssl3:amd64 (3.0.22-1~deb12u1) ...
+#12 127.1 Selecting previously unselected package libpython3.11-minimal:amd64.
+#12 127.1 Preparing to unpack .../6-libpython3.11-minimal_3.11.2-6+deb12u9_amd64.deb ...
+#12 127.1 Unpacking libpython3.11-minimal:amd64 (3.11.2-6+deb12u9) ...
+#12 127.2 Selecting previously unselected package libexpat1:amd64.
+#12 127.2 Preparing to unpack .../7-libexpat1_2.5.0-1+deb12u4_amd64.deb ...
+#12 127.2 Unpacking libexpat1:amd64 (2.5.0-1+deb12u4) ...
+#12 127.2 Selecting previously unselected package python3.11-minimal.
+#12 127.2 Preparing to unpack .../8-python3.11-minimal_3.11.2-6+deb12u9_amd64.deb ...
+#12 127.2 Unpacking python3.11-minimal (3.11.2-6+deb12u9) ...
+#12 127.3 Setting up libssl3:amd64 (3.0.22-1~deb12u1) ...
+#12 127.4 Setting up libpython3.11-minimal:amd64 (3.11.2-6+deb12u9) ...
+#12 127.4 Setting up libexpat1:amd64 (2.5.0-1+deb12u4) ...
+#12 127.4 Setting up python3.11-minimal (3.11.2-6+deb12u9) ...
+#12 127.8 Selecting previously unselected package python3-minimal.
+#12 127.8 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 8428 files and directories currently installed.)
+#12 127.8 Preparing to unpack .../00-python3-minimal_3.11.2-1+b1_amd64.deb ...
+#12 127.8 Unpacking python3-minimal (3.11.2-1+b1) ...
+#12 127.8 Selecting previously unselected package media-types.
+#12 127.8 Preparing to unpack .../01-media-types_10.0.0_all.deb ...
+#12 127.8 Unpacking media-types (10.0.0) ...
+#12 127.8 Selecting previously unselected package libncursesw6:amd64.
+#12 127.8 Preparing to unpack .../02-libncursesw6_6.4-4_amd64.deb ...
+#12 127.8 Unpacking libncursesw6:amd64 (6.4-4) ...
+#12 127.9 Selecting previously unselected package libkrb5support0:amd64.
+#12 127.9 Preparing to unpack .../03-libkrb5support0_1.20.1-2+deb12u5_amd64.deb ...
+#12 127.9 Unpacking libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#12 127.9 Selecting previously unselected package libk5crypto3:amd64.
+#12 127.9 Preparing to unpack .../04-libk5crypto3_1.20.1-2+deb12u5_amd64.deb ...
+#12 127.9 Unpacking libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#12 127.9 Selecting previously unselected package libkeyutils1:amd64.
+#12 127.9 Preparing to unpack .../05-libkeyutils1_1.6.3-2_amd64.deb ...
+#12 127.9 Unpacking libkeyutils1:amd64 (1.6.3-2) ...
+#12 127.9 Selecting previously unselected package libkrb5-3:amd64.
+#12 127.9 Preparing to unpack .../06-libkrb5-3_1.20.1-2+deb12u5_amd64.deb ...
+#12 128.0 Unpacking libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#12 128.0 Selecting previously unselected package libgssapi-krb5-2:amd64.
+#12 128.0 Preparing to unpack .../07-libgssapi-krb5-2_1.20.1-2+deb12u5_amd64.deb ...
+#12 128.0 Unpacking libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#12 128.0 Selecting previously unselected package libtirpc-common.
+#12 128.0 Preparing to unpack .../08-libtirpc-common_1.3.3+ds-1_all.deb ...
+#12 128.0 Unpacking libtirpc-common (1.3.3+ds-1) ...
+#12 128.0 Selecting previously unselected package libtirpc3:amd64.
+#12 128.0 Preparing to unpack .../09-libtirpc3_1.3.3+ds-1_amd64.deb ...
+#12 128.1 Unpacking libtirpc3:amd64 (1.3.3+ds-1) ...
+#12 128.1 Selecting previously unselected package libnsl2:amd64.
+#12 128.1 Preparing to unpack .../10-libnsl2_1.3.0-2_amd64.deb ...
+#12 128.1 Unpacking libnsl2:amd64 (1.3.0-2) ...
+#12 128.1 Selecting previously unselected package readline-common.
+#12 128.1 Preparing to unpack .../11-readline-common_8.2-1.3_all.deb ...
+#12 128.1 Unpacking readline-common (8.2-1.3) ...
+#12 128.1 Selecting previously unselected package libreadline8:amd64.
+#12 128.1 Preparing to unpack .../12-libreadline8_8.2-1.3_amd64.deb ...
+#12 128.2 Unpacking libreadline8:amd64 (8.2-1.3) ...
+#12 128.2 Selecting previously unselected package libsqlite3-0:amd64.
+#12 128.2 Preparing to unpack .../13-libsqlite3-0_3.40.1-2+deb12u2_amd64.deb ...
+#12 128.2 Unpacking libsqlite3-0:amd64 (3.40.1-2+deb12u2) ...
+#12 128.2 Selecting previously unselected package libpython3.11-stdlib:amd64.
+#12 128.2 Preparing to unpack .../14-libpython3.11-stdlib_3.11.2-6+deb12u9_amd64.deb ...
+#12 128.2 Unpacking libpython3.11-stdlib:amd64 (3.11.2-6+deb12u9) ...
+#12 128.4 Selecting previously unselected package python3.11.
+#12 128.4 Preparing to unpack .../15-python3.11_3.11.2-6+deb12u9_amd64.deb ...
+#12 128.4 Unpacking python3.11 (3.11.2-6+deb12u9) ...
+#12 128.4 Selecting previously unselected package libpython3-stdlib:amd64.
+#12 128.4 Preparing to unpack .../16-libpython3-stdlib_3.11.2-1+b1_amd64.deb ...
+#12 128.4 Unpacking libpython3-stdlib:amd64 (3.11.2-1+b1) ...
+#12 128.4 Setting up python3-minimal (3.11.2-1+b1) ...
+#12 128.5 Selecting previously unselected package python3.
+#12 128.5 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 8936 files and directories currently installed.)
+#12 128.5 Preparing to unpack .../00-python3_3.11.2-1+b1_amd64.deb ...
+#12 128.5 Unpacking python3 (3.11.2-1+b1) ...
+#12 128.5 Selecting previously unselected package bzip2.
+#12 128.5 Preparing to unpack .../01-bzip2_1.0.8-5+b1_amd64.deb ...
+#12 128.5 Unpacking bzip2 (1.0.8-5+b1) ...
+#12 128.6 Selecting previously unselected package openssl.
+#12 128.6 Preparing to unpack .../02-openssl_3.0.22-1~deb12u1_amd64.deb ...
+#12 128.6 Unpacking openssl (3.0.22-1~deb12u1) ...
+#12 128.7 Selecting previously unselected package ca-certificates.
+#12 128.7 Preparing to unpack .../03-ca-certificates_20250419~deb12u2_all.deb ...
+#12 128.7 Unpacking ca-certificates (20250419~deb12u2) ...
+#12 128.7 Selecting previously unselected package xz-utils.
+#12 128.7 Preparing to unpack .../04-xz-utils_5.4.1-1+deb12u2_amd64.deb ...
+#12 128.7 Unpacking xz-utils (5.4.1-1+deb12u2) ...
+#12 128.8 Selecting previously unselected package binutils-common:amd64.
+#12 128.8 Preparing to unpack .../05-binutils-common_2.40-2_amd64.deb ...
+#12 128.8 Unpacking binutils-common:amd64 (2.40-2) ...
+#12 128.9 Selecting previously unselected package libbinutils:amd64.
+#12 128.9 Preparing to unpack .../06-libbinutils_2.40-2_amd64.deb ...
+#12 128.9 Unpacking libbinutils:amd64 (2.40-2) ...
+#12 129.0 Selecting previously unselected package libctf-nobfd0:amd64.
+#12 129.0 Preparing to unpack .../07-libctf-nobfd0_2.40-2_amd64.deb ...
+#12 129.0 Unpacking libctf-nobfd0:amd64 (2.40-2) ...
+#12 129.0 Selecting previously unselected package libctf0:amd64.
+#12 129.0 Preparing to unpack .../08-libctf0_2.40-2_amd64.deb ...
+#12 129.0 Unpacking libctf0:amd64 (2.40-2) ...
+#12 129.0 Selecting previously unselected package libgprofng0:amd64.
+#12 129.0 Preparing to unpack .../09-libgprofng0_2.40-2_amd64.deb ...
+#12 129.0 Unpacking libgprofng0:amd64 (2.40-2) ...
+#12 129.1 Selecting previously unselected package libjansson4:amd64.
+#12 129.1 Preparing to unpack .../10-libjansson4_2.14-2_amd64.deb ...
+#12 129.1 Unpacking libjansson4:amd64 (2.14-2) ...
+#12 129.1 Selecting previously unselected package binutils-x86-64-linux-gnu.
+#12 129.1 Preparing to unpack .../11-binutils-x86-64-linux-gnu_2.40-2_amd64.deb ...
+#12 129.1 Unpacking binutils-x86-64-linux-gnu (2.40-2) ...
+#12 129.3 Selecting previously unselected package binutils.
+#12 129.3 Preparing to unpack .../12-binutils_2.40-2_amd64.deb ...
+#12 129.3 Unpacking binutils (2.40-2) ...
+#12 129.3 Selecting previously unselected package libc-dev-bin.
+#12 129.3 Preparing to unpack .../13-libc-dev-bin_2.36-9+deb12u14_amd64.deb ...
+#12 129.3 Unpacking libc-dev-bin (2.36-9+deb12u14) ...
+#12 129.3 Selecting previously unselected package linux-libc-dev:amd64.
+#12 129.3 Preparing to unpack .../14-linux-libc-dev_6.1.190-1_amd64.deb ...
+#12 129.3 Unpacking linux-libc-dev:amd64 (6.1.190-1) ...
+#12 129.4 Selecting previously unselected package libcrypt-dev:amd64.
+#12 129.4 Preparing to unpack .../15-libcrypt-dev_1%3a4.4.33-2_amd64.deb ...
+#12 129.4 Unpacking libcrypt-dev:amd64 (1:4.4.33-2) ...
+#12 129.5 Selecting previously unselected package libtirpc-dev:amd64.
+#12 129.5 Preparing to unpack .../16-libtirpc-dev_1.3.3+ds-1_amd64.deb ...
+#12 129.5 Unpacking libtirpc-dev:amd64 (1.3.3+ds-1) ...
+#12 129.5 Selecting previously unselected package libnsl-dev:amd64.
+#12 129.5 Preparing to unpack .../17-libnsl-dev_1.3.0-2_amd64.deb ...
+#12 129.5 Unpacking libnsl-dev:amd64 (1.3.0-2) ...
+#12 129.5 Selecting previously unselected package rpcsvc-proto.
+#12 129.5 Preparing to unpack .../18-rpcsvc-proto_1.4.3-1_amd64.deb ...
+#12 129.5 Unpacking rpcsvc-proto (1.4.3-1) ...
+#12 129.5 Selecting previously unselected package libc6-dev:amd64.
+#12 129.6 Preparing to unpack .../19-libc6-dev_2.36-9+deb12u14_amd64.deb ...
+#12 129.6 Unpacking libc6-dev:amd64 (2.36-9+deb12u14) ...
+#12 129.7 Selecting previously unselected package libisl23:amd64.
+#12 129.7 Preparing to unpack .../20-libisl23_0.25-1.1_amd64.deb ...
+#12 129.7 Unpacking libisl23:amd64 (0.25-1.1) ...
+#12 129.7 Selecting previously unselected package libmpfr6:amd64.
+#12 129.7 Preparing to unpack .../21-libmpfr6_4.2.0-1_amd64.deb ...
+#12 129.7 Unpacking libmpfr6:amd64 (4.2.0-1) ...
+#12 129.8 Selecting previously unselected package libmpc3:amd64.
+#12 129.8 Preparing to unpack .../22-libmpc3_1.3.1-1_amd64.deb ...
+#12 129.8 Unpacking libmpc3:amd64 (1.3.1-1) ...
+#12 129.8 Selecting previously unselected package cpp-12.
+#12 129.8 Preparing to unpack .../23-cpp-12_12.2.0-14+deb12u1_amd64.deb ...
+#12 129.8 Unpacking cpp-12 (12.2.0-14+deb12u1) ...
+#12 130.2 Selecting previously unselected package cpp.
+#12 130.2 Preparing to unpack .../24-cpp_4%3a12.2.0-3_amd64.deb ...
+#12 130.3 Unpacking cpp (4:12.2.0-3) ...
+#12 130.3 Selecting previously unselected package libcc1-0:amd64.
+#12 130.3 Preparing to unpack .../25-libcc1-0_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.3 Unpacking libcc1-0:amd64 (12.2.0-14+deb12u1) ...
+#12 130.3 Selecting previously unselected package libgomp1:amd64.
+#12 130.3 Preparing to unpack .../26-libgomp1_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.3 Unpacking libgomp1:amd64 (12.2.0-14+deb12u1) ...
+#12 130.4 Selecting previously unselected package libitm1:amd64.
+#12 130.4 Preparing to unpack .../27-libitm1_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.4 Unpacking libitm1:amd64 (12.2.0-14+deb12u1) ...
+#12 130.4 Selecting previously unselected package libatomic1:amd64.
+#12 130.4 Preparing to unpack .../28-libatomic1_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.4 Unpacking libatomic1:amd64 (12.2.0-14+deb12u1) ...
+#12 130.4 Selecting previously unselected package libasan8:amd64.
+#12 130.4 Preparing to unpack .../29-libasan8_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.4 Unpacking libasan8:amd64 (12.2.0-14+deb12u1) ...
+#12 130.6 Selecting previously unselected package liblsan0:amd64.
+#12 130.6 Preparing to unpack .../30-liblsan0_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.6 Unpacking liblsan0:amd64 (12.2.0-14+deb12u1) ...
+#12 130.6 Selecting previously unselected package libtsan2:amd64.
+#12 130.6 Preparing to unpack .../31-libtsan2_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.6 Unpacking libtsan2:amd64 (12.2.0-14+deb12u1) ...
+#12 130.8 Selecting previously unselected package libubsan1:amd64.
+#12 130.8 Preparing to unpack .../32-libubsan1_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.8 Unpacking libubsan1:amd64 (12.2.0-14+deb12u1) ...
+#12 130.9 Selecting previously unselected package libquadmath0:amd64.
+#12 130.9 Preparing to unpack .../33-libquadmath0_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.9 Unpacking libquadmath0:amd64 (12.2.0-14+deb12u1) ...
+#12 130.9 Selecting previously unselected package libgcc-12-dev:amd64.
+#12 130.9 Preparing to unpack .../34-libgcc-12-dev_12.2.0-14+deb12u1_amd64.deb ...
+#12 130.9 Unpacking libgcc-12-dev:amd64 (12.2.0-14+deb12u1) ...
+#12 131.0 Selecting previously unselected package gcc-12.
+#12 131.0 Preparing to unpack .../35-gcc-12_12.2.0-14+deb12u1_amd64.deb ...
+#12 131.0 Unpacking gcc-12 (12.2.0-14+deb12u1) ...
+#12 131.5 Selecting previously unselected package gcc.
+#12 131.5 Preparing to unpack .../36-gcc_4%3a12.2.0-3_amd64.deb ...
+#12 131.6 Unpacking gcc (4:12.2.0-3) ...
+#12 131.6 Selecting previously unselected package libstdc++-12-dev:amd64.
+#12 131.6 Preparing to unpack .../37-libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb ...
+#12 131.6 Unpacking libstdc++-12-dev:amd64 (12.2.0-14+deb12u1) ...
+#12 131.7 Selecting previously unselected package g++-12.
+#12 131.7 Preparing to unpack .../38-g++-12_12.2.0-14+deb12u1_amd64.deb ...
+#12 131.7 Unpacking g++-12 (12.2.0-14+deb12u1) ...
+#12 132.2 Selecting previously unselected package g++.
+#12 132.2 Preparing to unpack .../39-g++_4%3a12.2.0-3_amd64.deb ...
+#12 132.2 Unpacking g++ (4:12.2.0-3) ...
+#12 132.2 Selecting previously unselected package make.
+#12 132.2 Preparing to unpack .../40-make_4.3-4.1_amd64.deb ...
+#12 132.2 Unpacking make (4.3-4.1) ...
+#12 132.3 Selecting previously unselected package libdpkg-perl.
+#12 132.3 Preparing to unpack .../41-libdpkg-perl_1.21.23_all.deb ...
+#12 132.3 Unpacking libdpkg-perl (1.21.23) ...
+#12 132.3 Selecting previously unselected package patch.
+#12 132.3 Preparing to unpack .../42-patch_2.7.6-7_amd64.deb ...
+#12 132.3 Unpacking patch (2.7.6-7) ...
+#12 132.4 Selecting previously unselected package dpkg-dev.
+#12 132.4 Preparing to unpack .../43-dpkg-dev_1.21.23_all.deb ...
+#12 132.4 Unpacking dpkg-dev (1.21.23) ...
+#12 132.4 Selecting previously unselected package build-essential.
+#12 132.4 Preparing to unpack .../44-build-essential_12.9_amd64.deb ...
+#12 132.4 Unpacking build-essential (12.9) ...
+#12 132.5 Selecting previously unselected package libbrotli1:amd64.
+#12 132.5 Preparing to unpack .../45-libbrotli1_1.0.9-2+b6_amd64.deb ...
+#12 132.5 Unpacking libbrotli1:amd64 (1.0.9-2+b6) ...
+#12 132.5 Selecting previously unselected package libsasl2-modules-db:amd64.
+#12 132.5 Preparing to unpack .../46-libsasl2-modules-db_2.1.28+dfsg-10_amd64.deb ...
+#12 132.5 Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
+#12 132.5 Selecting previously unselected package libsasl2-2:amd64.
+#12 132.5 Preparing to unpack .../47-libsasl2-2_2.1.28+dfsg-10_amd64.deb ...
+#12 132.5 Unpacking libsasl2-2:amd64 (2.1.28+dfsg-10) ...
+#12 132.5 Selecting previously unselected package libldap-2.5-0:amd64.
+#12 132.5 Preparing to unpack .../48-libldap-2.5-0_2.5.13+dfsg-5_amd64.deb ...
+#12 132.5 Unpacking libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
+#12 132.6 Selecting previously unselected package libnghttp2-14:amd64.
+#12 132.6 Preparing to unpack .../49-libnghttp2-14_1.52.0-1+deb12u3_amd64.deb ...
+#12 132.6 Unpacking libnghttp2-14:amd64 (1.52.0-1+deb12u3) ...
+#12 132.6 Selecting previously unselected package libpsl5:amd64.
+#12 132.6 Preparing to unpack .../50-libpsl5_0.21.2-1_amd64.deb ...
+#12 132.6 Unpacking libpsl5:amd64 (0.21.2-1) ...
+#12 132.6 Selecting previously unselected package librtmp1:amd64.
+#12 132.6 Preparing to unpack .../51-librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb ...
+#12 132.6 Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
+#12 132.7 Selecting previously unselected package libssh2-1:amd64.
+#12 132.7 Preparing to unpack .../52-libssh2-1_1.10.0-3+deb12u1_amd64.deb ...
+#12 132.7 Unpacking libssh2-1:amd64 (1.10.0-3+deb12u1) ...
+#12 132.7 Selecting previously unselected package libcurl4:amd64.
+#12 132.7 Preparing to unpack .../53-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+#12 132.7 Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) ...
+#12 132.7 Selecting previously unselected package curl.
+#12 132.7 Preparing to unpack .../54-curl_7.88.1-10+deb12u15_amd64.deb ...
+#12 132.7 Unpacking curl (7.88.1-10+deb12u15) ...
+#12 132.8 Selecting previously unselected package libpkgconf3:amd64.
+#12 132.8 Preparing to unpack .../55-libpkgconf3_1.8.1-1_amd64.deb ...
+#12 132.8 Unpacking libpkgconf3:amd64 (1.8.1-1) ...
+#12 132.8 Selecting previously unselected package pkgconf-bin.
+#12 132.8 Preparing to unpack .../56-pkgconf-bin_1.8.1-1_amd64.deb ...
+#12 132.8 Unpacking pkgconf-bin (1.8.1-1) ...
+#12 132.8 Selecting previously unselected package pkgconf:amd64.
+#12 132.8 Preparing to unpack .../57-pkgconf_1.8.1-1_amd64.deb ...
+#12 132.8 Unpacking pkgconf:amd64 (1.8.1-1) ...
+#12 132.8 Selecting previously unselected package pkg-config:amd64.
+#12 132.8 Preparing to unpack .../58-pkg-config_1.8.1-1_amd64.deb ...
+#12 132.8 Unpacking pkg-config:amd64 (1.8.1-1) ...
+#12 132.9 Setting up media-types (10.0.0) ...
+#12 132.9 Setting up libkeyutils1:amd64 (1.6.3-2) ...
+#12 132.9 Setting up libpsl5:amd64 (0.21.2-1) ...
+#12 132.9 Setting up libtirpc-common (1.3.3+ds-1) ...
+#12 132.9 Setting up libbrotli1:amd64 (1.0.9-2+b6) ...
+#12 132.9 Setting up libsqlite3-0:amd64 (3.40.1-2+deb12u2) ...
+#12 132.9 Setting up binutils-common:amd64 (2.40-2) ...
+#12 132.9 Setting up libnghttp2-14:amd64 (1.52.0-1+deb12u3) ...
+#12 132.9 Setting up linux-libc-dev:amd64 (6.1.190-1) ...
+#12 132.9 Setting up libctf-nobfd0:amd64 (2.40-2) ...
+#12 132.9 Setting up libgomp1:amd64 (12.2.0-14+deb12u1) ...
+#12 133.0 Setting up bzip2 (1.0.8-5+b1) ...
+#12 133.0 Setting up libjansson4:amd64 (2.14-2) ...
+#12 133.0 Setting up libkrb5support0:amd64 (1.20.1-2+deb12u5) ...
+#12 133.0 Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
+#12 133.0 Setting up perl-modules-5.36 (5.36.0-7+deb12u4) ...
+#12 133.0 Setting up libpkgconf3:amd64 (1.8.1-1) ...
+#12 133.0 Setting up rpcsvc-proto (1.4.3-1) ...
+#12 133.0 Setting up make (4.3-4.1) ...
+#12 133.0 Setting up libmpfr6:amd64 (4.2.0-1) ...
+#12 133.0 Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
+#12 133.0 Setting up xz-utils (5.4.1-1+deb12u2) ...
+#12 133.0 update-alternatives: using /usr/bin/xz to provide /usr/bin/lzma (lzma) in auto mode
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzma.1.gz because associated file /usr/share/man/man1/xz.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/unlzma.1.gz because associated file /usr/share/man/man1/unxz.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcat.1.gz because associated file /usr/share/man/man1/xzcat.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzmore.1.gz because associated file /usr/share/man/man1/xzmore.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzless.1.gz because associated file /usr/share/man/man1/xzless.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzdiff.1.gz because associated file /usr/share/man/man1/xzdiff.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcmp.1.gz because associated file /usr/share/man/man1/xzcmp.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzgrep.1.gz because associated file /usr/share/man/man1/xzgrep.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzegrep.1.gz because associated file /usr/share/man/man1/xzegrep.1.gz (of link group lzma) doesn't exist
+#12 133.0 update-alternatives: warning: skip creation of /usr/share/man/man1/lzfgrep.1.gz because associated file /usr/share/man/man1/xzfgrep.1.gz (of link group lzma) doesn't exist
+#12 133.0 Setting up libquadmath0:amd64 (12.2.0-14+deb12u1) ...
+#12 133.1 Setting up libmpc3:amd64 (1.3.1-1) ...
+#12 133.1 Setting up libatomic1:amd64 (12.2.0-14+deb12u1) ...
+#12 133.1 Setting up patch (2.7.6-7) ...
+#12 133.1 Setting up pkgconf-bin (1.8.1-1) ...
+#12 133.1 Setting up libncursesw6:amd64 (6.4-4) ...
+#12 133.1 Setting up libk5crypto3:amd64 (1.20.1-2+deb12u5) ...
+#12 133.1 Setting up libsasl2-2:amd64 (2.1.28+dfsg-10) ...
+#12 133.1 Setting up libubsan1:amd64 (12.2.0-14+deb12u1) ...
+#12 133.1 Setting up libcrypt-dev:amd64 (1:4.4.33-2) ...
+#12 133.1 Setting up libasan8:amd64 (12.2.0-14+deb12u1) ...
+#12 133.1 Setting up libssh2-1:amd64 (1.10.0-3+deb12u1) ...
+#12 133.1 Setting up libkrb5-3:amd64 (1.20.1-2+deb12u5) ...
+#12 133.1 Setting up libtsan2:amd64 (12.2.0-14+deb12u1) ...
+#12 133.1 Setting up libbinutils:amd64 (2.40-2) ...
+#12 133.2 Setting up libisl23:amd64 (0.25-1.1) ...
+#12 133.2 Setting up libc-dev-bin (2.36-9+deb12u14) ...
+#12 133.2 Setting up openssl (3.0.22-1~deb12u1) ...
+#12 133.2 Setting up readline-common (8.2-1.3) ...
+#12 133.2 Setting up libcc1-0:amd64 (12.2.0-14+deb12u1) ...
+#12 133.2 Setting up liblsan0:amd64 (12.2.0-14+deb12u1) ...
+#12 133.2 Setting up libitm1:amd64 (12.2.0-14+deb12u1) ...
+#12 133.2 Setting up libgdbm6:amd64 (1.23-3) ...
+#12 133.2 Setting up libctf0:amd64 (2.40-2) ...
+#12 133.2 Setting up cpp-12 (12.2.0-14+deb12u1) ...
+#12 133.2 Setting up libreadline8:amd64 (8.2-1.3) ...
+#12 133.2 Setting up libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
+#12 133.2 Setting up pkgconf:amd64 (1.8.1-1) ...
+#12 133.3 Setting up ca-certificates (20250419~deb12u2) ...
+#12 133.3 debconf: unable to initialize frontend: Dialog
+#12 133.3 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#12 133.3 debconf: falling back to frontend: Readline
+#12 133.3 debconf: unable to initialize frontend: Readline
+#12 133.3 debconf: (This frontend requires a controlling tty.)
+#12 133.3 debconf: falling back to frontend: Teletype
+#12 133.6 Updating certificates in /etc/ssl/certs...
+#12 134.1 148 added, 0 removed; done.
+#12 134.1 Setting up libgprofng0:amd64 (2.40-2) ...
+#12 134.1 Setting up libgcc-12-dev:amd64 (12.2.0-14+deb12u1) ...
+#12 134.1 Setting up libgssapi-krb5-2:amd64 (1.20.1-2+deb12u5) ...
+#12 134.1 Setting up pkg-config:amd64 (1.8.1-1) ...
+#12 134.2 Setting up libgdbm-compat4:amd64 (1.23-3) ...
+#12 134.2 Setting up cpp (4:12.2.0-3) ...
+#12 134.2 Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+#12 134.2 Setting up curl (7.88.1-10+deb12u15) ...
+#12 134.2 Setting up libperl5.36:amd64 (5.36.0-7+deb12u4) ...
+#12 134.2 Setting up binutils-x86-64-linux-gnu (2.40-2) ...
+#12 134.2 Setting up libtirpc3:amd64 (1.3.3+ds-1) ...
+#12 134.2 Setting up binutils (2.40-2) ...
+#12 134.2 Setting up perl (5.36.0-7+deb12u4) ...
+#12 134.2 Setting up libtirpc-dev:amd64 (1.3.3+ds-1) ...
+#12 134.2 Setting up gcc-12 (12.2.0-14+deb12u1) ...
+#12 134.3 Setting up libdpkg-perl (1.21.23) ...
+#12 134.3 Setting up libnsl2:amd64 (1.3.0-2) ...
+#12 134.3 Setting up libpython3.11-stdlib:amd64 (3.11.2-6+deb12u9) ...
+#12 134.3 Setting up gcc (4:12.2.0-3) ...
+#12 134.3 Setting up dpkg-dev (1.21.23) ...
+#12 134.3 Setting up libnsl-dev:amd64 (1.3.0-2) ...
+#12 134.3 Setting up libc6-dev:amd64 (2.36-9+deb12u14) ...
+#12 134.3 Setting up libpython3-stdlib:amd64 (3.11.2-1+b1) ...
+#12 134.3 Setting up python3.11 (3.11.2-6+deb12u9) ...
+#12 134.7 Setting up libstdc++-12-dev:amd64 (12.2.0-14+deb12u1) ...
+#12 134.7 Setting up python3 (3.11.2-1+b1) ...
+#12 134.7 running python rtupdate hooks for python3.11...
+#12 134.7 running python post-rtupdate hooks for python3.11...
+#12 134.8 Setting up g++-12 (12.2.0-14+deb12u1) ...
+#12 134.8 Setting up g++ (4:12.2.0-3) ...
+#12 134.8 update-alternatives: using /usr/bin/g++ to provide /usr/bin/c++ (c++) in auto mode
+#12 134.8 Setting up build-essential (12.9) ...
+#12 134.8 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+#12 134.8 Processing triggers for ca-certificates (20250419~deb12u2) ...
+#12 134.8 Updating certificates in /etc/ssl/certs...
+#12 135.1 0 added, 0 removed; done.
+#12 135.1 Running hooks in /etc/ca-certificates/update.d...
+#12 135.1 done.
+#12 DONE 135.3s
+
+#25 [libredwg 3/4] WORKDIR /src
+#25 DONE 0.1s
+
+#26 [libredwg 4/4] RUN curl -fsSL "https://github.com/LibreDWG/libredwg/releases/download/0.14/libredwg-0.14.tar.xz"         | tar -xJ --strip-components=1     && ./configure --prefix=/opt/libredwg --disable-bindings --disable-docs     && make -j"$(nproc)"     && make install-strip     && rm -rf /opt/libredwg/share /opt/libredwg/include /opt/libredwg/lib/*.a /opt/libredwg/lib/*.la
+#26 3.849 checking for a BSD-compatible install... /usr/bin/install -c
+#26 3.856 checking whether sleep supports fractional seconds... yes
+#26 3.858 checking filesystem timestamp resolution... 0.01
+#26 3.925 checking whether build environment is sane... yes
+#26 3.931 checking for a race-free mkdir -p... /usr/bin/mkdir -p
+#26 3.932 checking for gawk... no
+#26 3.932 checking for mawk... mawk
+#26 3.932 checking whether make sets $(MAKE)... yes
+#26 3.939 checking whether make supports nested variables... yes
+#26 3.942 checking xargs -n works... yes
+#26 3.948 checking whether UID '0' is supported by ustar format... yes
+#26 3.948 checking whether GID '0' is supported by ustar format... yes
+#26 3.948 checking how to create a ustar tar archive... gnutar
+#26 3.962 checking build system type... x86_64-pc-linux-gnu
+#26 3.993 checking host system type... x86_64-pc-linux-gnu
+#26 3.993 checking how to print strings... printf
+#26 3.995 checking whether make supports the include directive... yes (GNU style)
+#26 4.000 checking for gcc... gcc
+#26 4.017 checking whether the C compiler works... yes
+#26 4.039 checking for C compiler default output file name... a.out
+#26 4.040 checking for suffix of executables... 
+#26 4.061 checking whether we are cross compiling... no
+#26 4.084 checking for suffix of object files... o
+#26 4.096 checking whether the compiler supports GNU C... yes
+#26 4.108 checking whether gcc accepts -g... yes
+#26 4.120 checking for gcc option to enable C11 features... none needed
+#26 4.152 checking whether gcc understands -c and -o together... yes
+#26 4.172 checking dependency style of gcc... gcc3
+#26 4.190 checking for a sed that does not truncate output... /usr/bin/sed
+#26 4.194 checking for grep that handles long lines and -e... /usr/bin/grep
+#26 4.195 checking for egrep... /usr/bin/grep -E
+#26 4.196 checking for fgrep... /usr/bin/grep -F
+#26 4.197 checking for ld used by gcc... /usr/bin/ld
+#26 4.200 checking if the linker (/usr/bin/ld) is GNU ld... yes
+#26 4.202 checking for BSD- or MS-compatible name lister (nm)... /usr/bin/nm -B
+#26 4.203 checking the name lister (/usr/bin/nm -B) interface... BSD nm
+#26 4.215 checking whether ln -s works... yes
+#26 4.215 checking the maximum length of command line arguments... 1572864
+#26 4.220 checking how to convert x86_64-pc-linux-gnu file names to x86_64-pc-linux-gnu format... func_convert_file_noop
+#26 4.220 checking how to convert x86_64-pc-linux-gnu file names to toolchain format... func_convert_file_noop
+#26 4.220 checking for /usr/bin/ld option to reload object files... -r
+#26 4.220 checking for file... :
+#26 4.220 checking for objdump... objdump
+#26 4.220 checking how to recognize dependent libraries... pass_all
+#26 4.220 checking for dlltool... no
+#26 4.221 checking how to associate runtime and link libraries... printf %s\n
+#26 4.221 checking for ranlib... ranlib
+#26 4.221 checking for ar... ar
+#26 4.221 checking for archiver @FILE support... @
+#26 4.242 checking for strip... strip
+#26 4.243 checking command to parse /usr/bin/nm -B output from gcc object... ok
+#26 4.289 checking for sysroot... no
+#26 4.289 checking for a working dd... /usr/bin/dd
+#26 4.291 checking how to truncate binary pipes... /usr/bin/dd bs=4096 count=1
+#26 4.301 checking for mt... no
+#26 4.301 checking if : is a manifest tool... no
+#26 4.304 checking for stdio.h... yes
+#26 4.314 checking for stdlib.h... yes
+#26 4.327 checking for string.h... yes
+#26 4.342 checking for inttypes.h... yes
+#26 4.355 checking for stdint.h... yes
+#26 4.368 checking for strings.h... yes
+#26 4.382 checking for sys/stat.h... yes
+#26 4.395 checking for sys/types.h... yes
+#26 4.411 checking for unistd.h... yes
+#26 4.428 checking for dlfcn.h... yes
+#26 4.443 checking for objdir... .libs
+#26 4.476 checking if gcc supports -fno-rtti -fno-exceptions... no
+#26 4.488 checking for gcc option to produce PIC... -fPIC -DPIC
+#26 4.488 checking if gcc PIC flag -fPIC -DPIC works... yes
+#26 4.498 checking if gcc static flag -static works... yes
+#26 4.530 checking if gcc supports -c -o file.o... yes
+#26 4.548 checking if gcc supports -c -o file.o... (cached) yes
+#26 4.548 checking whether the gcc linker (/usr/bin/ld) supports shared libraries... yes
+#26 4.554 checking whether -lc should be explicitly linked in... no
+#26 4.567 checking dynamic linker characteristics... GNU/Linux ld.so
+#26 4.603 checking how to hardcode library paths into programs... immediate
+#26 4.603 checking whether stripping libraries is possible... yes
+#26 4.604 checking if libtool supports shared libraries... yes
+#26 4.604 checking whether to build shared libraries... yes
+#26 4.604 checking whether to build static libraries... yes
+#26 4.605 checking PACKAGE_VERSION... 0.14
+#26 4.605 checking LIBREDWG_SO_VERSION... 0:14:0
+#26 4.606 checking for pkg-config... /usr/bin/pkg-config
+#26 4.607 checking pkg-config is at least version 0.9.0... yes
+#26 4.608 checking whether ln -s works... yes
+#26 4.608 checking whether make sets $(MAKE)... (cached) yes
+#26 4.609 checking for egrep... (cached) /usr/bin/grep -E
+#26 4.610 checking for bash... /bin/bash
+#26 4.610 checking for inline... inline
+#26 4.618 checking for C/C++ restrict keyword... __restrict__
+#26 4.631 checking for ld... /usr/bin/ld
+#26 4.632 checking if the linker (/usr/bin/ld) is GNU ld... yes
+#26 4.633 checking for shared library run path origin... done
+#26 4.644 checking 32-bit host C ABI... no
+#26 4.652 checking how to run the C preprocessor... gcc -E
+#26 4.682 checking for egrep -e... (cached) /usr/bin/grep -E
+#26 4.683 checking for ELF binary format... yes
+#26 4.689 checking for the common suffixes of directories in the library search path... lib,lib,lib64
+#26 4.701 checking for iconv... yes
+#26 4.729 checking for iconv declaration... 
+#26 4.746          extern size_t iconv (iconv_t cd, char * *inbuf, size_t *inbytesleft, char * *outbuf, size_t *outbytesleft);
+#26 4.747 checking for PS_open_file in -lps -lm... no
+#26 4.766 checking for pcre2_config_8 in -lpcre2-8... no
+#26 4.783 configure: WARNING: libpcre2 for dwggrep not found
+#26 4.784 checking for pcre2_config_16 in -lpcre2-16... no
+#26 4.801 checking for newXMLEntity in -lxml2... no
+#26 4.819 configure: WARNING: libxml-2.0 for test/xmlsuite not found
+#26 4.819 checking for egrep... (cached) /usr/bin/grep -E
+#26 4.819 checking for stdlib.h... (cached) yes
+#26 4.819 checking for string.h... (cached) yes
+#26 4.819 checking for stddef.h... yes
+#26 4.834 checking for unistd.h... (cached) yes
+#26 4.834 checking for malloc.h... yes
+#26 4.848 checking for wchar.h... yes
+#26 4.863 checking for ctype.h... yes
+#26 4.878 checking for wctype.h... yes
+#26 4.893 checking for float.h... yes
+#26 4.908 checking for limits.h... yes
+#26 4.923 checking for sys/param.h... yes
+#26 4.938 checking for direct.h... no
+#26 4.954 checking for libgen.h... yes
+#26 4.967 checking for iconv.h... yes
+#26 4.982 checking for sys/time.h... yes
+#26 4.998 checking for getopt.h... yes
+#26 5.014 checking for alloca.h... yes
+#26 5.030 checking for valgrind/valgrind.h... no
+#26 5.053 checking for endian.h... yes
+#26 5.074 checking for byteswap.h... yes
+#26 5.092 checking for mimalloc-override.h... no
+#26 5.108 checking whether byte ordering is bigendian... no
+#26 5.149 checking for _Bool... yes
+#26 5.187 checking for stdbool.h that conforms to C99 or later... yes
+#26 5.201 checking for strcasecmp header file... <strings.h>
+#26 5.222 checking if le16toh is available in endian.h... yes
+#26 5.244 checking if le32toh is available in endian.h... yes
+#26 5.268 checking if le64toh is available in endian.h... yes
+#26 5.291 checking if htole32 is available in endian.h... yes
+#26 5.314 checking if htole64 is available in endian.h... yes
+#26 5.334 checking if htobe16 is available in endian.h... yes
+#26 5.361 checking if htobe32 is available in endian.h... yes
+#26 5.385 checking if htobe64 is available in endian.h... yes
+#26 5.408 checking if be64toh is available in endian.h... yes
+#26 5.432 configure: WARNING: Couldn't find pcre2.h. No regex support in dwggrep
+#26 5.432 checking if pointers to integers require aligned access... no
+#26 5.462 checking for size_t... yes
+#26 5.498 checking for int16_t... yes
+#26 5.534 checking for uint16_t... yes
+#26 5.553 checking for int32_t... yes
+#26 5.591 checking for uint32_t... yes
+#26 5.608 checking for int64_t... yes
+#26 5.645 checking for uint64_t... yes
+#26 5.663 checking size of size_t... 8
+#26 5.695 checking size of wchar_t... 4
+#26 5.712 configure: WARNING: libxml-2.0 for test/xmlsuite missing
+#26 5.712 configure: WARNING: pslib for dwg2ps missing with release
+#26 5.727 checking whether C compiler accepts -Werror=unknown-warning-option... no
+#26 5.742 checking whether C compiler accepts -Wsuggest-attribute=format... yes
+#26 5.755 checking whether C compiler accepts -mretpoline -DRETPOLINE... no
+#26 5.766 checking whether C compiler accepts -mindirect-branch=thunk-extern -mfunction-return=thunk-extern -mindirect-branch-register -DRETPOLINE... yes
+#26 5.779 checking whether C compiler accepts -fno-strict-aliasing... yes
+#26 5.792 checking whether C compiler accepts -fno-semantic-interposition... yes
+#26 5.805 checking whether C compiler accepts -fwrapv... yes
+#26 5.817 checking whether C compiler accepts -fno-common... yes
+#26 5.832 checking whether C compiler accepts -fvisibility=hidden... yes
+#26 5.845 checking whether C compiler accepts -fno-strict-aliasing... (cached) yes
+#26 5.846 checking whether C compiler accepts -ftrivial-auto-var-init=zero... yes
+#26 5.859 checking whether C compiler accepts -fstrict-flex-arrays=3... no
+#26 5.873 checking whether C compiler accepts -fstack-protector-strong... yes
+#26 5.887 checking whether C compiler accepts -fstack-clash-protection... yes
+#26 5.901 checking whether C compiler accepts -fcf-protection=full... yes
+#26 5.915 checking whether C compiler accepts -fno-delete-null-pointer-checks... yes
+#26 5.931 checking whether C compiler accepts -Wno-alloc-size... yes
+#26 5.947 checking whether C compiler accepts -Wall... yes
+#26 5.962 checking whether C compiler accepts -Wextra... yes
+#26 5.979 checking whether C compiler accepts -Wundef... yes
+#26 5.995 checking whether C compiler accepts -Wwrite-strings... yes
+#26 6.010 checking whether C compiler accepts -Wpointer-arith... yes
+#26 6.025 checking whether C compiler accepts -Wmissing-declarations... yes
+#26 6.040 checking whether C compiler accepts -Wredundant-decls... yes
+#26 6.056 checking whether C compiler accepts -Wno-unused-variable... yes
+#26 6.072 checking whether C compiler accepts -Wno-unused-parameter... yes
+#26 6.087 checking whether C compiler accepts -Wno-unused-but-set-variable... yes
+#26 6.102 checking whether C compiler accepts -Wmissing-field-initializers... yes
+#26 6.115 checking whether C compiler accepts -Wcast-align... yes
+#26 6.129 checking whether C compiler accepts -Wformat=2... yes
+#26 6.142 checking whether C compiler accepts -Wformat-nonliteral... no
+#26 6.160 checking whether C compiler accepts -Wformat-security... no
+#26 6.176 checking whether C compiler accepts -Wformat-y2k... no
+#26 6.192 checking whether C compiler accepts -Wsign-compare... yes
+#26 6.207 checking whether C compiler accepts -Wstrict-aliasing... yes
+#26 6.224 checking whether C compiler accepts -Wshadow... yes
+#26 6.238 checking whether C compiler accepts -Winline... yes
+#26 6.252 checking whether C compiler accepts -Wpacked... yes
+#26 6.265 checking whether C compiler accepts -Wmissing-format-attribute... yes
+#26 6.278 checking whether C compiler accepts -Wmissing-noreturn... yes
+#26 6.291 checking whether C compiler accepts -Winit-self... yes
+#26 6.307 checking whether C compiler accepts -Wredundant-decls... (cached) yes
+#26 6.309 checking whether C compiler accepts -Wmissing-include-dirs... yes
+#26 6.324 checking whether C compiler accepts -Warray-bounds... yes
+#26 6.340 checking whether C compiler accepts -Wreturn-type... yes
+#26 6.356 checking whether C compiler accepts -Wswitch-enum... (cached) no
+#26 6.358 checking whether C compiler accepts -Wswitch-default... yes
+#26 6.374 checking whether C compiler accepts -Wduplicated-cond... yes
+#26 6.391 checking whether C compiler accepts -Wduplicated-branches... yes
+#26 6.407 checking whether C compiler accepts -Wlogical-op... yes
+#26 6.424 checking whether C compiler accepts -Wrestrict... yes
+#26 6.440 checking whether C compiler accepts -Wnull-dereference... yes
+#26 6.456 checking whether C compiler accepts -Wdouble-promotion... yes
+#26 6.471 checking whether C compiler accepts -Wchar-subscripts... yes
+#26 6.486 checking whether C compiler accepts -Wformat=2 -Wformat-nonliteral... yes
+#26 6.501 checking whether C compiler accepts -Wformat=2 -Wformat-security... yes
+#26 6.516 checking whether C compiler accepts -Wformat=2 -Wformat-y2k... yes
+#26 6.530 checking whether C compiler accepts -Wnested-externs... yes
+#26 6.546 checking whether C compiler accepts -Wmissing-prototypes... yes
+#26 6.561 checking whether C compiler accepts -Wstrict-prototypes... yes
+#26 6.574 checking whether C compiler accepts -Wdeclaration-after-statement... yes
+#26 6.588 checking whether C compiler accepts -Wimplicit-function-declaration... yes
+#26 6.604 checking whether C compiler accepts -Wold-style-definition... yes
+#26 6.619 checking whether C compiler accepts -Wjump-misses-init... yes
+#26 6.634 checking whether C compiler accepts -Wno-error=alloc-size... no
+#26 6.647 checking whether C compiler accepts -Wno-error=unused-variable... yes
+#26 6.662 checking whether C compiler accepts -Wno-error=unused-parameter... yes
+#26 6.682 checking whether C compiler accepts -Wno-error=unused-but-set-variable... yes
+#26 6.697 checking whether C compiler accepts -Werror=unknown-warning-option... (cached) no
+#26 6.697 checking whether the linker accepts -Wl,--as-needed... yes
+#26 6.724 checking whether the linker accepts -Wl,--as-needed... yes
+#26 6.749 checking whether the linker accepts -Wl,-z,relro... yes
+#26 6.776 checking whether the linker accepts -Wl,-z,relro... yes
+#26 6.806 checking whether the linker accepts -Wl,-z,now... yes
+#26 6.836 checking whether the linker accepts -Wl,-z,now... yes
+#26 6.862 checking whether the linker accepts -Wl,-z,noexecstack... yes
+#26 6.889 checking whether the linker accepts -Wl,-z,noexecstack... yes
+#26 6.918 checking whether the linker accepts -Wl,--no-as-needed... yes
+#26 6.944 checking whether the linker accepts -Wl,--fatal-warnings... yes
+#26 6.971 checking whether the linker accepts -Wl,-fatal_warnings... no
+#26 6.996 checking whether the linker accepts -Wl,--no-as-needed... yes
+#26 7.025 checking for __attribute__((visibility("default")))... yes
+#26 7.042 checking whether C compiler accepts -Werror... yes
+#26 7.058 checking for __attribute__((gnu_format))... yes
+#26 7.084 checking for __attribute__((ms_format))... yes
+#26 7.110 checking for __attribute__((format))... yes
+#26 7.134 checking for __attribute__((malloc))... yes
+#26 7.157 checking for __attribute__((returns_nonnull))... yes
+#26 7.184 checking for __attribute__((noreturn))... yes
+#26 7.210 checking for __attribute__((aligned))... yes
+#26 7.235 checking for __attribute__((counted_by))... no
+#26 7.250 checking for printf() modifier to use with size_t... "z"
+#26 7.275 checking for GNU libc compatible malloc... (cached) yes
+#26 7.275 checking for GNU libc compatible realloc... (cached) yes
+#26 7.275 checking whether lstat correctly handles trailing slash... yes
+#26 7.306 checking whether stat accepts an empty string... no
+#26 7.333 checking for working alloca.h... yes
+#26 7.363 checking for alloca... yes
+#26 7.363 checking for strtod... yes
+#26 7.387 checking for strdup... yes
+#26 7.411 checking for getopt_long... yes
+#26 7.433 checking for basename... yes
+#26 7.457 checking for strcasestr... yes
+#26 7.482 checking for scandir... yes
+#26 7.506 checking for floor... no
+#26 7.536 checking for sqrt... no
+#26 7.566 checking for gettimeofday... yes
+#26 7.590 checking for floor in -lm... yes
+#26 7.621 checking for sincos... yes
+#26 7.654 checking for memchr... yes
+#26 7.682 checking for memmove... yes
+#26 7.710 checking for strcasecmp... yes
+#26 7.738 checking for strchr... yes
+#26 7.764 checking for strstr... yes
+#26 7.789 checking for strrchr... yes
+#26 7.817 checking for strtol... yes
+#26 7.841 checking for strtoll... yes
+#26 7.867 checking for strtoul... yes
+#26 7.891 checking for strtoull... yes
+#26 7.915 checking for strnlen... yes
+#26 7.940 checking for memmem... yes
+#26 7.963 checking for gmtime_r... yes
+#26 7.987 checking for wcslen... yes
+#26 8.012 checking for wcsnlen... yes
+#26 8.037 checking for wcscpy... yes
+#26 8.060 checking for wcscmp... yes
+#26 8.084 checking for wcsstr... yes
+#26 8.111 checking for sscanf_s... no
+#26 8.142 configure: WARNING: No secure sscanf_s found. dwgfuzz -add will produce false positives.
+#26 8.144 checking for --enable-debug... no (default)
+#26 8.144 checking whether C compiler accepts -Werror... (cached) yes
+#26 8.144 checking whether to add -D_FORTIFY_SOURCE=3 to CPPFLAGS... yes
+#26 8.197 checking for C restrict usability... restrict
+#26 8.224 yes
+#26 8.224 checking for --disable-write... no (default)
+#26 8.224 checking for --enable-trace... no (default)
+#26 8.224 checking for --with-dxf-precision... max (default)
+#26 8.224 checking for --with-geojson-precision... max (default)
+#26 8.224 checking for --disable-werror... no (default)
+#26 8.224 checking for setenv... yes
+#26 8.249 checking for --disable-dxf... no (default)
+#26 8.249 checking for --disable-json... no (default)
+#26 8.249 checking for --disable-bindings... yes
+#26 8.249 checking for --disable-docs... yes
+#26 8.249 checking for --enable-check-less... no (default)
+#26 8.249 checking for --with-mimalloc... no mimalloc headers found
+#26 8.249 checking for --enable-gcov... no (default)
+#26 8.249 checking for gperf... no
+#26 8.250 checking for latest clang-format... echo
+#26 8.488 checking for latest clang-tidy... echo
+#26 8.713 checking for --disable-python... check (default)
+#26 8.714 configure: WARNING: disabled swig bindings
+#26 8.714 checking for python... no
+#26 8.714 checking for python3... /usr/bin/python3
+#26 8.714 checking for python version... 3.11
+#26 8.721 checking for python platform... linux
+#26 8.728 checking for GNU default python prefix... ${prefix}
+#26 8.728 checking for GNU default python exec_prefix... ${exec_prefix}
+#26 8.728 checking for python script directory (pythondir)... ${PYTHON_PREFIX}/lib/python3.11/site-packages
+#26 8.746 checking for python extension module directory (pyexecdir)... ${PYTHON_EXEC_PREFIX}/lib/python3.11/site-packages
+#26 8.765 checking for perl... /usr/bin/perl
+#26 8.765 checking PERL version... v5.36.0
+#26 8.772 checking python extension suffix... .cpython-311-x86_64-linux-gnu.so
+#26 8.781 checking for ODAFileConverter... no
+#26 8.781 checking for TeighaFileConverter... no
+#26 8.781 checking for xvfb-run... no
+#26 8.781 checking for cppcheck... no
+#26 8.781 checking for picat... no
+#26 8.782 checking for parallel... no
+#26 8.782 checking for timeout... timeout
+#26 8.782 checking TIMEOUT version... 9.1
+#26 8.784 checking for makeinfo... ${SHELL} '/src/build-aux/missing' makeinfo
+#26 8.784 checking MAKEINFO version... 
+#26 8.786 checking for ./../ODA-spec... no
+#26 8.786 checking for doxygen... no
+#26 8.786 checking for jq... no
+#26 8.787 checking for shellcheck... no
+#26 8.787 checking for shfmt... no
+#26 8.787 checking for rpmlint... no
+#26 8.787 checking for geojsonhint... no
+#26 8.787 checking for gjv... no
+#26 8.788 checking for jing... no
+#26 8.788 checking for valgrind... no
+#26 8.808 checking that generated files are newer than configure... done
+#26 8.808 configure: creating ./config.status
+#26 9.122 config.status: creating Makefile
+#26 9.131 config.status: creating src/Makefile
+#26 9.140 config.status: creating src/codepages/Makefile
+#26 9.150 config.status: creating doc/Makefile
+#26 9.161 config.status: creating programs/Makefile
+#26 9.170 config.status: creating examples/Makefile
+#26 9.180 config.status: creating test/Makefile
+#26 9.190 config.status: creating test/unit-testing/Makefile
+#26 9.201 config.status: creating libredwg.pc
+#26 9.209 config.status: creating vcpkg.json
+#26 9.217 config.status: creating programs/dwgfilter
+#26 9.228 config.status: creating programs/alive.test
+#26 9.239 config.status: creating programs/dxf.test
+#26 9.250 config.status: creating programs/dxfb.test
+#26 9.260 config.status: creating programs/json.test
+#26 9.271 config.status: creating programs/svg.test
+#26 9.281 config.status: creating programs/dwgfilter.test
+#26 9.291 config.status: creating examples/dwgadd_test.sh
+#26 9.302 config.status: creating logs-all.sh
+#26 9.310 config.status: creating log
+#26 9.318 config.status: creating dwg
+#26 9.327 config.status: creating dxf
+#26 9.335 config.status: creating json
+#26 9.343 config.status: creating geojson
+#26 9.352 config.status: creating svg
+#26 9.362 config.status: creating rw
+#26 9.371 config.status: creating dynapi_test_all.sh
+#26 9.380 config.status: creating unit_testing_all.sh
+#26 9.390 config.status: creating src/config.h
+#26 9.399 config.status: executing depfiles commands
+#26 10.15 config.status: executing libtool commands
+#26 10.18 make  all-recursive
+#26 10.18 make[1]: Entering directory '/src'
+#26 10.19 Making all in src
+#26 10.19 make[2]: Entering directory '/src/src'
+#26 10.19 make  all-recursive
+#26 10.19 make[3]: Entering directory '/src/src'
+#26 10.19 Making all in codepages
+#26 10.20 make[4]: Entering directory '/src/src/codepages'
+#26 10.20 make[4]: Nothing to be done for 'all'.
+#26 10.20 make[4]: Leaving directory '/src/src/codepages'
+#26 10.20 make[4]: Entering directory '/src/src'
+#26 10.20   CC       dwg.lo
+#26 10.20   CC       common.lo
+#26 10.20   CC       codepages.lo
+#26 10.20   CC       bits.lo
+#26 10.20   CC       logging.lo
+#26 10.20   CC       decode.lo
+#26 10.20   CC       decode2.lo
+#26 10.20   CC       decode_r11.lo
+#26 10.20   CC       decode_r2007.lo
+#26 10.20   CC       reedsolomon.lo
+#26 10.20   CC       print.lo
+#26 10.20   CC       free.lo
+#26 10.20   CC       dynapi.lo
+#26 10.20   CC       hash.lo
+#26 10.20   CC       classes.lo
+#26 10.20   CC       dwg_api.lo
+#26 10.49   CC       objects.lo
+#26 10.50   CC       geom.lo
+#26 10.67   CC       out_dxf.lo
+#26 10.73   CC       out_dxfb.lo
+#26 10.73   CC       out_json.lo
+#26 10.81   CC       out_geojson.lo
+#26 10.91   CC       encode.lo
+#26 11.55   CC       encode2.lo
+#26 11.07   CC       dxfclasses.lo
+#26 11.19   CC       in_dxf.lo
+#26 11.52   CC       in_json.lo
+#26 200.1   CCLD     libredwg.la
+#26 200.9 make[4]: Leaving directory '/src/src'
+#26 200.9 make[3]: Leaving directory '/src/src'
+#26 200.9 make[2]: Leaving directory '/src/src'
+#26 200.9 Making all in programs
+#26 200.9 make[2]: Entering directory '/src/programs'
+#26 200.9   CC       dwgread.o
+#26 200.9   CC       dwgbmp.o
+#26 200.9   CC       dwg2dxf.o
+#26 200.9   CC       dwg2SVG.o
+#26 200.9   CC       escape.o
+#26 200.9   CC       dwglayers.o
+#26 200.9   CC       dwggrep-dwggrep.o
+#26 200.9   CC       dwgrewrite.o
+#26 200.9   CC       dxf2dwg.o
+#26 200.9   CC       dwgwrite.o
+#26 200.9   CC       dxfwrite.o
+#26 201.0   CCLD     dwglayers
+#26 201.1   CCLD     dxf2dwg
+#26 201.1   CCLD     dwgbmp
+#26 201.1   CCLD     dwgrewrite
+#26 201.1   CCLD     dwgread
+#26 201.1   CCLD     dwg2dxf
+#26 201.1   CCLD     dxfwrite
+#26 201.1   CCLD     dwgwrite
+#26 201.3   CCLD     dwg2SVG
+#26 202.4   CCLD     dwggrep
+#26 202.5 make[2]: Leaving directory '/src/programs'
+#26 202.5 Making all in examples
+#26 202.5 make[2]: Entering directory '/src/examples'
+#26 202.5   CC       dwgadd.o
+#26 202.5   CC       load_dwg.o
+#26 202.5   CC       dwg2svg2.o
+#26 202.5   CC       dwgfuzz.o
+#26 202.6   CCLD     load_dwg
+#26 202.6   CCLD     dwgfuzz
+#26 202.7   CCLD     dwg2svg2
+#26 205.1   CCLD     dwgadd
+#26 205.2 make[2]: Leaving directory '/src/examples'
+#26 205.2 Making all in test
+#26 205.2 make[2]: Entering directory '/src/test'
+#26 205.2 Making all in unit-testing
+#26 205.2 make[3]: Entering directory '/src/test/unit-testing'
+#26 205.2 make[3]: Nothing to be done for 'all'.
+#26 205.2 make[3]: Leaving directory '/src/test/unit-testing'
+#26 205.2 make[3]: Entering directory '/src/test'
+#26 205.2 make[3]: Nothing to be done for 'all-am'.
+#26 205.2 make[3]: Leaving directory '/src/test'
+#26 205.2 make[2]: Leaving directory '/src/test'
+#26 205.2 make[2]: Entering directory '/src'
+#26 205.2 make[2]: Nothing to be done for 'all-am'.
+#26 205.2 make[2]: Leaving directory '/src'
+#26 205.2 make[1]: Leaving directory '/src'
+#26 205.2 if test -z 'strip'; then \
+#26 205.2   make  INSTALL_PROGRAM="/bin/bash /src/build-aux/install-sh -c -s" \
+#26 205.2     install_sh_PROGRAM="/bin/bash /src/build-aux/install-sh -c -s" INSTALL_STRIP_FLAG=-s \
+#26 205.2       install; \
+#26 205.2 else \
+#26 205.2   make  INSTALL_PROGRAM="/bin/bash /src/build-aux/install-sh -c -s" \
+#26 205.2     install_sh_PROGRAM="/bin/bash /src/build-aux/install-sh -c -s" INSTALL_STRIP_FLAG=-s \
+#26 205.2     "INSTALL_PROGRAM_ENV=STRIPPROG='strip'" install; \
+#26 205.2 fi
+#26 205.2 make[1]: Entering directory '/src'
+#26 205.2 make  install-recursive
+#26 205.2 make[2]: Entering directory '/src'
+#26 205.2 Making install in src
+#26 205.2 make[3]: Entering directory '/src/src'
+#26 205.2 Making install in codepages
+#26 205.2 make[4]: Entering directory '/src/src/codepages'
+#26 205.2 make[5]: Entering directory '/src/src/codepages'
+#26 205.2 make[5]: Nothing to be done for 'install-exec-am'.
+#26 205.2 make[5]: Nothing to be done for 'install-data-am'.
+#26 205.2 make[5]: Leaving directory '/src/src/codepages'
+#26 205.2 make[4]: Leaving directory '/src/src/codepages'
+#26 205.2 make[4]: Entering directory '/src/src'
+#26 205.2 make[5]: Entering directory '/src/src'
+#26 205.2  /usr/bin/mkdir -p '/opt/libredwg/lib'
+#26 205.2  /bin/bash ../libtool   --mode=install /usr/bin/install -c -s  libredwg.la '/opt/libredwg/lib'
+#26 205.2 libtool: install: /usr/bin/install -c .libs/libredwg.so.0.0.14 /opt/libredwg/lib/libredwg.so.0.0.14
+#26 205.3 libtool: install: strip --strip-unneeded /opt/libredwg/lib/libredwg.so.0.0.14
+#26 205.3 libtool: install: (cd /opt/libredwg/lib && { ln -s -f libredwg.so.0.0.14 libredwg.so.0 || { rm -f libredwg.so.0 && ln -s libredwg.so.0.0.14 libredwg.so.0; }; })
+#26 205.3 libtool: install: (cd /opt/libredwg/lib && { ln -s -f libredwg.so.0.0.14 libredwg.so || { rm -f libredwg.so && ln -s libredwg.so.0.0.14 libredwg.so; }; })
+#26 205.3 libtool: install: /usr/bin/install -c .libs/libredwg.lai /opt/libredwg/lib/libredwg.la
+#26 205.3 libtool: install: /usr/bin/install -c .libs/libredwg.a /opt/libredwg/lib/libredwg.a
+#26 205.4 libtool: install: strip --strip-debug /opt/libredwg/lib/libredwg.a
+#26 205.5 libtool: install: chmod 644 /opt/libredwg/lib/libredwg.a
+#26 205.5 libtool: install: ranlib /opt/libredwg/lib/libredwg.a
+#26 205.6 libtool: finish: PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/sbin" ldconfig -n /opt/libredwg/lib
+#26 205.6 ----------------------------------------------------------------------
+#26 205.6 Libraries have been installed in:
+#26 205.6    /opt/libredwg/lib
+#26 205.6 
+#26 205.6 If you ever happen to want to link against installed libraries
+#26 205.6 in a given directory, LIBDIR, you must either use libtool, and
+#26 205.6 specify the full pathname of the library, or use the '-LLIBDIR'
+#26 205.6 flag during linking and do at least one of the following:
+#26 205.6    - add LIBDIR to the 'LD_LIBRARY_PATH' environment variable
+#26 205.6      during execution
+#26 205.6    - add LIBDIR to the 'LD_RUN_PATH' environment variable
+#26 205.6      during linking
+#26 205.6    - use the '-Wl,-rpath -Wl,LIBDIR' linker flag
+#26 205.6    - have your system administrator add LIBDIR to '/etc/ld.so.conf'
+#26 205.6 
+#26 205.6 See any operating system documentation about shared libraries for
+#26 205.6 more information, such as the ld(1) and ld.so(8) manual pages.
+#26 205.6 ----------------------------------------------------------------------
+#26 205.6 make[5]: Nothing to be done for 'install-data-am'.
+#26 205.6 make[5]: Leaving directory '/src/src'
+#26 205.6 make[4]: Leaving directory '/src/src'
+#26 205.6 make[3]: Leaving directory '/src/src'
+#26 205.6 Making install in programs
+#26 205.6 make[3]: Entering directory '/src/programs'
+#26 205.6 make[4]: Entering directory '/src/programs'
+#26 205.6  /usr/bin/mkdir -p '/opt/libredwg/bin'
+#26 205.6  STRIPPROG='strip' /bin/bash ../libtool   --mode=install /bin/bash /src/build-aux/install-sh -c -s dwgread dwgbmp dwg2dxf dwg2SVG dwglayers dwggrep dwgrewrite dxf2dwg dwgwrite dxfwrite '/opt/libredwg/bin'
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwgread /opt/libredwg/bin/dwgread
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwgbmp /opt/libredwg/bin/dwgbmp
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwg2dxf /opt/libredwg/bin/dwg2dxf
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwg2SVG /opt/libredwg/bin/dwg2SVG
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwglayers /opt/libredwg/bin/dwglayers
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwggrep /opt/libredwg/bin/dwggrep
+#26 205.7 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwgrewrite /opt/libredwg/bin/dwgrewrite
+#26 205.8 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dxf2dwg /opt/libredwg/bin/dxf2dwg
+#26 205.8 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwgwrite /opt/libredwg/bin/dwgwrite
+#26 205.8 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dxfwrite /opt/libredwg/bin/dxfwrite
+#26 205.8  /usr/bin/mkdir -p '/opt/libredwg/bin'
+#26 205.8  /usr/bin/install -c dwgfilter '/opt/libredwg/bin'
+#26 205.8  /usr/bin/mkdir -p '/opt/libredwg/share/man/man1'
+#26 205.8  /usr/bin/install -c -m 644 ./dwgread.1 ./dwgbmp.1 ./dwg2dxf.1 ./dwg2SVG.1 ./dwglayers.1 ./dwggrep.1 ./dwgfilter.1 ./dwgrewrite.1 ./dxf2dwg.1 ./dwgwrite.1 ./dxfwrite.1 '/opt/libredwg/share/man/man1'
+#26 205.8 make[4]: Leaving directory '/src/programs'
+#26 205.8 make[3]: Leaving directory '/src/programs'
+#26 205.8 Making install in examples
+#26 205.8 make[3]: Entering directory '/src/examples'
+#26 205.8 make[4]: Entering directory '/src/examples'
+#26 205.8  /usr/bin/mkdir -p '/opt/libredwg/bin'
+#26 205.8  STRIPPROG='strip' /bin/bash ../libtool   --mode=install /bin/bash /src/build-aux/install-sh -c -s dwgadd '/opt/libredwg/bin'
+#26 205.8 libtool: install: /bin/bash /src/build-aux/install-sh -c -s .libs/dwgadd /opt/libredwg/bin/dwgadd
+#26 205.9  /usr/bin/mkdir -p '/opt/libredwg/share/libredwg'
+#26 205.9  /usr/bin/install -c -m 644 dwgadd.example dwgadd.example_r11 dwgadd.example_r10 dwgadd.example_r2_10 dwgadd.example_r1_4 load_dwg.py '/opt/libredwg/share/libredwg'
+#26 205.9  /usr/bin/mkdir -p '/opt/libredwg/share/man/man1'
+#26 205.9  /usr/bin/install -c -m 644 ./dwgadd.1 '/opt/libredwg/share/man/man1'
+#26 205.9  /usr/bin/mkdir -p '/opt/libredwg/share/man/man5'
+#26 205.9  /usr/bin/install -c -m 644 ./dwgadd.5 '/opt/libredwg/share/man/man5'
+#26 205.9 make[4]: Leaving directory '/src/examples'
+#26 205.9 make[3]: Leaving directory '/src/examples'
+#26 205.9 Making install in test
+#26 205.9 make[3]: Entering directory '/src/test'
+#26 205.9 Making install in unit-testing
+#26 205.9 make[4]: Entering directory '/src/test/unit-testing'
+#26 205.9 make[5]: Entering directory '/src/test/unit-testing'
+#26 205.9 make[5]: Nothing to be done for 'install-exec-am'.
+#26 205.9 make[5]: Nothing to be done for 'install-data-am'.
+#26 205.9 make[5]: Leaving directory '/src/test/unit-testing'
+#26 205.9 make[4]: Leaving directory '/src/test/unit-testing'
+#26 205.9 make[4]: Entering directory '/src/test'
+#26 205.9 make[5]: Entering directory '/src/test'
+#26 205.9 make[5]: Nothing to be done for 'install-exec-am'.
+#26 205.9 make[5]: Nothing to be done for 'install-data-am'.
+#26 205.9 make[5]: Leaving directory '/src/test'
+#26 205.9 make[4]: Leaving directory '/src/test'
+#26 205.9 make[3]: Leaving directory '/src/test'
+#26 205.9 make[3]: Entering directory '/src'
+#26 205.9 make[4]: Entering directory '/src'
+#26 205.9 make[4]: Nothing to be done for 'install-exec-am'.
+#26 205.9  /usr/bin/mkdir -p '/opt/libredwg/include'
+#26 205.9  /usr/bin/install -c -m 644 include/dwg.h include/dwg_api.h '/opt/libredwg/include'
+#26 205.9  /usr/bin/mkdir -p '/opt/libredwg/lib/pkgconfig'
+#26 205.9  /usr/bin/install -c -m 644 libredwg.pc '/opt/libredwg/lib/pkgconfig'
+#26 205.9 make[4]: Leaving directory '/src'
+#26 205.9 make[3]: Leaving directory '/src'
+#26 205.9 make[2]: Leaving directory '/src'
+#26 205.9 make[1]: Leaving directory '/src'
+#26 DONE 206.0s
+
+#27 [stage-3 5/7] COPY --from=libredwg /opt/libredwg /opt/libredwg
+#27 DONE 0.1s
+
+#28 [stage-3 6/7] COPY --from=server /app /app
+#28 DONE 0.7s
+
+#29 [stage-3 7/7] COPY --from=web /web/dist /app/web
+#29 DONE 0.1s
+
+#30 exporting to image
+#30 exporting layers
+#30 exporting layers 7.1s done
+#30 exporting manifest sha256:4a626ad394ac9821f7500defa833ae46cead2135662f2c9ddf57bddd5db2fd45 0.0s done
+#30 exporting config sha256:0fab8ee5924961967c0ec5b9757d8d5f4537b7a8e2bd60a8ca12a22a765bdbdc done
+#30 exporting attestation manifest sha256:7217b7655be581cc8d49d0e8cca126c4c5d7ad67ed66288e5d50cacec4e28a53 done
+#30 exporting manifest list sha256:bcf41f7bfb994f9d272d4915a97afe87011e109bd06300535fb30dd29a8eb282 0.0s done
+#30 naming to docker.io/library/review-app:e43c6a9 done
+#30 unpacking to docker.io/library/review-app:e43c6a9
+#30 unpacking to docker.io/library/review-app:e43c6a9 1.0s done
+#30 DONE 7.8s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/rbdkldynni540purbjsv384mc
+
+real	6m7.109s
+user	0m0.060s
+sys	0m0.046s

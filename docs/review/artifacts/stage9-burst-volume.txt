@@ -1,0 +1,14 @@
+/api/inventory/units?limit=100 x50: codes {200: 50}, p50 4.55s, p95 9.12s, max 9.48s, wall 9.5s
+/api/inventory/units?limit=100 x200: codes {200: 200}, p50 15.27s, p95 26.61s, max 28.14s, wall 28.2s
+/api/inventory/cost?group_by=building,floor,layer x50: codes {0: 13, 200: 37}, p50 37.49s, p95 46.90s, max 47.14s, wall 47.2s
+/api/inventory/cost?group_by=building,floor,layer x200: codes {0: 157, 500: 20, 200: 23}, p50 31.76s, p95 62.46s, max 68.45s, wall 68.5s
+/api/inventory/units?limit=100 x20: codes {200: 20}, p50 2.60s, p95 4.49s, max 4.49s, wall 4.5s
+C:/Program Files/Git/api/floors/077248aa-913d-4ab5-bea1-7824659cb7fe/items x20: codes {0: 20}, p50 0.00s, p95 0.00s, max 0.00s, wall 0.0s
+C:/Program Files/Git/api/inventory/places x20: codes {0: 20}, p50 0.00s, p95 0.00s, max 0.00s, wall 0.0s
+/api/inventory/units?limit=100 x1: codes {200: 1}, p50 0.35s, p95 0.35s, max 0.35s, wall 0.4s
+/api/inventory/cost?group_by=building,floor,layer x2: codes {200: 2}, p50 4.09s, p95 4.09s, max 4.09s, wall 4.1s
+/api/floors/077248aa-913d-4ab5-bea1-7824659cb7fe/items x20: codes {200: 20}, p50 0.19s, p95 0.33s, max 0.33s, wall 0.3s
+/api/floors/077248aa-913d-4ab5-bea1-7824659cb7fe/items x1: codes {200: 1}, p50 0.06s, p95 0.06s, max 0.06s, wall 0.1s
+/api/inventory/places x20: codes {200: 20}, p50 2.79s, p95 3.43s, max 3.43s, wall 3.4s
+/api/inventory/places x1: codes {200: 1}, p50 0.49s, p95 0.49s, max 0.49s, wall 0.5s
+/api/search?q=025001 x20: codes {200: 20}, p50 0.13s, p95 0.15s, max 0.15s, wall 0.1s

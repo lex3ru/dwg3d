@@ -1,0 +1,32 @@
+== before backup
+41|46|63|90|810|15
+89
+== backup
+backup: 2026-10-21_123442
+backup: done /backups/daily/2026-10-21_123442
+Unable to find image 'alpine:latest' locally
+latest: Pulling from library/alpine
+797dd00a0fc7: Download complete
+6d0606d1815c: Download complete
+Digest: sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+Status: Downloaded newer image for alpine:latest
+{"ok": true, "started_at": "2026-10-21T12:34:42Z", "finished_at": "2026-10-21T12:34:43Z", "path": "/backups/daily/2026-10-21_123442", "size": 8652432, "message": "", "kept": {"daily": 1, "monthly": 1}}
+2026-10-21_123442
+8.4M	/backups/daily/2026-10-21_123442
+building: 3312104e-63e1-4654-9efc-f9bac2d902c6 | file: 201 c8c2b4cf-27c8-443a-ac75-285a60e4e953
+== after change
+42|46|63|91|812|15
+== restore 2026-10-21_123442
+stopped
+db restored
+files restored
+healthy after 4s
+== after restore
+41|46|63|90|810|15
+0
+89
+login: 200
+file 9d6bb3c533c4 200 720
+file edcc49eab042 200 24388
+file 2c6d7ec650db 200 34588
+file uploaded after backup: 404

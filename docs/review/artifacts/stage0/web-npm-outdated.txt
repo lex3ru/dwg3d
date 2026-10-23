@@ -1,0 +1,8 @@
+Package                Current   Wanted   Latest  Location                            Depended by
+@tanstack/react-query  5.104.3  5.104.5  5.104.5  node_modules/@tanstack/react-query  web
+@types/node            24.19.2  24.19.2   26.6.5  node_modules/@types/node            web
+lucide-react            1.58.0   1.61.0   1.61.0  node_modules/lucide-react           web
+oxlint                  1.88.0   1.89.0   1.89.0  node_modules/oxlint                 web
+react-router            7.18.4   7.18.4    8.5.0  node_modules/react-router           web
+typescript               6.0.3    6.0.3    7.0.2  node_modules/typescript             web
+vite                     8.3.4    8.3.5    8.3.5  node_modules/vite                   web

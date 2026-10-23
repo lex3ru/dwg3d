@@ -1,0 +1,7 @@
+x=NaN        -> 400 x: вне допустимых пределов.
+x=Infinity   -> 400 x: вне допустимых пределов.
+x=1e300      -> 400 x: вне допустимых пределов.
+angle=1e308  -> 400 angle: вне допустимых пределов.
+floor items load: 200 count 1
+floor pdf: 200 7302 bytes
+parent on another floor/building: 400 Вместилище не найдено на этом этаже.

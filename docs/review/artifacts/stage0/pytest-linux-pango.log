@@ -1,0 +1,115 @@
+debconf: delaying package configuration, since apt-utils is not installed
+pango-ok
+Audited 60 packages in 610ms
+07:44:23
+Installed 7 packages in 6.17s
+.........................................sss............................ [ 72%]
+............................                                             [100%]
+=============================== warnings summary ===============================
+tests/test_building.py::test_floor_prints_to_pdf_and_exports_to_dxf
+  /builds/server/.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:528: DeprecationWarning: HarfBuzz-Subset will be required by future versions of WeasyPrint. Please install this library with your package manager.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.12-final-0 _______________
+
+Name                                      Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------------------------
+app/__main__.py                             109     87     28      1    17%   32-40, 44-141, 145
+app/core/actor.py                            28      1      0      0    96%   43
+app/core/auth.py                             17      1      4      0    95%   18
+app/core/events.py                           53      0     10      1    98%   51->50
+app/core/report.py                           82      3     22      2    95%   56, 112-113
+app/core/search.py                           22      1      4      1    92%   34
+app/core/tasks.py                           149     26     26      3    78%   88->90, 116, 122, 156-157, 163-165, 200-201, 207-223
+app/main.py                                 110     18     26      3    79%   73-75, 110, 122, 126-128, 144-155
+app/models.py                                10      1      4      1    86%   15
+app/modules/access/api.py                   308     24    104     22    89%   99, 101, 115, 118, 196->exit, 208-210, 220, 256, 287, 339, 345-347, 351, 379, 384, 441, 450, 452, 454, 456, 476, 479, 480->487, 510
+app/modules/access/passwords.py              22      1      4      1    92%   34
+app/modules/access/routes.py                110      2      4      0    98%   102, 145
+app/modules/building/api.py                 467     76    152     18    80%   46, 57, 94, 113-128, 136, 191, 229-251, 268, 273->272, 325, 405, 407->403, 448, 466, 470, 475-480, 535, 544-546, 640, 642, 646, 669-680, 684-690, 756
+app/modules/building/drawing/align.py        60      9     26      8    80%   27, 46, 55, 58, 61, 68, 70, 74-75
+app/modules/building/drawing/convert.py     370    140    134     24    57%   29, 130, 140-142, 144-146, 156-166, 184, 214, 217, 221, 253-254, 264, 277, 279->271, 282, 318-324, 348-351, 358-409, 434-478, 488-504, 506, 513-516, 521->540, 523, 527-539, 580->582
+app/modules/building/drawing/glyphs.py       82     29     20      3    61%   59, 85-87, 100, 104, 108-110, 114-122, 134-145, 148-159
+app/modules/building/drawing/layers.py       28      5     16      5    77%   101, 103, 105, 109, 112
+app/modules/building/drawing/parts.py       103      5     48      6    91%   69, 96->89, 98->85, 103-104, 107, 119
+app/modules/building/drawing/read.py        191     72     70     15    57%   91-95, 99-100, 109-128, 136, 143, 146, 148-155, 164-165, 186->179, 200, 207-213, 219-224, 228-229, 232->179, 238-247, 254, 263-266, 273-290
+app/modules/building/drawing/walls.py       330     38    146     26    84%   68, 129, 158-160, 162-163, 178-183, 199, 232, 235, 239, 251, 267, 286, 294, 354-355, 369-370, 374->373, 390, 401, 408, 411-421, 432, 457, 462, 463->450, 465->450, 467->446
+app/modules/building/drawings.py            172     16     56     14    87%   54, 84-85, 107, 110, 116, 120, 122, 152, 156-158, 179, 192, 217->220, 266, 283->286, 304, 314->298
+app/modules/building/export.py              267     29    100     17    86%   46-47, 56, 75, 100-102, 129, 138->140, 141->143, 150, 154-166, 169-176, 178->180, 181->183, 183->185, 188, 206->exit, 236, 373->375
+app/modules/building/geometry.py            327     62    152     22    80%   66-82, 116, 123->118, 131-134, 162-164, 166->157, 170->168, 188->187, 205-206, 225, 235, 237-240, 248-254, 261-262, 273-276, 283-284, 322-323, 337, 358-359, 405, 413-419, 421, 427-434
+app/modules/building/routes.py              132     11      4      2    90%   55-56, 67-68, 101-103, 163, 170, 176, 184, 203
+app/modules/calc/api.py                     192     12     48      8    92%   148-149, 170-171, 173, 180, 229-230, 232, 260->275, 276->278, 344, 359, 375
+app/modules/calc/cameras.py                 212     19     58     12    88%   43-49, 80, 100, 115, 123, 149, 155, 163, 190, 224, 325, 386, 405
+app/modules/calc/lighting.py                101      6     24      7    90%   68, 95-103, 138, 143, 148->152, 193->204, 225
+app/modules/catalog/api.py                  552    103    204     48    78%   38, 44, 46, 53, 59, 93, 97-98, 101, 107, 109-117, 138-141, 148, 211, 226->235, 289, 298, 366-367, 433-450, 454-459, 470->472, 473, 475, 479, 488, 501, 555, 560-561, 574-577, 653->655, 689, 691, 694, 696, 698, 700-701, 708, 713-714, 737, 738->740, 749->753, 840, 867, 872-873, 889-904, 914-915, 954->956, 960, 999, 1017->1021, 1023-1024, 1039-1051, 1055-1062, 1086, 1088, 1154->1164, 1182->1184
+app/modules/catalog/excel.py                311     26    118     20    89%   236, 242-245, 250, 260-261, 271, 278, 290, 315, 324, 348->350, 360, 399, 422, 430, 435, 482-486, 488, 503, 550->552, 552->554, 566, 576-577
+app/modules/catalog/model3d.py               68      6     22      6    87%   23, 43, 46, 65, 81, 98
+app/modules/catalog/module.py                46      4     10      2    89%   29, 49, 71-72
+app/modules/catalog/routes.py               181     18      0      0    90%   60, 65, 70, 98-101, 106, 157, 162, 215-216, 229-230, 235-236, 241, 282
+app/modules/files/api.py                     75      4     22      4    92%   48, 52, 69->71, 73, 110
+app/modules/files/routes.py                  20      1      2      1    91%   28
+app/modules/inventory/api.py                274     36     80     25    80%   38-41, 46-52, 98->103, 104, 123-125, 151-154, 174, 211, 214, 219-220, 227, 233->237, 318-326, 459->462, 479->493, 492, 522, 533, 546->548, 549, 559->561, 572->574, 582, 593->595, 596, 598-599, 601->611, 612
+app/modules/inventory/cost.py                71     10     26      7    80%   40, 43, 50-52, 62, 87, 89, 91, 120
+app/modules/inventory/counts.py             255     36    100     24    81%   43, 71-72, 81, 177, 263, 266-269, 277, 287, 290, 315-317, 328, 331-332, 335, 353-355, 371, 375-377, 379, 380->383, 392-394, 405->402, 412, 415-417, 439, 442->435, 447, 571->549, 574->572
+app/modules/inventory/documents.py          559     79    236     53    83%   95, 104-105, 111, 140, 145, 167, 169->175, 213, 228, 267, 270-271, 303, 372, 375, 377, 379, 385, 390, 401, 404, 408, 416, 419, 424, 427, 468, 473, 475, 482, 485, 494, 498, 508, 514, 521, 528, 538, 541, 552-560, 565-571, 593, 598, 625, 643, 645, 649, 651, 723, 754-757, 761, 809->811, 981, 983, 985, 987, 989-992, 1022-1023, 1090-1115, 1119
+app/modules/inventory/excel.py              326     38    116     19    86%   176, 183-184, 186, 195-196, 205, 209, 212, 216-219, 222, 226-229, 234-242, 244, 250-251, 253, 255, 280, 343->345, 390, 396, 409, 437-449
+app/modules/inventory/places.py             187     70     64     15    57%   28, 97-98, 104, 110-111, 117, 120, 122, 124, 127, 140, 149-150, 187->189, 198->203, 201, 204-209, 211-212, 216, 224, 239-244, 250-271, 275, 279-294, 298-322, 326-333
+app/modules/inventory/printing.py            66      9     22      9    80%   53-54, 95, 97, 99, 101, 111, 112->114, 117, 129
+app/modules/inventory/routes.py             257     29     22      6    87%   39, 107-108, 117-118, 123, 230, 260-268, 273, 297, 299-300, 308, 356->358, 406-419, 442, 491-492, 517, 550, 555-556, 567-568
+app/modules/inventory/rules.py               41      8     14      6    71%   60, 63-65, 67, 69, 81, 93
+app/modules/inventory/units.py              292     73    128     27    70%   52, 225, 237, 239, 263, 265->260, 268, 271->274, 276-277, 281->242, 285, 315-326, 333, 336, 339-345, 378-400, 404-420, 444, 482, 488, 501, 503, 505, 507, 509, 511, 513, 515-519, 556-558, 584
+app/modules/journal/api.py                   60      6     28      6    86%   53, 58, 72, 76, 78, 97
+app/modules/link/api.py                     198     15     84     16    89%   53, 96, 208, 210, 215, 221, 225, 232, 258->289, 270, 290, 299, 329, 333, 342, 361
+app/modules/planning/api.py                 342     32    156     26    88%   61, 75->74, 82, 116-117, 119, 128-129, 135, 137, 141, 144-149, 156, 169, 196, 208, 217, 219, 234, 244, 257, 260, 286->288, 290-292, 294, 301->303, 349, 465, 498->500, 501
+app/modules/projects/api.py                 471     35    180     34    89%   58-59, 65-66, 68, 88->75, 113, 129, 171->174, 182, 184, 203, 232, 235-238, 239->244, 241->244, 244->255, 314-323, 352, 381, 389->395, 400->exit, 421, 434, 437, 454, 460, 500, 544, 570, 659, 661, 664, 682->684, 686, 690->695, 701, 721-722, 727
+app/modules/reports/api.py                  196     16     52     14    88%   72-73, 78, 85, 89-90, 107->109, 110, 112, 164, 357, 359->353, 388, 412, 577, 595, 598, 600
+app/modules/reports/dump.py                 126     17     32      8    82%   61, 62->64, 148, 158-167, 299, 301, 307, 320, 324
+app/modules/reports/home.py                  37      1      8      3    91%   22, 74->76, 80->82
+app/modules/system/api.py                   109     11     24      8    86%   32, 83, 91, 96-97, 100->104, 115, 121-122, 135->140, 138-139, 143
+app/modules/system/routes.py                 39      1      4      2    93%   44, 55->59
+app/samples/polyclinic.py                   103      1     38      1    99%   78
+app/samples/volume.py                       168    168     44      0     0%   10-325
+-------------------------------------------------------------------------------------
+TOTAL                                     10462   1547   3132    612    82%
+
+48 files skipped due to complete coverage.
+Coverage HTML written to dir /builds/coverage-html
+Coverage JSON written to file /builds/coverage.json
+============================= slowest 30 durations =============================
+10.15s call     tests/test_building.py::test_floor_prints_to_pdf_and_exports_to_dxf
+5.82s call     tests/test_catalog.py::test_excel_round_trip_and_all_or_nothing
+4.85s call     tests/test_reports.py::test_every_report_builds
+3.43s call     tests/test_inventory.py::test_c10_property_list_from_excel
+3.13s call     tests/test_catalog.py::test_base_catalog_comes_with_3d_models
+3.03s call     tests/test_reliability.py::test_crash_while_loading_excel_loads_nothing
+2.75s call     tests/test_projects.py::test_c9_project_changes_layout_only_when_applied
+2.06s call     tests/test_reports.py::test_full_export_is_an_archive_readable_without_the_system
+2.02s call     tests/test_catalog.py::test_c4_new_type_with_characteristics_and_model
+1.96s call     tests/test_catalog.py::test_viewer_sees_no_prices_and_changes_nothing
+1.93s call     tests/test_calc.py::test_c7_camera_zone_levels_and_walls
+1.87s setup    tests/test_architecture.py::test_every_module_has_a_tier
+1.85s call     tests/test_reports.py::test_home_counts_what_needs_attention
+1.81s call     tests/test_projects.py::test_project_undo_restores_removed_and_archive_blocks_edits
+1.80s call     tests/test_calc.py::test_camera_without_characteristics_is_reported
+1.80s call     tests/test_calc.py::test_c8_illuminance_by_room_against_norms
+1.78s call     tests/test_counts.py::test_c18_count_by_scanning_and_posting_discrepancies
+1.70s call     tests/test_calc.py::test_calculations_list_declares_needs_params_and_types
+1.61s call     tests/test_catalog.py::test_base_catalog_is_loaded_once
+1.52s call     tests/test_architecture.py::test_modules_depend_downwards_through_api
+1.46s setup    tests/test_auth.py::test_first_login_requires_a_new_password
+1.04s call     tests/test_planning.py::test_a_row_of_lamps_is_one_action
+1.02s call     tests/test_inventory.py::test_c11_receipt_gives_numbers_in_a_row_and_stock
+0.96s call     tests/test_security.py::test_viewer_gets_no_cost_numbers_or_projects_anywhere
+0.74s call     tests/test_building.py::test_viewer_sees_only_granted_buildings_and_changes_nothing
+0.63s call     tests/test_reliability.py::test_crash_while_posting_leaves_draft_and_nothing_moved
+0.61s call     tests/test_auth.py::test_first_login_requires_a_new_password
+0.59s call     tests/test_inventory.py::test_c14_repair_and_c15_writeoff_keep_history_and_numbers
+0.57s call     tests/test_link.py::test_removing_a_linked_item_returns_or_writes_off
+0.54s call     tests/test_auth.py::test_ten_failures_lock_the_login_for_15_minutes
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_drawings.py:119: нет чертежа «Бастиона» (данные заказчика)
+SKIPPED [2] tests/test_drawings.py:134: нет дополнительных чертежей или LibreDWG
+pytest exit 0
+07:47:43

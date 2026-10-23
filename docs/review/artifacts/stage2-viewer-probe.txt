@@ -1,0 +1,41 @@
+ok        403 POST /buildings              Это действие вам недоступно.
+ok        403 PATCH /buildings/A           Это действие вам недоступно.
+ok        403 POST archive A               Это действие вам недоступно.
+ok        403 POST unarchive A             Это действие вам недоступно.
+ok        403 DELETE floor E               Это действие вам недоступно.
+ok        403 DELETE building E            Это действие вам недоступно.
+ok        403 POST floors A                Это действие вам недоступно.
+ok        403 PATCH floor A                Это действие вам недоступно.
+ok        403 PUT plan A                   Это действие вам недоступно.
+ok        403 POST plan/check A            Это действие вам недоступно.
+ok        403 POST plan/fix A              Это действие вам недоступно.
+ok        403 POST lifts A                 Это действие вам недоступно.
+ok        403 POST drawings A              Это действие вам недоступно.
+ok        403 POST items/changes A         Это действие вам недоступно.
+ok        403 POST items/changes delete A  Это действие вам недоступно.
+ok        403 POST link/register A         Это действие вам недоступно.
+ok        403 POST link/remove A           Это действие вам недоступно.
+ok        403 GET projects?P               Это действие вам недоступно.
+ok        403 GET project                  Это действие вам недоступно.
+ok        403 GET project spec             Это действие вам недоступно.
+ok        403 GET project compare          Это действие вам недоступно.
+ok        403 GET project apply            Это действие вам недоступно.
+ok        403 GET project pdf              Это действие вам недоступно.
+ok        403 GET project xlsx             Это действие вам недоступно.
+ok        403 GET project floor            Это действие вам недоступно.
+ok        403 POST projects                Это действие вам недоступно.
+ok        403 PATCH project                Это действие вам недоступно.
+ok        403 POST project changes         Это действие вам недоступно.
+ok        403 POST project apply           Это действие вам недоступно.
+ok        403 DELETE project               Это действие вам недоступно.
+VIOLATION 200 GET units xlsx               
+VIOLATION 200 GET floor export.pdf A       
+ok        404 IDOR GET building O          Здание не найдено.
+ok        404 IDOR GET plan O              Здание не найдено.
+ok        404 IDOR GET items O             Здание не найдено.
+ok        404 IDOR GET item O              Здание не найдено.
+ok        404 IDOR GET link floor O        Здание не найдено.
+ok        404 IDOR GET export O            Здание не найдено.
+ok        404 IDOR GET drawings O          Здание не найдено.
+viewer buildings: ['sec-empty-1792570926', 'Проекты-mvhtd3ln', 'С6-mvhtcv6z']
+building A name now: С6-mvhtcv6z

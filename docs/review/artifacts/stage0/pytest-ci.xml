@@ -1,0 +1,1550 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="3" tests="100" time="181.489" timestamp="2026-10-21T07:40:47.733574+00:00" hostname="9d5406f5ac0e"><testcase classname="tests.test_architecture" name="test_every_module_has_a_tier" time="2.470" /><testcase classname="tests.test_architecture" name="test_core_depends_on_no_module" time="0.410" /><testcase classname="tests.test_architecture" name="test_modules_depend_downwards_through_api" time="2.519" /><testcase classname="tests.test_architecture" name="test_tables_live_in_their_module_schema" time="0.316" /><testcase classname="tests.test_auth" name="test_first_login_requires_a_new_password" time="4.321" /><testcase classname="tests.test_auth" name="test_wrong_password_and_unknown_login_are_journaled" time="0.576" /><testcase classname="tests.test_auth" name="test_ten_failures_lock_the_login_for_15_minutes" time="0.989" /><testcase classname="tests.test_auth" name="test_session_ends_after_12_idle_hours" time="0.431" /><testcase classname="tests.test_auth" name="test_logout" time="0.436" /><testcase classname="tests.test_auth" name="test_changes_need_the_app_header" time="0.478" /><testcase classname="tests.test_auth" name="test_cookie_is_http_only" time="0.338" /><testcase classname="tests.test_auth" name="test_anonymous_gets_nothing" time="0.375" /><testcase classname="tests.test_building" name="test_floors_stack_by_elevation" time="0.567" /><testcase classname="tests.test_building" name="test_plan_saves_rooms_from_closed_walls" time="0.550" /><testcase classname="tests.test_building" name="test_stale_plan_is_refused" time="0.462" /><testcase classname="tests.test_building" name="test_c3_removing_a_partition_merges_rooms_after_asking" time="0.488" /><testcase classname="tests.test_building" name="test_removed_and_split_rooms_need_confirmation" time="0.556" /><testcase classname="tests.test_building" name="test_fix_repairs_what_is_unambiguous" time="0.427" /><testcase classname="tests.test_building" name="test_viewer_sees_only_granted_buildings_and_changes_nothing" time="0.816" /><testcase classname="tests.test_building" name="test_lifts_span_floors" time="0.466" /><testcase classname="tests.test_building" name="test_only_an_empty_building_is_deleted_and_archive_hides_it" time="0.480" /><testcase classname="tests.test_building" name="test_floor_copies_bearing_walls" time="0.505" /><testcase classname="tests.test_building" name="test_files_are_checked_by_content_and_stored_once" time="0.529" /><testcase classname="tests.test_building" name="test_floor_prints_to_pdf_and_exports_to_dxf" time="3.818"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc17fe5850&gt;
+
+    def test_floor_prints_to_pdf_and_exports_to_dxf(admin) -&gt; None:
+        import ezdxf
+    
+        _, floor = building_with_floor(admin)
+        save(admin, floor["id"], two_rooms(), 1)
+&gt;       r = admin.get(f"/api/floors/{floor['id']}/export.pdf", params={"paper": "A3", "scale": 50})
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_building.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1113: in get
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/building/routes.py:185: in export_floor
+    data, name = api.export_floor(session, actor, floor_id, fmt, paper, orientation, scale)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/building/api.py:759: in export_floor
+    data = export.pdf(drawing, paper=paper, orientation=orientation, scale=scale,
+app/modules/building/export.py:311: in pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_building" name="test_polyclinic_sample_has_three_clean_floors" time="0.700" /><testcase classname="tests.test_calc" name="test_calculations_list_declares_needs_params_and_types" time="1.593" /><testcase classname="tests.test_calc" name="test_c7_camera_zone_levels_and_walls" time="1.808" /><testcase classname="tests.test_calc" name="test_camera_without_characteristics_is_reported" time="1.580" /><testcase classname="tests.test_calc" name="test_c8_illuminance_by_room_against_norms" time="1.466" /><testcase classname="tests.test_catalog" name="test_base_catalog_is_loaded_once" time="1.732" /><testcase classname="tests.test_catalog" name="test_c4_new_type_with_characteristics_and_model" time="1.693" /><testcase classname="tests.test_catalog" name="test_c5_new_layer_with_types" time="0.467" /><testcase classname="tests.test_catalog" name="test_viewer_sees_no_prices_and_changes_nothing" time="1.623" /><testcase classname="tests.test_catalog" name="test_excel_round_trip_and_all_or_nothing" time="3.969" /><testcase classname="tests.test_catalog" name="test_3d_model_is_measured" time="0.441" /><testcase classname="tests.test_catalog" name="test_purposes" time="0.465" /><testcase classname="tests.test_catalog" name="test_base_catalog_comes_with_3d_models" time="2.777" /><testcase classname="tests.test_counts" name="test_c18_count_by_scanning_and_posting_discrepancies" time="0.992"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc17ea7e00&gt;
+
+    def test_c18_count_by_scanning_and_posting_discrepancies(admin) -&gt; None:
+        _, rooms, wh, k = setup(admin)
+        got = document(
+            admin,
+            "receipt",
+            {"to_place": rooms["214"]},
+            [
+                {"type_id": k["монитор"]["id"], "qty": 3, "price": 14500},
+                {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+            ],
+        )
+        assert post(admin, got).status_code == 200
+        ecg = document(
+            admin,
+            "receipt",
+            {"to_place": rooms["215"]},
+            [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000}],
+        )
+        assert post(admin, ecg).status_code == 200
+        monitors = admin.get(f"/api/inventory/documents/{got['id']}").json()["lines"][0][
+            "created_units"
+        ]
+        ecg_unit = admin.get(f"/api/inventory/documents/{ecg['id']}").json()["lines"][0][
+            "created_units"
+        ][0]
+        codes = {u["id"]: unit(admin, u["id"])["label_code"] for u in [*monitors, ecg_unit]}
+    
+        r = admin.post("/api/inventory/counts", json={"floor_id": floor_id(admin, rooms)})
+        assert r.status_code == 201, r.text
+        count = r.json()
+        assert count["title"].startswith("Инвентаризация ИН-")
+        assert count["summary"]["expected"] == 4 and len(count["places"]) == 2
+    
+        scan = lambda code, place: admin.post(  # noqa: E731
+            f"/api/inventory/counts/{count['id']}/scan", json={"code": code, "place": place}
+        ).json()
+        assert scan(codes[monitors[0]["id"]], rooms["214"])["result"] == "here"
+        assert scan(codes[monitors[0]["id"]], rooms["214"])["result"] == "again"
+        moved = scan(codes[monitors[1]["id"]], rooms["215"])
+        assert moved["result"] == "elsewhere" and "числится" in moved["text"]
+        assert scan("ZZZZZZZZZZZZ", rooms["214"])["result"] == "unknown"
+        # номер с наклейки, набранный руками, — тоже
+        assert scan(unit(admin, ecg_unit["id"])["number"], rooms["215"])["result"] == "here"
+        # вещь без метки — заведётся
+        r = admin.post(
+            f"/api/inventory/counts/{count['id']}/extras",
+            json={
+                "place": rooms["214"],
+                "type_id": k["экг"]["id"],
+                "serial": "SN-77",
+                "note": "без наклейки",
+            },
+        )
+        assert r.status_code == 201, r.text
+        # перчаток насчитали 17 из 20
+        assert (
+            admin.put(
+                f"/api/inventory/counts/{count['id']}/stock",
+                json={"place": rooms["214"], "type_id": k["перчатки"]["id"], "counted": 17},
+            ).status_code
+            == 204
+        )
+    
+        detail = admin.get(
+            f"/api/inventory/counts/{count['id']}", params={"place": rooms["214"]}
+        ).json()
+        statuses = sorted(x["status"] for x in detail["place"]["items"])
+        assert statuses == ["elsewhere", "here", "missing"]
+        assert detail["place"]["stock"][0]["counted"] == 17
+        assert detail["summary"] == {
+            "expected": 4,
+            "found_in_place": 2,
+            "found_elsewhere": 1,
+            "missing": 1,
+            "extras": 1,
+            "stock_diff": 1,
+        }
+    
+        # пока идёт обход — движения по месту предупреждают
+        move = document(
+            admin,
+            "transfer",
+            {"from_place": rooms["214"], "to_place": wh["key"]},
+            [{"unit_id": monitors[0]["id"]}],
+        )
+        assert (
+            "идёт «Инвентаризация"
+            in admin.get(f"/api/inventory/documents/{move['id']}").json()["warnings"][0]
+        )
+        admin.delete(f"/api/inventory/documents/{move['id']}")
+    
+&gt;       statement = admin.get(f"/api/inventory/counts/{count['id']}/statement.pdf")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_counts.py:110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1113: in get
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/inventory/routes.py:595: in statement
+    data, name = counts.statement_pdf(session, actor, doc_id, system_name(session))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/inventory/counts.py:526: in statement_pdf
+    return report.pdf(r), f"Ведомость {doc_title(doc.kind, doc.number)}.pdf"
+           ^^^^^^^^^^^^^
+app/core/report.py:41: in pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_drawings" name="test_parts_and_conversion_of_a_sample" time="0.246" /><testcase classname="tests.test_drawings" name="test_upload_analyze_and_convert" time="0.821" /><testcase classname="tests.test_drawings" name="test_not_a_drawing_is_refused" time="0.417" /><testcase classname="tests.test_drawings" name="test_bastion_converts_without_check_errors_and_with_room_numbers" time="0.000"><skipped type="pytest.skip" message="нет чертежа «Бастиона» (данные заказчика)">/builds/server/tests/test_drawings.py:119: нет чертежа «Бастиона» (данные заказчика)</skipped></testcase><testcase classname="tests.test_drawings" name="test_extra_drawings_convert_without_check_errors[2022]" time="0.000"><skipped type="pytest.skip" message="нет дополнительных чертежей или LibreDWG">/builds/server/tests/test_drawings.py:134: нет дополнительных чертежей или LibreDWG</skipped></testcase><testcase classname="tests.test_drawings" name="test_extra_drawings_convert_without_check_errors[medcenter]" time="0.000"><skipped type="pytest.skip" message="нет дополнительных чертежей или LibreDWG">/builds/server/tests/test_drawings.py:134: нет дополнительных чертежей или LibreDWG</skipped></testcase><testcase classname="tests.test_drawings" name="test_floors_of_one_sheet_stand_on_top_of_each_other" time="0.579" /><testcase classname="tests.test_events" name="test_admin_receives_changes" time="0.414" /><testcase classname="tests.test_events" name="test_anonymous_websocket_is_closed" time="0.202" /><testcase classname="tests.test_inventory" name="test_c11_receipt_gives_numbers_in_a_row_and_stock" time="0.846"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc16b78e30&gt;
+
+    def test_c11_receipt_gives_numbers_in_a_row_and_stock(admin) -&gt; None:
+        _, rooms, wh, k = setup(admin)
+        doc = document(
+            admin,
+            "receipt",
+            {"to_place": wh["key"], "supplier": "ООО «Медтехника»"},
+            [
+                {"type_id": k["монитор"]["id"], "qty": 5, "price": 14500},
+                {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+            ],
+        )
+        assert doc["status"] == "draft" and doc["title"] == "Приход ПР-00001"
+        r = post(admin, doc)
+        assert r.status_code == 200, r.text
+        posted = r.json()
+        assert posted["status"] == "posted"
+        numbers = [u["number"] for u in posted["lines"][0]["created_units"]]
+        assert numbers == ["000001", "000002", "000003", "000004", "000005"]
+        # мониторы на складе — «на хранении»; перчатки — остатком
+        units = admin.get("/api/inventory/units", params={"place": wh["key"]}).json()
+        assert units["total"] == 5 and {u["state"] for u in units["items"]} == {"storage"}
+        stock = admin.get("/api/inventory/balances", params={"place": wh["key"]}).json()["items"]
+        assert [(b["type_name"], b["qty"], b["amount"]) for b in stock] == [
+            ("Перчатки смотровые", 20, 10400)
+        ]
+        # проведённый не правится
+        assert (
+            admin.put(
+                f"/api/inventory/documents/{doc['id']}",
+                json={"version": posted["version"], "header": {"basis": "x"}},
+            ).status_code
+            == 409
+        )
+        # метки на напечатанный приход и печатная форма
+        ids = [u["id"] for u in posted["lines"][0]["created_units"]]
+&gt;       pdf = admin.post(
+            "/api/inventory/labels.pdf", json={"unit_ids": ids, "origin": "https://uchet.local"}
+        )
+
+tests/test_inventory.py:86: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1204: in post
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/inventory/routes.py:309: in labels
+    data = printing.labels_pdf(
+app/modules/inventory/printing.py:26: in labels_pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_inventory" name="test_posting_is_all_or_nothing_and_transfer_issues_from_stock" time="0.745" /><testcase classname="tests.test_inventory" name="test_c14_repair_and_c15_writeoff_keep_history_and_numbers" time="0.835" /><testcase classname="tests.test_inventory" name="test_card_edits_are_history_and_roll_back" time="0.565" /><testcase classname="tests.test_inventory" name="test_c17_search_and_viewer_sees_no_numbers_or_cost" time="0.701" /><testcase classname="tests.test_inventory" name="test_c19_cost_on_date_by_floor_and_layer" time="0.572" /><testcase classname="tests.test_inventory" name="test_c10_property_list_from_excel" time="2.664"><failure message="FileNotFoundError: [Errno 2] No such file or directory: '/builds/docs/samples/имущество-пример.xlsx'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc17fbcda0&gt;
+
+    def test_c10_property_list_from_excel(admin) -&gt; None:
+        from app.samples import polyclinic
+    
+        with transaction() as s:
+            actor = access.actor_of(access.find(s, "admin"))
+            b = polyclinic.create(s, actor)
+        from app.modules.catalog.module import seed
+    
+        with transaction() as s:
+            seed(s)
+        tpl = admin.get("/api/inventory/import/template.xlsx")
+        assert tpl.content[:2] == b"PK"
+&gt;       files = {"file": ("имущество.xlsx", SAMPLE.read_bytes())}
+                                            ^^^^^^^^^^^^^^^^^^^
+
+tests/test_inventory.py:368: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/pathlib.py:1019: in read_bytes
+    with self.open(mode='rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/builds/docs/samples/имущество-пример.xlsx'), mode = 'rb'
+buffering = -1, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/builds/docs/samples/имущество-пример.xlsx'
+
+/usr/local/lib/python3.12/pathlib.py:1013: FileNotFoundError</failure></testcase><testcase classname="tests.test_inventory" name="test_cancel_is_a_reverse_document" time="1.513" /><testcase classname="tests.test_journal" name="test_entries_cannot_be_changed_or_deleted" time="1.037" /><testcase classname="tests.test_journal" name="test_feed_filters_and_pages" time="1.038" /><testcase classname="tests.test_journal" name="test_retention_purges_only_old_entries" time="1.055" /><testcase classname="tests.test_link" name="test_c12_issued_units_wait_unplaced_and_are_placed_by_drop" time="1.570" /><testcase classname="tests.test_link" name="test_c13_moving_a_linked_item_to_another_room_is_a_transfer" time="1.416" /><testcase classname="tests.test_link" name="test_unit_moved_or_written_off_by_document_leaves_the_plan" time="1.438" /><testcase classname="tests.test_link" name="test_removing_a_linked_item_returns_or_writes_off" time="1.547" /><testcase classname="tests.test_link" name="test_c10_walk_puts_items_on_the_books_and_counts_quantities" time="1.245" /><testcase classname="tests.test_link" name="test_new_room_outlines_move_linked_units_with_their_items" time="1.353" /><testcase classname="tests.test_link" name="test_door_label_opens_the_room_for_a_walk" time="1.148"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc16b32810&gt;
+
+    def test_door_label_opens_the_room_for_a_walk(admin) -&gt; None:
+        _, rooms, _, _ = setup(admin)
+        room = rooms["214"][2:]
+&gt;       r = admin.post(
+            "/api/inventory/labels.pdf", json={"room_ids": [room], "origin": "http://localhost"}
+        )
+
+tests/test_link.py:283: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1204: in post
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/inventory/routes.py:309: in labels
+    data = printing.labels_pdf(
+app/modules/inventory/printing.py:26: in labels_pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_migrations" name="test_migrations_match_models" time="0.902" /><testcase classname="tests.test_planning" name="test_c6_items_are_placed_moved_and_removed_at_once" time="1.129" /><testcase classname="tests.test_planning" name="test_only_placeable_types_and_one_level_nesting" time="0.974" /><testcase classname="tests.test_planning" name="test_items_follow_rooms_when_the_plan_changes" time="0.915" /><testcase classname="tests.test_planning" name="test_viewer_sees_items_and_changes_nothing" time="1.094" /><testcase classname="tests.test_planning" name="test_a_row_of_lamps_is_one_action" time="1.442" /><testcase classname="tests.test_projects" name="test_c9_project_changes_layout_only_when_applied" time="3.002"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc116e9d30&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x7dfc1862e6c0&gt;
+
+    def test_c9_project_changes_layout_only_when_applied(admin, app) -&gt; None:
+        b, f, rooms, t, (desk, cabinet) = setup(admin)
+        a = project(admin, b["id"], "Процедурный 214")
+        couch = str(uuid.uuid4())
+        edit(
+            admin,
+            a,
+            f["id"],
+            delete=[{"id": desk["id"]}],
+            create=[
+                {
+                    "id": couch,
+                    "type_id": t["Кушетка смотровая"],
+                    "x": 1000,
+                    "y": 1000,
+                    "angle": 0,
+                    "z": 0,
+                },
+                {"type_id": t["Стол процедурный"], "x": 2200, "y": 1000},
+            ],
+            update=[{"id": cabinet["id"], "x": 2500}],
+        )
+        state = admin.get(f"/api/projects/{a['id']}/floors/{f['id']}").json()
+        marks = sorted(i["state"] for i in state["items"] if i["state"])
+        assert marks == ["added", "added", "moved"]
+        assert [i["id"] for i in state["removed"]] == [desk["id"]]
+        assert state["rooms"] == ["214 Кабинет"]
+        # расстановка не тронута
+        layout = {i["id"]: i for i in admin.get(f"/api/floors/{f['id']}/items").json()["items"]}
+        assert set(layout) == {desk["id"], cabinet["id"]} and layout[cabinet["id"]]["x"] == 600
+        # вернули шкаф на место — изменения нет
+        edit(admin, a, f["id"], update=[{"id": cabinet["id"], "x": 600}])
+        assert admin.get(f"/api/projects/{a['id']}").json()["changes"] == 3
+        edit(admin, a, f["id"], update=[{"id": cabinet["id"], "x": 2500}])
+        view = admin.get(f"/api/projects/{a['id']}").json()
+        assert view["status"] == "draft" and (view["added"], view["moved"], view["removed"]) == (
+            2,
+            1,
+            1,
+        )
+    
+        # второй вариант — копия без кушетки; сравнение
+        v2 = project(admin, b["id"], "Процедурный 214, вариант 2", copy_of=a["id"])
+        edit(admin, v2, f["id"], delete=[{"id": couch}])
+        vs_layout = admin.get(f"/api/projects/{a['id']}/compare").json()
+        assert vs_layout["b"] == "Как есть"
+        assert vs_layout["counts"] == {"добавлен": 2, "перемещён": 1, "убран": 1}
+        vs_v2 = admin.get(f"/api/projects/{a['id']}/compare", params={"other": v2["id"]}).json()
+        assert [(r["type"], r["what"]) for r in vs_v2["rows"]] == [("Кушетка смотровая", "добавлен")]
+    
+        # спецификация: кушетка есть на складе, стол — купить
+        wh = admin.post("/api/inventory/warehouses", json={"name": "Основной"}).json()
+        got = document(
+            admin,
+            "receipt",
+            {"to_place": wh["key"]},
+            [{"type_id": t["Кушетка смотровая"], "qty": 1, "price": 9000}],
+        )
+        assert post(admin, got).status_code == 200
+        spec = admin.get(f"/api/projects/{a['id']}/specification").json()
+        rows = {r["type"]: r for r in spec["rows"]}
+        assert (rows["Кушетка смотровая"]["have"], rows["Кушетка смотровая"]["buy"]) == (1, 0)
+        assert rows["Стол процедурный"]["buy"] == 1 and rows["Стол процедурный"]["price"] &gt; 0
+        assert spec["total"] == rows["Стол процедурный"]["sum"]
+    
+        # выгрузка для руководства
+&gt;       pdf = admin.get(f"/api/projects/{a['id']}/export.pdf")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_projects.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1113: in get
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/projects/routes.py:130: in export_pdf
+    data, name = api.export_pdf(session, actor, project_id)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/projects/api.py:754: in export_pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_projects" name="test_project_undo_restores_removed_and_archive_blocks_edits" time="2.554" /><testcase classname="tests.test_reliability" name="test_crash_while_posting_leaves_draft_and_nothing_moved" time="1.105" /><testcase classname="tests.test_reliability" name="test_crash_while_saving_plan_keeps_previous_plan" time="0.749" /><testcase classname="tests.test_reliability" name="test_crash_while_loading_excel_loads_nothing" time="2.547"><failure message="FileNotFoundError: [Errno 2] No such file or directory: '/builds/docs/samples/имущество-пример.xlsx'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc14a36900&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7dfc17503da0&gt;
+
+    def test_crash_while_loading_excel_loads_nothing(admin, monkeypatch) -&gt; None:
+        from app.core.db import transaction
+        from app.modules.access import api as access
+        from app.modules.catalog.module import seed
+        from app.samples import polyclinic
+        from tests.test_inventory import SAMPLE
+    
+        with transaction() as s:
+            b = polyclinic.create(s, access.actor_of(access.find(s, "admin")))
+        with transaction() as s:
+            seed(s)
+&gt;       files = {"file": ("имущество.xlsx", SAMPLE.read_bytes())}
+                                            ^^^^^^^^^^^^^^^^^^^
+
+tests/test_reliability.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/pathlib.py:1019: in read_bytes
+    with self.open(mode='rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/builds/docs/samples/имущество-пример.xlsx'), mode = 'rb'
+buffering = -1, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/builds/docs/samples/имущество-пример.xlsx'
+
+/usr/local/lib/python3.12/pathlib.py:1013: FileNotFoundError</failure></testcase><testcase classname="tests.test_reports" name="test_every_report_builds" time="3.065"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc115a1ac0&gt;
+
+    def test_every_report_builds(admin) -&gt; None:
+        b, f, rooms, got, types = setup(admin)
+        defs = {d["key"]: d for d in admin.get("/api/reports").json()["items"]}
+        assert len(defs) == 13
+        count = admin.post("/api/inventory/counts", json={"places": [f"r:{rooms['214']}"]}).json()
+        project = admin.post("/api/projects", json={"building_id": b["id"], "name": "Вариант"}).json()
+        layers = ",".join(t["layer_id"] for t in types.values() if t["layer_id"])[:2000]
+        params = {
+            "registry": {"building_id": b["id"]},
+            "balances": {"at": str(date.today()), "building_id": b["id"]},
+            "movement": {"since": "2020-01-01", "building_id": b["id"]},
+            "cost": {"at": str(date.today()), "building_id": b["id"], "group_by": "floor,layer"},
+            "room": {"place": f"r:{rooms['214']}"},
+            "count": {"count_id": count["id"], "what": "statement"},
+            "mismatch": {"building_id": b["id"]},
+            "project": {"project_id": project["id"]},
+            "cameras": {"building_id": b["id"]},
+            "light": {"floor_id": f["id"]},
+            "plan": {"floor_id": f["id"], "layers": layers},
+            "labels": {"place": f"r:{rooms['214']}"},
+            "document": {"document_id": got["id"]},
+        }
+        magic = {"pdf": b"%PDF-", "xlsx": b"PK", "dxf": b"  0"}
+        for key, d in defs.items():
+            for fmt in d["formats"]:
+&gt;               r = admin.get(f"/api/reports/{key}.{fmt}", params=params[key])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_reports.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1113: in get
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/reports/routes.py:30: in build
+    data, name = api.build(session, actor, key, fmt, params, base)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/reports/api.py:601: in build
+    return d.build(Ctx(session, actor, params, fmt, base_url))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/reports/api.py:158: in _balances
+    return _out(ctx, r, f"Остатки на {at:%d.%m.%Y}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/reports/api.py:98: in _out
+    return report.pdf(r), f"{name}.pdf"
+           ^^^^^^^^^^^^^
+app/core/report.py:41: in pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_reports" name="test_home_counts_what_needs_attention" time="2.601" /><testcase classname="tests.test_reports" name="test_full_export_is_an_archive_readable_without_the_system" time="2.690" /><testcase classname="tests.test_security" name="test_viewer_gets_no_cost_numbers_or_projects_anywhere" time="1.518"><failure message="OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'">admin = &lt;starlette.testclient.TestClient object at 0x7dfc10b2f860&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x7dfc1862e6c0&gt;
+
+    def test_viewer_gets_no_cost_numbers_or_projects_anywhere(admin, app) -&gt; None:
+        building, rooms, wh, k = setup(admin)
+        t = k["монитор"]
+        assert (
+            admin.patch(
+                f"/api/catalog/types/{t['id']}", json={"version": t["version"], "price": 777331}
+            ).status_code
+            == 200
+        )
+        got = document(
+            admin,
+            "receipt",
+            {"to_place": rooms["214"]},
+            [{"type_id": t["id"], "qty": 1, "price": 14537, "number": n} for n in NUMBERS]
+            + [{"type_id": k["перчатки"]["id"], "qty": 10, "price": 523.5}],
+        )
+        assert post(admin, got).status_code == 200, post(admin, got).text
+        units = [
+            u["id"]
+            for line in admin.get(f"/api/inventory/documents/{got['id']}").json()["lines"]
+            for u in line["created_units"]
+        ]
+        unit = admin.get(f"/api/inventory/units/{units[0]}").json()
+        assert unit["number"] == NUMBERS[0]
+        floor = unit["place"]["floor_id"]
+        project = admin.post(
+            "/api/projects", json={"building_id": building["id"], "name": "Тайный проект"}
+        ).json()
+        count = admin.post("/api/inventory/counts", json={"floor_id": floor}).json()
+    
+        with transaction() as s:
+            access.create(
+                s,
+                None,
+                login_name="zav",
+                full_name="Заведующий З. З.",
+                role="viewer",
+                building_ids=[building["id"]],
+                password="Viewer-pass-123",
+            )
+        with make_client(app) as viewer:
+            login(viewer, "zav", "Viewer-pass-123")
+            viewer.post(
+                "/api/auth/password", json={"current": "Viewer-pass-123", "new": "Viewer-pass-456"}
+            )
+            b, f, u = building["id"], floor, units[0]
+            reachable = [
+                "/api/buildings",
+                f"/api/buildings/{b}",
+                f"/api/floors/{f}/plan",
+                f"/api/floors/{f}/items",
+                "/api/catalog",
+                f"/api/catalog/types/{t['id']}",
+                "/api/inventory/places",
+                f"/api/inventory/place?key={rooms['214']}",
+                "/api/inventory/units",
+                "/api/inventory/units/export.xlsx",
+                f"/api/inventory/units/{u}",
+                f"/api/inventory/units/{units[-1]}",
+                f"/api/inventory/balances?place={rooms['214']}",
+                f"/api/link/floors/{f}",
+                f"/api/link/units/{u}",
+                f"/api/q/{unit['label_code']}",
+                "/api/search?q=Монитор",
+                "/api/search?q=ТАЙНА",
+                f"/api/floors/{f}/export.pdf",
+            ]
+            closed = [
+                "/api/inventory/cost",
+                "/api/inventory/cost.xlsx",
+                "/api/inventory/documents",
+                f"/api/inventory/documents/{got['id']}",
+                f"/api/inventory/documents/{got['id']}/print.pdf",
+                "/api/inventory/balances/history",
+                "/api/inventory/counts",
+                f"/api/inventory/counts/{count['id']}",
+                f"/api/inventory/counts/{count['id']}/act.pdf",
+                "/api/catalog/export.xlsx",
+                "/api/projects",
+                f"/api/projects/{project['id']}",
+                f"/api/projects/{project['id']}/specification",
+                f"/api/projects/{project['id']}/export.xlsx",
+                "/api/reports",
+                "/api/reports/registry.xlsx",
+                "/api/reports/cost.xlsx",
+                f"/api/home?building_id={b}",
+                f"/api/home/plan?building_id={b}",
+                "/api/journal",
+                "/api/users",
+                "/api/share-links",
+                "/api/system/settings",
+            ]
+            leaks = []
+            for url in reachable:
+&gt;               r = viewer.get(url)
+                    ^^^^^^^^^^^^^^^
+
+tests/test_security.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1113: in get
+    return self.request(
+.venv/lib/python3.12/site-packages/starlette/testclient.py:457: in request
+    return super().request(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:797: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:980: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1008: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1043: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/httpx2/_client.py:1076: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/testclient.py:354: in handle_request
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/testclient.py:351: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:340: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+.venv/lib/python3.12/site-packages/anyio/from_thread.py:265: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/applications.py:1216: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:203: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:65: in guard
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:179: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.12/site-packages/starlette/middleware/base.py:149: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/routing.py:676: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2791: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1819: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:2874: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1845: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:1308: in handle
+    await effective_context.app(scope, receive, send)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:165: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.12/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.12/site-packages/fastapi/routing.py:151: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/routing.py:727: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.12/site-packages/fastapi/routing.py:362: in run_endpoint_function
+    return await run_in_threadpool(
+.venv/lib/python3.12/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/fastapi/telemetry/_api.py:244: in _run_sync_endpoint
+    return function(**arguments)
+           ^^^^^^^^^^^^^^^^^^^^^
+app/modules/building/routes.py:185: in export_floor
+    data, name = api.export_floor(session, actor, floor_id, fmt, paper, orientation, scale)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/modules/building/api.py:759: in export_floor
+    data = export.pdf(drawing, paper=paper, orientation=orientation, scale=scale,
+app/modules/building/export.py:311: in pdf
+    from weasyprint import HTML
+.venv/lib/python3.12/site-packages/weasyprint/__init__.py:376: in &lt;module&gt;
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/weasyprint/css/__init__.py:30: in &lt;module&gt;
+    from ..text.fonts import FontConfiguration
+.venv/lib/python3.12/site-packages/weasyprint/text/fonts.py:17: in &lt;module&gt;
+    from .constants import (  # isort:skip
+.venv/lib/python3.12/site-packages/weasyprint/text/constants.py:5: in &lt;module&gt;
+    from .ffi import pango
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:503: in &lt;module&gt;
+    gobject = _dlopen(
+.venv/lib/python3.12/site-packages/weasyprint/text/ffi.py:490: in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:143: in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/cffi/api.py:827: in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+backend = &lt;module '_cffi_backend' from '/builds/server/.venv/lib/python3.12/site-packages/_cffi_backend.cpython-312-x86_64-linux-gnu.so'&gt;
+name = 'libgobject-2.0-0', flags = 2
+
+    def _load_backend_lib(backend, name, flags):
+        import os
+        if not isinstance(name, basestring):
+            if sys.platform != "win32" or name is not None:
+                return backend.load_library(name, flags)
+            name = "c"    # Windows: load_library(None) fails, but this works
+                          # on Python 2 (backward compatibility hack only)
+        first_error = None
+        if '.' in name or '/' in name or os.sep in name:
+            try:
+                return backend.load_library(name, flags)
+            except OSError as e:
+                first_error = e
+        import ctypes.util
+        path = ctypes.util.find_library(name)
+        if path is None:
+            if name == "c" and sys.platform == "win32" and sys.version_info &gt;= (3,):
+                raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                              "(see http://bugs.python.org/issue23606)")
+            msg = ("ctypes.util.find_library() did not manage "
+                   "to locate a library called %r" % (name,))
+            if first_error is not None:
+                msg = "%s.  Additionally, %s" % (first_error, msg)
+&gt;           raise OSError(msg)
+E           OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file: No such file or directory.  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libgobject-2.0-0'
+
+.venv/lib/python3.12/site-packages/cffi/api.py:822: OSError</failure></testcase><testcase classname="tests.test_share" name="test_c21_share_link_shows_plan_only_until_revoked" time="0.941" /><testcase classname="tests.test_system" name="test_settings_are_validated_versioned_and_journaled" time="0.616" /><testcase classname="tests.test_system" name="test_status_reports_database_worker_and_backup" time="0.565" /><testcase classname="tests.test_system" name="test_health_needs_no_login" time="0.277" /><testcase classname="tests.test_system" name="test_search_is_empty_while_no_module_provides_results" time="0.561" /><testcase classname="tests.test_system" name="test_server_errors_are_human_and_logged" time="0.580" /><testcase classname="tests.test_tasks" name="test_a_task_runs_and_reports_progress" time="0.538" /><testcase classname="tests.test_tasks" name="test_a_failed_task_changes_nothing_and_says_why" time="0.516" /><testcase classname="tests.test_tasks" name="test_a_task_enqueued_in_a_rolled_back_transaction_does_not_exist" time="0.265" /><testcase classname="tests.test_tasks" name="test_scheduled_tasks_are_enqueued_once_per_period" time="0.305" /><testcase classname="tests.test_tasks" name="test_interrupted_tasks_are_requeued" time="0.270" /><testcase classname="tests.test_users" name="test_admin_creates_a_viewer_who_logs_in_and_sees_no_admin_data" time="0.796" /><testcase classname="tests.test_users" name="test_login_must_be_unique_and_valid" time="0.670" /><testcase classname="tests.test_users" name="test_admin_may_set_the_temporary_password" time="0.628" /><testcase classname="tests.test_users" name="test_unknown_building_is_refused" time="0.534" /><testcase classname="tests.test_users" name="test_edit_with_a_stale_version_is_refused" time="0.631" /><testcase classname="tests.test_users" name="test_reset_password_ends_sessions_and_requires_a_change" time="0.845" /><testcase classname="tests.test_users" name="test_block_ends_sessions_and_refuses_login" time="0.750" /><testcase classname="tests.test_users" name="test_the_last_admin_cannot_be_lost" time="0.636" /><testcase classname="tests.test_users" name="test_changes_are_journaled_with_before_and_after" time="0.649" /></testsuite></testsuites>

@@ -1,0 +1,8 @@
+receipt: 200 unit a1e82195-0b8c-46ad-a26b-136851cae832
+T1 20.10 -> bd2: 200 
+T2 18.10 -> bd3: 200 
+unit card place now: Склад «bd3-1792571920»
+cost at 2026-10-19: places mentioning our warehouses: ['Склад «bd3-1792571920»']
+cost at 2026-10-21: places mentioning our warehouses: ['Склад «bd2-1792571920»']
+cancel T1 (T2 posted after it): 200 allowed
+unit place after cancel: Склад «bd3-1792571920»

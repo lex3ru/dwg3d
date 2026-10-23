@@ -1,0 +1,6 @@
+check node=NaN       -> 422 Проверьте поле «plan.nodes.n1.0».
+check node=Infinity  -> 422 Проверьте поле «plan.nodes.n1.0».
+check node=1e300     -> 422 Проверьте поле «plan.nodes.n1.0».
+PUT node=1e300 -> 422 Проверьте поле «plan.nodes.n1.0».
+GET plan after: 200
+PDF after: 200 5869 bytes

@@ -1,0 +1,4 @@
+Package               Current   Wanted  Latest  Location                           Depended by
+@axe-core/playwright   4.11.0   4.11.0  4.14.0  node_modules/@axe-core/playwright  e2e
+@playwright/test       1.63.0   1.63.0  1.64.1  node_modules/@playwright/test      e2e
+@types/node           24.19.2  24.19.2  26.6.5  node_modules/@types/node           e2e

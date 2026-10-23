@@ -1,0 +1,6 @@
+create type: 201 piece
+receipt 2 pieces: ['000044', '000045']
+change accounting piece->quantity with units: 200 quantity
+balances now: []
+units still in registry: 2
+writeoff qty 1 of now-quantity type: 400 Документ не проведён: строка 1: «Зонд-тип-1792572676» на месте «Склад «acc-1792572677»» — 0, нужно 1

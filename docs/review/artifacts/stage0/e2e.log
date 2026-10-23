@@ -1,0 +1,520 @@
+10:48:02
+
+Running 46 tests using 1 worker
+
+  x   1 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема (2.7s)
+  x   2 [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема (874ms)
+  -   3 [компьютер] › tests\perf.spec.ts:8:1 › 8.2: план этажа за 2 с, 3D за 3 с
+2 000 предметов: открытие 379 мс, перетаскивание 60 кадр/с, 3D NaN кадр/с
+  ok  4 [компьютер] › tests\perf.spec.ts:33:1 › 8.2: 2 000 предметов на этаже — открытие и плавность (9.0s)
+расчёты: освещённость этажа (40 помещений, 160 светильников) 200 мс, зона обзора (30 камер) 36 мс
+  ok  5 [компьютер] › tests\perf.spec.ts:120:1 › 8.2: расчёты — зона обзора 0,2 с, освещённость этажа 10 с (1.5s)
+  ok  6 [компьютер] › tests\stage0.spec.ts:7:1 › администратор заводит «просмотр», тот входит, меняет пароль и видит только своё (1.5s)
+  ok  7 [компьютер] › tests\stage0.spec.ts:55:1 › неверный пароль — понятная ошибка, попытка в журнале (871ms)
+  ok  8 [компьютер] › tests\stage0.spec.ts:66:1 › администратор блокирует учётную запись — сеанс заканчивается сразу (1.3s)
+  ok  9 [компьютер] › tests\stage1.spec.ts:63:1 › С2: этаж с нуля — подложка, масштаб, стены, двери, окна, помещение (2.3s)
+  ok 10 [компьютер] › tests\stage1.spec.ts:124:1 › С3: снесли перегородку — система спрашивает, какое помещение остаётся (958ms)
+  ok 11 [компьютер] › tests\stage1.spec.ts:164:1 › «просмотр» видит план выданного здания только для чтения (1.4s)
+  ok 12 [компьютер] › tests\stage10.spec.ts:8:1 › справка: F1 открывает раздел, где человек сейчас; поиск; все сценарии С1–С22 (1.1s)
+  ok 13 [компьютер] › tests\stage10.spec.ts:42:1 › справка «просмотра» — только о том, что ему доступно (1.2s)
+  ok 14 [компьютер] › tests\stage2.spec.ts:31:1 › С1: чертёж с двумя этажами — части, этажи, перевод в планы с помещениями (2.3s)
+  ok 15 [компьютер] › tests\stage3.spec.ts:22:1 › С4: новый тип с характеристиками и моделью (1.6s)
+  ok 16 [компьютер] › tests\stage3.spec.ts:75:1 › С5: новый слой с типами, без доработки системы (1.5s)
+  ok 17 [компьютер] › tests\stage3.spec.ts:103:1 › Каталог: выгрузка в Excel и загрузка обратно — сначала проверка, без изменений (1.7s)
+  ok 18 [компьютер] › tests\stage3.spec.ts:115:1 › Назначения помещений: добавить, задать норму, выбрать у помещения в редакторе (973ms)
+  ok 19 [компьютер] › tests\stage4.spec.ts:88:1 › С6: расстановка кабинета — из каталога на план, шкаф к стене, поворот, 3D (2.4s)
+  ok 20 [компьютер] › tests\stage4.spec.ts:149:1 › С8: светильник на потолок коридора и ряд с шагом 3 м до конца коридора (1.3s)
+  x  21 [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит (6.7s)
+  ok 22 [компьютер] › tests\stage4.spec.ts:212:1 › Вложение: коммутатор — в стойку 19″, со стойкой и уходит (1.8s)
+  ok 23 [компьютер] › tests\stage5.spec.ts:52:1 › С10: список имущества из Excel — сопоставление, создание типа, «Ввод остатков» (1.2s)
+  ok 24 [компьютер] › tests\stage5.spec.ts:92:1 › С11 и С16: приход на склад с номерами подряд, расход перчаток (2.2s)
+  ok 25 [компьютер] › tests\stage5.spec.ts:133:1 › С14, С15, С17: найти, ремонт, списание — с историей (2.3s)
+  ok 26 [компьютер] › tests\stage5.spec.ts:178:1 › С19: стоимость на дату с разбивкой по этажам и слоям, выгрузка в Excel (752ms)
+  ok 27 [компьютер] › tests\stage6.spec.ts:91:1 › С12 и С13: выданное ждёт в «Неразмещённых», ставится на стол; перенос на плане — перемещение (2.7s)
+  ok 28 [компьютер] › tests\stage6.spec.ts:157:1 › Постановка на учёт с плана: несколько предметов — «Ввод остатков», номера, метки (1.9s)
+  ok 29 [компьютер] › tests\stage7.spec.ts:52:1 › С7: зона обзора камеры по уровням, угол вариофокальной, непросматриваемые места (1.1s)
+  ok 30 [компьютер] › tests\stage7.spec.ts:102:1 › С8: освещённость коридора — ряд светильников с шагом 3 м ниже нормы, с шагом 1,5 м — норма (2.0s)
+  x  31 [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада (7.8s)
+  ok 32 [компьютер] › tests\stage9.spec.ts:123:1 › С20: заведующий с «просмотром» видит план и карточки без стоимости, номеров и проектов (1.8s)
+  ok 33 [компьютер] › tests\stage9.spec.ts:159:1 › С21: ссылка подрядчику — план без учётной записи, без учёта; отзыв досрочно (1.5s)
+  ok 34 [компьютер] › tests\stage9.spec.ts:207:1 › С22: кто переставил кушетку — история предмета и журнал помещения (1.2s)
+  ok 35 [компьютер] › tests\stage9.spec.ts:233:1 › главная, отчёты и полная выгрузка здания (2.7s)
+  -  36 [компьютер] › tests\volume.spec.ts:39:3 › 8.2 на объёмах 8.1 › объёмы стенда не меньше 8.1
+  -  37 [компьютер] › tests\volume.spec.ts:49:3 › 8.2 на объёмах 8.1 › план этажа с 2 000 предметов — 2 с, 3D — 3 с
+  -  38 [компьютер] › tests\volume.spec.ts:75:3 › 8.2 на объёмах 8.1 › поиск, карточка, переход между экранами — 1 с
+  -  39 [компьютер] › tests\volume.spec.ts:107:3 › 8.2 на объёмах 8.1 › документ на 100 строк проводится за 2 с, Excel на 1 000 строк проверяется за 10 с
+  -  40 [компьютер] › tests\volume.spec.ts:136:3 › 8.2 на объёмах 8.1 › отчёт и выгрузка по 50 000 единиц — 30 с
+
+  ok 41 [телефон] › tests\a11y.spec.ts:40:1 › на телефоне кнопки и поля не меньше 44 px @телефон (4.6s)
+  ok 42 [телефон] › tests\stage0.spec.ts:91:1 › каркас на телефоне: вкладки внизу, карточка — отдельной страницей @телефон (546ms)
+  ok 43 [телефон] › tests\stage3.spec.ts:159:1 › Каталог на телефоне: список типов, карточка, назад к списку @телефон (723ms)
+  ok 44 [телефон] › tests\stage6.spec.ts:191:1 › С10 обходом с телефона: помещение во весь экран, «Добавить», касание, «На учёт» @телефон (1.9s)
+  ok 45 [телефон] › tests\stage9.spec.ts:68:1 › С18: инвентаризация этажа с телефона — отметки по номеру и вручную, найденное не там, проведение и акт @телефон (2.0s)
+  -  46 [телефон] › tests\volume.spec.ts:162:3 › 8.2 на объёмах 8.1 › QR-метка → карточка на телефоне — 2 с @телефон
+
+
+  1) [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема ─────────────
+
+    TypeError: Cannot read properties of undefined (reading 'id')
+
+      11 |   const all = (await (await page.request.get("/api/buildings")).json()).items as { id: string; name: string }[];
+      12 |   const b = all.find((x) => x.name === "Поликлиника") ?? all[0]!;
+    > 13 |   const info = await (await page.request.get(`/api/buildings/${b.id}`)).json();
+         |                                                                  ^
+      14 |   return `/plan/${b.id}/${info.floors[0].id}?mode=place`;
+      15 | }
+      16 |
+        at plan (C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:13:66)
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:28:34
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема ──────────────
+
+    TypeError: Cannot read properties of undefined (reading 'id')
+
+      11 |   const all = (await (await page.request.get("/api/buildings")).json()).items as { id: string; name: string }[];
+      12 |   const b = all.find((x) => x.name === "Поликлиника") ?? all[0]!;
+    > 13 |   const info = await (await page.request.get(`/api/buildings/${b.id}`)).json();
+         |                                                                  ^
+      14 |   return `/plan/${b.id}/${info.floors[0].id}?mode=place`;
+      15 | }
+      16 |
+        at plan (C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:13:66)
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:28:34
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+    Expected: 3
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" getByRole('img', { name: 'План этажа' }).locator('[data-item]') with timeout 5000ms
+      - waiting for getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+        14 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      203 |   await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+      204 |   await viewer.goto(`/plan/${f.building}/${f.floor}`);
+    > 205 |   await expect(viewer.getByRole("img", { name: "План этажа" }).locator("[data-item]")).toHaveCount(3);
+          |                                                                                        ^
+      206 |   await expect(viewer.getByRole("region", { name: "Слои" })).toBeVisible();
+      207 |   await expect(viewer.getByRole("region", { name: "Каталог" })).toHaveCount(0);
+      208 |   await expect(viewer.getByRole("tab", { name: "Расстановка" })).toHaveCount(0);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage4.spec.ts:205:88
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('dialog', { name: 'Проект применён' })
+    Expected substring: "Оформлено «Перемещение"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" getByRole('dialog', { name: 'Проект применён' }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Проект применён' })
+
+
+      152 |   await apply.getByRole("button", { name: "Применить" }).click();
+      153 |   const done = page.getByRole("dialog", { name: "Проект применён" });
+    > 154 |   await expect(done).toContainText("Оформлено «Перемещение");
+          |                      ^
+      155 |   await done.getByRole("button", { name: "Готово" }).click();
+      156 |   await expect(page.getByText("применён", { exact: true })).toBeVisible();
+      157 |   const after = await layout(page, f.floor);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage8.spec.ts:154:22
+
+    Error Context: ..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема ──────────────
+    [компьютер] › tests\a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема ───────────────
+    [компьютер] › tests\stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+    [компьютер] › tests\stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+  7 skipped
+  35 passed (1.6m)
+<testsuites id="" name="" tests="46" failures="2" skipped="7" errors="2" time="96.739697">
+<testsuite name="a11y.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="2" failures="0" skipped="0" time="3.606" errors="2">
+<testcase name="WCAG 2 AA на всех разделах — светлая тема" classname="a11y.spec.ts" time="2.732">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\error-context.md]]
+
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\trace.zip]]
+]]>
+</system-out>
+<error message="Cannot read properties of undefined (reading &apos;id&apos;)" type="TypeError">
+<![CDATA[  [компьютер] › a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — светлая тема ──────────────────────
+
+    TypeError: Cannot read properties of undefined (reading 'id')
+
+      11 |   const all = (await (await page.request.get("/api/buildings")).json()).items as { id: string; name: string }[];
+      12 |   const b = all.find((x) => x.name === "Поликлиника") ?? all[0]!;
+    > 13 |   const info = await (await page.request.get(`/api/buildings/${b.id}`)).json();
+         |                                                                  ^
+      14 |   return `/plan/${b.id}/${info.floors[0].id}?mode=place`;
+      15 | }
+      16 |
+        at plan (C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:13:66)
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:28:34
+
+    Error Context: ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-светлая-тема-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+]]>
+</error>
+</testcase>
+<testcase name="WCAG 2 AA на всех разделах — тёмная тема" classname="a11y.spec.ts" time="0.874">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\error-context.md]]
+
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\trace.zip]]
+]]>
+</system-out>
+<error message="Cannot read properties of undefined (reading &apos;id&apos;)" type="TypeError">
+<![CDATA[  [компьютер] › a11y.spec.ts:23:3 › WCAG 2 AA на всех разделах — тёмная тема ───────────────────────
+
+    TypeError: Cannot read properties of undefined (reading 'id')
+
+      11 |   const all = (await (await page.request.get("/api/buildings")).json()).items as { id: string; name: string }[];
+      12 |   const b = all.find((x) => x.name === "Поликлиника") ?? all[0]!;
+    > 13 |   const info = await (await page.request.get(`/api/buildings/${b.id}`)).json();
+         |                                                                  ^
+      14 |   return `/plan/${b.id}/${info.floors[0].id}?mode=place`;
+      15 | }
+      16 |
+        at plan (C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:13:66)
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\a11y.spec.ts:28:34
+
+    Error Context: ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\..\docs\review\artifacts\stage0\e2e-results\a11y-WCAG-2-AA-на-всех-разделах-—-тёмная-тема-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+]]>
+</error>
+</testcase>
+</testsuite>
+<testsuite name="perf.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="3" failures="0" skipped="1" time="10.594" errors="0">
+<testcase name="8.2: план этажа за 2 с, 3D за 3 с" classname="perf.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_PERF_BUILDING">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="8.2: 2 000 предметов на этаже — открытие и плавность" classname="perf.spec.ts" time="8.987">
+<system-out>
+<![CDATA[2 000 предметов: открытие 379 мс, перетаскивание 60 кадр/с, 3D NaN кадр/с
+]]>
+</system-out>
+</testcase>
+<testcase name="8.2: расчёты — зона обзора 0,2 с, освещённость этажа 10 с" classname="perf.spec.ts" time="1.519">
+<system-out>
+<![CDATA[расчёты: освещённость этажа (40 помещений, 160 светильников) 200 мс, зона обзора (30 камер) 36 мс
+]]>
+</system-out>
+</testcase>
+</testsuite>
+<testsuite name="stage0.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="3" failures="0" skipped="0" time="3.703" errors="0">
+<testcase name="администратор заводит «просмотр», тот входит, меняет пароль и видит только своё" classname="stage0.spec.ts" time="1.548">
+</testcase>
+<testcase name="неверный пароль — понятная ошибка, попытка в журнале" classname="stage0.spec.ts" time="0.871">
+</testcase>
+<testcase name="администратор блокирует учётную запись — сеанс заканчивается сразу" classname="stage0.spec.ts" time="1.284">
+</testcase>
+</testsuite>
+<testsuite name="stage1.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="3" failures="0" skipped="0" time="4.658" errors="0">
+<testcase name="С2: этаж с нуля — подложка, масштаб, стены, двери, окна, помещение" classname="stage1.spec.ts" time="2.276">
+</testcase>
+<testcase name="С3: снесли перегородку — система спрашивает, какое помещение остаётся" classname="stage1.spec.ts" time="0.958">
+</testcase>
+<testcase name="«просмотр» видит план выданного здания только для чтения" classname="stage1.spec.ts" time="1.424">
+</testcase>
+</testsuite>
+<testsuite name="stage10.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="2" failures="0" skipped="0" time="2.271" errors="0">
+<testcase name="справка: F1 открывает раздел, где человек сейчас; поиск; все сценарии С1–С22" classname="stage10.spec.ts" time="1.088">
+</testcase>
+<testcase name="справка «просмотра» — только о том, что ему доступно" classname="stage10.spec.ts" time="1.183">
+</testcase>
+</testsuite>
+<testsuite name="stage2.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="1" failures="0" skipped="0" time="2.334" errors="0">
+<testcase name="С1: чертёж с двумя этажами — части, этажи, перевод в планы с помещениями" classname="stage2.spec.ts" time="2.334">
+</testcase>
+</testsuite>
+<testsuite name="stage3.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="4" failures="0" skipped="0" time="5.831" errors="0">
+<testcase name="С4: новый тип с характеристиками и моделью" classname="stage3.spec.ts" time="1.631">
+</testcase>
+<testcase name="С5: новый слой с типами, без доработки системы" classname="stage3.spec.ts" time="1.521">
+</testcase>
+<testcase name="Каталог: выгрузка в Excel и загрузка обратно — сначала проверка, без изменений" classname="stage3.spec.ts" time="1.706">
+</testcase>
+<testcase name="Назначения помещений: добавить, задать норму, выбрать у помещения в редакторе" classname="stage3.spec.ts" time="0.973">
+</testcase>
+</testsuite>
+<testsuite name="stage4.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="4" failures="1" skipped="0" time="12.187" errors="0">
+<testcase name="С6: расстановка кабинета — из каталога на план, шкаф к стене, поворот, 3D" classname="stage4.spec.ts" time="2.419">
+</testcase>
+<testcase name="С8: светильник на потолок коридора и ряд с шагом 3 м до конца коридора" classname="stage4.spec.ts" time="1.299">
+</testcase>
+<testcase name="Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит" classname="stage4.spec.ts" time="6.69">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\error-context.md]]
+
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip]]
+]]>
+</system-out>
+<failure message="expect(locator).toHaveCount(expected) failed" type="expect.toHaveCount">
+<![CDATA[  [компьютер] › stage4.spec.ts:171:1 › Предупреждения расстановки: стена, дверь, вне помещений; «просмотр» только смотрит 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+    Expected: 3
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" getByRole('img', { name: 'План этажа' }).locator('[data-item]') with timeout 5000ms
+      - waiting for getByRole('img', { name: 'План этажа' }).locator('[data-item]')
+        14 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      203 |   await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+      204 |   await viewer.goto(`/plan/${f.building}/${f.floor}`);
+    > 205 |   await expect(viewer.getByRole("img", { name: "План этажа" }).locator("[data-item]")).toHaveCount(3);
+          |                                                                                        ^
+      206 |   await expect(viewer.getByRole("region", { name: "Слои" })).toBeVisible();
+      207 |   await expect(viewer.getByRole("region", { name: "Каталог" })).toHaveCount(0);
+      208 |   await expect(viewer.getByRole("tab", { name: "Расстановка" })).toHaveCount(0);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage4.spec.ts:205:88
+
+    Error Context: ..\..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\..\docs\review\artifacts\stage0\e2e-results\stage4-Предупреждения-расс-d7473-й-«просмотр»-только-смотрит-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+]]>
+</failure>
+</testcase>
+<testcase name="Вложение: коммутатор — в стойку 19″, со стойкой и уходит" classname="stage4.spec.ts" time="1.779">
+</testcase>
+</testsuite>
+<testsuite name="stage5.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="4" failures="0" skipped="0" time="6.467" errors="0">
+<testcase name="С10: список имущества из Excel — сопоставление, создание типа, «Ввод остатков»" classname="stage5.spec.ts" time="1.206">
+</testcase>
+<testcase name="С11 и С16: приход на склад с номерами подряд, расход перчаток" classname="stage5.spec.ts" time="2.178">
+</testcase>
+<testcase name="С14, С15, С17: найти, ремонт, списание — с историей" classname="stage5.spec.ts" time="2.331">
+</testcase>
+<testcase name="С19: стоимость на дату с разбивкой по этажам и слоям, выгрузка в Excel" classname="stage5.spec.ts" time="0.752">
+</testcase>
+</testsuite>
+<testsuite name="stage6.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="2" failures="0" skipped="0" time="4.618" errors="0">
+<testcase name="С12 и С13: выданное ждёт в «Неразмещённых», ставится на стол; перенос на плане — перемещение" classname="stage6.spec.ts" time="2.746">
+</testcase>
+<testcase name="Постановка на учёт с плана: несколько предметов — «Ввод остатков», номера, метки" classname="stage6.spec.ts" time="1.872">
+</testcase>
+</testsuite>
+<testsuite name="stage7.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="2" failures="0" skipped="0" time="3.112" errors="0">
+<testcase name="С7: зона обзора камеры по уровням, угол вариофокальной, непросматриваемые места" classname="stage7.spec.ts" time="1.147">
+</testcase>
+<testcase name="С8: освещённость коридора — ряд светильников с шагом 3 м ниже нормы, с шагом 1,5 м — норма" classname="stage7.spec.ts" time="1.965">
+</testcase>
+</testsuite>
+<testsuite name="stage8.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="1" failures="1" skipped="0" time="7.814" errors="0">
+<testcase name="С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада" classname="stage8.spec.ts" time="7.814">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\error-context.md]]
+
+[[ATTACHMENT|..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip]]
+]]>
+</system-out>
+<failure message="expect(locator).toContainText(expected) failed" type="expect.toContainText">
+<![CDATA[  [компьютер] › stage8.spec.ts:71:1 › С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('dialog', { name: 'Проект применён' })
+    Expected substring: "Оформлено «Перемещение"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" getByRole('dialog', { name: 'Проект применён' }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Проект применён' })
+
+
+      152 |   await apply.getByRole("button", { name: "Применить" }).click();
+      153 |   const done = page.getByRole("dialog", { name: "Проект применён" });
+    > 154 |   await expect(done).toContainText("Оформлено «Перемещение");
+          |                      ^
+      155 |   await done.getByRole("button", { name: "Готово" }).click();
+      156 |   await expect(page.getByText("применён", { exact: true })).toBeVisible();
+      157 |   const after = await layout(page, f.floor);
+        at C:\Users\Admin\PycharmProjects\dwg3d\e2e\tests\stage8.spec.ts:154:22
+
+    Error Context: ..\..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ..\..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+    Usage:
+
+        npx playwright show-trace ..\..\docs\review\artifacts\stage0\e2e-results\stage8-С9-проект-оснащения-aa9db-менение-с-выдачей-со-склада-компьютер\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+]]>
+</failure>
+</testcase>
+</testsuite>
+<testsuite name="stage9.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="4" failures="0" skipped="0" time="7.154" errors="0">
+<testcase name="С20: заведующий с «просмотром» видит план и карточки без стоимости, номеров и проектов" classname="stage9.spec.ts" time="1.784">
+</testcase>
+<testcase name="С21: ссылка подрядчику — план без учётной записи, без учёта; отзыв досрочно" classname="stage9.spec.ts" time="1.501">
+</testcase>
+<testcase name="С22: кто переставил кушетку — история предмета и журнал помещения" classname="stage9.spec.ts" time="1.198">
+</testcase>
+<testcase name="главная, отчёты и полная выгрузка здания" classname="stage9.spec.ts" time="2.671">
+</testcase>
+</testsuite>
+<testsuite name="volume.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="компьютер" tests="5" failures="0" skipped="5" time="0" errors="0">
+<testcase name="8.2 на объёмах 8.1 › объёмы стенда не меньше 8.1" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="8.2 на объёмах 8.1 › план этажа с 2 000 предметов — 2 с, 3D — 3 с" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="8.2 на объёмах 8.1 › поиск, карточка, переход между экранами — 1 с" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="8.2 на объёмах 8.1 › документ на 100 строк проводится за 2 с, Excel на 1 000 строк проверяется за 10 с" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="8.2 на объёмах 8.1 › отчёт и выгрузка по 50 000 единиц — 30 с" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="a11y.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="0" time="4.605" errors="0">
+<testcase name="на телефоне кнопки и поля не меньше 44 px @телефон" classname="a11y.spec.ts" time="4.605">
+<system-out>
+<![CDATA[
+]]>
+</system-out>
+</testcase>
+</testsuite>
+<testsuite name="stage0.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="0" time="0.546" errors="0">
+<testcase name="каркас на телефоне: вкладки внизу, карточка — отдельной страницей @телефон" classname="stage0.spec.ts" time="0.546">
+</testcase>
+</testsuite>
+<testsuite name="stage3.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="0" time="0.723" errors="0">
+<testcase name="Каталог на телефоне: список типов, карточка, назад к списку @телефон" classname="stage3.spec.ts" time="0.723">
+</testcase>
+</testsuite>
+<testsuite name="stage6.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="0" time="1.899" errors="0">
+<testcase name="С10 обходом с телефона: помещение во весь экран, «Добавить», касание, «На учёт» @телефон" classname="stage6.spec.ts" time="1.899">
+</testcase>
+</testsuite>
+<testsuite name="stage9.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="0" time="1.994" errors="0">
+<testcase name="С18: инвентаризация этажа с телефона — отметки по номеру и вручную, найденное не там, проведение и акт @телефон" classname="stage9.spec.ts" time="1.994">
+</testcase>
+</testsuite>
+<testsuite name="volume.spec.ts" timestamp="2026-10-21T07:48:03.862Z" hostname="телефон" tests="1" failures="0" skipped="1" time="0" errors="0">
+<testcase name="8.2 на объёмах 8.1 › QR-метка → карточка на телефоне — 2 с @телефон" classname="volume.spec.ts">
+<properties>
+<property name="skip" value="нет E2E_VOLUME=1">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>
+playwright exit 1
+10:49:40

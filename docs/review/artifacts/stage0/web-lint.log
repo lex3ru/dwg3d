@@ -1,0 +1,8 @@
+
+> planuchet-web@0.1.0 lint
+> oxlint src
+
+
+real	0m0.893s
+user	0m0.045s
+sys	0m0.045s
