@@ -1,6 +1,7 @@
 """Тесты идут на настоящем PostgreSQL. Адрес сервера — TEST_DATABASE_URL (по умолчанию
 база разработки из server/README.md); для тестов создаётся отдельная база app_test."""
 
+import functools
 import os
 import tempfile
 from collections.abc import Iterator
@@ -88,3 +89,25 @@ def admin(app) -> Iterator[TestClient]:  # type: ignore[no-untyped-def]
         r = c.post("/api/auth/password", json={"current": temporary, "new": ADMIN_PASSWORD})
         assert r.status_code == 200, r.text
         yield c
+
+
+@functools.cache
+def _weasyprint_error() -> str | None:
+    """Почему не загружается WeasyPrint (нет Pango — Windows без GTK); None — загружается."""
+    try:
+        import weasyprint  # noqa: F401
+    except OSError as e:
+        return str(e).split(".  ")[0]
+    return None
+
+
+@pytest.fixture
+def pdf() -> None:
+    """Тест печатает PDF. Без WeasyPrint он пропускается, а в CI это ошибка: там Pango ставит
+    задание (ADR-0001), и пропуск спрятал бы дефект печати (R-006)."""
+    error = _weasyprint_error()
+    if error is None:
+        return
+    if os.environ.get("CI"):
+        pytest.fail(f"WeasyPrint не загружается: {error}", pytrace=False)
+    pytest.skip(f"нет Pango для WeasyPrint (на Windows — GTK): {error}")

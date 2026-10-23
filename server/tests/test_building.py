@@ -225,7 +225,7 @@ def test_files_are_checked_by_content_and_stored_once(admin) -> None:
     assert admin.get(f"/api/files/{uuid.uuid4()}").status_code == 404
 
 
-def test_floor_prints_to_pdf_and_exports_to_dxf(admin) -> None:
+def test_floor_prints_to_pdf_and_exports_to_dxf(pdf, admin) -> None:
     import ezdxf
 
     _, floor = building_with_floor(admin)

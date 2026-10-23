@@ -277,7 +277,7 @@ def test_new_room_outlines_move_linked_units_with_their_items(admin) -> None:
     assert any(d["basis"] == "Изменение плана" for d in docs)
 
 
-def test_door_label_opens_the_room_for_a_walk(admin) -> None:
+def test_door_label_opens_the_room_for_a_walk(pdf, admin) -> None:
     _, rooms, _, _ = setup(admin)
     room = rooms["214"][2:]
     r = admin.post(

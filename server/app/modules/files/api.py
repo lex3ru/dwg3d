@@ -63,8 +63,9 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
     digest = hashlib.sha256()
     size = 0
     head = b""
-    with tempfile.NamedTemporaryFile(dir=root, delete=False) as tmp:
-        try:
+    tmp = tempfile.NamedTemporaryFile(dir=root, delete=False)
+    try:
+        with tmp:  # закрыт до удаления: открытый файл Windows не удаляет
             while chunk := stream.read(1024 * 1024):
                 if not head:
                     head = chunk[:64]
@@ -74,14 +75,14 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
                                    code="too_large")
                 digest.update(chunk)
                 tmp.write(chunk)
-            kind = _sniff(head)
-            if kind is None or kind not in accept:
-                wanted = ", ".join(TITLES[k] for k in sorted(accept))
-                raise AppError(f"Файл «{name}» — не {wanted}. Проверьте, тот ли файл выбран.",
-                               code="bad_file_type")
-        except BaseException:
-            os.unlink(tmp.name)
-            raise
+        kind = _sniff(head)
+        if kind is None or kind not in accept:
+            wanted = ", ".join(TITLES[k] for k in sorted(accept))
+            raise AppError(f"Файл «{name}» — не {wanted}. Проверьте, тот ли файл выбран.",
+                           code="bad_file_type")
+    except BaseException:
+        os.unlink(tmp.name)
+        raise
     sha = digest.hexdigest()
     target = path_of(sha)
     if target.exists():

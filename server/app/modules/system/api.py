@@ -127,7 +127,7 @@ def _backup() -> dict[str, Any]:
     """Сведения о последней копии пишет сервис резервного копирования (deploy/backup)."""
     status_file = config().backup_dir / "last.json"
     try:
-        data = json.loads(status_file.read_text())
+        data = json.loads(status_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"ok": False, "at": None, "message": "Резервных копий ещё не было."}
     at = data.get("finished_at")

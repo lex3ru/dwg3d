@@ -16,7 +16,7 @@ def unit(admin, unit_id):  # type: ignore[no-untyped-def]
     return admin.get(f"/api/inventory/units/{unit_id}").json()
 
 
-def test_c18_count_by_scanning_and_posting_discrepancies(admin) -> None:
+def test_c18_count_by_scanning_and_posting_discrepancies(pdf, admin) -> None:
     _, rooms, wh, k = setup(admin)
     got = document(
         admin,

@@ -49,7 +49,7 @@ def seed_models(session: Session) -> str | None:
         return None
     system = Actor(user_id=uuid.UUID(int=0), login="system", full_name="система", role="admin")
     done = 0
-    for entry in json.loads(index.read_text()):
+    for entry in json.loads(index.read_text(encoding="utf-8")):
         t = session.scalar(select(ItemType).where(ItemType.name == entry["type"]))
         if t is None or t.model_file_id is not None or t.model_credit is not None:
             continue

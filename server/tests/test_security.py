@@ -24,7 +24,7 @@ def text_of(content: bytes) -> str:
     return content.decode("utf-8", "replace")
 
 
-def test_viewer_gets_no_cost_numbers_or_projects_anywhere(admin, app) -> None:
+def test_viewer_gets_no_cost_numbers_or_projects_anywhere(pdf, admin, app) -> None:
     building, rooms, wh, k = setup(admin)
     t = k["монитор"]
     assert (
