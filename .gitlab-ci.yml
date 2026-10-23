@@ -7,12 +7,19 @@ include:
 
 stages: [test, e2e]
 
+# uv одной версии во всех заданиях (R-038): образ ниже и архив в e2e. Образы uv на Debian 12
+# (bookworm, как deploy/Dockerfile) выходили до 0.9.30, дальше — только на Debian 13 (ADR-0001).
+# Новая версия — новый UV_RELEASE и UV_RELEASE_SHA256 (файл .sha256 рядом с архивом релиза).
+variables:
+  UV_RELEASE: "0.9.30"
+  UV_RELEASE_SHA256: 8b3762374972daa7a74bbc6896cc73229ca69a07403dd9f9ea3805a51ffd7582
+
 # Все задания — на docker-раннере (тег docker): задания без тегов берёт shell-раннер, где
 # image и services не действуют. Образ по умолчанию — для agent-files: в Debian slim есть
 # diff с -x, нужный scripts/check-agent-files.sh.
 default:
   tags: [docker]
-  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-bookworm-slim
 
 workflow:
   rules:
@@ -29,7 +36,7 @@ workflow:
 
 server:
   stage: test
-  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-bookworm-slim
   <<: *postgres
   variables:
     POSTGRES_USER: app
@@ -88,7 +95,11 @@ e2e:
     E2E_TEMP_PASSWORD: Temporary-admin-1
     E2E_PASSWORD: E2e-admin-pass-1
   script:
-    - curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=$HOME/.local/bin:$PATH
+    # uv — архив релиза UV_RELEASE с проверкой суммы, а не установщик последней версии (R-038)
+    - curl -LsSf -o /tmp/uv.tar.gz
+      "https://github.com/astral-sh/uv/releases/download/$UV_RELEASE/uv-x86_64-unknown-linux-gnu.tar.gz"
+    - echo "$UV_RELEASE_SHA256  /tmp/uv.tar.gz" | sha256sum -c -
+    - tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1
     - (cd web && npm ci --no-audit --no-fund && npx vite build)
     - cd server && uv sync --frozen --no-dev --python 3.12
     - uv run python -m app migrate
