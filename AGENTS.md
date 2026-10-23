@@ -46,7 +46,7 @@ cd web && npm install && npm run dev
 ```bash
 cd server && uv run ruff check app migrations tests
 cd server && uv run pytest        # нужна база на :55432, тесты создают свою app_test
-cd web && npm run typecheck && npm run lint && npx vite build
+cd web && npm run typecheck && npm run lint && npm test && npx vite build
 cd e2e && npx playwright test     # на работающей системе: E2E_URL, E2E_ADMIN, E2E_PASSWORD — e2e/README.md
 ```
 
