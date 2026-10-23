@@ -4,7 +4,7 @@ title: CI и тесты
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-2-ci-tests
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/2
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/081fe28c-6402-4a0e-ab19-8b3fb043db1e
 updated: 2026-10-23
 ---
