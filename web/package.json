@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --port 5190 --strictPort",
     "build": "tsc -b && vite build",
-    "lint": "oxlint src",
+    "lint": "oxlint --deny-warnings src",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "admin-guide": "node scripts/admin-guide.ts"
