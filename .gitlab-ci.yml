@@ -41,6 +41,12 @@ server:
   cache:
     key: {files: [server/uv.lock]}
     paths: [.uv-cache]
+  before_script:
+    # печать PDF (WeasyPrint): Pango и шрифты с кириллицей — те же пакеты, что в
+    # deploy/Dockerfile (ADR-0001)
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0
+      libharfbuzz0b libfontconfig1 fonts-dejavu-core > /dev/null
   script:
     - cd server
     - uv sync --frozen

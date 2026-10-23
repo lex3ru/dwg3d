@@ -30,7 +30,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY server/ ./
 
 FROM python:3.12-slim-bookworm
-# печать PDF (WeasyPrint): Pango и шрифты с кириллицей
+# печать PDF (WeasyPrint): Pango и шрифты с кириллицей; те же пакеты ставит задание server
+# в .gitlab-ci.yml (ADR-0001)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b \
     libfontconfig1 fonts-dejavu-core \
