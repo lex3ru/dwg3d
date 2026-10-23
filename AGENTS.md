@@ -28,7 +28,7 @@ docker run -d --name planuchet-devdb -e POSTGRES_USER=app -e POSTGRES_PASSWORD=a
 
 # сервер на :8010, при запуске сам обновляет базу; worker — фоновые задачи
 cd server && uv sync
-export APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app
+export APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app
 APP_SECURE_COOKIES=false uv run python -m app serve --port 8010
 uv run python -m app worker
 uv run python -m app create-admin          # первый администратор, печатает временный пароль

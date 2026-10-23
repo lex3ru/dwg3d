@@ -33,12 +33,12 @@ docker run -d --name planuchet-devdb -e POSTGRES_USER=app -e POSTGRES_PASSWORD=a
 
 cd server && uv sync
 uv run pytest                     # тесты сервера (создают свою базу app_test)
-APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app APP_SECURE_COOKIES=false \
+APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app APP_SECURE_COOKIES=false \
   uv run python -m app serve --port 8010     # сервер (с миграцией базы)
-APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app \
+APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app \
   uv run python -m app create-admin          # первый администратор, печатает пароль
 
-APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app \
+APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app \
   uv run python -m app sample polyclinic     # тестовое здание «Поликлиника» (ТЗ 7.2)
 
 cd web && npm install && npm run dev          # интерфейс: http://localhost:5190

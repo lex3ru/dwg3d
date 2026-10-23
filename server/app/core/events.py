@@ -37,6 +37,7 @@ class Hub:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self.listening = threading.Event()  # канал слушается: изменения дойдут до сокетов
 
     def subscribe(self, allowed: Callable[[dict[str, Any]], bool]) -> Subscriber:
         sub: Subscriber = (asyncio.Queue(maxsize=200), allowed)
@@ -54,6 +55,7 @@ class Hub:
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._stop.clear()
+        self.listening.clear()
         self._thread = threading.Thread(target=self._listen, name="events", daemon=True)
         self._thread.start()
 
@@ -66,12 +68,14 @@ class Hub:
             try:
                 with psycopg.connect(dsn, autocommit=True) as conn:
                     conn.execute(f"LISTEN {CHANNEL}")
+                    self.listening.set()
                     while not self._stop.is_set():
                         for note in conn.notifies(timeout=1.0):
                             message = json.loads(note.payload)
                             assert self._loop is not None
                             self._loop.call_soon_threadsafe(self._dispatch, message)
             except Exception:  # база перезапускается — переподключаемся
+                self.listening.clear()
                 log.warning("events: lost the database connection, reconnecting", exc_info=True)
                 self._stop.wait(2.0)
 

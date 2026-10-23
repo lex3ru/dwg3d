@@ -9,8 +9,10 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
+# 127.0.0.1, а не localhost: база проброшена только на IPv4, а на Windows localhost — сначала
+# ::1, и подключение ждёт ~2 мин таймаута, прежде чем перейти на IPv4 (R-006, R-034)
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL",
-                           "postgresql+psycopg://app:app@localhost:55432/app")
+                           "postgresql+psycopg://app:app@127.0.0.1:55432/app")
 TEST_DB = "app_test"
 base, _, _ = ADMIN_URL.rpartition("/")
 os.environ["APP_DATABASE_URL"] = f"{base}/{TEST_DB}"
