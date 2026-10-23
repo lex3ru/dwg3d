@@ -30,10 +30,12 @@ def source(admin) -> dict:  # type: ignore[no-untyped-def]
     model = admin.post(
         f"/api/catalog/types/{k['стол']['id']}/models", json={"manufacturer": "Акс", "name": "Т-1"}
     ).json()["models"][0]
-    wh = admin.post("/api/inventory/warehouses", json={"name": "Склад корпуса", "building_id": b["id"]}).json()
-    cell = admin.post(f"/api/inventory/warehouses/{wh['id']}/cells", json={"name": "Стеллаж 1"}).json()[
-        "cells"
-    ][0]
+    wh = admin.post(
+        "/api/inventory/warehouses", json={"name": "Склад корпуса", "building_id": b["id"]}
+    ).json()
+    cell = admin.post(
+        f"/api/inventory/warehouses/{wh['id']}/cells", json={"name": "Стеллаж 1"}
+    ).json()["cells"][0]
     got = document(
         admin,
         "receipt",
@@ -45,7 +47,10 @@ def source(admin) -> dict:  # type: ignore[no-untyped-def]
     )
     assert post(admin, got).status_code == 200
     spare = document(
-        admin, "receipt", {"to_place": f"c:{cell['id']}"}, [{"type_id": k["стол"]["id"], "qty": 1, "price": 9000}]
+        admin,
+        "receipt",
+        {"to_place": f"c:{cell['id']}"},
+        [{"type_id": k["стол"]["id"], "qty": 1, "price": 9000}],
     )
     r = post(admin, spare)
     assert r.status_code == 200, r.text
@@ -53,26 +58,38 @@ def source(admin) -> dict:  # type: ignore[no-untyped-def]
     desk = admin.get(f"/api/inventory/units/{desks[0]['id']}").json()
     r = admin.patch(
         f"/api/inventory/units/{desk['id']}",
-        json={"version": desk["version"], "values": {"values": {color["id"]: "дуб"}, "state": "broken",
-                                                      "responsible": "Иванова А. А."}},
+        json={
+            "version": desk["version"],
+            "values": {
+                "values": {color["id"]: "дуб"},
+                "state": "broken",
+                "responsible": "Иванова А. А.",
+            },
+        },
     )
     assert r.status_code == 200, r.text
     photo = admin.post(
-        f"/api/inventory/units/{desk['id']}/files", params={"kind": "photo"}, files={"file": ("стол.png", PNG)}
+        f"/api/inventory/units/{desk['id']}/files",
+        params={"kind": "photo"},
+        files={"file": ("стол.png", PNG)},
     )
     assert photo.status_code == 201, photo.text
     items = changes(
         admin,
         f["id"],
         create=[
-            {"type_id": k["стол"]["id"], "x": 1500, "y": 2000, "unit_id": desk["id"], "label": "С-1"},
+            {"type_id": k["стол"]["id"], "x": 1500, "y": 2000,
+             "unit_id": desk["id"], "label": "С-1"},
             {"type_id": k["шкаф"]["id"], "x": 4500, "y": 2000, "angle": 90},
             {"type_id": k["светильник"]["id"], "x": 1500, "y": 1000},
         ],
     ).json()["items"]
     cabinet = next(i for i in items if i["type_id"] == k["шкаф"]["id"])
-    assert changes(admin, f["id"], create=[{"type_id": k["коммутатор"]["id"], "parent_id": cabinet["id"]}]).status_code == 200
-    return {"building": b, "floor": f, "rooms": rooms, "desk": admin.get(f"/api/inventory/units/{desk['id']}").json()}
+    assert changes(
+        admin, f["id"], create=[{"type_id": k["коммутатор"]["id"], "parent_id": cabinet["id"]}]
+    ).status_code == 200
+    return {"building": b, "floor": f, "rooms": rooms,
+            "desk": admin.get(f"/api/inventory/units/{desk['id']}").json()}
 
 
 def run_jobs() -> None:
@@ -83,8 +100,9 @@ def run_jobs() -> None:
 def wipe_catalog_and_buildings() -> None:
     """«Другая установка»: учётные записи те же, каталога, зданий и учёта нет."""
     with transaction() as s:
-        s.execute(text("TRUNCATE building.building, catalog.layer, catalog.char_set, catalog.item_type, "
-                       "catalog.purpose, inventory.document, inventory.warehouse CASCADE"))
+        s.execute(text("TRUNCATE building.building, catalog.layer, catalog.char_set, "
+                       "catalog.item_type, catalog.purpose, inventory.document, "
+                       "inventory.warehouse CASCADE"))
 
 
 def load(admin, data: bytes, **body):  # type: ignore[no-untyped-def]
@@ -103,7 +121,8 @@ def test_building_moves_to_another_installation_with_items_and_accounting(admin)
     r = admin.get(f"/api/buildings/{src['building']['id']}/transfer.zip")
     assert r.status_code == 200, r.text
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert {"manifest.json", "catalog.json", "building.json", "items.json", "inventory.json"} <= set(z.namelist())
+    parts = {"manifest.json", "catalog.json", "building.json", "items.json", "inventory.json"}
+    assert parts <= set(z.namelist())
     assert any(n.startswith("files/") for n in z.namelist())  # фото единицы
 
     wipe_catalog_and_buildings()
@@ -147,7 +166,9 @@ def test_building_moves_to_another_installation_with_items_and_accounting(admin)
     units = admin.get("/api/inventory/units", params={"limit": 10}).json()
     assert units["total"] == 3
     assert any(u["place"]["title"].endswith("Стеллаж 1") for u in units["items"])
-    stock = admin.get("/api/inventory/balances", params={"place": f"r:{rooms['214']}"}).json()["items"]
+    stock = admin.get(
+        "/api/inventory/balances", params={"place": f"r:{rooms['214']}"}
+    ).json()["items"]
     assert [(s["type_name"], s["qty"]) for s in stock] == [("Перчатки", 30)]
     # всё — одним «Вводом остатков»
     docs = admin.get("/api/inventory/documents").json()["items"]

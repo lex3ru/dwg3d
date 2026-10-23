@@ -1,0 +1,22 @@
+#!/bin/sh
+# Добавляет трейлер "Refs: ABC-123" по имени ветки вида ABC-123-kratko,
+# если в сообщении коммита ещё нет трейлера Refs.
+# Подключение (делает apply): git config core.hooksPath .githooks
+
+MSG_FILE="$1"
+SOURCE="${2:-}"
+
+# Merge- и squash-сообщения не трогаем
+case "$SOURCE" in
+  merge|squash) exit 0 ;;
+esac
+
+BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+ID=$(printf '%s' "$BRANCH" | grep -oE '^[A-Z][A-Z0-9]+-[0-9]+' || true)
+[ -n "$ID" ] || exit 0
+
+if grep -qE '^Refs:' "$MSG_FILE"; then
+  exit 0
+fi
+
+git interpret-trailers --in-place --if-exists doNothing --trailer "Refs: $ID" "$MSG_FILE"

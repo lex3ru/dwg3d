@@ -1,0 +1,3 @@
+# Хуки и shell-скрипты всегда с LF: с CRLF они ломаются в CI и на Linux/macOS
+.githooks/* text eol=lf
+*.sh text eol=lf

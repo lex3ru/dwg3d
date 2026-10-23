@@ -2,7 +2,17 @@
 # проверка зависимостей между модулями, 9.2), проверка и сборка интерфейса, сценарии в
 # браузере на собранной системе. legacy/ и legacy2/ — только справка (9.1), не проверяются.
 
+include:
+  - local: ci/agent-files.gitlab-ci.yml   # навыки, AGENTS.md, CLAUDE.md, файлы задач
+
 stages: [test, e2e]
+
+# Все задания — на docker-раннере (тег docker): задания без тегов берёт shell-раннер, где
+# image и services не действуют. Образ по умолчанию — для agent-files: в Debian slim есть
+# diff с -x, нужный scripts/check-agent-files.sh.
+default:
+  tags: [docker]
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 workflow:
   rules:

@@ -1,0 +1,16 @@
+# Проверка контекстных файлов для ИИ-агентов.
+# Подключение в .gitlab-ci.yml проекта:
+#
+#   include:
+#     - local: ci/agent-files.gitlab-ci.yml
+#
+# Нужна стадия test (есть по умолчанию) и раннер с sh и diff с опцией -x:
+# shell-раннер на Linux или docker-раннер, чей образ по умолчанию не на busybox.
+# Если diff не подходит, скрипт так и скажет.
+agent-files:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - sh scripts/check-agent-files.sh
