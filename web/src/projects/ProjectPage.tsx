@@ -375,11 +375,15 @@ function ApplyDialog({ open, onClose, project, onDone }: { open: boolean; onClos
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ applied: number; kept: number; notes: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  // итог сбрасывается только при открытии окна: после «Применить» у проекта новый updated_at,
+  // предпросмотр приходит заново и не должен подменять итог вопросом «Применить?» (6.1 п. 5)
+  useEffect(() => {
+    if (open) setDone(null);
+  }, [open]);
   useEffect(() => {
     if (!plan.data || !open) return;
     setChoices(Object.fromEntries(plan.data.items.map((i) => [i.item_id, i.suggested ?? (i.accounting === "piece" ? "buy" : "")])));
     setError(null);
-    setDone(null);
   }, [plan.data, open]);
   const apply = async () => {
     setBusy(true);
