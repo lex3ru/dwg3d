@@ -12,9 +12,13 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
+import psycopg.errors as pg
+import pytest
 from openpyxl import Workbook
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.actor import Actor
 from app.core.db import transaction
@@ -206,14 +210,22 @@ def test_r022_two_drafts_at_once_get_different_numbers(admin) -> None:
 
 def test_r022_bad_line_value_is_a_message_not_a_crash(admin) -> None:
     _, _, wh, k = setup(admin)
-    good = {"type_id": k["перчатки"]["id"], "qty": 1, "price": 100}
+    gloves, monitor = k["перчатки"]["id"], k["монитор"]["id"]
+    good = {"type_id": gloves, "qty": 1, "price": 100}
     for bad in (
         {"unit_id": "не-идентификатор"},
         {"type_id": "123"},
-        {"type_id": k["перчатки"]["id"], "qty": "много", "price": 100},
-        {"type_id": k["перчатки"]["id"], "qty": 1, "price": "дёшево"},
-        {"type_id": k["монитор"]["id"], "qty": 1, "price": 100, "life_months": "год"},
-        {"type_id": k["монитор"]["id"], "qty": 1, "price": 100, "values": "нет"},
+        {"type_id": gloves, "qty": "много", "price": 100},
+        {"type_id": gloves, "qty": "NaN", "price": 100},
+        {"type_id": gloves, "qty": 1e20, "price": 100},
+        {"type_id": gloves, "qty": 1, "price": "дёшево"},
+        {"type_id": gloves, "qty": 1, "price": 100, "to_place": 5},
+        {"type_id": gloves, "qty": 1, "price": 100, "to_place": "w:" + "0" * 60},
+        {"type_id": monitor, "qty": 1, "price": 100, "number": "1" * 41},
+        {"type_id": monitor, "qty": 1, "price": 100, "state": ["в работе"]},
+        {"type_id": monitor, "qty": 1, "price": 100, "life_months": "год"},
+        {"type_id": monitor, "qty": 1, "price": 100, "life_months": 5000},
+        {"type_id": monitor, "qty": 1, "price": 100, "values": "нет"},
     ):
         r = admin.post(
             "/api/inventory/documents",
@@ -222,6 +234,52 @@ def test_r022_bad_line_value_is_a_message_not_a_crash(admin) -> None:
         assert r.status_code == 400, (bad, r.text)
         assert "строка 2" in r.json()["error"]["message"].lower(), (bad, r.text)
     assert admin.get("/api/inventory/documents").json()["items"] == []
+
+
+def test_r022_bad_header_value_is_a_message_not_a_crash(admin) -> None:
+    for kind, header in (
+        ("repair", {"repair_cost": "дорого"}),
+        ("repair", {"repair_cost": "Infinity"}),
+        ("transfer", {"to_place": 5}),
+        ("transfer", {"from_place": "w:" + "0" * 60}),
+    ):
+        r = admin.post("/api/inventory/documents", json={"kind": kind, "header": header})
+        assert r.status_code == 400, (header, r.text)
+        assert r.json()["error"]["field"] == next(iter(header)), r.text
+    # длинный текст обрезается по столбцу, как и раньше, а не роняет запрос
+    r = admin.post(
+        "/api/inventory/documents", json={"kind": "receipt", "header": {"supplier": "А" * 250}}
+    )
+    assert r.status_code == 201 and len(r.json()["supplier"]) == 200, r.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        IntegrityError("INSERT …", {}, pg.UniqueViolation("номер уже занят")),
+        OperationalError("UPDATE …", {}, pg.DeadlockDetected("взаимоблокировка")),
+        StaleDataError("строку уже удалили"),
+    ],
+    ids=["unique", "deadlock", "stale"],
+)
+def test_r022_conflict_in_the_database_is_409_not_500(admin, monkeypatch, error) -> None:
+    """Если одновременная работа всё же упёрлась в базу — «обновите и повторите» (ADR-0003)."""
+
+    def conflict(*_: object, **__: object) -> None:
+        raise error
+
+    monkeypatch.setattr(documents, "create_document", conflict)
+    r = admin.post("/api/inventory/documents", json={"kind": "receipt", "header": {}})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "stale", r.text
+
+
+def test_other_database_error_stays_internal(admin, monkeypatch) -> None:
+    def broken(*_: object, **__: object) -> None:
+        raise IntegrityError("INSERT …", {}, pg.NotNullViolation("пусто"))
+
+    monkeypatch.setattr(documents, "create_document", broken)
+    with pytest.raises(IntegrityError):
+        admin.post("/api/inventory/documents", json={"kind": "receipt", "header": {}})
 
 
 # ---------------------------------------------------------------- R-020 задним числом

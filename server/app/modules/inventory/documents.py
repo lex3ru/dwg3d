@@ -155,22 +155,76 @@ def create_document(session: Session, actor: Actor, kind: str, header: dict[str,
     return doc
 
 
+# Разбор шапки и строк из запроса: неразборчивое значение — ошибка с полем и подсказкой, а
+# не «внутренняя ошибка» (6.1 п. 6, R-022). Подсказки — для полей, где разбор может не выйти.
+HEADER_HINTS = {
+    "repair_cost": "Стоимость ремонта — число",
+    "from_place": "Откуда — выберите место из списка",
+    "to_place": "Куда — выберите место из списка",
+}
+LINE_HINTS = {
+    "unit_id": "инвентарная единица — выберите из списка",
+    "type_id": "тип — выберите из каталога",
+    "model_id": "модель — выберите из каталога",
+    "qty": "количество — число",
+    "price": "цена — число",
+    "new_value": "новая стоимость — число",
+    "number": "инвентарный номер — не длиннее 40 знаков",
+    "state": "состояние — в работе, неисправна, в ремонте или на хранении",
+    "commissioned_on": "дата ввода — в виде ГГГГ-ММ-ДД",
+    "life_months": "срок службы — от 1 до 1200 месяцев",
+    "values": "характеристики — набор «характеристика: значение»",
+    "from_place": "откуда — выберите место из списка",
+    "to_place": "куда — выберите место из списка",
+}
+
+
+def _number(table: Any, k: str, v: Any) -> Decimal | None:
+    """Число для столбца Numeric: пусто — None; не число, NaN, бесконечность или не помещается
+    в столбец — ValueError."""
+    if v in (None, ""):
+        return None
+    d = Decimal(str(v))
+    column = table.c[k].type
+    if not d.is_finite() or abs(d) >= Decimal(10) ** (column.precision - column.scale):
+        raise ValueError(k)
+    return d
+
+
+def _text(table: Any, k: str, v: Any) -> str:
+    """Текст обрезается по длине столбца; у Text предела нет — до 5000 знаков."""
+    return str(v or "")[: getattr(table.c[k].type, "length", None) or 5000]
+
+
+def _place(table: Any, k: str, v: Any) -> str | None:
+    """Ключ места; есть ли такое место, проверяет проведение."""
+    if v in (None, ""):
+        return None
+    if not isinstance(v, str) or len(v) > table.c[k].type.length:
+        raise ValueError(k)
+    return v
+
+
 def _header(doc: Document, header: dict[str, Any]) -> None:
+    table = Document.__table__
     for k, v in header.items():
         if k not in HEADER_FIELDS:
             continue
-        if k == "date":
-            doc.date = _date(v)
-        elif k == "repair":
-            if v not in ("send", "return"):
-                raise AppError("Ремонт — отправка или возврат.", field="repair")
-            doc.repair = v
-        elif k == "repair_cost":
-            doc.repair_cost = _d(v) if v not in (None, "") else None
-        elif k in ("from_place", "to_place"):
-            setattr(doc, k, v or None)
-        else:
-            setattr(doc, k, str(v or "")[: 5000 if k == "note" else 300])
+        try:
+            if k == "date":
+                doc.date = _date(v)
+            elif k == "repair":
+                if v not in ("send", "return"):
+                    raise AppError("Ремонт — отправка или возврат.", field="repair")
+                doc.repair = v
+            elif k == "repair_cost":
+                doc.repair_cost = _number(table, k, v)
+            elif k in ("from_place", "to_place"):
+                setattr(doc, k, _place(table, k, v))
+            else:
+                setattr(doc, k, _text(table, k, v))
+        except (ValueError, TypeError, ArithmeticError):
+            raise AppError(f"{HEADER_HINTS[k]}.", field=k) from None
 
 
 def update_document(
@@ -204,6 +258,40 @@ def _uuid(v: Any) -> uuid.UUID | None:
     return v if isinstance(v, uuid.UUID) else uuid.UUID(str(v))
 
 
+def _line_field(line: DocLine, k: str, v: Any) -> None:
+    """Поле строки из запроса; не разобрать — ValueError, TypeError или ArithmeticError."""
+    table = DocLine.__table__
+    if k in ("unit_id", "type_id", "model_id"):
+        setattr(line, k, _uuid(v))
+    elif k in ("qty", "price", "new_value"):
+        setattr(line, k, _number(table, k, v))
+    elif k == "commissioned_on":
+        line.commissioned_on = _date(v) if v else None
+    elif k == "life_months":
+        months = None if v in (None, "") else Decimal(str(v))
+        if months is not None and (months != months.to_integral_value() or not 1 <= months <= 1200):
+            raise ValueError(k)
+        line.life_months = None if months is None else int(months)
+    elif k == "values":
+        if v and not isinstance(v, dict):
+            raise ValueError(k)
+        line.values = dict(v or {})
+    elif k == "state":
+        state = STATE_BY_TITLE.get(v, v) if v else None
+        if state is not None and state not in STATES:
+            raise ValueError(k)
+        line.state = state
+    elif k in ("from_place", "to_place"):
+        setattr(line, k, _place(table, k, v))
+    elif k == "number":
+        number = str(v or "").strip()
+        if len(number) > table.c.number.type.length:
+            raise ValueError(k)
+        line.number = number
+    else:
+        setattr(line, k, _text(table, k, v))
+
+
 def _line(doc: Document, position: int, raw: dict[str, Any]) -> DocLine:
     line = DocLine(
         id=uuid.uuid4(),
@@ -219,25 +307,12 @@ def _line(doc: Document, position: int, raw: dict[str, Any]) -> DocLine:
         reason="",
     )
     for k in LINE_FIELDS:
-        if k not in raw:
-            continue
-        v = raw[k]
-        if k in ("unit_id", "type_id", "model_id"):
-            setattr(line, k, _uuid(v))
-        elif k in ("qty", "price", "new_value"):
-            setattr(line, k, _d(v) if v not in (None, "") else None)
-        elif k == "commissioned_on":
-            line.commissioned_on = _date(v) if v else None
-        elif k == "life_months":
-            line.life_months = int(v) if v not in (None, "") else None
-        elif k == "values":
-            line.values = dict(v or {})
-        elif k == "state":
-            line.state = STATE_BY_TITLE.get(v, v) if v else None
-        elif k in ("from_place", "to_place"):
-            setattr(line, k, v or None)
-        else:
-            setattr(line, k, str(v or "")[:300])
+        if k in raw:
+            try:
+                _line_field(line, k, raw[k])
+            except (ValueError, TypeError, ArithmeticError, AppError):
+                hint = LINE_HINTS.get(k, f"«{k}» — неверное значение")
+                raise AppError(f"Строка {position + 1}: {hint}.", field=k) from None
     if line.qty is None:
         line.qty = Decimal(1)
     return line
