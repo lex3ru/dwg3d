@@ -436,11 +436,14 @@ def number_template(session: Session) -> str:
 
 
 class Numbers:
-    """Выдаёт следующие свободные номера; занятые (в том числе списанными) не выдаются."""
+    """Выдаёт следующие свободные номера; занятые (в том числе списанными) не выдаются.
+    reserved — номера, указанные вручную в других строках того же документа: строке без
+    номера они не выдаются, в каком бы порядке ни шли строки (R-001)."""
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, reserved: set[str] | None = None):
         self.session = session
         self.template = number_template(session)
+        self.reserved = set(reserved or ())
         taken = [n for n in session.scalars(select(Unit.number))]
         self.taken = set(taken)
         values = [v for v in (number_value(self.template, n) for n in taken) if v is not None]
@@ -459,7 +462,7 @@ class Numbers:
         while True:
             number = format_number(self.template, self.next)
             self.next += 1
-            if number not in self.taken:
+            if number not in self.taken and number not in self.reserved:
                 self.taken.add(number)
                 return number
 

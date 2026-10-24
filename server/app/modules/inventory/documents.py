@@ -355,7 +355,8 @@ class Posting:
     @property
     def numbers(self) -> Numbers:
         if self._numbers is None:
-            self._numbers = Numbers(self.session)
+            given = {n for line in lines_of(self.session, self.doc) if (n := line.number.strip())}
+            self._numbers = Numbers(self.session, reserved=given)
         return self._numbers
 
     def place(self, key: str | None, what: str) -> Place:
