@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -504,13 +504,22 @@ class Posting:
         return unit
 
     def not_before_last_event(self, unit: Unit) -> None:
-        """Документ по единице — не раньше её последнего события (документ, отмена, перенос при
+        """Документ по единице — не раньше её последнего события (документ, перенос при
         объединении помещений): иначе карточка, отчёты «на дату» и отмена увидели бы разную
-        историю (5.4.4 п. 2, ADR-0004). В тот же день можно — порядок задаёт проведение."""
+        историю (5.4.4 п. 2, ADR-0004). В тот же день можно — порядок задаёт проведение.
+        Отменённый документ и обратный к нему взаимно гасятся и не в счёт, как и в `cancel`:
+        так забытый документ проводится после отмены более поздних."""
         last = self.session.execute(
             select(UnitEvent.date, Document.kind, Document.number)
             .outerjoin(Document, Document.id == UnitEvent.document_id)
-            .where(UnitEvent.unit_id == unit.id, UnitEvent.undone.is_(False))
+            .where(
+                UnitEvent.unit_id == unit.id,
+                UnitEvent.undone.is_(False),
+                or_(
+                    Document.id.is_(None),
+                    (Document.status != "cancelled") & Document.cancels_id.is_(None),
+                ),
+            )
             .order_by(UnitEvent.date.desc(), UnitEvent.seq.desc())
             .limit(1)
         ).first()

@@ -285,41 +285,73 @@ def test_other_database_error_stays_internal(admin, monkeypatch) -> None:
 # ---------------------------------------------------------------- R-020 задним числом
 
 
-def test_r020_unit_document_cannot_predate_its_last_event(admin) -> None:
-    _, rooms, wh, k = setup(admin)
+def monitor_received(admin, place: str, k: dict, ago: int) -> str:  # type: ignore[no-untyped-def,type-arg]
     got = post(
         admin,
         document(
             admin,
             "receipt",
-            {"to_place": wh["key"], "date": day(14)},
+            {"to_place": place, "date": day(ago)},
             [{"type_id": k["монитор"]["id"], "qty": 1, "price": 14500}],
         ),
     ).json()
-    uid = got["lines"][0]["created_units"][0]["id"]
-    t1 = document(admin, "transfer", {"to_place": rooms["214"], "date": day(4)}, [{"unit_id": uid}])
+    return got["lines"][0]["created_units"][0]["id"]
+
+
+def moved(admin, uid: str, to: str, ago: int) -> dict:  # type: ignore[no-untyped-def,type-arg]
+    return document(admin, "transfer", {"to_place": to, "date": day(ago)}, [{"unit_id": uid}])
+
+
+def where(admin, ago: int) -> list[str]:  # type: ignore[no-untyped-def]
+    """Где числится имущество на дату — по «Стоимости на дату» с разбивкой по местам."""
+    st = admin.get("/api/inventory/cost", params={"at": day(ago), "group_by": "place"}).json()
+    return [r["group"][0] for r in st["rows"]]
+
+
+def test_r020_unit_document_cannot_predate_its_last_event(admin) -> None:
+    _, rooms, wh, k = setup(admin)
+    uid = monitor_received(admin, wh["key"], k, 14)
+    t1 = moved(admin, uid, rooms["214"], 4)
     assert post(admin, t1).status_code == 200
     # забытое перемещение задним числом — раньше Т1: история по единице разошлась бы
-    t2 = document(admin, "transfer", {"to_place": rooms["215"], "date": day(6)}, [{"unit_id": uid}])
-    r = post(admin, t2)
+    r = post(admin, moved(admin, uid, rooms["215"], 6))
     assert r.status_code == 400 and r.json()["error"]["code"] == "not_posted", r.text
     message = r.json()["error"]["message"]
     assert t1["title"] in message and ru(4) in message, message
     # карточка и «Стоимость на дату» говорят одно и то же
     assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == rooms["214"]
-
-    def where(ago: int) -> list[str]:
-        st = admin.get("/api/inventory/cost", params={"at": day(ago), "group_by": "place"}).json()
-        return [r["group"][0] for r in st["rows"]]
-
-    assert len(where(0)) == 1 and "214" in where(0)[0]
-    assert len(where(5)) == 1 and "Основной" in where(5)[0]
+    assert len(where(admin, 0)) == 1 and "214" in where(admin, 0)[0]
+    assert len(where(admin, 5)) == 1 and "Основной" in where(admin, 5)[0]
     # в тот же день, что и последнее событие, — можно
-    t3 = document(admin, "transfer", {"to_place": rooms["215"], "date": day(4)}, [{"unit_id": uid}])
-    assert post(admin, t3).status_code == 200
+    assert post(admin, moved(admin, uid, rooms["215"], 4)).status_code == 200
     # отмена Т1 после Т3 по той же единице — нельзя
     r = admin.post(f"/api/inventory/documents/{t1['id']}/cancel")
     assert r.status_code == 400 and r.json()["error"]["code"] == "cannot_cancel", r.text
+
+
+def test_r020_forgotten_document_goes_in_after_cancelling_later_ones(admin) -> None:
+    """Путь из ADR-0004: отменить более поздний документ, провести забытый, оформить отменённый
+    заново. Обратный документ датирован сегодня, но правило его не учитывает: отменённый
+    документ и обратный к нему взаимно гасятся."""
+    _, rooms, wh, k = setup(admin)
+    uid = monitor_received(admin, wh["key"], k, 14)
+    t1 = moved(admin, uid, rooms["214"], 4)
+    assert post(admin, t1).status_code == 200
+    forgotten = moved(admin, uid, rooms["215"], 6)
+    assert post(admin, forgotten).status_code == 400
+    assert admin.post(f"/api/inventory/documents/{t1['id']}/cancel").status_code == 200
+    r = post(admin, forgotten)
+    assert r.status_code == 200, r.text
+    again = moved(admin, uid, rooms["214"], 4)
+    assert post(admin, again).status_code == 200
+    # карточка и «Стоимость на дату» — одна история: склад → 215 (−6 дн.) → 214 (−4 дн.)
+    assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == rooms["214"]
+    for ago, room in ((10, "Основной"), (5, "215"), (3, "214"), (0, "214")):
+        places = where(admin, ago)
+        assert len(places) == 1 and room in places[0], (ago, places)
+    # отменённое не в счёт, а «Т1 заново» — в счёт: раньше него по единице снова нельзя
+    r = post(admin, moved(admin, uid, rooms["215"], 8))
+    assert r.status_code == 400 and again["title"] in r.json()["error"]["message"], r.text
 
 
 def test_r020_transfer_cannot_predate_the_receipt_of_the_unit(admin) -> None:
