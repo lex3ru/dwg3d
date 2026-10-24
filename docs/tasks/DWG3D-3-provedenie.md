@@ -4,7 +4,7 @@ title: "Учёт: проведение документов — одноврем
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-3-provedenie
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/3
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/3cccd6fa-a9aa-4a97-9a8a-caf10ed2fe73
 updated: 2026-10-24
 ---
