@@ -424,20 +424,46 @@ class Posting:
         )
         self.session.flush()
 
+    @staticmethod
+    def _position(place: str, type_id: uuid.UUID, model_id: uuid.UUID | None) -> list[Any]:
+        return [
+            StockMove.place == place,
+            StockMove.type_id == type_id,
+            StockMove.model_id.is_(None) if model_id is None else StockMove.model_id == model_id,
+        ]
+
     def balance(
         self, place: str, type_id: uuid.UUID, model_id: uuid.UUID | None, at: date | None = None
     ) -> tuple[Decimal, Decimal]:
         q = select(
             func.coalesce(func.sum(StockMove.qty), 0), func.coalesce(func.sum(StockMove.amount), 0)
-        ).where(
-            StockMove.place == place,
-            StockMove.type_id == type_id,
-            StockMove.model_id.is_(None) if model_id is None else StockMove.model_id == model_id,
-        )
+        ).where(*self._position(place, type_id, model_id))
         if at is not None:
             q = q.where(StockMove.date <= at)
         qty, amount = self.session.execute(q).one()
         return Decimal(qty), Decimal(amount)
+
+    def available(
+        self, place: str, type_id: uuid.UUID, model_id: uuid.UUID | None
+    ) -> tuple[Decimal, date | None]:
+        """Сколько можно взять датой документа: наименьший остаток на эту дату и на каждую более
+        позднюю дату движения — задним числом остаток не уходит в минус в промежутке (ADR-0004).
+        Второе — дата этого наименьшего остатка, если она позже даты документа."""
+        rows = self.session.execute(
+            select(StockMove.date, func.sum(StockMove.qty))
+            .where(*self._position(place, type_id, model_id))
+            .group_by(StockMove.date)
+            .order_by(StockMove.date)
+        ).all()
+        running = have = Decimal(0)
+        when = None
+        for day, qty in rows:
+            running += Decimal(qty)
+            if day <= self.doc.date:
+                have = running
+            elif running < have:
+                have, when = running, day
+        return have, when
 
     def take(
         self,
@@ -448,16 +474,16 @@ class Posting:
         line: DocLine,
         name: str,
     ) -> Decimal:
-        """Списать количество с места по средней цене; не больше остатка — ни на дату
-        документа, ни сейчас."""
-        q_at, a_at = self.balance(place.key, type_id, model_id, self.doc.date)
-        q_now, a_now = self.balance(place.key, type_id, model_id)
-        have = min(q_at, q_now)
+        """Списать количество с места по средней цене; не больше остатка ни на дату
+        документа, ни на одну дату после неё."""
+        have, when = self.available(place.key, type_id, model_id)
         if qty > have:
+            later = f" на {when:%d.%m.%Y} (позже даты документа уже был расход)" if when else ""
             raise Fail(
-                f"«{name}» на месте «{place.short}» — {have.normalize():f}, "
+                f"«{name}» на месте «{place.short}» — {have.normalize():f}{later}, "
                 f"нужно {qty.normalize():f}"
             )
+        q_now, a_now = self.balance(place.key, type_id, model_id)
         avg = (a_now / q_now) if q_now else Decimal(0)
         amount = (avg * qty).quantize(Decimal("0.01"))
         self.stock(place, type_id, model_id, -qty, -amount, line)
@@ -473,8 +499,29 @@ class Posting:
             raise Fail(f"{unit.number} уже списана")
         if any(u.id == unit.id for u in self.units):
             raise Fail(f"{unit.number} — уже в другой строке")
+        self.not_before_last_event(unit)
         self.units.append(unit)
         return unit
+
+    def not_before_last_event(self, unit: Unit) -> None:
+        """Документ по единице — не раньше её последнего события (документ, отмена, перенос при
+        объединении помещений): иначе карточка, отчёты «на дату» и отмена увидели бы разную
+        историю (5.4.4 п. 2, ADR-0004). В тот же день можно — порядок задаёт проведение."""
+        last = self.session.execute(
+            select(UnitEvent.date, Document.kind, Document.number)
+            .outerjoin(Document, Document.id == UnitEvent.document_id)
+            .where(UnitEvent.unit_id == unit.id, UnitEvent.undone.is_(False))
+            .order_by(UnitEvent.date.desc(), UnitEvent.seq.desc())
+            .limit(1)
+        ).first()
+        if last is None or last.date <= self.doc.date:
+            return
+        what = (
+            f"по ней уже есть «{doc_title(last.kind, last.number)}» от {last.date:%d.%m.%Y}"
+            if last.kind
+            else f"{last.date:%d.%m.%Y} её перенесли при объединении помещений"
+        )
+        raise Fail(f"{unit.number}: {what} — дата документа не раньше этого дня")
 
     def type_of(self, line: DocLine) -> Any:
         if not line.type_id:
@@ -840,12 +887,14 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
         )
     )
     for e in events:
+        # по порядку проведения, а не по дате: отменить можно, только если после этого
+        # документа единицу больше никто не менял (ADR-0004)
         history = [
             x
             for x in session.scalars(
                 select(UnitEvent)
                 .where(UnitEvent.unit_id == e.unit_id, UnitEvent.undone.is_(False))
-                .order_by(UnitEvent.date, UnitEvent.seq)
+                .order_by(UnitEvent.seq)
             )
             if x.seq == e.seq or x.document_id not in neutral
         ]

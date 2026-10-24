@@ -587,13 +587,15 @@ def registry(
 
 def events_at(session: Session, unit_ids: Any, at: date) -> dict[uuid.UUID, UnitEvent]:
     """Последнее событие каждой единицы на дату (место, состояние, оценка тогда). unit_ids —
-    список или подзапрос: 50 000 единиц (8.1) лучше отобрать в базе, чем перечислять."""
+    список или подзапрос: 50 000 единиц (8.1) лучше отобрать в базе, чем перечислять.
+    Последнее — по порядку проведения: даты событий единицы идут по порядку (ADR-0004), а для
+    данных, проведённых раньше этого правила, так отчёт на сегодня совпадает с карточкой."""
     if isinstance(unit_ids, list) and not unit_ids:
         return {}
     rows = session.scalars(
         select(UnitEvent)
         .where(UnitEvent.unit_id.in_(unit_ids), UnitEvent.date <= at, UnitEvent.undone.is_(False))
-        .order_by(UnitEvent.unit_id, UnitEvent.date.desc(), UnitEvent.seq.desc())
+        .order_by(UnitEvent.unit_id, UnitEvent.seq.desc())
         .ext(distinct_on(UnitEvent.unit_id))
     )
     return {e.unit_id: e for e in rows}
