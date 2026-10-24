@@ -37,8 +37,10 @@ from app.modules.inventory.units import title_of
 from app.modules.journal import api as journal
 
 
-def _count(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
-    doc = docs.get_document(session, actor, doc_id)
+def _count(
+    session: Session, actor: Actor, doc_id: uuid.UUID, for_update: bool = False
+) -> Document:
+    doc = docs.get_document(session, actor, doc_id, for_update)
     if doc.kind != "inventory":
         raise NotFound("Инвентаризация не найдена.")
     return doc
@@ -386,7 +388,10 @@ def set_stock(
 def post_count(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Document:
     """Провести (5.4.6 п. 3): строки документа — из отметок обхода; дальше — как любой
     документ, целиком или никак."""
-    doc = _count(session, actor, doc_id)
+    admin(actor)
+    # расхождения считаются от остатков и мест — их не должен менять другой сеанс (ADR-0003)
+    docs.lock(session)
+    doc = _count(session, actor, doc_id, for_update=True)
     _draft(doc)
     if doc.version != version:
         from app.core.errors import stale

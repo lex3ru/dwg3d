@@ -44,8 +44,16 @@ def visible(actor: Actor) -> Any:
     return Unit.building_id.in_(list(actor.building_ids) or [uuid.uuid4()])
 
 
-def get_unit(session: Session, actor: Actor, unit_id: uuid.UUID) -> Unit:
-    unit = session.get(Unit, unit_id)
+def get_unit(
+    session: Session, actor: Actor, unit_id: uuid.UUID, for_update: bool = False
+) -> Unit:
+    """for_update — чтобы изменить карточку: строка блокируется до конца транзакции и читается
+    заново — сверка версии видит то, что записало проведение документа (ADR-0003)."""
+    unit = (
+        session.get(Unit, unit_id, with_for_update=True, populate_existing=True)
+        if for_update
+        else session.get(Unit, unit_id)
+    )
     if unit is None or not (
         actor.is_admin or (unit.building_id and actor.can_see_building(unit.building_id))
     ):
@@ -232,7 +240,7 @@ def update_unit(
     session: Session, actor: Actor, unit_id: uuid.UUID, values: dict[str, Any], version: int
 ) -> Unit:
     admin(actor)
-    unit = get_unit(session, actor, unit_id)
+    unit = get_unit(session, actor, unit_id, for_update=True)
     if unit.version != version:
         raise stale("Инвентарную единицу")
     if unit.state == "written_off":
@@ -331,7 +339,7 @@ def roll_back(session: Session, actor: Actor, change_id: uuid.UUID) -> Unit:
     ch = session.get(UnitChange, change_id)
     if ch is None:
         raise NotFound("Правка не найдена.")
-    unit = get_unit(session, actor, ch.unit_id)
+    unit = get_unit(session, actor, ch.unit_id, for_update=True)
     if not _can_roll_back(unit, ch):
         raise Conflict("С тех пор эти поля меняли — откатить эту правку нельзя.")
     for k, v in ch.before.items():
@@ -376,7 +384,7 @@ def add_file(
     session: Session, actor: Actor, unit_id: uuid.UUID, stream: BinaryIO, name: str, kind: str
 ) -> UnitFile:
     admin(actor)
-    unit = get_unit(session, actor, unit_id)
+    unit = get_unit(session, actor, unit_id, for_update=True)
     if kind == "photo":
         limit = int(system.get(session, "photo_max_mb")) * 1024 * 1024
         record = files.store(session, actor, stream, name, {"jpeg", "png", "webp", "heic"}, limit)
@@ -405,7 +413,7 @@ def remove_file(session: Session, actor: Actor, link_id: uuid.UUID) -> Unit:
     link = session.get(UnitFile, link_id)
     if link is None:
         raise NotFound("Файл не найден.")
-    unit = get_unit(session, actor, link.unit_id)
+    unit = get_unit(session, actor, link.unit_id, for_update=True)
     if unit.photo_file_id == link.file_id:
         unit.photo_file_id = None
     session.delete(link)

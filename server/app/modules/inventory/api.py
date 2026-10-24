@@ -112,6 +112,9 @@ def rooms_continued(
     session: Session, actor: Actor, continued: dict[uuid.UUID, uuid.UUID | None]
 ) -> None:
     """Помещения объединили (5.1.6 п. 3): единицы и остатки — к продолжающему помещению."""
+    if not any(continued.values()):
+        return
+    docs.lock(session)  # остатки переносятся целиком — расход в это время ждёт (ADR-0003)
     places = Places(session, actor)
     today = date.today()
     for old, new in continued.items():

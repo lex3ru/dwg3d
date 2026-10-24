@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -85,12 +85,32 @@ def _d(v: Any) -> Decimal:
     return Decimal(str(v or 0))
 
 
+# ---------------------------------------------------------------- очередь учёта (ADR-0003)
+
+# ключ рекомендательной блокировки PostgreSQL; 7310001 — у миграций (app/__main__.py)
+LEDGER_LOCK = 7310002
+
+
+def lock(session: Session) -> None:
+    """Встать в очередь учёта до конца транзакции: номера выдаёт и остатки меняет один сеанс
+    за раз (8.3 п. 2). Повторный вызов в той же транзакции не ждёт."""
+    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LEDGER_LOCK})
+
+
 # ---------------------------------------------------------------- черновики
 
 
-def get_document(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
+def get_document(
+    session: Session, actor: Actor, doc_id: uuid.UUID, for_update: bool = False
+) -> Document:
+    """for_update — чтобы изменить: строка блокируется до конца транзакции и читается заново,
+    даже если уже загружена, — сверка статуса и версии видит то, что записал другой сеанс."""
     admin(actor)
-    doc = session.get(Document, doc_id)
+    doc = (
+        session.get(Document, doc_id, with_for_update=True, populate_existing=True)
+        if for_update
+        else session.get(Document, doc_id)
+    )
     if doc is None:
         raise NotFound("Документ не найден.")
     return doc
@@ -109,6 +129,7 @@ def create_document(session: Session, actor: Actor, kind: str, header: dict[str,
     admin(actor)
     if kind not in KINDS:
         raise AppError("Неизвестный вид документа.", field="kind")
+    lock(session)  # номер — следующий после занятых, в том числе другим сеансом
     number = (
         session.scalar(select(func.max(Document.number)).where(Document.kind == kind)) or 0
     ) + 1
@@ -160,7 +181,7 @@ def update_document(
     header: dict[str, Any],
     lines: list[dict[str, Any]] | None,
 ) -> Document:
-    doc = get_document(session, actor, doc_id)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Проведённый документ не правится — его можно только отменить.")
     if doc.version != version:
@@ -223,7 +244,7 @@ def _line(doc: Document, position: int, raw: dict[str, Any]) -> DocLine:
 
 
 def delete_draft(session: Session, actor: Actor, doc_id: uuid.UUID) -> None:
-    doc = get_document(session, actor, doc_id)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Удалить можно только черновик; проведённый документ отменяется.")
     session.delete(doc)
@@ -638,7 +659,9 @@ def open_counts(session: Session, places: set[str], exclude: uuid.UUID | None = 
 
 
 def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Document:
-    doc = get_document(session, actor, doc_id)
+    admin(actor)
+    lock(session)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Документ уже проведён.")
     if doc.version != version:
@@ -718,7 +741,9 @@ def _journal(
 
 
 def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
-    doc = get_document(session, actor, doc_id)
+    admin(actor)
+    lock(session)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "posted":
         raise Conflict("Отменить можно только проведённый документ.")
     if doc.cancels_id:
