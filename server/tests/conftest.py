@@ -1,6 +1,7 @@
 """Тесты идут на настоящем PostgreSQL. Адрес сервера — TEST_DATABASE_URL (по умолчанию
 база разработки из server/README.md); для тестов создаётся отдельная база app_test."""
 
+import functools
 import os
 import tempfile
 from collections.abc import Iterator
@@ -8,8 +9,10 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
+# 127.0.0.1, а не localhost: база проброшена только на IPv4, а на Windows localhost — сначала
+# ::1, и подключение ждёт ~2 мин таймаута, прежде чем перейти на IPv4 (R-006, R-034)
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL",
-                           "postgresql+psycopg://app:app@localhost:55432/app")
+                           "postgresql+psycopg://app:app@127.0.0.1:55432/app")
 TEST_DB = "app_test"
 base, _, _ = ADMIN_URL.rpartition("/")
 os.environ["APP_DATABASE_URL"] = f"{base}/{TEST_DB}"
@@ -88,3 +91,25 @@ def admin(app) -> Iterator[TestClient]:  # type: ignore[no-untyped-def]
         r = c.post("/api/auth/password", json={"current": temporary, "new": ADMIN_PASSWORD})
         assert r.status_code == 200, r.text
         yield c
+
+
+@functools.cache
+def _weasyprint_error() -> str | None:
+    """Почему не загружается WeasyPrint (нет Pango — Windows без GTK); None — загружается."""
+    try:
+        import weasyprint  # noqa: F401
+    except OSError as e:
+        return str(e).split(".  ")[0]
+    return None
+
+
+@pytest.fixture
+def pdf() -> None:
+    """Тест печатает PDF. Без WeasyPrint он пропускается, а в CI это ошибка: там Pango ставит
+    задание (ADR-0001), и пропуск спрятал бы дефект печати (R-006)."""
+    error = _weasyprint_error()
+    if error is None:
+        return
+    if os.environ.get("CI"):
+        pytest.fail(f"WeasyPrint не загружается: {error}", pytrace=False)
+    pytest.skip(f"нет Pango для WeasyPrint (на Windows — GTK): {error}")

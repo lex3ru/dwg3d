@@ -6,7 +6,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd server && APP_DWG2DXF=../legacy/.tools/libredwg/bin/dwg2dxf APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app APP_SECURE_COOKIES=false APP_STATIC_DIR=/nonexistent APP_DATA_DIR=.dev-data APP_BACKUP_DIR=/tmp exec uv run python -m app serve --host 127.0.0.1 --port 8010"
+        "cd server && APP_DWG2DXF=../legacy/.tools/libredwg/bin/dwg2dxf APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app APP_SECURE_COOKIES=false APP_STATIC_DIR=/nonexistent APP_DATA_DIR=.dev-data APP_BACKUP_DIR=/tmp exec uv run python -m app serve --host 127.0.0.1 --port 8010"
       ],
       "port": 8010
     },
@@ -15,7 +15,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd server && APP_DATA_DIR=.dev-data APP_DWG2DXF=../legacy/.tools/libredwg/bin/dwg2dxf APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app exec uv run python -m app worker"
+        "cd server && APP_DATA_DIR=.dev-data APP_DWG2DXF=../legacy/.tools/libredwg/bin/dwg2dxf APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app exec uv run python -m app worker"
       ]
     },
     {
@@ -32,7 +32,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd server && APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/volume APP_SECURE_COOKIES=false APP_STATIC_DIR=../web/dist APP_DATA_DIR=.volume-data APP_BACKUP_DIR=/tmp exec uv run python -m app serve --host 127.0.0.1 --port 8011"
+        "cd server && APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/volume APP_SECURE_COOKIES=false APP_STATIC_DIR=../web/dist APP_DATA_DIR=.volume-data APP_BACKUP_DIR=/tmp exec uv run python -m app serve --host 127.0.0.1 --port 8011"
       ],
       "port": 8011
     },
@@ -41,7 +41,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd server && APP_DATA_DIR=.volume-data APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/volume exec uv run python -m app worker"
+        "cd server && APP_DATA_DIR=.volume-data APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/volume exec uv run python -m app worker"
       ]
     },
     {

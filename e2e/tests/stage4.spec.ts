@@ -201,6 +201,8 @@ test("Предупреждения расстановки: стена, двер�
   await viewer.getByLabel("Новый пароль", { exact: true }).fill("Viewer-pass-12");
   await viewer.getByLabel("Новый пароль ещё раз").fill("Viewer-pass-12");
   await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+  // пароль сменён — только потом уходить со страницы, иначе запрос смены оборвётся
+  await expect(viewer.getByRole("navigation", { name: "Разделы" })).toBeVisible();
   await viewer.goto(`/plan/${f.building}/${f.floor}`);
   await expect(viewer.getByRole("img", { name: "План этажа" }).locator("[data-item]")).toHaveCount(3);
   await expect(viewer.getByRole("region", { name: "Слои" })).toBeVisible();

@@ -28,7 +28,7 @@ docker run -d --name planuchet-devdb -e POSTGRES_USER=app -e POSTGRES_PASSWORD=a
 
 # сервер на :8010, при запуске сам обновляет базу; worker — фоновые задачи
 cd server && uv sync
-export APP_DATABASE_URL=postgresql+psycopg://app:app@localhost:55432/app
+export APP_DATABASE_URL=postgresql+psycopg://app:app@127.0.0.1:55432/app
 APP_SECURE_COOKIES=false uv run python -m app serve --port 8010
 uv run python -m app worker
 uv run python -m app create-admin          # первый администратор, печатает временный пароль
@@ -46,7 +46,7 @@ cd web && npm install && npm run dev
 ```bash
 cd server && uv run ruff check app migrations tests
 cd server && uv run pytest        # нужна база на :55432, тесты создают свою app_test
-cd web && npm run typecheck && npm run lint && npx vite build
+cd web && npm run typecheck && npm run lint && npm test && npx vite build
 cd e2e && npx playwright test     # на работающей системе: E2E_URL, E2E_ADMIN, E2E_PASSWORD — e2e/README.md
 ```
 

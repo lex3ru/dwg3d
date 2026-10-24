@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Config(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="APP_", env_file=None)
 
-    database_url: str = "postgresql+psycopg://app:app@localhost:55432/app"
+    database_url: str = "postgresql+psycopg://app:app@127.0.0.1:55432/app"
     # файлы системы (фото, чертежи, 3D-модели) — 9.4 п. 3
     data_dir: Path = Path("/data")
     # куда сервис резервного копирования кладёт копии и last.json — 8.5 п. 4

@@ -48,7 +48,7 @@ def post(admin, doc):  # type: ignore[no-untyped-def]
     )
 
 
-def test_c11_receipt_gives_numbers_in_a_row_and_stock(admin) -> None:
+def test_c11_receipt_gives_numbers_in_a_row_and_stock(pdf, admin) -> None:
     _, rooms, wh, k = setup(admin)
     doc = document(
         admin,

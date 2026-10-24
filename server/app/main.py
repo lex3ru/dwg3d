@@ -27,6 +27,7 @@ from app.modules.access import api as access
 
 log = logging.getLogger("app")
 _SAFE = {"GET", "HEAD", "OPTIONS"}
+PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
 
 
 def installed_modules() -> list[Module]:
@@ -115,7 +116,7 @@ def create_app() -> FastAPI:
             receive = asyncio.ensure_future(ws.receive_text())
             while True:
                 get = asyncio.ensure_future(sub[0].get())
-                done, _ = await asyncio.wait({receive, get}, timeout=25,
+                done, _ = await asyncio.wait({receive, get}, timeout=PING_AFTER,
                                              return_when=asyncio.FIRST_COMPLETED)
                 if receive in done:
                     receive.result()  # закрыто клиентом — WebSocketDisconnect

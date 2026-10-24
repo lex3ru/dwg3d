@@ -48,7 +48,7 @@ def edit(admin, p, floor_id, **body):  # type: ignore[no-untyped-def]
     return r.json()
 
 
-def test_c9_project_changes_layout_only_when_applied(admin, app) -> None:
+def test_c9_project_changes_layout_only_when_applied(pdf, admin, app) -> None:
     b, f, rooms, t, (desk, cabinet) = setup(admin)
     a = project(admin, b["id"], "Процедурный 214")
     couch = str(uuid.uuid4())

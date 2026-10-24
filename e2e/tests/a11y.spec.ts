@@ -1,17 +1,43 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { loginAdmin } from "./helpers";
+import { loginAdmin, unique } from "./helpers";
 
 // Удобство (8.6 п. 2): контраст текста не ниже 4,5 : 1 и прочие правила WCAG 2 AA (axe) —
 // на каждом разделе, в светлой и тёмной теме; на телефоне кнопки и поля не меньше 44 px.
 
 const PAGES = ["/", "/projects", "/property", "/warehouse", "/documents", "/inventory", "/reports", "/catalog", "/purposes", "/buildings", "/users", "/links", "/journal", "/settings", "/help", "/scan"];
 
+const H = { "X-Requested-With": "app" };
+
+// План для проверки — своё здание, на чистой базе других нет: два кабинета с дверью и стол
 async function plan(page: Page) {
-  const all = (await (await page.request.get("/api/buildings")).json()).items as { id: string; name: string }[];
-  const b = all.find((x) => x.name === "Поликлиника") ?? all[0]!;
-  const info = await (await page.request.get(`/api/buildings/${b.id}`)).json();
-  return `/plan/${b.id}/${info.floors[0].id}?mode=place`;
+  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name: unique("Доступность-") } })).json();
+  const floor = await (await page.request.post(`/api/buildings/${b.id}/floors`, { headers: H, data: { name: "1 этаж" } })).json();
+  const wall = (id: string, a: string, z: string, thickness = 300, kind = "bearing") => ({ id, a, b: z, thickness, kind });
+  const saved = await page.request.put(`/api/floors/${floor.id}/plan`, {
+    headers: H,
+    data: {
+      plan_version: 1,
+      plan: {
+        nodes: { a: [0, 0], b: [4000, 0], c: [8000, 0], d: [8000, 5000], e: [4000, 5000], f: [0, 5000] },
+        walls: [
+          wall("w1", "a", "b"), wall("w2", "b", "c"), wall("w3", "c", "d"), wall("w4", "d", "e"), wall("w5", "e", "f"), wall("w6", "f", "a"),
+          wall("p1", "b", "e", 120, "partition"),
+        ],
+        openings: [{ id: "o1", wall: "p1", kind: "door", at: 2500, width: 900, height: 2100 }],
+        rooms: [
+          { id: "new-1", x: 2000, y: 2500, number: "101", name: "Кабинет" },
+          { id: "new-2", x: 6000, y: 2500, number: "102", name: "Кабинет" },
+        ],
+      },
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+  const tree = await (await page.request.get("/api/catalog")).json();
+  const desk = tree.types.find((t: { name: string }) => t.name === "Стол письменный 1200×600").id;
+  const placed = await page.request.post(`/api/floors/${floor.id}/items/changes`, { headers: H, data: { create: [{ type_id: desk, x: 2000, y: 3500 }] } });
+  expect(placed.ok()).toBeTruthy();
+  return `/plan/${b.id}/${floor.id}?mode=place`;
 }
 
 async function settle(page: Page) {

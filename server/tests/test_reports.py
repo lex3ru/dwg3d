@@ -42,7 +42,7 @@ def setup(admin):  # type: ignore[no-untyped-def]
     return b, f, rooms, got, types
 
 
-def test_every_report_builds(admin) -> None:
+def test_every_report_builds(pdf, admin) -> None:
     b, f, rooms, got, types = setup(admin)
     defs = {d["key"]: d for d in admin.get("/api/reports").json()["items"]}
     assert len(defs) == 13

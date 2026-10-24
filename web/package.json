@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite --port 5190 --strictPort",
     "build": "tsc -b && vite build",
-    "lint": "oxlint src",
+    "lint": "oxlint --deny-warnings src",
     "typecheck": "tsc -b",
-    "test": "node --test 'src/**/*.test.ts'",
+    "test": "vitest run",
     "admin-guide": "node scripts/admin-guide.ts"
   },
   "dependencies": {
@@ -31,14 +31,18 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^29.1.1",
     "oxlint": "^1.88.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   }
 }
