@@ -15,12 +15,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core import events, search
 from app.core.auth import CurrentActor
 from app.core.config import config
 from app.core.db import DB, transaction
-from app.core.errors import AppError
+from app.core.errors import AppError, stale
 from app.core.module import Module
 from app.modules import INSTALLED
 from app.modules.access import api as access
@@ -28,6 +30,9 @@ from app.modules.access import api as access
 log = logging.getLogger("app")
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
+# ошибки базы от одновременной работы (8.3 п. 2): значение уже занял, строку убрал другой
+# сеанс, база разорвала взаимоблокировку или не смогла упорядочить транзакции
+CONFLICTS = {"23505", "23503", "40P01", "40001"}
 
 
 def installed_modules() -> list[Module]:
@@ -76,6 +81,20 @@ def create_app() -> FastAPI:
         return JSONResponse(AppError(f"Проверьте поле «{field}»." if field else
                                      "Запрос заполнен неверно.", field=field).body(),
                             status_code=422)
+
+    # одновременная работа, которую не развела очередь (ADR-0003), — «обновите и повторите»,
+    # а не «внутренняя ошибка»; прочие ошибки базы — дальше, в crash
+    @app.exception_handler(DBAPIError)
+    async def database(request: Request, e: DBAPIError) -> JSONResponse:
+        if getattr(e.orig, "sqlstate", None) not in CONFLICTS:
+            raise e
+        log.warning("%s %s: conflict %s", request.method, request.url.path, e.orig)
+        return await app_error(request, stale("Эти данные"))
+
+    @app.exception_handler(StaleDataError)
+    async def stale_data(request: Request, e: StaleDataError) -> JSONResponse:
+        log.warning("%s %s: conflict %s", request.method, request.url.path, e)
+        return await app_error(request, stale("Эти данные"))
 
     @app.exception_handler(Exception)
     async def crash(request: Request, e: Exception) -> JSONResponse:

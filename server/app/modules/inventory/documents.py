@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -85,12 +85,32 @@ def _d(v: Any) -> Decimal:
     return Decimal(str(v or 0))
 
 
+# ---------------------------------------------------------------- очередь учёта (ADR-0003)
+
+# ключ рекомендательной блокировки PostgreSQL; 7310001 — у миграций (app/__main__.py)
+LEDGER_LOCK = 7310002
+
+
+def lock(session: Session) -> None:
+    """Встать в очередь учёта до конца транзакции: номера выдаёт и остатки меняет один сеанс
+    за раз (8.3 п. 2). Повторный вызов в той же транзакции не ждёт."""
+    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LEDGER_LOCK})
+
+
 # ---------------------------------------------------------------- черновики
 
 
-def get_document(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
+def get_document(
+    session: Session, actor: Actor, doc_id: uuid.UUID, for_update: bool = False
+) -> Document:
+    """for_update — чтобы изменить: строка блокируется до конца транзакции и читается заново,
+    даже если уже загружена, — сверка статуса и версии видит то, что записал другой сеанс."""
     admin(actor)
-    doc = session.get(Document, doc_id)
+    doc = (
+        session.get(Document, doc_id, with_for_update=True, populate_existing=True)
+        if for_update
+        else session.get(Document, doc_id)
+    )
     if doc is None:
         raise NotFound("Документ не найден.")
     return doc
@@ -109,6 +129,7 @@ def create_document(session: Session, actor: Actor, kind: str, header: dict[str,
     admin(actor)
     if kind not in KINDS:
         raise AppError("Неизвестный вид документа.", field="kind")
+    lock(session)  # номер — следующий после занятых, в том числе другим сеансом
     number = (
         session.scalar(select(func.max(Document.number)).where(Document.kind == kind)) or 0
     ) + 1
@@ -134,22 +155,76 @@ def create_document(session: Session, actor: Actor, kind: str, header: dict[str,
     return doc
 
 
+# Разбор шапки и строк из запроса: неразборчивое значение — ошибка с полем и подсказкой, а
+# не «внутренняя ошибка» (6.1 п. 6, R-022). Подсказки — для полей, где разбор может не выйти.
+HEADER_HINTS = {
+    "repair_cost": "Стоимость ремонта — число",
+    "from_place": "Откуда — выберите место из списка",
+    "to_place": "Куда — выберите место из списка",
+}
+LINE_HINTS = {
+    "unit_id": "инвентарная единица — выберите из списка",
+    "type_id": "тип — выберите из каталога",
+    "model_id": "модель — выберите из каталога",
+    "qty": "количество — число",
+    "price": "цена — число",
+    "new_value": "новая стоимость — число",
+    "number": "инвентарный номер — не длиннее 40 знаков",
+    "state": "состояние — в работе, неисправна, в ремонте или на хранении",
+    "commissioned_on": "дата ввода — в виде ГГГГ-ММ-ДД",
+    "life_months": "срок службы — от 1 до 1200 месяцев",
+    "values": "характеристики — набор «характеристика: значение»",
+    "from_place": "откуда — выберите место из списка",
+    "to_place": "куда — выберите место из списка",
+}
+
+
+def _number(table: Any, k: str, v: Any) -> Decimal | None:
+    """Число для столбца Numeric: пусто — None; не число, NaN, бесконечность или не помещается
+    в столбец — ValueError."""
+    if v in (None, ""):
+        return None
+    d = Decimal(str(v))
+    column = table.c[k].type
+    if not d.is_finite() or abs(d) >= Decimal(10) ** (column.precision - column.scale):
+        raise ValueError(k)
+    return d
+
+
+def _text(table: Any, k: str, v: Any) -> str:
+    """Текст обрезается по длине столбца; у Text предела нет — до 5000 знаков."""
+    return str(v or "")[: getattr(table.c[k].type, "length", None) or 5000]
+
+
+def _place(table: Any, k: str, v: Any) -> str | None:
+    """Ключ места; есть ли такое место, проверяет проведение."""
+    if v in (None, ""):
+        return None
+    if not isinstance(v, str) or len(v) > table.c[k].type.length:
+        raise ValueError(k)
+    return v
+
+
 def _header(doc: Document, header: dict[str, Any]) -> None:
+    table = Document.__table__
     for k, v in header.items():
         if k not in HEADER_FIELDS:
             continue
-        if k == "date":
-            doc.date = _date(v)
-        elif k == "repair":
-            if v not in ("send", "return"):
-                raise AppError("Ремонт — отправка или возврат.", field="repair")
-            doc.repair = v
-        elif k == "repair_cost":
-            doc.repair_cost = _d(v) if v not in (None, "") else None
-        elif k in ("from_place", "to_place"):
-            setattr(doc, k, v or None)
-        else:
-            setattr(doc, k, str(v or "")[: 5000 if k == "note" else 300])
+        try:
+            if k == "date":
+                doc.date = _date(v)
+            elif k == "repair":
+                if v not in ("send", "return"):
+                    raise AppError("Ремонт — отправка или возврат.", field="repair")
+                doc.repair = v
+            elif k == "repair_cost":
+                doc.repair_cost = _number(table, k, v)
+            elif k in ("from_place", "to_place"):
+                setattr(doc, k, _place(table, k, v))
+            else:
+                setattr(doc, k, _text(table, k, v))
+        except (ValueError, TypeError, ArithmeticError):
+            raise AppError(f"{HEADER_HINTS[k]}.", field=k) from None
 
 
 def update_document(
@@ -160,7 +235,7 @@ def update_document(
     header: dict[str, Any],
     lines: list[dict[str, Any]] | None,
 ) -> Document:
-    doc = get_document(session, actor, doc_id)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Проведённый документ не правится — его можно только отменить.")
     if doc.version != version:
@@ -183,6 +258,40 @@ def _uuid(v: Any) -> uuid.UUID | None:
     return v if isinstance(v, uuid.UUID) else uuid.UUID(str(v))
 
 
+def _line_field(line: DocLine, k: str, v: Any) -> None:
+    """Поле строки из запроса; не разобрать — ValueError, TypeError или ArithmeticError."""
+    table = DocLine.__table__
+    if k in ("unit_id", "type_id", "model_id"):
+        setattr(line, k, _uuid(v))
+    elif k in ("qty", "price", "new_value"):
+        setattr(line, k, _number(table, k, v))
+    elif k == "commissioned_on":
+        line.commissioned_on = _date(v) if v else None
+    elif k == "life_months":
+        months = None if v in (None, "") else Decimal(str(v))
+        if months is not None and (months != months.to_integral_value() or not 1 <= months <= 1200):
+            raise ValueError(k)
+        line.life_months = None if months is None else int(months)
+    elif k == "values":
+        if v and not isinstance(v, dict):
+            raise ValueError(k)
+        line.values = dict(v or {})
+    elif k == "state":
+        state = STATE_BY_TITLE.get(v, v) if v else None
+        if state is not None and state not in STATES:
+            raise ValueError(k)
+        line.state = state
+    elif k in ("from_place", "to_place"):
+        setattr(line, k, _place(table, k, v))
+    elif k == "number":
+        number = str(v or "").strip()
+        if len(number) > table.c.number.type.length:
+            raise ValueError(k)
+        line.number = number
+    else:
+        setattr(line, k, _text(table, k, v))
+
+
 def _line(doc: Document, position: int, raw: dict[str, Any]) -> DocLine:
     line = DocLine(
         id=uuid.uuid4(),
@@ -198,32 +307,19 @@ def _line(doc: Document, position: int, raw: dict[str, Any]) -> DocLine:
         reason="",
     )
     for k in LINE_FIELDS:
-        if k not in raw:
-            continue
-        v = raw[k]
-        if k in ("unit_id", "type_id", "model_id"):
-            setattr(line, k, _uuid(v))
-        elif k in ("qty", "price", "new_value"):
-            setattr(line, k, _d(v) if v not in (None, "") else None)
-        elif k == "commissioned_on":
-            line.commissioned_on = _date(v) if v else None
-        elif k == "life_months":
-            line.life_months = int(v) if v not in (None, "") else None
-        elif k == "values":
-            line.values = dict(v or {})
-        elif k == "state":
-            line.state = STATE_BY_TITLE.get(v, v) if v else None
-        elif k in ("from_place", "to_place"):
-            setattr(line, k, v or None)
-        else:
-            setattr(line, k, str(v or "")[:300])
+        if k in raw:
+            try:
+                _line_field(line, k, raw[k])
+            except (ValueError, TypeError, ArithmeticError, AppError):
+                hint = LINE_HINTS.get(k, f"«{k}» — неверное значение")
+                raise AppError(f"Строка {position + 1}: {hint}.", field=k) from None
     if line.qty is None:
         line.qty = Decimal(1)
     return line
 
 
 def delete_draft(session: Session, actor: Actor, doc_id: uuid.UUID) -> None:
-    doc = get_document(session, actor, doc_id)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Удалить можно только черновик; проведённый документ отменяется.")
     session.delete(doc)
@@ -259,7 +355,8 @@ class Posting:
     @property
     def numbers(self) -> Numbers:
         if self._numbers is None:
-            self._numbers = Numbers(self.session)
+            given = {n for line in lines_of(self.session, self.doc) if (n := line.number.strip())}
+            self._numbers = Numbers(self.session, reserved=given)
         return self._numbers
 
     def place(self, key: str | None, what: str) -> Place:
@@ -328,20 +425,46 @@ class Posting:
         )
         self.session.flush()
 
+    @staticmethod
+    def _position(place: str, type_id: uuid.UUID, model_id: uuid.UUID | None) -> list[Any]:
+        return [
+            StockMove.place == place,
+            StockMove.type_id == type_id,
+            StockMove.model_id.is_(None) if model_id is None else StockMove.model_id == model_id,
+        ]
+
     def balance(
         self, place: str, type_id: uuid.UUID, model_id: uuid.UUID | None, at: date | None = None
     ) -> tuple[Decimal, Decimal]:
         q = select(
             func.coalesce(func.sum(StockMove.qty), 0), func.coalesce(func.sum(StockMove.amount), 0)
-        ).where(
-            StockMove.place == place,
-            StockMove.type_id == type_id,
-            StockMove.model_id.is_(None) if model_id is None else StockMove.model_id == model_id,
-        )
+        ).where(*self._position(place, type_id, model_id))
         if at is not None:
             q = q.where(StockMove.date <= at)
         qty, amount = self.session.execute(q).one()
         return Decimal(qty), Decimal(amount)
+
+    def available(
+        self, place: str, type_id: uuid.UUID, model_id: uuid.UUID | None
+    ) -> tuple[Decimal, date | None]:
+        """Сколько можно взять датой документа: наименьший остаток на эту дату и на каждую более
+        позднюю дату движения — задним числом остаток не уходит в минус в промежутке (ADR-0004).
+        Второе — дата этого наименьшего остатка, если она позже даты документа."""
+        rows = self.session.execute(
+            select(StockMove.date, func.sum(StockMove.qty))
+            .where(*self._position(place, type_id, model_id))
+            .group_by(StockMove.date)
+            .order_by(StockMove.date)
+        ).all()
+        running = have = Decimal(0)
+        when = None
+        for day, qty in rows:
+            running += Decimal(qty)
+            if day <= self.doc.date:
+                have = running
+            elif running < have:
+                have, when = running, day
+        return have, when
 
     def take(
         self,
@@ -352,16 +475,16 @@ class Posting:
         line: DocLine,
         name: str,
     ) -> Decimal:
-        """Списать количество с места по средней цене; не больше остатка — ни на дату
-        документа, ни сейчас."""
-        q_at, a_at = self.balance(place.key, type_id, model_id, self.doc.date)
-        q_now, a_now = self.balance(place.key, type_id, model_id)
-        have = min(q_at, q_now)
+        """Списать количество с места по средней цене; не больше остатка ни на дату
+        документа, ни на одну дату после неё."""
+        have, when = self.available(place.key, type_id, model_id)
         if qty > have:
+            later = f" на {when:%d.%m.%Y} (позже даты документа уже был расход)" if when else ""
             raise Fail(
-                f"«{name}» на месте «{place.short}» — {have.normalize():f}, "
+                f"«{name}» на месте «{place.short}» — {have.normalize():f}{later}, "
                 f"нужно {qty.normalize():f}"
             )
+        q_now, a_now = self.balance(place.key, type_id, model_id)
         avg = (a_now / q_now) if q_now else Decimal(0)
         amount = (avg * qty).quantize(Decimal("0.01"))
         self.stock(place, type_id, model_id, -qty, -amount, line)
@@ -377,8 +500,38 @@ class Posting:
             raise Fail(f"{unit.number} уже списана")
         if any(u.id == unit.id for u in self.units):
             raise Fail(f"{unit.number} — уже в другой строке")
+        self.not_before_last_event(unit)
         self.units.append(unit)
         return unit
+
+    def not_before_last_event(self, unit: Unit) -> None:
+        """Документ по единице — не раньше её последнего события (документ, перенос при
+        объединении помещений): иначе карточка, отчёты «на дату» и отмена увидели бы разную
+        историю (5.4.4 п. 2, ADR-0004). В тот же день можно — порядок задаёт проведение.
+        Отменённый документ и обратный к нему взаимно гасятся и не в счёт, как и в `cancel`:
+        так забытый документ проводится после отмены более поздних."""
+        last = self.session.execute(
+            select(UnitEvent.date, Document.kind, Document.number)
+            .outerjoin(Document, Document.id == UnitEvent.document_id)
+            .where(
+                UnitEvent.unit_id == unit.id,
+                UnitEvent.undone.is_(False),
+                or_(
+                    Document.id.is_(None),
+                    (Document.status != "cancelled") & Document.cancels_id.is_(None),
+                ),
+            )
+            .order_by(UnitEvent.date.desc(), UnitEvent.seq.desc())
+            .limit(1)
+        ).first()
+        if last is None or last.date <= self.doc.date:
+            return
+        what = (
+            f"по ней уже есть «{doc_title(last.kind, last.number)}» от {last.date:%d.%m.%Y}"
+            if last.kind
+            else f"{last.date:%d.%m.%Y} её перенесли при объединении помещений"
+        )
+        raise Fail(f"{unit.number}: {what} — дата документа не раньше этого дня")
 
     def type_of(self, line: DocLine) -> Any:
         if not line.type_id:
@@ -638,7 +791,9 @@ def open_counts(session: Session, places: set[str], exclude: uuid.UUID | None = 
 
 
 def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Document:
-    doc = get_document(session, actor, doc_id)
+    admin(actor)
+    lock(session)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Документ уже проведён.")
     if doc.version != version:
@@ -718,7 +873,9 @@ def _journal(
 
 
 def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
-    doc = get_document(session, actor, doc_id)
+    admin(actor)
+    lock(session)
+    doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "posted":
         raise Conflict("Отменить можно только проведённый документ.")
     if doc.cancels_id:
@@ -740,12 +897,14 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
         )
     )
     for e in events:
+        # по порядку проведения, а не по дате: отменить можно, только если после этого
+        # документа единицу больше никто не менял (ADR-0004)
         history = [
             x
             for x in session.scalars(
                 select(UnitEvent)
                 .where(UnitEvent.unit_id == e.unit_id, UnitEvent.undone.is_(False))
-                .order_by(UnitEvent.date, UnitEvent.seq)
+                .order_by(UnitEvent.seq)
             )
             if x.seq == e.seq or x.document_id not in neutral
         ]
