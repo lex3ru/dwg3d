@@ -59,15 +59,21 @@ DWG3D-1, `docs/review/FINDINGS.md`): R-049 (Н) — у отправки из о�
       15 с «Нет связи», повтор с теми же заголовками; пропущенный скан не показывается. До
       исправления падают все 6 новых, 16 прежних проходят. Прежние сравнивают очередь через
       `toMatchObject`: у отметок появился номер.
-- [ ] 4. Сервер. Таблица `inventory.count_device` (ведомость, устройство, последний номер),
+- [x] 4. Сервер. Таблица `inventory.count_device` (ведомость, устройство, последний номер),
       миграция `server/migrations/versions/20261026_0014_count_device_seq.py`. Проверка номера
       атомарная, в той же транзакции, что и отметка: `INSERT … ON CONFLICT DO UPDATE … WHERE
       last_seq < excluded.last_seq RETURNING`; пустой ответ — пропустить. Её вызывают `scan`,
-      `mark`, `unmark`, `set_stock` (`counts.py`) через маршруты (`routes.py`).
-- [ ] 5. Клиент. В `queue.ts` устройство (UUID в `localStorage`) и номер, который отметка
+      `mark`, `unmark`, `set_stock` (`counts.py`) через маршруты (`routes.py`). Сделано:
+      `counts._fresh`, параметр `sent` у четырёх функций, заголовки разбирает `routes._sent`.
+      `test_counts.py` (все 6 `test_r049_*`), `test_migrations.py`, `test_architecture.py`
+      зелёные.
+- [x] 5. Клиент. В `queue.ts` устройство (UUID в `localStorage`) и номер, который отметка
       получает при постановке в очередь. Тайм-аут 15 с с отменой запроса (`AbortController`),
       по нему — `offline`. `api()` принимает `signal`. `CountPage.tsx` шлёт устройство и номер
-      и показывает пропущенный скан (см. ADR).
+      и показывает пропущенный скан (см. ADR). Сделано: `Mark` — отметка, `Job` — она же с
+      номером; `deviceId`, `headersOf`, `TIMEOUT`; из очереди — по номеру. `api()` и `post()`
+      принимают `Options` (`signal`, `headers`), `offline()` — общая ошибка «нет связи».
+      `src/inventory` — 22 теста зелёные, `typecheck` и `lint` чистые.
 - [ ] 6. e2e R-049 (`e2e/tests/stage9.spec.ts`). Запрос пересчёта задержан (`page.route` не
       отвечает) → через 15 с «Нет связи» → пересчёт дослан → введено новое значение → тот же
       старый запрос с его заголовками повторён напрямую → на сервере новое значение.

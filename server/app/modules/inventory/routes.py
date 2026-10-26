@@ -1,10 +1,11 @@
 import json
+import re
 import uuid
 from datetime import date
 from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, Header, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.auth import Admin, CurrentActor
@@ -530,14 +531,35 @@ def get_count(
     return counts.count_view(session, actor, doc_id, place)
 
 
+def _sent(
+    device: Annotated[str | None, Header(alias="X-Count-Device")] = None,
+    seq: Annotated[str | None, Header(alias="X-Count-Seq")] = None,
+) -> counts.Sent | None:
+    """Устройство и номер отметки с телефона (ADR-0006): оба заголовка или ни одного."""
+    if device is None and seq is None:
+        return None
+    try:
+        phone = uuid.UUID(device or "")
+    except ValueError:
+        phone = None
+    if phone is None or seq is None or not re.fullmatch(r"[1-9][0-9]{0,17}", seq):
+        raise AppError("Неверное устройство или номер отметки обхода.")
+    return phone, int(seq)
+
+
+Sent = Annotated[counts.Sent | None, Depends(_sent)]
+
+
 class ScanIn(BaseModel):
     code: str = Field(max_length=200)
     place: str | None = None
 
 
 @router.post("/counts/{doc_id}/scan")
-def scan(doc_id: uuid.UUID, body: ScanIn, actor: Admin, session: DB) -> dict[str, Any]:
-    return counts.scan(session, actor, doc_id, body.code, body.place)
+def scan(
+    doc_id: uuid.UUID, body: ScanIn, sent: Sent, actor: Admin, session: DB
+) -> dict[str, Any]:
+    return counts.scan(session, actor, doc_id, body.code, body.place, sent)
 
 
 class MarkIn(BaseModel):
@@ -546,13 +568,17 @@ class MarkIn(BaseModel):
 
 
 @router.post("/counts/{doc_id}/marks")
-def mark(doc_id: uuid.UUID, body: MarkIn, actor: Admin, session: DB) -> dict[str, Any]:
-    return counts.mark(session, actor, doc_id, body.unit_id, body.place, manual=True)
+def mark(
+    doc_id: uuid.UUID, body: MarkIn, sent: Sent, actor: Admin, session: DB
+) -> dict[str, Any]:
+    return counts.mark(session, actor, doc_id, body.unit_id, body.place, manual=True, sent=sent)
 
 
 @router.delete("/counts/{doc_id}/marks/{unit_id}", status_code=204)
-def unmark(doc_id: uuid.UUID, unit_id: uuid.UUID, actor: Admin, session: DB) -> Response:
-    counts.unmark(session, actor, doc_id, unit_id)
+def unmark(
+    doc_id: uuid.UUID, unit_id: uuid.UUID, sent: Sent, actor: Admin, session: DB
+) -> Response:
+    counts.unmark(session, actor, doc_id, unit_id, sent)
     return Response(status_code=204)
 
 
@@ -576,9 +602,11 @@ class StockIn(BaseModel):
 
 
 @router.put("/counts/{doc_id}/stock", status_code=204)
-def set_stock(doc_id: uuid.UUID, body: StockIn, actor: Admin, session: DB) -> Response:
+def set_stock(
+    doc_id: uuid.UUID, body: StockIn, sent: Sent, actor: Admin, session: DB
+) -> Response:
     counts.set_stock(
-        session, actor, doc_id, body.place, body.type_id, body.model_id, body.counted
+        session, actor, doc_id, body.place, body.type_id, body.model_id, body.counted, sent
     )
     return Response(status_code=204)
 

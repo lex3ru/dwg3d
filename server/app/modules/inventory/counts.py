@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -23,6 +24,7 @@ from app.modules.catalog import api as catalog
 from app.modules.inventory import documents as docs
 from app.modules.inventory.models import (
     Cell,
+    CountDevice,
     CountExtra,
     CountMark,
     CountPlace,
@@ -50,6 +52,27 @@ def _count(
 def _draft(doc: Document) -> None:
     if doc.status != "draft":
         raise Conflict("Инвентаризация уже проведена — отметки не меняются.")
+
+
+Sent = tuple[uuid.UUID, int]  # устройство и номер отметки (ADR-0006)
+
+
+def _fresh(session: Session, doc: Document, sent: Sent | None) -> bool:
+    """Номер отметки больше последнего принятого от устройства в этой ведомости — запоминает
+    его; иначе это опоздавший повтор, и отметку надо пропустить (R-049, ADR-0006). Строка
+    устройства держится до конца транзакции: одновременный запрос того же устройства ждёт её
+    и сравнивает уже с новым номером. Отказ по отметке откатывает и номер. Без номера отметка
+    принимается, как раньше."""
+    if sent is None:
+        return True
+    device, seq = sent
+    row = insert(CountDevice).values(document_id=doc.id, device=device, last_seq=seq)
+    row = row.on_conflict_do_update(
+        index_elements=[CountDevice.document_id, CountDevice.device],
+        set_={"last_seq": row.excluded.last_seq},
+        where=CountDevice.last_seq < row.excluded.last_seq,
+    )
+    return session.execute(row.returning(CountDevice.last_seq)).first() is not None
 
 
 def places_of(session: Session, doc: Document) -> list[str]:
@@ -262,12 +285,20 @@ def count_view(
 
 
 def scan(
-    session: Session, actor: Actor, doc_id: uuid.UUID, code: str, place: str | None
+    session: Session,
+    actor: Actor,
+    doc_id: uuid.UUID,
+    code: str,
+    place: str | None,
+    sent: Sent | None = None,
 ) -> dict[str, Any]:
     """Скан метки при обходе (6.5.8): вещь своего места — «найдена» (зелёным), чужая —
-    «не здесь» (жёлтым), неизвестная — красным; метка на двери — переход к помещению."""
+    «не здесь» (жёлтым), неизвестная — красным; метка на двери — переход к помещению.
+    Опоздавший повтор — «пропущено» (ADR-0006)."""
     doc = _count(session, actor, doc_id)
     _draft(doc)
+    if not _fresh(session, doc, sent):
+        return {"result": "skipped"}
     keys = places_of(session, doc)
     code = code.strip().upper()
     if "/Q/" in code:
@@ -290,10 +321,18 @@ def scan(
 
 
 def mark(
-    session: Session, actor: Actor, doc_id: uuid.UUID, unit_id: uuid.UUID, place: str, manual: bool
+    session: Session,
+    actor: Actor,
+    doc_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    place: str,
+    manual: bool,
+    sent: Sent | None = None,
 ) -> dict[str, Any]:
     doc = _count(session, actor, doc_id)
     _draft(doc)
+    if not _fresh(session, doc, sent):
+        return {"result": "skipped"}
     if place not in places_of(session, doc):
         raise AppError("Этого места нет в ведомости.", field="place")
     unit = session.get(Unit, unit_id)
@@ -322,9 +361,17 @@ def mark(
     }
 
 
-def unmark(session: Session, actor: Actor, doc_id: uuid.UUID, unit_id: uuid.UUID) -> None:
+def unmark(
+    session: Session,
+    actor: Actor,
+    doc_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    sent: Sent | None = None,
+) -> None:
     doc = _count(session, actor, doc_id)
     _draft(doc)
+    if not _fresh(session, doc, sent):
+        return
     session.execute(
         delete(CountMark).where(CountMark.document_id == doc.id, CountMark.unit_id == unit_id)
     )
@@ -376,10 +423,14 @@ def set_stock(
     type_id: uuid.UUID,
     model_id: uuid.UUID | None,
     counted: float | None,
+    sent: Sent | None = None,
 ) -> None:
-    """Пересчитанный остаток позиции; без модели — позиция без модели (ADR-0005)."""
+    """Пересчитанный остаток позиции; без модели — позиция без модели (ADR-0005). Опоздавший
+    повтор не перезаписывает более новый пересчёт (ADR-0006)."""
     doc = _count(session, actor, doc_id)
     _draft(doc)
+    if not _fresh(session, doc, sent):
+        return
     if place not in places_of(session, doc):
         raise AppError("Этого места нет в ведомости.", field="place")
     if model_id is not None and catalog.get_model(session, model_id).type_id != type_id:
