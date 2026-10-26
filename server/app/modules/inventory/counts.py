@@ -26,6 +26,7 @@ from app.modules.inventory.models import (
     CountExtra,
     CountMark,
     CountPlace,
+    CountStock,
     Document,
     RoomLabel,
     StockMove,
@@ -105,15 +106,26 @@ def _units_in(session: Session, places: list[str]) -> list[Unit]:
     )
 
 
-def _stock_in(session: Session, places: list[str]) -> dict[tuple[str, uuid.UUID], Decimal]:
+Position = tuple[str, uuid.UUID, uuid.UUID | None]  # место, тип, модель — как хранится остаток
+
+
+def _stock_in(session: Session, places: list[str]) -> dict[Position, Decimal]:
+    """Остатки мест по позициям: каждая модель типа — отдельно (R-021, ADR-0005)."""
     from sqlalchemy import func
 
     rows = session.execute(
-        select(StockMove.place, StockMove.type_id, func.sum(StockMove.qty))
+        select(StockMove.place, StockMove.type_id, StockMove.model_id, func.sum(StockMove.qty))
         .where(StockMove.place.in_(places))
-        .group_by(StockMove.place, StockMove.type_id)
+        .group_by(StockMove.place, StockMove.type_id, StockMove.model_id)
     ).all()
-    return {(p, t): Decimal(q) for p, t, q in rows if q}
+    return {(p, t, m): Decimal(q) for p, t, m, q in rows if q}
+
+
+def _counted(session: Session, doc: Document) -> dict[Position, Decimal]:
+    return {
+        (s.place, s.type_id, s.model_id): Decimal(s.counted)
+        for s in session.scalars(select(CountStock).where(CountStock.document_id == doc.id))
+    }
 
 
 def count_view(
@@ -132,10 +144,7 @@ def count_view(
     }
     extras = list(session.scalars(select(CountExtra).where(CountExtra.document_id == doc.id)))
     stock = _stock_in(session, keys)
-    counted = {
-        (s.place, s.type_id): Decimal(s.counted)
-        for s in session.scalars(select(_stock_model()).where(_stock_model().document_id == doc.id))
-    }
+    counted = _counted(session, doc)
     by_place = {k: [u for u in units if u.place == k] for k in keys}
     found_here = {k: [m for m in marks.values() if m.place == k] for k in keys}
     summary_places = []
@@ -181,11 +190,13 @@ def count_view(
             session,
             [u.type_id for u in units]
             + [e.type_id for e in extras]
-            + [t for _, t in stock]
+            + [t for _, t, _ in stock]
             + [u.type_id for u in outside_units.values()],
         )
         models = catalog.models_by_id(
-            session, [u.model_id for u in [*units, *outside_units.values()] if u.model_id]
+            session,
+            [u.model_id for u in [*units, *outside_units.values()] if u.model_id]
+            + [m for _, _, m in stock if m],
         )
 
         def row(u: Unit) -> dict[str, Any]:
@@ -231,25 +242,23 @@ def count_view(
                 for e in extras
                 if e.place == place
             ],
-            "stock": [
-                {
-                    "type_id": t,
-                    "title": types[t].name,
-                    "unit": types[t].unit,
-                    "expected": float(q),
-                    "counted": float(counted[(p, t)]) if (p, t) in counted else None,
-                }
-                for (p, t), q in stock.items()
-                if p == place
-            ],
+            "stock": sorted(
+                (
+                    {
+                        "type_id": t,
+                        "model_id": m,
+                        "title": title_of(types[t].name, models.get(m)),
+                        "unit": types[t].unit,
+                        "expected": float(q),
+                        "counted": float(counted[(p, t, m)]) if (p, t, m) in counted else None,
+                    }
+                    for (p, t, m), q in stock.items()
+                    if p == place
+                ),
+                key=lambda s: s["title"],
+            ),
         }
     return out
-
-
-def _stock_model() -> Any:
-    from app.modules.inventory.models import CountStock
-
-    return CountStock
 
 
 def scan(
@@ -365,14 +374,24 @@ def set_stock(
     doc_id: uuid.UUID,
     place: str,
     type_id: uuid.UUID,
+    model_id: uuid.UUID | None,
     counted: float | None,
 ) -> None:
+    """Пересчитанный остаток позиции; без модели — позиция без модели (ADR-0005)."""
     doc = _count(session, actor, doc_id)
     _draft(doc)
     if place not in places_of(session, doc):
         raise AppError("Этого места нет в ведомости.", field="place")
-    model = _stock_model()
-    row = session.get(model, (doc.id, place, type_id))
+    if model_id is not None and catalog.get_model(session, model_id).type_id != type_id:
+        raise AppError("Модель другого типа.", field="model_id")
+    row = session.scalar(
+        select(CountStock).where(
+            CountStock.document_id == doc.id,
+            CountStock.place == place,
+            CountStock.type_id == type_id,
+            CountStock.model_id.is_(None) if model_id is None else CountStock.model_id == model_id,
+        )
+    )
     if counted is None:
         if row is not None:
             session.delete(row)
@@ -380,7 +399,9 @@ def set_stock(
     if counted < 0:
         raise AppError("Количество — не меньше нуля.", field="counted")
     if row is None:
-        row = model(document_id=doc.id, place=place, type_id=type_id, counted=counted)
+        row = CountStock(
+            document_id=doc.id, place=place, type_id=type_id, model_id=model_id, counted=counted
+        )
         session.add(row)
     row.counted = counted
 
@@ -437,17 +458,13 @@ def post_count(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) 
             }
         )
     stock = _stock_in(session, keys)
-    for s in session.scalars(select(_stock_model()).where(_stock_model().document_id == doc.id)):
-        have = stock.get((s.place, s.type_id), Decimal(0))
-        diff = Decimal(s.counted) - have
+    for (place, type_id, model_id), counted in _counted(session, doc).items():
+        diff = counted - stock.get((place, type_id, model_id), Decimal(0))
+        position = {"type_id": type_id, "model_id": model_id}
         if diff > 0:
-            lines.append(
-                {"type_id": s.type_id, "qty": diff, "to_place": s.place, "reason": "излишек"}
-            )
+            lines.append({**position, "qty": diff, "to_place": place, "reason": "излишек"})
         elif diff < 0:
-            lines.append(
-                {"type_id": s.type_id, "qty": -diff, "from_place": s.place, "reason": "недостача"}
-            )
+            lines.append({**position, "qty": -diff, "from_place": place, "reason": "недостача"})
     if not lines:
         lines.append({"note": "расхождений нет", "reason": "без расхождений"})
     doc = docs.update_document(session, actor, doc.id, doc.version, {"date": date.today()}, lines)
@@ -550,6 +567,7 @@ def act_pdf(
     types = catalog.types_by_id(
         session, [u.type_id for u in units.values()] + [ln.type_id for ln in lines if ln.type_id]
     )
+    models = catalog.models_by_id(session, [ln.model_id for ln in lines if ln.model_id])
     moved, missing, new, stock = [], [], [], []
     for ln in lines:
         u = units.get(ln.unit_id) if ln.unit_id else None
@@ -567,7 +585,7 @@ def act_pdf(
         elif ln.reason in ("излишек", "недостача"):
             stock.append(
                 [
-                    types[ln.type_id].name,
+                    title_of(types[ln.type_id].name, models.get(ln.model_id)),
                     known.title(ln.to_place or ln.from_place),
                     ln.reason,
                     float(ln.qty or 0),

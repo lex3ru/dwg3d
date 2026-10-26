@@ -571,12 +571,15 @@ def remove_extra(doc_id: uuid.UUID, extra_id: uuid.UUID, actor: Admin, session: 
 class StockIn(BaseModel):
     place: str
     type_id: uuid.UUID
+    model_id: uuid.UUID | None = None  # позиция — с моделью, если она у остатка есть (ADR-0005)
     counted: float | None = None
 
 
 @router.put("/counts/{doc_id}/stock", status_code=204)
 def set_stock(doc_id: uuid.UUID, body: StockIn, actor: Admin, session: DB) -> Response:
-    counts.set_stock(session, actor, doc_id, body.place, body.type_id, body.counted)
+    counts.set_stock(
+        session, actor, doc_id, body.place, body.type_id, body.model_id, body.counted
+    )
     return Response(status_code=204)
 
 
