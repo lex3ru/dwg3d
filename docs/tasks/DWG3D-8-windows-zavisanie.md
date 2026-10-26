@@ -120,6 +120,8 @@ was destroyed but it is pending!` и `RuntimeError: cannot reuse already awaited
 
 ## Журнал сессий
 
+- 2026-10-26 · Yury Mikhailov · Claude Code / Opus 5.5 · !6 слит; `main` слит в ветку
+  (`cb650d4`): конфликт в FINDINGS — R-050, затем R-051, в сводке «Н» закрыто 9.
 - 2026-10-26 · Yury Mikhailov · Claude Code / Opus 5.5 · итог: CI #1386 на `b7e6ff4` зелёный
   (e2e — после перезапуска, флак 8.2), ADR-0007 принят, `finish` — итог вместо handoff, MR !7
   готов к ревью. Коммиты задачи — от `2bb1975` до последнего в MR !7.
@@ -160,5 +162,3 @@ was destroyed but it is pending!` и `RuntimeError: cannot reuse already awaited
   ADR-0007.
 - Флак e2e-замера 8.2 «зона обзора» в CI (232 мс один раз, при перезапуске 80 мс) — отдельная
   задача.
-- `docs/review/FINDINGS.md` правит и !6 (R-050): после его merge ветку синхронизировать с
-  `main` — R-050 перед R-051, в сводке «Н» закрыто 9.
