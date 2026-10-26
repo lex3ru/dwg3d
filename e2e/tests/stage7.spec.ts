@@ -77,7 +77,12 @@ test("С7: зона обзора камеры по уровням, угол ва
   const before = Number(await table.getByRole("row").nth(1).getByRole("cell").nth(6).innerText());
   await page.keyboard.press("Escape");
 
-  // сузить угол до 40° — идентификация дальше
+  // сузить угол до 40° — идентификация дальше. Сохранение расстановки нарочно опаздывает на 2 с
+  // (R-050): зона считается из состояния редактора раньше, чем сервер принял угол
+  await page.route("**/api/floors/*/items/changes", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await route.continue();
+  });
   await summary.getByRole("button", { name: "Камеры этажа (1)" }).click();
   await table.getByRole("row").nth(1).click();
   const angle = page.getByRole("textbox", { name: "Угол обзора, °" });
@@ -89,8 +94,8 @@ test("С7: зона обзора камеры по уровням, угол ва
     await page.keyboard.press("Escape");
     return v;
   }).toBeGreaterThan(before * 2);
-  const saved = (await (await page.request.get(`/api/floors/${f.floor}/items`)).json()).items[0];
-  expect(saved.params["camera.fov"]).toBe(40);
+  // угол на сервере — когда дойдёт сохранение расстановки
+  await expect.poll(async () => (await (await page.request.get(`/api/floors/${f.floor}/items`)).json()).items[0].params["camera.fov"]).toBe(40);
 
   // где лицо не различить
   await calcs.getByRole("combobox", { name: "Непросматриваемые места" }).selectOption("identify");
