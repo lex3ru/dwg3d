@@ -1,12 +1,15 @@
 """Инвентаризация (5.4.6, С18): ведомость этажа, обход со сканом меток и ручными отметками,
 вещь без метки, пересчёт остатков, проведение расхождений, акт; запрет документов задним
-числом раньше проведённой инвентаризации (5.4.4 п. 2)."""
+числом раньше проведённой инвентаризации (5.4.4 п. 2); опоздавшие отметки с телефона (R-049)."""
 
+import uuid
 from datetime import date, timedelta
 
 from app.core.db import transaction
 from app.modules.access import api as access
+from app.modules.inventory import counts
 from tests.test_inventory import document, post, setup
+from tests.test_posting import actor, race
 
 
 def floor_id(admin, rooms):  # type: ignore[no-untyped-def]
@@ -312,3 +315,173 @@ def test_c18_count_with_stock_recount_on_the_sample(admin) -> None:
     assert stock_at(admin, store) == sorted(
         (model or "", qty) for (_, _, model), qty in counted.items()
     )
+
+
+# ---------------------------------------------------------------- R-049: опоздавшие отметки
+
+
+def by(device: str, seq: int | str) -> dict[str, str]:
+    """Заголовки отметки с телефона: устройство и номер отметки (ADR-0006)."""
+    return {"X-Count-Device": device, "X-Count-Seq": str(seq)}
+
+
+def walk(admin):  # type: ignore[no-untyped-def]
+    """Ведомость на кабинет 214, в нём монитор и 20 пар перчаток: ведомость, места, монитор,
+    тип «перчатки»."""
+    _, rooms, _, k = setup(admin)
+    got = document(
+        admin,
+        "receipt",
+        {"to_place": rooms["214"]},
+        [
+            {"type_id": k["монитор"]["id"], "qty": 1, "price": 14500},
+            {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+        ],
+    )
+    assert post(admin, got).status_code == 200
+    lines = admin.get(f"/api/inventory/documents/{got['id']}").json()["lines"]
+    count = admin.post("/api/inventory/counts", json={"places": [rooms["214"]]}).json()
+    return count["id"], rooms, lines[0]["created_units"][0]["id"], k["перчатки"]["id"]
+
+
+def mark(admin, count_id, unit_id, place, headers):  # type: ignore[no-untyped-def]
+    return admin.post(
+        f"/api/inventory/counts/{count_id}/marks",
+        json={"unit_id": unit_id, "place": place},
+        headers=headers,
+    )
+
+
+def unmark(admin, count_id, unit_id, headers):  # type: ignore[no-untyped-def]
+    return admin.delete(f"/api/inventory/counts/{count_id}/marks/{unit_id}", headers=headers)
+
+
+def recount(admin, count_id, place, type_id, qty, headers):  # type: ignore[no-untyped-def]
+    return admin.put(
+        f"/api/inventory/counts/{count_id}/stock",
+        json={"place": place, "type_id": type_id, "counted": qty},
+        headers=headers,
+    )
+
+
+def here(admin, count_id, place):  # type: ignore[no-untyped-def]
+    return admin.get(f"/api/inventory/counts/{count_id}", params={"place": place}).json()["place"]
+
+
+def found(admin, count_id, place, unit_id) -> bool:  # type: ignore[no-untyped-def]
+    items = here(admin, count_id, place)["items"]
+    return next(i for i in items if i["unit_id"] == unit_id)["status"] != "missing"
+
+
+def counted(admin, count_id, place, type_id):  # type: ignore[no-untyped-def]
+    stock = here(admin, count_id, place)["stock"]
+    return next(s for s in stock if s["type_id"] == type_id)["counted"]
+
+
+def test_r049_late_mark_after_unmark_does_not_mark_again(admin) -> None:
+    """R-049, ADR-0006: телефон отметил монитор (№ 1), ответ потерялся, и через 15 с телефон
+    повторил отметку; затем снял её (№ 2). Опоздавший № 1 дошёл последним — отметки нет, а
+    ответ — «пропущено», не ошибка: иначе очередь выбросила бы отметку с сообщением."""
+    count, rooms, monitor, _ = walk(admin)
+    place, phone = rooms["214"], str(uuid.uuid4())
+    assert mark(admin, count, monitor, place, by(phone, 1)).json()["result"] == "here"
+    assert unmark(admin, count, monitor, by(phone, 2)).status_code == 204
+    late = mark(admin, count, monitor, place, by(phone, 1))
+    assert late.status_code == 200 and late.json()["result"] == "skipped"
+    assert not found(admin, count, place, monitor)
+
+    # скан метки — та же отметка
+    code = unit(admin, monitor)["label_code"]
+    scan = lambda seq: admin.post(  # noqa: E731
+        f"/api/inventory/counts/{count}/scan",
+        json={"code": code, "place": place},
+        headers=by(phone, seq),
+    ).json()
+    assert scan(3)["result"] == "here"
+    assert unmark(admin, count, monitor, by(phone, 4)).status_code == 204
+    assert scan(3)["result"] == "skipped"
+    assert not found(admin, count, place, monitor)
+
+    # повтор, когда первый запрос уже принят, — тоже пропущен, а не «уже отмечена»
+    assert mark(admin, count, monitor, place, by(phone, 5)).json()["result"] == "here"
+    assert mark(admin, count, monitor, place, by(phone, 5)).json()["result"] == "skipped"
+
+
+def test_r049_late_recount_does_not_overwrite_newer(admin) -> None:
+    """R-049, ADR-0006: пересчёт 7 (№ 1) повис, комиссия поправила на 9 (№ 2); опоздавший № 1
+    дошёл последним — записано 9. Снятый пересчёт опоздавший тоже не возвращает."""
+    count, rooms, _, gloves = walk(admin)
+    place, phone = rooms["214"], str(uuid.uuid4())
+    assert recount(admin, count, place, gloves, 7, by(phone, 1)).status_code == 204
+    assert recount(admin, count, place, gloves, 9, by(phone, 2)).status_code == 204
+    assert recount(admin, count, place, gloves, 7, by(phone, 1)).status_code == 204
+    assert counted(admin, count, place, gloves) == 9
+
+    assert recount(admin, count, place, gloves, None, by(phone, 3)).status_code == 204
+    assert recount(admin, count, place, gloves, 9, by(phone, 2)).status_code == 204
+    assert counted(admin, count, place, gloves) is None
+
+
+def test_r049_numbers_are_per_device_and_per_count(admin) -> None:
+    """Последний принятый номер — свой у каждого устройства в каждой ведомости: второй телефон
+    с номером 1 не пропускается, и первый с номером 1 в другой ведомости — тоже."""
+    count, rooms, _, gloves = walk(admin)
+    place, a, b = rooms["214"], str(uuid.uuid4()), str(uuid.uuid4())
+    assert recount(admin, count, place, gloves, 5, by(a, 10)).status_code == 204
+    assert recount(admin, count, place, gloves, 6, by(b, 1)).status_code == 204
+    assert counted(admin, count, place, gloves) == 6
+
+    other = admin.post("/api/inventory/counts", json={"places": [place]}).json()["id"]
+    assert recount(admin, other, place, gloves, 3, by(a, 1)).status_code == 204
+    assert counted(admin, other, place, gloves) == 3
+
+
+def test_r049_refused_mark_does_not_take_its_number(admin) -> None:
+    """Отказ по самой отметке (места нет в ведомости) откатывает запрос вместе с номером: та же
+    отметка с тем же номером, но верным местом, принимается."""
+    count, rooms, monitor, _ = walk(admin)
+    phone = str(uuid.uuid4())
+    assert mark(admin, count, monitor, rooms["215"], by(phone, 1)).status_code == 400
+    assert mark(admin, count, monitor, rooms["214"], by(phone, 1)).json()["result"] == "here"
+
+
+def test_r049_wrong_device_or_number_is_refused(admin) -> None:
+    """Устройство — UUID, номер — целое от 1, заголовки — оба или ни одного (ADR-0006); без
+    заголовков отметка принимается, как раньше."""
+    count, rooms, monitor, _ = walk(admin)
+    place, phone = rooms["214"], str(uuid.uuid4())
+    for headers in [
+        by("phone-1", 1),
+        by(phone, 0),
+        by(phone, "five"),
+        {"X-Count-Device": phone},
+        {"X-Count-Seq": "1"},
+    ]:
+        r = mark(admin, count, monitor, place, headers)
+        assert r.status_code == 400, (headers, r.text)
+    assert not found(admin, count, place, monitor)
+    assert mark(admin, count, monitor, place, {}).json()["result"] == "here"
+
+
+def test_r049_old_and_new_request_at_once_the_new_one_wins(admin) -> None:
+    """Опоздавший запрос пришёл, пока новый ещё не зафиксирован: он ждёт новый и пропускается,
+    а не читает старый номер и не записывает своё поверх."""
+    count, rooms, monitor, gloves = walk(admin)
+    who, phone, doc, place = actor(), uuid.uuid4(), uuid.UUID(count), rooms["214"]
+    unit_id = uuid.UUID(monitor)
+    assert mark(admin, count, monitor, place, by(str(phone), 1)).json()["result"] == "here"
+
+    out = race(
+        lambda s: counts.unmark(s, who, doc, unit_id, sent=(phone, 3)),
+        lambda s: counts.mark(s, who, doc, unit_id, place, manual=True, sent=(phone, 2))["result"],
+    )
+    assert out == [None, "skipped"]
+    assert not found(admin, count, place, monitor)
+
+    type_id = uuid.UUID(gloves)
+    out = race(
+        lambda s: counts.set_stock(s, who, doc, place, type_id, None, 9, sent=(phone, 5)),
+        lambda s: counts.set_stock(s, who, doc, place, type_id, None, 7, sent=(phone, 4)),
+    )
+    assert out == [None, None]
+    assert counted(admin, count, place, gloves) == 9
