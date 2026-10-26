@@ -349,3 +349,17 @@ class CountStock(Base):
     type_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("catalog.item_type.id"))
     model_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("catalog.model.id"))
     counted: Mapped[float] = mapped_column(Numeric(14, 3))
+
+
+class CountDevice(Base):
+    """Последний принятый номер отметки устройства в ведомости (ADR-0006): запрос с номером
+    не больше — опоздавший повтор, он пропускается."""
+
+    __tablename__ = "count_device"
+    __table_args__ = S
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
+    )
+    device: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    last_seq: Mapped[int] = mapped_column(BigInteger)

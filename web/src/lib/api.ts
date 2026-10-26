@@ -16,7 +16,16 @@ export class ApiError extends Error {
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
-export async function api<T>(method: Method, path: string, body?: unknown): Promise<T> {
+// для отметок обхода: свои заголовки и обрыв зависшего запроса (R-049, ADR-0006)
+export interface Options {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
+// нет ответа: сеть пропала или запрос оборван
+export const offline = () => new ApiError(0, "offline", "Нет связи с сервером. Проверьте сеть и повторите.");
+
+export async function api<T>(method: Method, path: string, body?: unknown, options: Options = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -26,11 +35,13 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
         // сервер принимает изменения только с этим заголовком (защита от чужих сайтов)
         "X-Requested-With": "app",
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...options.headers,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: options.signal,
     });
   } catch {
-    throw new ApiError(0, "offline", "Нет связи с сервером. Проверьте сеть и повторите.");
+    throw offline();
   }
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => null);
@@ -50,7 +61,7 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
 }
 
 export const get = <T>(path: string) => api<T>("GET", path);
-export const post = <T>(path: string, body: unknown = {}) => api<T>("POST", path, body);
+export const post = <T>(path: string, body: unknown = {}, options?: Options) => api<T>("POST", path, body, options);
 export const patch = <T>(path: string, body: unknown) => api<T>("PATCH", path, body);
 export const put = <T>(path: string, body: unknown) => api<T>("PUT", path, body);
 
