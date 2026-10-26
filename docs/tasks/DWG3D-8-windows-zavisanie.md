@@ -1,7 +1,7 @@
 ---
 id: DWG3D-8
 title: "Локально на Windows сервер не отвечает на создание этажа (флак e2e stage4 «Вложение»)"
-status: in-progress
+status: done
 owner: Yury Mikhailov
 branch: DWG3D-8-windows-zavisanie
 mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/7
@@ -120,19 +120,45 @@ was destroyed but it is pending!` и `RuntimeError: cannot reuse already awaited
 
 ## Журнал сессий
 
+- 2026-10-26 · Yury Mikhailov · Claude Code / Opus 5.5 · итог: CI #1386 на `b7e6ff4` зелёный
+  (e2e — после перезапуска, флак 8.2), ADR-0007 принят, `finish` — итог вместо handoff, MR !7
+  готов к ревью. Коммиты задачи — от `2bb1975` до последнего в MR !7.
+- 2026-10-26 · Yury Mikhailov · Claude Code / Opus 5.5 · шаги 2–7: py-spy — процессы uvicorn
+  застревают в `accept`; тесты и исправления ws-обработчика (`3bdf174`, `ad71bfb`), один процесс
+  в Windows (`7e4bdf2`, `8de16ff`), ADR-0007 (`95a75b4`), R-051 (`b7e6ff4`); длительный прогон
+  до и после; стенд убран.
 - 2026-10-26 · Yury Mikhailov · Claude Code / Opus 5.5 · начало сессии: задача в Plane, ветка,
   разбор `test_events`, воспроизведение зависания.
 
-## Handoff
+## Итог
 
-**Состояние:** идёт диагностика, код не менялся.
+**Что сделано.**
 
-**Следующий шаг:** пункт 1 плана.
+- R-051: в Windows `python -m app serve` запускает один процесс приложения (`serve_workers`,
+  предупреждение в журнале), ADR-0007. С несколькими процессами uvicorn в Windows делит один
+  слушающий сокет, процессы застревают в `accept` на 3–64 с, и их запросы висят без ответа и
+  без записи в журнале — так падали stage4 «Вложение», С6, С8, R-049. В Docker на Linux —
+  `APP_WORKERS`, как раньше.
+- ws-обработчик `changes` (`app/main.py`) проверяет сеанс в пуле потоков, а не в цикле событий,
+  и при закрытии сокета отменяет ожидания — в журнале больше нет «Task was destroyed but it is
+  pending!».
+- `test_events::test_admin_receives_changes` проходит на Windows: тишина в тесте 0,05 с вместо
+  0,01 (меньше тика часов Windows сервер слал ping сплошным потоком).
 
-**Открытые вопросы:** нет.
+**Как проверить.**
 
-**Ловушки:** стенд — отдельная чистая база `app_e2e`, как в DWG3D-5; `preview_start` не находит
-`sh`, серверы запускаются через Bash.
+- `cd server && uv run pytest tests/test_events.py tests/test_serve.py`.
+- На Windows: `python -m app serve` → в журнале «Windows: один процесс приложения…», процесс
+  один. Полный e2e, затем `npx playwright test tests/stage4.spec.ts -g "Вложение" --project
+  "компьютер" --repeat-each 10` — падают только PDF (нет GTK). Застревание видно py-spy:
+  `uvx py-spy dump --pid <процесс>` — `accept (socket.py:295)` в главном потоке.
+- CI #1386 на `b7e6ff4`.
 
-**Как проверить:** `cd e2e && npx playwright test tests/stage4.spec.ts -g "Вложение"
---project "компьютер" --repeat-each 10` на стенде после полного прогона e2e.
+**За рамками задачи.**
+
+- Почему `accept` в Windows блокируется на неблокирующем дескрипторе — открытый вопрос в
+  ADR-0007.
+- Флак e2e-замера 8.2 «зона обзора» в CI (232 мс один раз, при перезапуске 80 мс) — отдельная
+  задача.
+- `docs/review/FINDINGS.md` правит и !6 (R-050): после его merge ветку синхронизировать с
+  `main` — R-050 перед R-051, в сводке «Н» закрыто 9.
