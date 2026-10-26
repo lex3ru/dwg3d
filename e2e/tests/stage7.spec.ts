@@ -94,8 +94,8 @@ test("С7: зона обзора камеры по уровням, угол ва
     await page.keyboard.press("Escape");
     return v;
   }).toBeGreaterThan(before * 2);
-  const saved = (await (await page.request.get(`/api/floors/${f.floor}/items`)).json()).items[0];
-  expect(saved.params["camera.fov"]).toBe(40);
+  // угол на сервере — когда дойдёт сохранение расстановки
+  await expect.poll(async () => (await (await page.request.get(`/api/floors/${f.floor}/items`)).json()).items[0].params["camera.fov"]).toBe(40);
 
   // где лицо не различить
   await calcs.getByRole("combobox", { name: "Непросматриваемые места" }).selectOption("identify");
