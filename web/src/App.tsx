@@ -17,7 +17,7 @@ import { WarehousePage } from "@/inventory/WarehousePage";
 import { Buildings } from "@/pages/Buildings";
 import { Journal } from "@/pages/Journal";
 import { PlanIndex } from "@/pages/PlanIndex";
-import { ForcedPassword, Login } from "@/pages/Login";
+import { ForcedPassword, Login, nextAfterLogin } from "@/pages/Login";
 import { Placeholder } from "@/pages/Placeholder";
 import { SearchPage } from "@/pages/SearchPage";
 import { SettingsPage } from "@/pages/Settings";
@@ -88,7 +88,7 @@ export function App() {
   return (
     <MeProvider me={me.data}>
       <Routes>
-        <Route path="/login" element={<Navigate to={homeFor(role)} replace />} />
+        <Route path="/login" element={<Navigate to={nextAfterLogin(location.search) ?? homeFor(role)} replace />} />
         <Route element={<Shell />}>
           {MENU.filter((m) => m.roles.includes(role)).map((m) => (
             <Route key={m.path} path={m.path === "/" ? undefined : m.path} index={m.path === "/"} element={READY[m.path] ?? <Placeholder />} />

@@ -31,6 +31,15 @@ function Frame({ title, subtitle, children }: { title: string; subtitle?: string
   );
 }
 
+// Куда вернуться после входа: ссылка, открытая до него (6.5.11), — только адрес этой системы.
+// Её берут и форма входа, и маршрут /login, на который приложение попадает, как только узнаёт
+// о входе: иначе он перебивает переход формы и уводит на главную, а очередь отметок
+// ведомости, прерванная истёкшим сеансом, не досылается (R-030).
+export function nextAfterLogin(search: string): string | null {
+  const next = new URLSearchParams(search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+}
+
 // 6.5.11: имя и пароль; после входа — главная или план; ссылка, открытая до входа,
 // открывается после него
 export function Login() {
@@ -44,8 +53,7 @@ export function Login() {
     mutationFn: () => post<Me>("/api/auth/login", { login, password }),
     onSuccess: (me) => {
       client.setQueryData(["me"], me);
-      const next = params.get("next");
-      navigate(next && next.startsWith("/") && !next.startsWith("//") ? next : homeFor(me.role), { replace: true });
+      navigate(nextAfterLogin(params.toString()) ?? homeFor(me.role), { replace: true });
     },
     onError: (e) => setError((e as ApiError).message),
   });
