@@ -67,8 +67,8 @@ test("пересчёт уходит через очередь, пережива�
 
   const banner = await screen.findByRole("alert");
   expect(banner.textContent).toContain("Сервер не принимает отметки — отметок ждёт отправки: 1");
-  expect(api).toHaveBeenCalledWith("PUT", "/api/inventory/counts/c1/stock", { place: "w:1", type_id: "t1", model_id: "m1", counted: 23 });
-  expect(loadQueue("count-queue:c1")).toEqual([{ kind: "stock", place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }]);
+  expect(api).toHaveBeenCalledWith("PUT", "/api/inventory/counts/c1/stock", { place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }, expect.anything());
+  expect(loadQueue("count-queue:c1")).toMatchObject([{ kind: "stock", place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }]);
   expect(input.value).toBe("23");
 
   fireEvent.click(screen.getByRole("button", { name: "Провести" }));

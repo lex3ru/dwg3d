@@ -13,7 +13,7 @@ import { Field, FormError, Input } from "@/ui/form";
 import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
 import { STATUS } from "./DocumentsPage";
 import { TypePicker, useInvalidateInventory } from "./parts";
-import { drainQueue, type Job, loadQueue, pushQueue, type Wait } from "./queue";
+import { drainQueue, headersOf, type Job, loadQueue, type Mark, pushQueue, type Wait } from "./queue";
 import { QrCamera } from "./scanner";
 import { dateRu, STATES, type State } from "./types";
 
@@ -116,21 +116,25 @@ export function CountPage() {
   const [wait, setWait] = useState<Wait | null>(null);
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["inventory", "count", countId] }), [client, countId]);
   const drain = useCallback(async () => {
-    const send = async (job: Job) => {
+    // устройство и номер отметки — по ним сервер пропускает опоздавший повтор (ADR-0006)
+    const send = async (job: Job, signal: AbortSignal) => {
+      const options = { signal, headers: headersOf(job) };
       if (job.kind === "scan") {
-        const r = await post<ScanResult>(`/api/inventory/counts/${countId}/scan`, { code: job.code, place: job.place });
+        const r = await post<ScanResult | { result: "skipped" }>(`/api/inventory/counts/${countId}/scan`, { code: job.code, place: job.place }, options);
+        // повтор, который сервер пропустил, — без звука: что вещь найдена, видно в списке места
+        if (r.result === "skipped") return;
         setLast(r);
         beep(r.result);
         if (r.result === "room" && r.place) setPlace(r.place);
-      } else if (job.kind === "mark") await post(`/api/inventory/counts/${countId}/marks`, { unit_id: job.unit_id, place: job.place });
-      else if (job.kind === "unmark") await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`);
-      else await api("PUT", `/api/inventory/counts/${countId}/stock`, { place: job.place, type_id: job.type_id, model_id: job.model_id, counted: job.counted });
+      } else if (job.kind === "mark") await post(`/api/inventory/counts/${countId}/marks`, { unit_id: job.unit_id, place: job.place }, options);
+      else if (job.kind === "unmark") await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`, undefined, options);
+      else await api("PUT", `/api/inventory/counts/${countId}/stock`, { place: job.place, type_id: job.type_id, model_id: job.model_id, counted: job.counted }, options);
     };
     const ran = await drainQueue(storeKey, send, { changed: setQueue, waiting: setWait, dropped: setError });
     if (ran) void refresh();
   }, [countId, refresh, storeKey]);
-  const push = (job: Job) => {
-    setQueue(pushQueue(storeKey, job));
+  const push = (mark: Mark) => {
+    setQueue(pushQueue(storeKey, mark));
     void drain();
   };
   useEffect(() => {
