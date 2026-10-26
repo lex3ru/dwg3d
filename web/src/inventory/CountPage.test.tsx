@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { api, ApiError, get } from "@/lib/api";
+import { api, ApiError, get, post } from "@/lib/api";
 import { CountPage } from "./CountPage";
 import { loadQueue } from "./queue";
 
@@ -99,4 +99,46 @@ test("сеанс кончился (401) — отметка ждёт входа, 
   await act(() => vi.advanceTimersByTimeAsync(8000));
   expect(loadQueue("count-queue:c1")).toHaveLength(1);
   expect(screen.queryByText("Нужно войти в систему.")).toBeNull();
+});
+
+// ADR-0006: скан, который сервер пропустил (опоздавший повтор), — без звука и без «найдена»:
+// что вещь найдена, видно в списке места
+test("пропущенный сервером скан не показывается последней меткой", async () => {
+  vi.mocked(get).mockResolvedValue(view);
+  vi.mocked(post).mockResolvedValue({ result: "skipped" });
+  page();
+
+  const code = await screen.findByLabelText<HTMLInputElement>("Номер или код метки");
+  fireEvent.change(code, { target: { value: "AB12CD34EF56" } });
+  fireEvent.submit(code.closest("form")!);
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(post).toHaveBeenCalledOnce();
+  expect(loadQueue("count-queue:c1")).toEqual([]);
+  expect(screen.queryByRole("status", { name: "Последняя метка" })).toBeNull();
+});
+
+// R-049, ADR-0006: запрос повис (полуоткрытое соединение на телефоне) — через 15 с «Нет связи»,
+// и пересчёт досылается тем же запросом: то же устройство, тот же номер
+test("запрос повис — через 15 с «Нет связи», пересчёт досылается с тем же устройством и номером", async () => {
+  vi.mocked(get).mockResolvedValue(view);
+  vi.mocked(api).mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue(undefined);
+  page();
+
+  const input = await screen.findByLabelText<HTMLInputElement>("Фактически: Бахилы 100 пар");
+  fireEvent.change(input, { target: { value: "23" } });
+  fireEvent.blur(input);
+  await act(() => vi.advanceTimersByTimeAsync(14_000));
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(1_000));
+  expect(screen.getByRole("alert").textContent).toContain("Нет связи — отметок ждёт отправки: 1");
+
+  // досылка раз в 4 с — тот же запрос
+  await act(() => vi.advanceTimersByTimeAsync(4_000));
+  expect(api).toHaveBeenCalledTimes(2);
+  const [first, again] = vi.mocked(api).mock.calls;
+  expect(again!.slice(0, 3)).toEqual(first!.slice(0, 3));
+  expect(first![3]?.headers).toEqual({ "X-Count-Device": expect.any(String), "X-Count-Seq": expect.stringMatching(/^[1-9]\d*$/) });
+  expect(again![3]?.headers).toEqual(first![3]?.headers);
+  expect(loadQueue("count-queue:c1")).toEqual([]);
+  expect(screen.queryByRole("alert")).toBeNull();
 });
