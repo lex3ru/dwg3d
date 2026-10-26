@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 import { ADMIN, login, loginAdmin, PASSWORD, unique } from "./helpers";
 
 // Приёмка этапа 9 (10.1): инвентаризация с телефона (5.4.6, 6.5.8) — С18; «просмотр» (5.7.1)
@@ -215,6 +215,48 @@ test("6.7 п. 1, R-030: отметки и пересчёт ждут, пока с
   await page.getByRole("button", { name: "Войти" }).click();
   await expect(page).toHaveURL(new RegExp(`/inventory/${id}$`));
   await expect.poll(() => counted(page, id, f.rooms["214"]!)).toEqual({ [title]: 9 });
+  await expect(fact).toHaveValue("9");
+});
+
+test("6.7 п. 1, R-049: зависший запрос не держит очередь — через 15 с «Нет связи», и опоздавший старый пересчёт не затирает новый @телефон", async ({ page }) => {
+  test.setTimeout(60_000);
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  const s = await stockWithModels(page, f.rooms["214"]!, [["100 пар", 10]]);
+  const id = await countOf(page, f.rooms["214"]!);
+  const title = `${s.name} 100 пар`;
+  const stock = /\/api\/inventory\/counts\/[0-9a-f-]+\/stock$/;
+
+  await page.goto(`/inventory/${id}`);
+  const fact = page.getByLabel(`Фактически: ${title}`);
+  await expect(fact).toBeVisible();
+
+  // соединение повисло: первый запрос пересчёта не получает ни ответа, ни ошибки
+  let hung: Request | undefined;
+  await page.route(stock, (route) => {
+    if (hung) return route.continue();
+    hung = route.request();
+  });
+  await fact.fill("7");
+  await fact.press("Enter");
+  await expect(page.getByRole("alert")).toContainText("Нет связи — отметок ждёт отправки: 1", { timeout: 20_000 });
+  // досылается само — тем же номером
+  await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 10_000 });
+  expect((await counted(page, id, f.rooms["214"]!))[title]).toBe(7);
+
+  // комиссия поправила на 9 — и только теперь старый запрос с 7 дошёл до сервера
+  await fact.fill("9");
+  await fact.press("Enter");
+  await expect.poll(() => counted(page, id, f.rooms["214"]!)).toEqual({ [title]: 9 });
+  const sent = await hung!.allHeaders();
+  expect(sent["x-count-seq"]).toMatch(/^[1-9]\d*$/);
+  const late = await page.request.put(hung!.url(), {
+    headers: { ...H, "X-Count-Device": sent["x-count-device"]!, "X-Count-Seq": sent["x-count-seq"]! },
+    data: hung!.postDataJSON(),
+  });
+  expect(late.status()).toBe(204);
+  expect(await counted(page, id, f.rooms["214"]!)).toEqual({ [title]: 9 });
+  await page.reload();
   await expect(fact).toHaveValue("9");
 });
 
