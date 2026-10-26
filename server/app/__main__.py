@@ -40,6 +40,17 @@ def seed() -> None:
                 logging.getLogger("app").info("seed: %s", done)
 
 
+def serve_workers(requested: int, platform: str = sys.platform) -> int:
+    """Процессов приложения. В Windows — один: несколько процессов uvicorn делят там один
+    слушающий сокет, и процесс застревает в accept, пока к нему не придёт новое соединение, —
+    его запросы ждут (R-051). Установка работает в Docker на Linux: там — сколько задано."""
+    if platform == "win32" and requested > 1:
+        logging.getLogger("app").warning(
+            "Windows: один процесс приложения вместо %d — несколько зависают (R-051)", requested)
+        return 1
+    return requested
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -47,7 +58,7 @@ def main() -> None:
     serve.add_argument("--host", default="0.0.0.0")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--workers", type=int, default=0,
-                       help="процессов приложения (по умолчанию APP_WORKERS, 4)")
+                       help="процессов приложения (по умолчанию APP_WORKERS, 4; в Windows — 1)")
     sub.add_parser("worker", help="обработчик фоновых задач")
     sub.add_parser("migrate", help="обновить базу до текущей версии")
     admin = sub.add_parser("create-admin", help="первый администратор, если его ещё нет")
@@ -80,7 +91,7 @@ def main() -> None:
 
         uvicorn.run("app.main:create_app", factory=True, host=args.host, port=args.port,
                     proxy_headers=True, forwarded_allow_ips="*",
-                    workers=args.workers or config().workers)
+                    workers=serve_workers(args.workers or config().workers))
     elif args.command == "worker":
         from app.core import tasks
         from app.main import create_app

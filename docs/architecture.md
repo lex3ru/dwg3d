@@ -126,7 +126,8 @@ journal → access, files, system → building, catalog → planning, inventory 
   `app` (`serve`), `worker`, `caddy`, `backup`. Образ `deploy/Dockerfile` собирает интерфейс,
   сервер и LibreDWG. Подробно — `docs/INSTALL.md`.
 - **Настройки** — переменные `APP_*` (`server/app/core/config.py`), на установке — `deploy/.env`
-  (создаёт `install.sh`). Процессов приложения — `APP_WORKERS`, по умолчанию 4.
+  (создаёт `install.sh`). Процессов приложения — `APP_WORKERS`, по умолчанию 4; при разработке
+  в Windows — всегда один (ADR-0007).
 - **Резервные копии** — сервис `backup`: `pg_dump` и файлы (жёсткие ссылки на прошлую копию),
   по расписанию `BACKUP_AT`, хранение `KEEP_DAILY`/`KEEP_MONTHLY`. Итог пишет в `last.json`,
   его показывает модуль `system`. Восстановление — `deploy/restore.sh`.

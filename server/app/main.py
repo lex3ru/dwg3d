@@ -17,8 +17,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm.exc import StaleDataError
+from starlette.concurrency import run_in_threadpool
 
 from app.core import events, search
+from app.core.actor import Actor
 from app.core.auth import CurrentActor
 from app.core.config import config
 from app.core.db import DB, transaction
@@ -117,8 +119,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/api/ws")
     async def changes(ws: WebSocket) -> None:
-        with transaction() as session:
-            actor = access.actor_for_token(session, ws.cookies.get(access.COOKIE))
+        # сеанс — в пуле потоков: запрос к базе прямо в цикле событий остановил бы, пока он
+        # ждёт, все запросы этого процесса (R-051)
+        actor = await run_in_threadpool(_actor_for, ws.cookies.get(access.COOKIE))
         if actor is None:
             await ws.close(code=4401)
             return
@@ -131,8 +134,9 @@ def create_app() -> FastAPI:
                        {str(b) for b in actor.building_ids} for ref in message.get("refs", []))
 
         sub = events.hub.subscribe(allowed)
+        receive = asyncio.ensure_future(ws.receive_text())
+        get: asyncio.Future[dict[str, Any]] | None = None
         try:
-            receive = asyncio.ensure_future(ws.receive_text())
             while True:
                 get = asyncio.ensure_future(sub[0].get())
                 done, _ = await asyncio.wait({receive, get}, timeout=PING_AFTER,
@@ -149,10 +153,19 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
+            # ожидания отменить, а не бросить: брошенные висят до сборщика мусора (R-051)
+            receive.cancel()
+            if get is not None:
+                get.cancel()
             events.hub.unsubscribe(sub)
 
     _mount_web(app)
     return app
+
+
+def _actor_for(token: str | None) -> Actor | None:
+    with transaction() as session:
+        return access.actor_for_token(session, token)
 
 
 def _mount_web(app: FastAPI) -> None:
