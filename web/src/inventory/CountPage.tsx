@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCheck, FileDown, PackagePlus, ScanLine, Trash2, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router";
 import type { TypeBrief } from "@/catalog/types";
 import { ApiError, api, get, post } from "@/lib/api";
@@ -13,6 +13,7 @@ import { Field, FormError, Input } from "@/ui/form";
 import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
 import { STATUS } from "./DocumentsPage";
 import { TypePicker, useInvalidateInventory } from "./parts";
+import { drainQueue, type Job, loadQueue, pushQueue } from "./queue";
 import { QrCamera } from "./scanner";
 import { dateRu, STATES, type State } from "./types";
 
@@ -51,9 +52,6 @@ interface ScanResult {
   text: string;
   place?: string;
 }
-
-// что ушло на сервер — по очереди; нет связи — копится и досылается (6.7 п. 1)
-type Job = { kind: "scan"; code: string; place: string } | { kind: "mark"; unit_id: string; place: string } | { kind: "unmark"; unit_id: string };
 
 const TONE: Record<ScanResult["result"], string> = {
   here: "bg-ok-soft text-ok border-ok/40",
@@ -105,58 +103,24 @@ export function CountPage() {
 
   // очередь отметок с досылкой
   const storeKey = `count-queue:${countId}`;
-  const [queue, setQueue] = useState<Job[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(storeKey) ?? "[]") as Job[];
-    } catch {
-      return [];
-    }
-  });
+  const [queue, setQueue] = useState<Job[]>(() => loadQueue(storeKey));
   const [offline, setOffline] = useState(false);
-  const busy = useRef(false);
-  useEffect(() => {
-    try {
-      localStorage.setItem(storeKey, JSON.stringify(queue));
-    } catch {
-      /* не сохранится — не беда */
-    }
-  }, [queue, storeKey]);
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["inventory", "count", countId] }), [client, countId]);
   const drain = useCallback(async () => {
-    if (busy.current) return;
-    busy.current = true;
-    try {
-      for (;;) {
-        const job = (JSON.parse(localStorage.getItem(storeKey) ?? "[]") as Job[])[0];
-        if (!job) break;
-        try {
-          if (job.kind === "scan") {
-            const r = await post<ScanResult>(`/api/inventory/counts/${countId}/scan`, { code: job.code, place: job.place });
-            setLast(r);
-            beep(r.result);
-            if (r.result === "room" && r.place) setPlace(r.place);
-          } else if (job.kind === "mark") await post(`/api/inventory/counts/${countId}/marks`, { unit_id: job.unit_id, place: job.place });
-          else await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`);
-          setOffline(false);
-        } catch (e) {
-          if ((e as ApiError).code === "offline") {
-            setOffline(true);
-            break; // досылать позже
-          }
-          setError((e as ApiError).message);
-        }
-        setQueue((q) => q.slice(1));
-        localStorage.setItem(storeKey, JSON.stringify((JSON.parse(localStorage.getItem(storeKey) ?? "[]") as Job[]).slice(1)));
-      }
-    } finally {
-      busy.current = false;
-      void refresh();
-    }
+    const send = async (job: Job) => {
+      if (job.kind === "scan") {
+        const r = await post<ScanResult>(`/api/inventory/counts/${countId}/scan`, { code: job.code, place: job.place });
+        setLast(r);
+        beep(r.result);
+        if (r.result === "room" && r.place) setPlace(r.place);
+      } else if (job.kind === "mark") await post(`/api/inventory/counts/${countId}/marks`, { unit_id: job.unit_id, place: job.place });
+      else await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`);
+    };
+    const ran = await drainQueue(storeKey, send, { changed: setQueue, waiting: (why) => setOffline(why !== null), dropped: setError });
+    if (ran) void refresh();
   }, [countId, refresh, storeKey]);
   const push = (job: Job) => {
-    const next = [...(JSON.parse(localStorage.getItem(storeKey) ?? "[]") as Job[]), job];
-    localStorage.setItem(storeKey, JSON.stringify(next));
-    setQueue(next);
+    setQueue(pushQueue(storeKey, job));
     void drain();
   };
   useEffect(() => {
