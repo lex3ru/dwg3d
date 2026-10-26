@@ -207,9 +207,13 @@ def test_r021_shortage_and_surplus_of_stock_with_model(admin) -> None:
     assert stock_at(admin, rooms["214"]) == [(m, 11)]
 
 
-def test_r021_each_model_is_counted_on_its_own(admin) -> None:
+def test_r021_each_model_is_counted_on_its_own(admin, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """R-021: в одном месте две модели одного типа и остаток без модели — в ведомости три
-    строки, каждая пересчитывается и выравнивается отдельно."""
+    строки, каждая пересчитывается и выравнивается отдельно; в ведомости и акте — с моделью."""
+    from app.core import report
+
+    printed: list[report.Report] = []
+    monkeypatch.setattr(report, "pdf", lambda r: printed.append(r) or b"%PDF-")
     _, rooms, wh, k = setup(admin)
     gloves = k["перчатки"]["id"]
     m, s = model_of(admin, gloves, "Нитрил M"), model_of(admin, gloves, "Нитрил S")
@@ -249,6 +253,22 @@ def test_r021_each_model_is_counted_on_its_own(admin) -> None:
     assert view["summary"]["stock_diff"] == 2
     assert r.status_code == 200, r.text
     assert stock_at(admin, rooms["214"]) == sorted([(m, 10), (s, 3), ("", 6)])
+
+    # печать без WeasyPrint: что попало в ведомость и акт (подпись места — не проверяем)
+    for what in ("statement", "act"):
+        r = admin.get(f"/api/inventory/counts/{count['id']}/{what}.pdf")
+        assert r.status_code == 200, r.text
+    statement, act = printed
+    assert [row[:4] for row in statement.sections[-1].rows] == [
+        ["Перчатки смотровые", "упак.", 6.0, 6.0],
+        ["Перчатки смотровые Нитрил M", "упак.", 10.0, 10.0],
+        ["Перчатки смотровые Нитрил S", "упак.", 3.0, 3.0],
+    ]
+    stock_rows = next(x for x in act.sections if x.title == "Излишки и недостачи").rows
+    assert sorted((row[0], row[2], row[3]) for row in stock_rows) == [
+        ("Перчатки смотровые", "излишек", 2.0),
+        ("Перчатки смотровые Нитрил S", "недостача", 2.0),
+    ]
 
 
 def test_c18_count_with_stock_recount_on_the_sample(admin) -> None:

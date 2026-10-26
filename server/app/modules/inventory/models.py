@@ -325,16 +325,27 @@ class CountExtra(Base):
 
 
 class CountStock(Base):
-    """Пересчитанный остаток количественного учёта в месте."""
+    """Пересчитанный остаток количественного учёта — по позиции «место + тип + модель», как он
+    и хранится (ADR-0005); «без модели» — тоже позиция, одна."""
 
     __tablename__ = "count_stock"
-    __table_args__ = S
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "place",
+            "type_id",
+            "model_id",
+            name="count_stock_position",
+            postgresql_nulls_not_distinct=True,
+        ),
+        S,
+    )
 
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
+        UUID, ForeignKey("inventory.document.id", ondelete="CASCADE")
     )
-    place: Mapped[str] = mapped_column(String(50), primary_key=True)
-    type_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("catalog.item_type.id"), primary_key=True
-    )
+    place: Mapped[str] = mapped_column(String(50))
+    type_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("catalog.item_type.id"))
+    model_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("catalog.model.id"))
     counted: Mapped[float] = mapped_column(Numeric(14, 3))

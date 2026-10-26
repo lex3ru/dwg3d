@@ -41,7 +41,8 @@ interface CountView {
     items: Row[];
     foreign: Row[];
     extras: { id: string; title: string; serial: string; note: string }[];
-    stock: { type_id: string; title: string; unit: string; expected: number; counted: number | null }[];
+    // позиция остатка — место, тип и модель, как он хранится (ADR-0005)
+    stock: { type_id: string; model_id: string | null; title: string; unit: string; expected: number; counted: number | null }[];
   };
 }
 
@@ -310,7 +311,7 @@ export function CountPage() {
             <div className="flex flex-col gap-2 border-t border-line px-4 py-3">
               <span className="text-[13px] font-semibold">Остатки — пересчитать</span>
               {c.place.stock.map((s) => (
-                <StockRow key={s.type_id} s={s} disabled={!draft} onSave={async (v) => { await api("PUT", `/api/inventory/counts/${c.id}/stock`, { place: c.place!.key, type_id: s.type_id, counted: v }); void refresh(); }} />
+                <StockRow key={`${s.type_id}:${s.model_id ?? ""}`} s={s} disabled={!draft} onSave={async (v) => { await api("PUT", `/api/inventory/counts/${c.id}/stock`, { place: c.place!.key, type_id: s.type_id, model_id: s.model_id, counted: v }); void refresh(); }} />
               ))}
             </div>
           )}
