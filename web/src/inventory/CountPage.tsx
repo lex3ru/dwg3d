@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCheck, FileDown, PackagePlus, ScanLine, Trash2, WifiOff } from "lucide-react";
+import { CheckCheck, FileDown, LogIn, PackagePlus, ScanLine, ServerCrash, Trash2, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router";
 import type { TypeBrief } from "@/catalog/types";
@@ -13,7 +13,7 @@ import { Field, FormError, Input } from "@/ui/form";
 import { Card, Chip, Empty, Loading, PageHeader } from "@/ui/misc";
 import { STATUS } from "./DocumentsPage";
 import { TypePicker, useInvalidateInventory } from "./parts";
-import { drainQueue, type Job, loadQueue, pushQueue } from "./queue";
+import { drainQueue, type Job, loadQueue, pushQueue, type Wait } from "./queue";
 import { QrCamera } from "./scanner";
 import { dateRu, STATES, type State } from "./types";
 
@@ -52,6 +52,15 @@ interface ScanResult {
   text: string;
   place?: string;
 }
+
+// почему отметки ждут отправки — и что будет дальше (6.7 п. 1, R-030)
+const WAIT: Record<Wait, { icon: typeof WifiOff; what: string; next: string }> = {
+  offline: { icon: WifiOff, what: "Нет связи", next: "Досылаются сами, когда связь вернётся." },
+  server: { icon: ServerCrash, what: "Сервер не принимает отметки", next: "Досылаются сами, когда он ответит." },
+  session: { icon: LogIn, what: "Нужно войти снова", next: "После входа под учётной записью администратора они досылаются сами." },
+};
+
+const stockKey = (place: string, type: string, model: string | null) => `${place}|${type}|${model ?? ""}`;
 
 const TONE: Record<ScanResult["result"], string> = {
   here: "bg-ok-soft text-ok border-ok/40",
@@ -101,10 +110,10 @@ export function CountPage() {
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // очередь отметок с досылкой
+  // очередь отметок с досылкой: метки, ручные отметки и пересчёт остатков (R-030)
   const storeKey = `count-queue:${countId}`;
   const [queue, setQueue] = useState<Job[]>(() => loadQueue(storeKey));
-  const [offline, setOffline] = useState(false);
+  const [wait, setWait] = useState<Wait | null>(null);
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["inventory", "count", countId] }), [client, countId]);
   const drain = useCallback(async () => {
     const send = async (job: Job) => {
@@ -114,9 +123,10 @@ export function CountPage() {
         beep(r.result);
         if (r.result === "room" && r.place) setPlace(r.place);
       } else if (job.kind === "mark") await post(`/api/inventory/counts/${countId}/marks`, { unit_id: job.unit_id, place: job.place });
-      else await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`);
+      else if (job.kind === "unmark") await api("DELETE", `/api/inventory/counts/${countId}/marks/${job.unit_id}`);
+      else await api("PUT", `/api/inventory/counts/${countId}/stock`, { place: job.place, type_id: job.type_id, model_id: job.model_id, counted: job.counted });
     };
-    const ran = await drainQueue(storeKey, send, { changed: setQueue, waiting: (why) => setOffline(why !== null), dropped: setError });
+    const ran = await drainQueue(storeKey, send, { changed: setQueue, waiting: setWait, dropped: setError });
     if (ran) void refresh();
   }, [countId, refresh, storeKey]);
   const push = (job: Job) => {
@@ -139,6 +149,9 @@ export function CountPage() {
     push({ kind: "scan", code: text, place });
   };
   const pdf = (what: "statement" | "act") => window.open(`/api/inventory/counts/${c.id}/${what}.pdf`, "_blank");
+  // пересчёт, который ещё в очереди, показываем как введённый — последнее значение позиции
+  const pending = new Map(queue.flatMap((j) => (j.kind === "stock" ? [[stockKey(j.place, j.type_id, j.model_id), j.counted] as const] : [])));
+  const waitNote = wait && queue.length > 0 ? WAIT[wait] : null;
 
   return (
     <PageBody>
@@ -182,9 +195,9 @@ export function CountPage() {
           </Card>
         ))}
       </div>
-      {offline && (
+      {waitNote && (
         <div role="alert" className="flex items-center gap-2 rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn">
-          <WifiOff className="size-4" /> Нет связи — отметок ждёт отправки: {queue.length}. Досылаются сами, когда связь вернётся.
+          <waitNote.icon className="size-4 shrink-0" /> {waitNote.what} — отметок ждёт отправки: {queue.length}. {waitNote.next}
         </div>
       )}
       <label className="flex flex-col gap-1 text-[13px] text-ink-2">
@@ -274,15 +287,17 @@ export function CountPage() {
           {c.place.stock.length > 0 && (
             <div className="flex flex-col gap-2 border-t border-line px-4 py-3">
               <span className="text-[13px] font-semibold">Остатки — пересчитать</span>
-              {c.place.stock.map((s) => (
-                <StockRow key={`${s.type_id}:${s.model_id ?? ""}`} s={s} disabled={!draft} onSave={async (v) => { await api("PUT", `/api/inventory/counts/${c.id}/stock`, { place: c.place!.key, type_id: s.type_id, model_id: s.model_id, counted: v }); void refresh(); }} />
-              ))}
+              {c.place.stock.map((s) => {
+                const key = stockKey(c.place!.key, s.type_id, s.model_id);
+                const counted = pending.has(key) ? pending.get(key)! : s.counted;
+                return <StockRow key={key} s={{ ...s, counted }} disabled={!draft} onSave={(v) => push({ kind: "stock", place: c.place!.key, type_id: s.type_id, model_id: s.model_id, counted: v })} />;
+              })}
             </div>
           )}
         </Card>
       )}
       {place && <ExtraDialog open={adding} onClose={() => setAdding(false)} countId={c.id} place={place} onDone={() => void refresh()} />}
-      <PostDialog open={posting} onClose={() => setPosting(false)} count={c} onDone={() => { void refresh(); refreshInventory(); }} />
+      <PostDialog open={posting} onClose={() => setPosting(false)} count={c} unsent={queue.length} onDone={() => { void refresh(); refreshInventory(); }} />
     </PageBody>
   );
 }
@@ -307,13 +322,13 @@ function RowItem({ r, draft, onToggle }: { r: Row; draft: boolean; onToggle: (on
   );
 }
 
-function StockRow({ s, disabled, onSave }: { s: { title: string; unit: string; expected: number; counted: number | null }; disabled: boolean; onSave: (v: number | null) => Promise<void> }) {
+function StockRow({ s, disabled, onSave }: { s: { title: string; unit: string; expected: number; counted: number | null }; disabled: boolean; onSave: (v: number | null) => void }) {
   const [text, setText] = useState(s.counted === null ? "" : String(s.counted));
   useEffect(() => setText(s.counted === null ? "" : String(s.counted)), [s.counted]);
   const commit = () => {
     const t = text.trim().replace(",", ".");
     const v = t === "" ? null : Number(t);
-    if (v === null || Number.isFinite(v)) void onSave(v);
+    if ((v === null || Number.isFinite(v)) && v !== s.counted) onSave(v);
   };
   return (
     <label className="flex items-center gap-2 text-[13px]">
@@ -400,7 +415,9 @@ function ExtraDialog({ open, onClose, countId, place, onDone }: { open: boolean;
   );
 }
 
-function PostDialog({ open, onClose, count, onDone }: { open: boolean; onClose: () => void; count: CountView; onDone: () => void }) {
+// unsent — отметки этого устройства, которых сервер ещё не получил: проведи сейчас — и
+// неотправленное станет «не найдена», пересчёт не попадёт в документ (R-030)
+function PostDialog({ open, onClose, count, unsent, onDone }: { open: boolean; onClose: () => void; count: CountView; unsent: number; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const s = count.summary;
@@ -415,7 +432,7 @@ function PostDialog({ open, onClose, count, onDone }: { open: boolean; onClose: 
           <Button onClick={onClose}>Отмена</Button>
           <Button
             variant="primary"
-            disabled={busy}
+            disabled={busy || unsent > 0}
             onClick={async () => {
               setBusy(true);
               setError(null);
@@ -441,6 +458,11 @@ function PostDialog({ open, onClose, count, onDone }: { open: boolean; onClose: 
         <li>Встанет на учёт (не числилось): {s.extras}</li>
         <li>Остатки с расхождением: {s.stock_diff}</li>
       </ul>
+      {unsent > 0 && (
+        <p role="alert" className="m-0 rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-[13px] text-warn">
+          Ещё не отправлено отметок: {unsent}. Провести можно, когда они дойдут до сервера, — иначе неотправленное не попадёт в документ.
+        </p>
+      )}
       <FormError message={error} />
     </Dialog>
   );
