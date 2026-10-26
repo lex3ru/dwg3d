@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { login, loginAdmin, unique } from "./helpers";
+import { ADMIN, login, loginAdmin, PASSWORD, unique } from "./helpers";
 
 // Приёмка этапа 9 (10.1): инвентаризация с телефона (5.4.6, 6.5.8) — С18; «просмотр» (5.7.1)
 // — С20; ссылка на просмотр (5.7.2) — С21; история предмета и журнал помещения (5.7.3) — С22;
@@ -118,6 +118,104 @@ test("С18: инвентаризация этажа с телефона — от
   // документом задним числом в эти места больше не провести
   const late = await (await page.request.post("/api/inventory/documents", { headers: H, data: { kind: "transfer", header: { from_place: `r:${f.rooms["214"]}`, to_place: `r:${f.rooms["215"]}`, date: "2020-01-01" }, lines: [{ unit_id: monitors[0]!.id }] } })).json();
   expect((await page.request.post(`/api/inventory/documents/${late.id}/post`, { headers: H, data: { version: late.version } })).ok()).toBeFalsy();
+});
+
+// Количественный тип с двумя моделями и приход каждой в помещение (ADR-0005: остаток — по
+// позиции «место + тип + модель»)
+async function stockWithModels(page: Page, room: string, lots: [model: string, qty: number][]) {
+  const type = await (await page.request.post("/api/catalog/types", { headers: H, data: { name: unique("Бахилы-"), accounting: "quantity", unit: "упак." } })).json();
+  const models: Record<string, string> = {};
+  for (const [name] of lots) {
+    const t = await (await page.request.post(`/api/catalog/types/${type.id}/models`, { headers: H, data: { name } })).json();
+    models[name] = t.models.find((m: { name: string }) => m.name === name).id;
+  }
+  const lines = lots.map(([name, qty]) => ({ type_id: type.id, model_id: models[name], qty, price: 260 }));
+  const doc = await (await page.request.post("/api/inventory/documents", { headers: H, data: { kind: "receipt", header: { to_place: `r:${room}` }, lines } })).json();
+  expect((await page.request.post(`/api/inventory/documents/${doc.id}/post`, { headers: H, data: { version: doc.version } })).ok()).toBeTruthy();
+  return { type: type.id as string, name: type.name as string, models };
+}
+
+async function countOf(page: Page, room: string): Promise<string> {
+  const count = await (await page.request.post("/api/inventory/counts", { headers: H, data: { places: [`r:${room}`] } })).json();
+  return count.id;
+}
+
+async function counted(page: Page, id: string, room: string): Promise<Record<string, number | null>> {
+  const view = await (await page.request.get(`/api/inventory/counts/${id}?place=${encodeURIComponent(`r:${room}`)}`)).json();
+  return Object.fromEntries(view.place.stock.map((s: { title: string; counted: number | null }) => [s.title, s.counted]));
+}
+
+async function balances(page: Page, room: string): Promise<[string, number][]> {
+  const items = (await (await page.request.get(`/api/inventory/balances?place=${encodeURIComponent(`r:${room}`)}`)).json()).items;
+  return items.map((b: { model_name: string; qty: number }) => [b.model_name, b.qty] as [string, number]).sort();
+}
+
+test("С18, R-021: пересчёт остатка с моделью — недостача и излишек ложатся на свою модель @телефон", async ({ page }) => {
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  const s = await stockWithModels(page, f.rooms["214"]!, [["100 пар", 10], ["50 пар", 5]]);
+  const id = await countOf(page, f.rooms["214"]!);
+
+  await page.goto(`/inventory/${id}`);
+  const big = page.getByLabel(`Фактически: ${s.name} 100 пар`);
+  const small = page.getByLabel(`Фактически: ${s.name} 50 пар`);
+  await big.fill("8");
+  await big.press("Enter");
+  await small.fill("6");
+  await small.press("Enter");
+  await expect.poll(() => counted(page, id, f.rooms["214"]!)).toEqual({ [`${s.name} 100 пар`]: 8, [`${s.name} 50 пар`]: 6 });
+
+  await page.getByRole("button", { name: "Провести" }).first().click();
+  await expect(page.getByRole("dialog")).toContainText("Остатки с расхождением: 2");
+  await page.getByRole("dialog").getByRole("button", { name: "Провести" }).click();
+  await expect(page.getByRole("button", { name: "Акт расхождений" })).toBeVisible();
+  expect(await balances(page, f.rooms["214"]!)).toEqual([["100 пар", 8], ["50 пар", 6]]);
+});
+
+test("6.7 п. 1, R-030: отметки и пересчёт ждут, пока сервер перезапускается и пока сеанс не возобновлён, — и досылаются @телефон", async ({ page }) => {
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  const [monitor] = await receipt(page, f.rooms["214"]!, await typeId(page, "Монитор 24″"), 1, 14500);
+  const s = await stockWithModels(page, f.rooms["214"]!, [["100 пар", 10]]);
+  const id = await countOf(page, f.rooms["214"]!);
+  const title = `${s.name} 100 пар`;
+  const sends = /\/api\/inventory\/counts\/[0-9a-f-]+\/(marks|stock|scan)/;
+
+  await page.goto(`/inventory/${id}`);
+  const found = page.getByLabel(new RegExp(`^Найдена: .* № ${monitor!.number}$`));
+  const fact = page.getByLabel(`Фактически: ${title}`);
+  await expect(found).toBeVisible();
+
+  // сервер перезапускается — Caddy отвечает 502
+  await page.route(sends, (route) => route.fulfill({ status: 502, contentType: "text/html", body: "Bad Gateway" }));
+  await found.click();
+  await fact.fill("7");
+  await fact.press("Enter");
+  await expect(page.getByRole("alert")).toContainText("Сервер не принимает отметки — отметок ждёт отправки: 2");
+  await page.getByRole("button", { name: "Провести" }).first().click();
+  const ask = page.getByRole("dialog");
+  await expect(ask).toContainText("Ещё не отправлено отметок: 2");
+  await expect(ask.getByRole("button", { name: "Провести" })).toBeDisabled();
+  await ask.getByRole("button", { name: "Отмена" }).click();
+
+  // сервер поднялся — очередь досылается сама
+  await page.unroute(sends);
+  await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 10_000 });
+  await expect(found).toBeChecked();
+  expect((await counted(page, id, f.rooms["214"]!))[title]).toBe(7);
+
+  // сеанс кончился — на вход, а пересчёт ждёт; после входа — снова ведомость, и он дослан
+  await page.route(sends, (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: { code: "not_authenticated", message: "Нужно войти в систему." } }) }));
+  await fact.fill("9");
+  await fact.press("Enter");
+  await expect(page).toHaveURL(/\/login\?next=/);
+  await page.unroute(sends);
+  await page.getByLabel("Имя для входа").fill(ADMIN);
+  await page.getByLabel("Пароль", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: "Войти" }).click();
+  await expect(page).toHaveURL(new RegExp(`/inventory/${id}$`));
+  await expect.poll(() => counted(page, id, f.rooms["214"]!)).toEqual({ [title]: 9 });
+  await expect(fact).toHaveValue("9");
 });
 
 test("С20: заведующий с «просмотром» видит план и карточки без стоимости, номеров и проектов", async ({ page, browser }) => {
