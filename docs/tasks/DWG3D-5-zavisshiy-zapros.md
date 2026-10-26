@@ -4,7 +4,7 @@ title: "Инвентаризация: зависший запрос не дер�
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-5-zavisshiy-zapros
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/5
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/0eee5881-08f5-448b-8292-bebcaa5768ad
 updated: 2026-10-26
 ---
