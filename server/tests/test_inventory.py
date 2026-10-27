@@ -4,6 +4,10 @@
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
 from app.core.db import transaction
 from app.modules.access import api as access
 from tests.conftest import login, make_client
@@ -547,3 +551,43 @@ def test_r023_property_goes_to_a_room_made_by_the_same_save(admin) -> None:
     assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == f"r:{saved['216']}"
     summary = admin.get("/api/journal", params={"ref": f"room:{room215}"}).json()["items"][0]
     assert "убраны: 215 Кабинет (имущество — в 216 Кладовая)" in summary["summary"]
+
+
+def test_r028_database_refuses_states_kinds_and_places_that_do_not_exist(admin) -> None:
+    """Целостность учёта держит и база, а не только код: состояние, вид документа или события,
+    нулевое движение и место не того вида база не запишет (8.3, R-028)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["214"]},
+            [
+                {"type_id": k["монитор"]["id"], "qty": 1, "price": 100},
+                {"type_id": k["перчатки"]["id"], "qty": 5, "price": 10},
+            ],
+        ),
+    ).json()
+    unit = {"id": received["lines"][0]["created_units"][0]["id"]}
+    doc = {"id": received["id"]}
+    for sql, params in [
+        ("UPDATE inventory.unit SET state = 'lost' WHERE id = :id", unit),
+        ("UPDATE inventory.unit SET place = '214 Кабинет' WHERE id = :id", unit),
+        ("UPDATE inventory.unit_event SET kind = 'gift' WHERE unit_id = :id", unit),
+        ("UPDATE inventory.unit_event SET place = 'r:1' WHERE unit_id = :id", unit),
+        ("UPDATE inventory.document SET kind = 'gift' WHERE id = :id", doc),
+        ("UPDATE inventory.document SET status = 'lost' WHERE id = :id", doc),
+        ("UPDATE inventory.document SET to_place = 'склад' WHERE id = :id", doc),
+        ("UPDATE inventory.doc_line SET state = 'lost' WHERE document_id = :id", doc),
+        ("UPDATE inventory.stock_move SET qty = 0 WHERE document_id = :id", doc),
+        ("UPDATE inventory.stock_move SET place = 'x:1' WHERE document_id = :id", doc),
+    ]:
+        with pytest.raises(IntegrityError), transaction() as s:
+            s.execute(text(sql), params)
+    # черновик с местом не того вида — понятная ошибка, а не отказ базы
+    r = admin.post(
+        "/api/inventory/documents",
+        json={"kind": "transfer", "header": {"to_place": "склад"}, "lines": []},
+    )
+    assert r.status_code == 400 and r.json()["error"]["field"] == "to_place", r.text
