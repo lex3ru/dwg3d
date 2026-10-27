@@ -848,7 +848,7 @@
 - **ТЗ:** 8.2 (зона обзора — 0,2 с), 8.7 п. 2 (e2e в CI).
 - **Предложение:** вывести объекты запуска из сборки (`gc.freeze()`), долгоживущий кэш хранить
   тем, что сборщик не отслеживает.
-- **Статус:** исправлена — [!10](https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/10), [ADR-0010](../decisions/0010-gc-freeze-zone-cache.md): `serve_app` (фабрика для `python -m app serve`) после `create_app()` загружает библиотеки отчётов (`REPORT_LIBS`: `openpyxl`, `weasyprint`), затем делает `gc.collect()` и `gc.freeze()`; кэш `_zones` хранит кольца и линии 3D кортежами (`_frozen`). Тесты: `test_serve.py::test_served_app_leaves_startup_objects_out_of_gc` и `test_served_app_freezes_report_libraries`, `test_calc.py::test_zone_cache_does_not_load_gc` (до исправления — 4 524 отслеживаемых контейнера на 5 камер); 10 повторов `perf.spec.ts` в CI.
+- **Статус:** исправлена — [!10](https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/10), [ADR-0010](../decisions/0010-gc-freeze-zone-cache.md): `serve_app` (фабрика для `python -m app serve`) после `create_app()` загружает библиотеки отчётов (`REPORT_LIBS`: `openpyxl`, `weasyprint`), затем делает `gc.collect()` и `gc.freeze()`; кэш `_zones` хранит кольца и линии 3D кортежами (`_frozen`). Тесты: `test_serve.py::test_served_app_leaves_startup_objects_out_of_gc` и `test_served_app_freezes_report_libraries`, `test_calc.py::test_zone_cache_does_not_load_gc` (до исправления — 4 524 отслеживаемых контейнера на 5 камер); весь набор e2e и 10 повторов `perf.spec.ts` в CI — #1433 и #1435, без падений (до — 5 из 20).
 
 <!--
 Шаблон:
