@@ -34,7 +34,7 @@ from app.modules.inventory.models import (
     StockMove,
     Unit,
 )
-from app.modules.inventory.places import Places, admin, room_key
+from app.modules.inventory.places import Places, admin, room_key, room_property
 from app.modules.inventory.rules import doc_title
 from app.modules.inventory.units import title_of
 from app.modules.journal import api as journal
@@ -86,13 +86,18 @@ def create_count(
     floor_id: uuid.UUID | None,
     warehouse_id: uuid.UUID | None,
 ) -> Document:
-    """Ведомость на выбранные места (5.4.6 п. 1): этаж (все его помещения), помещения,
-    склад (с ячейками)."""
+    """Ведомость на выбранные места (5.4.6 п. 1): этаж (все его помещения и убранные, где
+    что-то числится), помещения, склад (с ячейками)."""
     admin(actor)
     keys = list(dict.fromkeys(places))
     if floor_id is not None:
         floor = building.get_floor(session, actor, floor_id)
         keys += [room_key(r.id) for r in building.live_rooms(session, floor.id)]
+        # и убранные помещения этажа, где что-то числится: инвентаризация этажа видит всё,
+        # что на нём числится (R-023)
+        gone = [r.id for r in building.archived_rooms(session, floor.id)]
+        held = room_property(session, gone)
+        keys += [room_key(rid) for rid in gone if rid in held]
     if warehouse_id is not None:
         keys.append(f"w:{warehouse_id}")
         keys += [

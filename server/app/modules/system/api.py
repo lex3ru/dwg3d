@@ -145,6 +145,15 @@ def _backup() -> dict[str, Any]:
             "kept": data.get("kept")}
 
 
+# проверки модулей выше для страницы состояния: {"name", "ok", "detail"} — например, учёт
+# называет единицы в убранных или несуществующих местах (R-028)
+_checks: list[Callable[[Session], dict[str, Any]]] = []
+
+
+def on_status_check(check: Callable[[Session], dict[str, Any]]) -> None:
+    _checks.append(check)
+
+
 def status(session: Session) -> dict[str, Any]:
     db_ok = session.execute(text("SELECT 1")).scalar() == 1
     db_size = session.execute(text("SELECT pg_database_size(current_database())")).scalar()
@@ -163,6 +172,7 @@ def status(session: Session) -> dict[str, Any]:
          else "обработчик не отвечает больше 2 минут"},
         {"name": "Резервное копирование", "ok": backup["ok"],
          "detail": backup["message"] or "последняя копия есть"},
+        *(check(session) for check in _checks),
     ]
     return {
         "ok": all(c["ok"] for c in checks),

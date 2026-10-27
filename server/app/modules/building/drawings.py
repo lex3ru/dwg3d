@@ -221,9 +221,21 @@ def convert_drawing(
                 session, actor, drawing.building_id, new["name"], elevation, height
             )
         plan = _keep_rooms(session, floor, result.plan)
-        api.save_plan(
-            session, actor, floor.id, plan, floor.plan_version, confirm=True, auto_merge=True
-        )
+        try:
+            api.save_plan(
+                session, actor, floor.id, plan, floor.plan_version, confirm=True, auto_merge=True
+            )
+        except AppError as e:
+            if e.code != "needs_place" or not e.details:
+                raise
+            # окна выбора места у фоновой задачи нет — помещение с имуществом перевод не
+            # убирает, а отказывает целиком (R-023)
+            held = ", ".join(r["title"] for r in e.details["removed"] if r["property"])
+            raise AppError(
+                f"Перевод на этаж «{floor.name}» уберёт помещения, где числится имущество: "
+                f"{held}. Перенесите имущество документом или сохраните план в редакторе, "
+                "выбрав, куда оно перейдёт, — и повторите перевод."
+            ) from e
         floor = session.get(Floor, floor.id)
         assert floor is not None
         floor.source_drawing_id = drawing.id

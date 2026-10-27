@@ -430,8 +430,9 @@ def _sync(session: Session, actor: Actor, wb, report: Report) -> None:  # type: 
                 raise AppError(
                     f"Установка «{mount_title}» — на пол, на стену, на потолок или не ставится."
                 )
-            acc_title = str(r.get("Вид учёта") or "поштучно").lower()
-            if acc_title not in ACCOUNTING_BY_TITLE:
+            # пустой «Вид учёта» — «поштучно» у нового типа и «не менять» у существующего (R-024)
+            acc_title = str(r.get("Вид учёта") or "").lower()
+            if acc_title and acc_title not in ACCOUNTING_BY_TITLE:
                 raise AppError(f"Вид учёта «{acc_title}» — поштучно или количеством.")
             mh = _num(r.get("Высота установки, м"), "Высота установки")
             life = _num(r.get("Срок службы, мес."), "Срок службы")
@@ -444,7 +445,6 @@ def _sync(session: Session, actor: Actor, wb, report: Report) -> None:  # type: 
                 "height": _num(r.get("Высота, мм"), "Высота"),
                 "mount": MOUNT_BY_TITLE[mount_title],
                 "mount_height": mh * 1000 if mh is not None else None,
-                "accounting": ACCOUNTING_BY_TITLE[acc_title],
                 "unit": str(r.get("Ед. изм.") or "шт."),
                 "life_months": int(life) if life is not None else None,
                 "price": _num(r.get("Ориентир. цена, ₽"), "Цена"),
@@ -456,11 +456,14 @@ def _sync(session: Session, actor: Actor, wb, report: Report) -> None:  # type: 
                 .order_by(ItemType.archived_at.is_not(None))
             ).first()
             if t is None:
+                values["accounting"] = ACCOUNTING_BY_TITLE[acc_title or "поштучно"]
                 t = api.create_type(session, actor, values)
                 report.add("created", "Типы", name)
                 changed = True
             else:
                 before = t.version
+                if acc_title:
+                    values["accounting"] = ACCOUNTING_BY_TITLE[acc_title]
                 api.update_type(session, actor, t.id, values)
                 changed = t.version != before
             for spec in _own_chars(str(r.get("Свои характеристики") or "")):

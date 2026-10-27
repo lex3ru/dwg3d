@@ -24,11 +24,18 @@ from app.modules.inventory.models import (
     UnitEvent,
     Warehouse,
 )
-from app.modules.inventory.places import Places, admin, label_code, room_key
+from app.modules.inventory.places import (
+    Places,
+    admin,
+    label_code,
+    places_check,
+    room_key,
+    room_property,
+)
 from app.modules.inventory.rules import doc_title, residual
 from app.modules.inventory.units import title_of, visible
 
-__all__ = ["on_units_changed", "room_key"]
+__all__ = ["on_units_changed", "places_check", "room_key", "room_property"]
 from app.modules.system import api as system
 
 # ---------------------------------------------------------------- настройки (7.1)
@@ -111,7 +118,8 @@ def type_usage(session: Session, type_id: uuid.UUID | None, model_id: uuid.UUID 
 def rooms_continued(
     session: Session, actor: Actor, continued: dict[uuid.UUID, uuid.UUID | None]
 ) -> None:
-    """Помещения объединили (5.1.6 п. 3): единицы и остатки — к продолжающему помещению."""
+    """Помещения объединили или убрали (5.1.6 п. 3): единицы и остатки — к продолжающему
+    помещению или к выбранному администратором (R-023)."""
     if not any(continued.values()):
         return
     docs.lock(session)  # остатки переносятся целиком — расход в это время ждёт (ADR-0003)

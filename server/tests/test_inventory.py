@@ -4,6 +4,10 @@
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
 from app.core.db import transaction
 from app.modules.access import api as access
 from tests.conftest import login, make_client
@@ -452,3 +456,138 @@ def test_cancel_is_a_reverse_document(admin) -> None:
     assert admin.get("/api/inventory/balances").json()["items"] == []
     # отмену не отменяют
     assert admin.post(f"/api/inventory/documents/{back.json()['id']}/cancel").status_code == 409
+
+
+def floor_plan(admin, rooms):  # type: ignore[no-untyped-def]
+    """Этаж помещений 214 и 215, его план и версия плана."""
+    floor_id = admin.get("/api/inventory/place", params={"key": rooms["214"]}).json()["place"][
+        "floor_id"
+    ]
+    saved = admin.get(f"/api/floors/{floor_id}/plan").json()
+    return floor_id, saved["plan"], saved["plan_version"]
+
+
+def without_partition(admin, rooms):  # type: ignore[no-untyped-def]
+    """План этажа без перегородки с одной подписью «214»: 215 убирается. Этаж, план, версия."""
+    floor_id, plan, version = floor_plan(admin, rooms)
+    plan["walls"] = [w for w in plan["walls"] if w["id"] != "w7"]
+    plan["openings"] = [o for o in plan["openings"] if o["wall"] != "w7"]
+    plan["rooms"] = [r for r in plan["rooms"] if r["number"] != "215"]
+    return floor_id, plan, version
+
+
+def test_r023_removed_room_hands_its_property_to_the_chosen_place(admin) -> None:
+    """Убрали перегородку — 215 уходит в архив. Что в нём числится, видно до сохранения и
+    переходит только в место, выбранное администратором (5.1.6 п. 3, 5.4.6, R-023)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["215"]},
+            [
+                {"type_id": k["экг"]["id"], "qty": 1, "price": 85000},
+                {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+            ],
+        ),
+    ).json()
+    uid = received["lines"][0]["created_units"][0]["id"]
+    floor_id, plan, version = without_partition(admin, rooms)
+    room215, room214 = rooms["215"][2:], rooms["214"][2:]
+
+    # предпросмотр: в убираемом 215 числятся единица и остаток
+    r = save(admin, floor_id, plan, version)
+    assert r.status_code == 409
+    removed = r.json()["error"]["details"]["removed"]
+    assert [(x["number"], x["property"]) for x in removed] == [("215", {"units": 1, "stock": 1})]
+
+    # подтвердили, не выбрав места, — отказ, ничего не изменилось
+    r = save(admin, floor_id, plan, version, confirm=True)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "needs_place", r.text
+    assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == rooms["215"]
+    assert len(admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]) == 2
+
+    # место выбрано — единица и остаток в 214, в архивном 215 ничего не числится
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: room214})
+    assert r.status_code == 200, r.text
+    assert [x["number"] for x in r.json()["rooms"]] == ["214"]
+    unit = admin.get(f"/api/inventory/units/{uid}").json()
+    assert unit["place"]["key"] == rooms["214"]
+    stock = admin.get("/api/inventory/balances").json()["items"]
+    assert [(s["place"], s["type_name"], s["qty"]) for s in stock] == [
+        (rooms["214"], "Перчатки смотровые", 20)
+    ]
+
+
+def test_r023_property_goes_to_a_room_made_by_the_same_save(admin) -> None:
+    """Перегородку сдвинули, подпись 215 убрали, справа подписали новую 216: имущество 215
+    можно отдать ей — по подписи из редактора; место не из этого плана — ошибка (R-023)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["215"]},
+            [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000}],
+        ),
+    ).json()
+    uid = received["lines"][0]["created_units"][0]["id"]
+    floor_id, plan, version = floor_plan(admin, rooms)
+    plan["nodes"]["e"], plan["nodes"]["f"] = [4500, 0], [4500, 4000]
+    plan["rooms"] = [r for r in plan["rooms"] if r["number"] != "215"] + [
+        {"id": "new-3", "x": 5200, "y": 2000, "number": "216", "name": "Кладовая"}
+    ]
+    room215 = rooms["215"][2:]
+
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: "nowhere"})
+    assert r.status_code == 400 and r.json()["error"]["field"] == "moves", r.text
+
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: "new-3"})
+    assert r.status_code == 200, r.text
+    saved = {x["number"]: x["id"] for x in r.json()["rooms"]}
+    assert set(saved) == {"214", "216"}
+    assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == f"r:{saved['216']}"
+    summary = admin.get("/api/journal", params={"ref": f"room:{room215}"}).json()["items"][0]
+    assert "убраны: 215 Кабинет (имущество — в 216 Кладовая)" in summary["summary"]
+
+
+def test_r028_database_refuses_states_kinds_and_places_that_do_not_exist(admin) -> None:
+    """Целостность учёта держит и база, а не только код: состояние, вид документа или события,
+    нулевое движение и место не того вида база не запишет (8.3, R-028)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["214"]},
+            [
+                {"type_id": k["монитор"]["id"], "qty": 1, "price": 100},
+                {"type_id": k["перчатки"]["id"], "qty": 5, "price": 10},
+            ],
+        ),
+    ).json()
+    unit = {"id": received["lines"][0]["created_units"][0]["id"]}
+    doc = {"id": received["id"]}
+    for sql, params in [
+        ("UPDATE inventory.unit SET state = 'lost' WHERE id = :id", unit),
+        ("UPDATE inventory.unit SET place = '214 Кабинет' WHERE id = :id", unit),
+        ("UPDATE inventory.unit_event SET kind = 'gift' WHERE unit_id = :id", unit),
+        ("UPDATE inventory.unit_event SET place = 'r:1' WHERE unit_id = :id", unit),
+        ("UPDATE inventory.document SET kind = 'gift' WHERE id = :id", doc),
+        ("UPDATE inventory.document SET status = 'lost' WHERE id = :id", doc),
+        ("UPDATE inventory.document SET to_place = 'склад' WHERE id = :id", doc),
+        ("UPDATE inventory.doc_line SET state = 'lost' WHERE document_id = :id", doc),
+        ("UPDATE inventory.stock_move SET qty = 0 WHERE document_id = :id", doc),
+        ("UPDATE inventory.stock_move SET place = 'x:1' WHERE document_id = :id", doc),
+    ]:
+        with pytest.raises(IntegrityError), transaction() as s:
+            s.execute(text(sql), params)
+    # черновик с местом не того вида — понятная ошибка, а не отказ базы
+    r = admin.post(
+        "/api/inventory/documents",
+        json={"kind": "transfer", "header": {"to_place": "склад"}, "lines": []},
+    )
+    assert r.status_code == 400 and r.json()["error"]["field"] == "to_place", r.text

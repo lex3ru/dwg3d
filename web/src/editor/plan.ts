@@ -120,12 +120,18 @@ export interface RoomBrief {
   title: string;
 }
 
+// что числится в убираемом помещении: единиц и позиций остатков (R-023, ADR-0008)
+export interface RoomProperty {
+  units: number;
+  stock: number;
+}
+
 export interface Check {
   issues: Issue[];
   rooms: RoomShape[];
   merges: { index: number; rooms: RoomBrief[]; keep: string | null }[];
   splits: { index: number; from: RoomBrief }[];
-  removed: RoomBrief[];
+  removed: (RoomBrief & { property: RoomProperty | null })[];
   needs_confirmation: boolean;
   slabs: Pt[][];
 }

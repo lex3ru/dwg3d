@@ -2,6 +2,9 @@
 
 import io
 import os
+import subprocess
+import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -10,6 +13,8 @@ import pytest
 
 from app.core import tasks
 from app.modules.building.drawing import convert, parts, read
+from tests.test_inventory import document, kinds, post
+from tests.test_planning import changes
 
 ROOT = Path(__file__).resolve().parents[2]
 # конвертер DWG на машине разработчика (в образе — свой, deploy/Dockerfile)
@@ -17,9 +22,10 @@ if (ROOT / "legacy/.tools/libredwg/bin/dwg2dxf").exists():
     os.environ.setdefault("APP_DWG2DXF", str(ROOT / "legacy/.tools/libredwg/bin/dwg2dxf"))
 
 
-def sample_dxf() -> bytes:
+def sample_dxf(partition: float | None = 5000) -> bytes:
     """Два этажа рядом на одном листе: коробка 9 × 6 м двойными линиями стен (300 мм),
-    перегородка (120 мм) с дверным проёмом, окно в наружной стене, подписи помещений."""
+    перегородка (120 мм) с дверным проёмом, окно в наружной стене, подписи помещений.
+    partition — x перегородки; None — перегородку снесли, обе подписи в одном помещении."""
     doc = ezdxf.new("R2010")
     doc.header["$INSUNITS"] = 4
     msp = doc.modelspace()
@@ -36,9 +42,11 @@ def sample_dxf() -> bytes:
         for x0, x1 in ((3000, 4500),):
             msp.add_line((ox + x0, 100), (ox + x1, 100), dxfattribs={"layer": "Окна"})
             msp.add_line((ox + x0, 200), (ox + x1, 200), dxfattribs={"layer": "Окна"})
-        # перегородка x = 5000 с дверью 900 мм (просвет y 2000…2900)
-        poly([(5000, 300), (5120, 300), (5120, 2000), (5000, 2000)], "Перегородки")
-        poly([(5000, 2900), (5120, 2900), (5120, 5700), (5000, 5700)], "Перегородки")
+        # перегородка (по умолчанию x = 5000) с дверью 900 мм (просвет y 2000…2900)
+        if partition is not None:
+            a, b = partition, partition + 120
+            poly([(a, 300), (b, 300), (b, 2000), (a, 2000)], "Перегородки")
+            poly([(a, 2900), (b, 2900), (b, 5700), (a, 5700)], "Перегородки")
         msp.add_text(n1, height=300, dxfattribs={"layer": "0", "insert": (ox + 2500, 3000)})
         msp.add_text("Регистратура", height=250,
                      dxfattribs={"layer": "0", "insert": (ox + 1500, 2500)})
@@ -102,6 +110,122 @@ def test_upload_analyze_and_convert(admin) -> None:
         pass
     again = admin.get(f"/api/floors/{floors[1]['id']}/plan").json()
     assert {r["number"]: r["id"] for r in again["rooms"]} == first
+
+
+def run_in_worker(admin, job: str, log: Path, timeout: float = 120) -> dict:  # type: ignore[no-untyped-def]
+    """Выполнить задачу командой `python -m app worker` — отдельным процессом, как в установке:
+    модули в нём настраивает сама команда, а не create_app() тестов (R-009, R-033)."""
+    with log.open("wb") as out:
+        worker = subprocess.Popen([sys.executable, "-m", "app", "worker"], cwd=ROOT / "server",
+                                  stdout=out, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + timeout
+            while True:
+                status = admin.get(f"/api/system/tasks/{job}").json()
+                if (status["status"] in ("done", "failed") or worker.poll() is not None
+                        or time.monotonic() > deadline):
+                    break
+                time.sleep(0.5)
+        finally:
+            worker.terminate()
+            worker.wait(timeout=30)
+    if status["status"] not in ("done", "failed"):
+        pytest.fail(f"Обработчик не выполнил задачу: {status}\n"
+                    + log.read_text(encoding="utf-8", errors="replace")[-3000:])
+    return status
+
+
+def upload(admin, building_id: str, data: bytes) -> dict:  # type: ignore[no-untyped-def]
+    """Загрузить чертёж и дождаться разбора (в процессе тестов)."""
+    r = admin.post(f"/api/buildings/{building_id}/drawings",
+                   files={"file": ("планы.dxf", io.BytesIO(data))})
+    assert r.status_code == 201, r.text
+    while tasks.run_one():
+        pass
+    return admin.get(f"/api/drawings/{r.json()['id']}").json()
+
+
+def convert_onto(admin, drawing: dict, floor_id: str) -> str:  # type: ignore[no-untyped-def]
+    """Поставить в очередь перевод первого этажа чертежа поверх этажа; номер задачи."""
+    return admin.post(f"/api/drawings/{drawing['id']}/convert", json={"parts": [
+        {"key": drawing["parts"][0]["key"], "floor_id": floor_id}]}).json()["job_id"]
+
+
+def first_floor(admin) -> tuple[str, str, dict]:  # type: ignore[no-untyped-def,type-arg]
+    """Здание с «1 этаж» из чертежа: номер здания, этажа и помещения 101, 102 по номерам."""
+    b = admin.post("/api/buildings", json={"name": "Бастион"}).json()
+    v1 = upload(admin, b["id"], sample_dxf())
+    admin.post(f"/api/drawings/{v1['id']}/convert", json={"parts": [
+        {"key": v1["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}]})
+    while tasks.run_one():
+        pass
+    floor_id = admin.get(f"/api/buildings/{b['id']}").json()["floors"][0]["id"]
+    rooms = {r["number"]: r for r in admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]}
+    return b["id"], floor_id, rooms
+
+
+def test_r009_reconversion_in_the_worker_moves_items_and_units(admin, tmp_path) -> None:
+    """Перевод заново поверх этажа выполняет обработчик: перегородку сдвинули вправо, стол у
+    прежней перегородки теперь в 101 — он и его единица переходят туда (5.1.3 п. 4, 5.5)."""
+    building_id, floor_id, rooms = first_floor(admin)
+    r101, r102 = rooms["101"], rooms["102"]
+
+    # в 102 у самой перегородки стол — предмет, связанный с единицей
+    k = kinds(admin)
+    wh = admin.post("/api/inventory/warehouses", json={"name": "Основной"}).json()
+    receipt = document(admin, "receipt", {"to_place": wh["key"]},
+                       [{"type_id": k["монитор"]["id"], "qty": 1, "price": 14500}])
+    assert post(admin, receipt).status_code == 200
+    lines = admin.get(f"/api/inventory/documents/{receipt['id']}").json()["lines"]
+    unit_id = lines[0]["created_units"][0]["id"]
+    issue = document(admin, "transfer", {"from_place": wh["key"], "to_place": f"r:{r102['id']}"},
+                     [{"unit_id": unit_id}])
+    assert post(admin, issue).status_code == 200
+    x = min(x for x, _ in r102["outline"]) + 500
+    r = changes(admin, floor_id, create=[{"type_id": k["монитор"]["id"], "unit_id": unit_id,
+                                          "x": x, "y": r102["y"]}])
+    assert r.status_code == 200, r.text
+    item = r.json()["items"][0]
+    assert item["room_id"] == r102["id"]
+
+    job = convert_onto(admin, upload(admin, building_id, sample_dxf(partition=6500)), floor_id)
+    status = run_in_worker(admin, job, tmp_path / "worker.log")
+    assert status["status"] == "done", status
+
+    live = {r["number"]: r["id"] for r in admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]}
+    assert live == {"101": r101["id"], "102": r102["id"]}  # помещения те же
+    assert admin.get(f"/api/items/{item['id']}").json()["room_id"] == r101["id"]
+    assert admin.get(f"/api/inventory/units/{unit_id}").json()["place"]["key"] == f"r:{r101['id']}"
+    docs = admin.get("/api/inventory/documents", params={"unit_id": unit_id}).json()["items"]
+    assert any(d["basis"] == "Изменение плана" for d in docs)
+
+
+def test_r023_reconversion_does_not_remove_a_room_with_property(admin) -> None:
+    """Перевод заново сносит перегородку: подпись остаётся одна, и 102 убирается, а в нём
+    числится имущество. Окна выбора места у фоновой задачи нет — она отказывает, назвав
+    помещение, и ничего не меняет (5.1.3 п. 4, 5.1.6 п. 3, R-023)."""
+    building_id, floor_id, rooms = first_floor(admin)
+    room = f"r:{rooms['102']['id']}"
+    k = kinds(admin)
+    receipt = document(admin, "receipt", {"to_place": room},
+                       [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000},
+                        {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520}])
+    assert post(admin, receipt).status_code == 200
+    lines = admin.get(f"/api/inventory/documents/{receipt['id']}").json()["lines"]
+    unit_id = lines[0]["created_units"][0]["id"]
+
+    job = convert_onto(admin, upload(admin, building_id, sample_dxf(partition=None)), floor_id)
+    while tasks.run_one():
+        pass
+    status = admin.get(f"/api/system/tasks/{job}").json()
+    assert status["status"] == "failed", status
+    assert "102" in status["error"]
+
+    live = {r["number"]: r["id"] for r in admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]}
+    assert live == {"101": rooms["101"]["id"], "102": rooms["102"]["id"]}
+    assert admin.get(f"/api/inventory/units/{unit_id}").json()["place"]["key"] == room
+    stock = admin.get("/api/inventory/balances", params={"place": room}).json()["items"]
+    assert [(s["type_name"], s["qty"]) for s in stock] == [("Перчатки смотровые", 20)]
 
 
 def test_not_a_drawing_is_refused(admin) -> None:

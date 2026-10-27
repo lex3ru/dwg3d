@@ -5,12 +5,14 @@
 
 import datetime as dt
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -26,8 +28,19 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.modules.inventory.rules import EVENTS, KINDS, PLACE_KEY, STATES, STATUSES
 
 S = {"schema": "inventory"}
+
+
+# перечисления и ключи мест проверяет и база, а не только код (8.3, R-028); NULL проходит
+def _one_of(column: str, values: Iterable[str]) -> CheckConstraint:
+    listed = ", ".join(f"'{v}'" for v in values)
+    return CheckConstraint(f"{column} IN ({listed})", name=column)
+
+
+def _place(column: str) -> CheckConstraint:
+    return CheckConstraint(f"{column} ~ '{PLACE_KEY}'", name=column)
 
 
 class Warehouse(Base):
@@ -81,7 +94,7 @@ class Unit(Base):
     """Инвентарная единица (3.4, 5.4.2)."""
 
     __tablename__ = "unit"
-    __table_args__ = S
+    __table_args__ = (_one_of("state", STATES), _place("place"), S)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     number: Mapped[str] = mapped_column(String(40), unique=True)
@@ -122,7 +135,7 @@ class UnitFile(Base):
     """Фото и документы единицы (5.4.2 п. 3)."""
 
     __tablename__ = "unit_file"
-    __table_args__ = S
+    __table_args__ = (_one_of("kind", ("photo", "doc")), S)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     unit_id: Mapped[uuid.UUID] = mapped_column(
@@ -137,7 +150,7 @@ class UnitEvent(Base):
     """Что стало с единицей после документа: место, состояние, оценка — на дату."""
 
     __tablename__ = "unit_event"
-    __table_args__ = S
+    __table_args__ = (_one_of("kind", EVENTS), _one_of("state", STATES), _place("place"), S)
 
     seq: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     unit_id: Mapped[uuid.UUID] = mapped_column(
@@ -177,7 +190,14 @@ class Document(Base):
     обратный документ."""
 
     __tablename__ = "document"
-    __table_args__ = (UniqueConstraint("kind", "number", name="document_number"), S)
+    __table_args__ = (
+        UniqueConstraint("kind", "number", name="document_number"),
+        _one_of("kind", KINDS),
+        _one_of("status", STATUSES),
+        _place("from_place"),
+        _place("to_place"),
+        S,
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     # opening receipt transfer repair writeoff revaluation
@@ -208,7 +228,7 @@ class DocLine(Base):
     количество типа (модели)."""
 
     __tablename__ = "doc_line"
-    __table_args__ = S
+    __table_args__ = (_one_of("state", STATES), _place("from_place"), _place("to_place"), S)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -257,7 +277,7 @@ class StockMove(Base):
     """Движение остатка: + поступление, − расход или уход; сумма — по средней цене."""
 
     __tablename__ = "stock_move"
-    __table_args__ = S
+    __table_args__ = (_place("place"), CheckConstraint("qty <> 0", name="qty"), S)
 
     seq: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID, index=True)
@@ -279,7 +299,7 @@ class CountPlace(Base):
     """Места, которые проверяет инвентаризация (документ вида inventory)."""
 
     __tablename__ = "count_place"
-    __table_args__ = S
+    __table_args__ = (_place("place"), S)
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
@@ -291,7 +311,7 @@ class CountMark(Base):
     """Отметка обхода: единицу нашли в этом месте (сканом метки или вручную)."""
 
     __tablename__ = "count_mark"
-    __table_args__ = S
+    __table_args__ = (_place("place"), S)
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("inventory.document.id", ondelete="CASCADE"), primary_key=True
@@ -309,7 +329,7 @@ class CountExtra(Base):
     """Вещь, которая не числится (без метки): заводится при проведении."""
 
     __tablename__ = "count_extra"
-    __table_args__ = S
+    __table_args__ = (_place("place"), S)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -338,6 +358,7 @@ class CountStock(Base):
             name="count_stock_position",
             postgresql_nulls_not_distinct=True,
         ),
+        _place("place"),
         S,
     )
 

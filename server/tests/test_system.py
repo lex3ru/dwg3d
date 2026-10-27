@@ -1,7 +1,13 @@
 """Настройки и страница состояния (8.5 п. 4)."""
 
 import json
+import uuid
 from datetime import UTC, datetime
+
+from sqlalchemy import text
+
+from app.core.db import transaction
+from tests.test_inventory import document, post, setup
 
 
 def test_settings_are_validated_versioned_and_journaled(admin) -> None:
@@ -63,3 +69,43 @@ def test_server_errors_are_human_and_logged(app, admin, caplog) -> None:
     assert r.status_code == 500
     assert r.json()["error"]["message"].startswith("Внутренняя ошибка сервера.")
     assert "boom" in caplog.text
+
+
+def test_r028_status_finds_property_in_places_that_are_gone(admin) -> None:
+    """Место единицы — строка без внешнего ключа: страница состояния называет, сколько единиц и
+    остатков числится в убранных или несуществующих местах (8.5 п. 4, R-028)."""
+    _, rooms, wh, k = setup(admin)
+
+    def check() -> dict:  # type: ignore[type-arg]
+        checks = admin.get("/api/system/status").json()["checks"]
+        return next(c for c in checks if c["name"] == "Места учёта")
+
+    received = document(
+        admin,
+        "receipt",
+        {"to_place": rooms["214"]},
+        [
+            {"type_id": k["монитор"]["id"], "qty": 2, "price": 100},
+            {"type_id": k["перчатки"]["id"], "qty": 5, "price": 10},
+        ],
+    )
+    assert post(admin, received).status_code == 200
+    assert check()["ok"] is True
+
+    # 214 ушло в архив с имуществом (данные до R-023), одна единица — в помещении, которого нет
+    with transaction() as s:
+        s.execute(
+            text("UPDATE building.room SET archived_at = now() WHERE id = :id"),
+            {"id": rooms["214"][2:]},
+        )
+        s.execute(
+            text(
+                "UPDATE inventory.unit SET place = :gone WHERE id = "
+                "(SELECT id FROM inventory.unit ORDER BY number LIMIT 1)"
+            ),
+            {"gone": f"r:{uuid.uuid4()}"},
+        )
+    found = check()
+    assert found["ok"] is False
+    assert "единиц: 2" in found["detail"] and "позиций остатков: 1" in found["detail"], found
+    assert admin.get("/api/system/status").json()["ok"] is False

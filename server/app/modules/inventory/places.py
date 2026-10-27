@@ -294,6 +294,87 @@ def _holds(session: Session, *keys_or_lists: Any) -> bool:
     return any(q and q > 0 for _, q in rest)
 
 
+def room_property(session: Session, room_ids: list[uuid.UUID]
+                  ) -> dict[uuid.UUID, dict[str, int]]:
+    """Что числится в помещениях (5.1.6 п. 3, R-023): единиц (кроме списанных) и позиций
+    остатков с количеством больше нуля — только помещения, где что-то есть."""
+    keys = {room_key(rid): rid for rid in room_ids}
+    out: dict[uuid.UUID, dict[str, int]] = {}
+    units = session.execute(
+        select(Unit.place, func.count())
+        .where(Unit.place.in_(list(keys)), Unit.state != "written_off")
+        .group_by(Unit.place)
+    )
+    for place, n in units:
+        out.setdefault(keys[place], {"units": 0, "stock": 0})["units"] = n
+    stock = session.execute(
+        select(StockMove.place, func.sum(StockMove.qty))
+        .where(StockMove.place.in_(list(keys)))
+        .group_by(StockMove.place, StockMove.type_id, StockMove.model_id)
+    )
+    for place, qty in stock:
+        if qty and qty > 0:
+            out.setdefault(keys[place], {"units": 0, "stock": 0})["stock"] += 1
+    return out
+
+
+def places_check(session: Session) -> dict[str, Any]:
+    """Страница состояния (8.5 п. 4, R-028): у места нет внешнего ключа — сколько единиц и
+    позиций остатков числится в убранных или несуществующих местах. Их не найти на плане и не
+    видит ведомость помещения."""
+    units = dict(
+        session.execute(
+            select(Unit.place, func.count())
+            .where(Unit.state != "written_off")
+            .group_by(Unit.place)
+        ).all()
+    )
+    stock: dict[str, int] = {}
+    for place, qty in session.execute(
+        select(StockMove.place, func.sum(StockMove.qty)).group_by(
+            StockMove.place, StockMove.type_id, StockMove.model_id
+        )
+    ):
+        if qty and qty > 0:
+            stock[place] = stock.get(place, 0) + 1
+    gone = _gone(session, {*units, *stock})
+    if not gone:
+        return {"name": "Места учёта", "ok": True,
+                "detail": "всё числится в действующих помещениях и на складах"}
+    return {
+        "name": "Места учёта",
+        "ok": False,
+        "detail": f"в убранных или несуществующих местах — единиц: "
+        f"{sum(units.get(k, 0) for k in gone)}, позиций остатков: "
+        f"{sum(stock.get(k, 0) for k in gone)}. Перенесите их документом; убранные помещения "
+        "этажа показывает ведомость инвентаризации этажа.",
+    }
+
+
+def _gone(session: Session, keys: set[str]) -> set[str]:
+    """Места, которых нет или которые убраны (помещение, склад, ячейка)."""
+    ids: dict[str, dict[uuid.UUID, str]] = {"r": {}, "w": {}, "c": {}}
+    gone: set[str] = set()
+    for key in keys:
+        kind, _, raw = key.partition(":")
+        try:
+            ids[kind][uuid.UUID(raw)] = key
+        except (KeyError, ValueError):
+            gone.add(key)
+    live = building.live_room_ids(session, ids["r"])
+    live.update(session.scalars(select(Warehouse.id).where(
+        Warehouse.id.in_(list(ids["w"])), Warehouse.archived_at.is_(None))))
+    live.update(session.scalars(
+        select(Cell.id)
+        .join(Warehouse, Warehouse.id == Cell.warehouse_id)
+        .where(Cell.id.in_(list(ids["c"])), Cell.archived_at.is_(None),
+               Warehouse.archived_at.is_(None))
+    ))
+    for of_kind in ids.values():
+        gone.update(key for ident, key in of_kind.items() if ident not in live)
+    return gone
+
+
 def add_cell(session: Session, actor: Actor, wh_id: uuid.UUID, name: str) -> Cell:
     admin(actor)
     wh = get_warehouse(session, actor, wh_id)

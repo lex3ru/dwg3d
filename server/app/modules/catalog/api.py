@@ -264,6 +264,19 @@ def used(
     return sum(check(session, type_id, model_id) for check in _usage)
 
 
+# учёт сообщает, сколько у него единиц и движений остатков по типу: вид учёта такого типа не
+# меняется — поштучные единицы остались бы у количественного типа, остаток — у поштучного (R-024)
+_accounted: list[Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]] = []
+
+
+def on_accounted(check: Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]) -> None:
+    _accounted.append(check)
+
+
+def accounted(session: Session, type_id: uuid.UUID) -> int:
+    return sum(check(session, type_id, None) for check in _accounted)
+
+
 # ---------------------------------------------------------------- слои (5.2.1)
 
 
@@ -676,6 +689,7 @@ def type_view(session: Session, t: ItemType, actor: Actor) -> dict[str, Any]:
         "models": [model_view(session, m, chars, actor) for m in models],
         "life_months": t.life_months,
         "used": used(session, type_id=t.id),
+        "accounted": accounted(session, t.id),
     }
 
 
@@ -854,6 +868,13 @@ def update_type(
     v = _type_values(session, values)
     if "name" in v:
         _unique(session, ItemType, v["name"], t.id, "Тип")
+    if v.get("accounting", t.accounting) != t.accounting and accounted(session, t.id):
+        raise Conflict(
+            f"По типу «{t.name}» уже есть учёт — вид учёта сменить нельзя: поштучные единицы "
+            "остались бы у количественного типа, а остатки — у поштучного. Заведите новый тип.",
+            code="accounting_in_use",
+            field="accounting",
+        )
     was, became = _apply(t, v, TYPE_FIELDS)
     if set_ids is not None:
         before_sets = sorted(
