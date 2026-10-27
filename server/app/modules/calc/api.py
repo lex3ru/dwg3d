@@ -9,7 +9,9 @@
 поэтому зона обзора пересчитывается на ходу (8.2: 0,2 с).
 """
 
+import logging
 import math
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -27,6 +29,8 @@ from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.planning import api as planning
 from app.modules.system import api as system
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- описание расчёта
 
@@ -358,6 +362,7 @@ def run(
     if calc is None:
         raise NotFound("Такого расчёта нет.")
     started = time.perf_counter()
+    cpu = time.thread_time()
     floor = building.get_floor(session, actor, floor_id)
     things, missing = _things(session, floor, calc, items)
     ctx = Ctx(
@@ -369,6 +374,7 @@ def run(
         things=things,
         setting=lambda k: system.get(session, k),
     )
+    loaded = time.perf_counter()
     chosen = {o.key: options.get(o.key, o.default) for o in calc.options}
     for o in calc.options:
         if chosen[o.key] not in {c for c, _ in o.choices} and o.key != "room":
@@ -377,4 +383,17 @@ def run(
         chosen["room"] = options["room"]
     result = calc.compute(ctx, chosen)
     result.missing = missing + result.missing
-    return result.view(time.perf_counter() - started)
+    took = time.perf_counter() - started
+    # время расчёта — в журнал (8.2, DWG3D-10): отделяет расчёт от сети и сериализации ответа.
+    # Процессорное время потока много меньше общего — поток ждал: базу, GIL, соседей по CPU
+    log.info(
+        "calc %s floor %s: %d ms (data %d, cpu %d), items %d, pid %d",
+        key,
+        floor_id,
+        round(took * 1000),
+        round((loaded - started) * 1000),
+        round((time.thread_time() - cpu) * 1000),
+        len(things),
+        os.getpid(),
+    )
+    return result.view(took)

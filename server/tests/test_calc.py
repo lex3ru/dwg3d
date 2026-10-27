@@ -165,3 +165,14 @@ def test_c8_illuminance_by_room_against_norms(admin) -> None:
     assert table["214 Кабинет"][4] == "0"
     labels = [d for d in result["draw"] if d["kind"] == "label"]
     assert any("норма 200" in d["text"] and d["tone"] == "ok" for d in labels)
+
+
+def test_calc_time_is_logged(admin, caplog) -> None:
+    """Время расчёта — в журнале сервера (8.2, DWG3D-10): по нему замер e2e делится на сам
+    расчёт и всё остальное (сеть, очередь, сериализация ответа)."""
+    f, _ = floor(admin)
+    caplog.set_level("INFO", logger="app.modules.calc.api")
+    result = run(admin, "camera", f["id"])
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.modules.calc.api"]
+    assert len(lines) == 1
+    assert lines[0].startswith(f"calc camera floor {f['id']}: {result['took_ms']} ms (data ")

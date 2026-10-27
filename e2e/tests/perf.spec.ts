@@ -157,14 +157,19 @@ test("8.2: расчёты — зона обзора 0,2 с, освещённос
   const light = await run("light");
   expect(light.body.table.rows).toHaveLength(40);
   // камеру тащат: пересчёт по расстановке с экрана, несколько раз подряд
-  const times: number[] = [];
+  const calls: { ms: number; body: { took_ms: number } }[] = [];
   for (let k = 0; k < 5; k++) {
     const res = await run("camera", cams.map((c: { x: number }, n: number) => (n === 0 ? { ...c, x: c.x + k * 300 } : c)));
     expect(res.body.table.rows).toHaveLength(30);
-    times.push(res.ms);
+    calls.push(res);
   }
+  const times = calls.map((c) => c.ms);
   const zone = Math.max(...times.slice(1));
   console.log(`расчёты: освещённость этажа (40 помещений, 160 светильников) ${light.ms} мс, зона обзора (30 камер) ${zone} мс`);
+  // замер — у клиента; рядом время расчёта на сервере (took_ms): разница — сеть, очередь и
+  // сериализация ответа (DWG3D-10)
+  const pairs = calls.map((c) => `${c.ms}/${c.body.took_ms}`).join(", ");
+  console.log(`  клиент/сервер, мс: освещённость ${light.ms}/${light.body.took_ms}; зона обзора ${pairs}`);
   expect(light.ms).toBeLessThan(10_000);
   expect(zone).toBeLessThan(200);
 });
