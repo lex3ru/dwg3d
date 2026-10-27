@@ -6,6 +6,7 @@ from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.inventory import api
 from app.modules.inventory.routes import qr, router
+from app.modules.system import api as system
 
 
 def _setup(_: FastAPI) -> None:
@@ -20,6 +21,9 @@ def _setup(_: FastAPI) -> None:
     building.on_room_property(api.room_property)
     building.on_building_deleted(api.building_guard)
     search.register(api.search_units)
+    # место — строка без внешнего ключа: страница состояния называет единицы в убранных и
+    # несуществующих местах (R-028)
+    system.on_status_check(api.places_check)
 
 
 module = Module(name="inventory", title="Учёт имущества", routers=[router, qr], setup=_setup)

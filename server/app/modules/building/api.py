@@ -307,6 +307,16 @@ def archived_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
                                 .order_by(Room.number, Room.name)))
 
 
+def live_room_ids(session: Session, room_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
+    """Какие из помещений есть и не убраны — для проверки мест учёта (R-028)."""
+    ids = list(set(room_ids))
+    out: set[uuid.UUID] = set()
+    for i in range(0, len(ids), 5000):
+        out.update(session.scalars(select(Room.id).where(Room.id.in_(ids[i:i + 5000]),
+                                                         Room.archived_at.is_(None))))
+    return out
+
+
 def room_ids_of(session: Session, building_id: uuid.UUID) -> list[uuid.UUID]:
     """Все помещения здания, и убранные тоже — по ним документы прошлых лет."""
     return list(session.scalars(select(Room.id).where(Room.building_id == building_id)))

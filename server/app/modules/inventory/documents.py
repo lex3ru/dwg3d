@@ -1,6 +1,7 @@
 """Документы учёта (5.4.4): черновик → проведён; проводится целиком или никак; проведённый
 не правится — ошибка исправляется отменой, обратным документом со ссылкой на исходный."""
 
+import re
 import uuid
 from collections import Counter
 from collections.abc import Callable
@@ -26,7 +27,7 @@ from app.modules.inventory.models import (
     UnitEvent,
 )
 from app.modules.inventory.places import Place, Places, admin, is_storage, label_code
-from app.modules.inventory.rules import KINDS, STATE_BY_TITLE, STATES, doc_title
+from app.modules.inventory.rules import KINDS, PLACE_KEY, STATE_BY_TITLE, STATES, doc_title
 from app.modules.inventory.units import Numbers, get_unit, value_now
 from app.modules.journal import api as journal
 
@@ -197,10 +198,11 @@ def _text(table: Any, k: str, v: Any) -> str:
 
 
 def _place(table: Any, k: str, v: Any) -> str | None:
-    """Ключ места; есть ли такое место, проверяет проведение."""
+    """Ключ места; есть ли такое место, проверяет проведение, вид ключа — сразу: его
+    проверяет и база (R-028)."""
     if v in (None, ""):
         return None
-    if not isinstance(v, str) or len(v) > table.c[k].type.length:
+    if not isinstance(v, str) or not re.fullmatch(PLACE_KEY, v):
         raise ValueError(k)
     return v
 
