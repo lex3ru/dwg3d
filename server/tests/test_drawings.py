@@ -135,26 +135,39 @@ def run_in_worker(admin, job: str, log: Path, timeout: float = 120) -> dict:  # 
     return status
 
 
-def test_r009_reconversion_in_the_worker_moves_items_and_units(admin, tmp_path) -> None:
-    """Перевод заново поверх этажа выполняет обработчик: перегородку сдвинули вправо, стол у
-    прежней перегородки теперь в 101 — он и его единица переходят туда (5.1.3 п. 4, 5.5)."""
+def upload(admin, building_id: str, data: bytes) -> dict:  # type: ignore[no-untyped-def]
+    """Загрузить чертёж и дождаться разбора (в процессе тестов)."""
+    r = admin.post(f"/api/buildings/{building_id}/drawings",
+                   files={"file": ("планы.dxf", io.BytesIO(data))})
+    assert r.status_code == 201, r.text
+    while tasks.run_one():
+        pass
+    return admin.get(f"/api/drawings/{r.json()['id']}").json()
+
+
+def convert_onto(admin, drawing: dict, floor_id: str) -> str:  # type: ignore[no-untyped-def]
+    """Поставить в очередь перевод первого этажа чертежа поверх этажа; номер задачи."""
+    return admin.post(f"/api/drawings/{drawing['id']}/convert", json={"parts": [
+        {"key": drawing["parts"][0]["key"], "floor_id": floor_id}]}).json()["job_id"]
+
+
+def first_floor(admin) -> tuple[str, str, dict]:  # type: ignore[no-untyped-def,type-arg]
+    """Здание с «1 этаж» из чертежа: номер здания, этажа и помещения 101, 102 по номерам."""
     b = admin.post("/api/buildings", json={"name": "Бастион"}).json()
-
-    def upload(data: bytes) -> dict:  # type: ignore[type-arg]
-        r = admin.post(f"/api/buildings/{b['id']}/drawings",
-                       files={"file": ("планы.dxf", io.BytesIO(data))})
-        assert r.status_code == 201, r.text
-        while tasks.run_one():
-            pass
-        return admin.get(f"/api/drawings/{r.json()['id']}").json()
-
-    v1 = upload(sample_dxf())
+    v1 = upload(admin, b["id"], sample_dxf())
     admin.post(f"/api/drawings/{v1['id']}/convert", json={"parts": [
         {"key": v1["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}]})
     while tasks.run_one():
         pass
     floor_id = admin.get(f"/api/buildings/{b['id']}").json()["floors"][0]["id"]
     rooms = {r["number"]: r for r in admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]}
+    return b["id"], floor_id, rooms
+
+
+def test_r009_reconversion_in_the_worker_moves_items_and_units(admin, tmp_path) -> None:
+    """Перевод заново поверх этажа выполняет обработчик: перегородку сдвинули вправо, стол у
+    прежней перегородки теперь в 101 — он и его единица переходят туда (5.1.3 п. 4, 5.5)."""
+    building_id, floor_id, rooms = first_floor(admin)
     r101, r102 = rooms["101"], rooms["102"]
 
     # в 102 у самой перегородки стол — предмет, связанный с единицей
@@ -175,9 +188,7 @@ def test_r009_reconversion_in_the_worker_moves_items_and_units(admin, tmp_path) 
     item = r.json()["items"][0]
     assert item["room_id"] == r102["id"]
 
-    v2 = upload(sample_dxf(partition=6500))
-    job = admin.post(f"/api/drawings/{v2['id']}/convert", json={"parts": [
-        {"key": v2["parts"][0]["key"], "floor_id": floor_id}]}).json()["job_id"]
+    job = convert_onto(admin, upload(admin, building_id, sample_dxf(partition=6500)), floor_id)
     status = run_in_worker(admin, job, tmp_path / "worker.log")
     assert status["status"] == "done", status
 
@@ -187,6 +198,34 @@ def test_r009_reconversion_in_the_worker_moves_items_and_units(admin, tmp_path) 
     assert admin.get(f"/api/inventory/units/{unit_id}").json()["place"]["key"] == f"r:{r101['id']}"
     docs = admin.get("/api/inventory/documents", params={"unit_id": unit_id}).json()["items"]
     assert any(d["basis"] == "Изменение плана" for d in docs)
+
+
+def test_r023_reconversion_does_not_remove_a_room_with_property(admin) -> None:
+    """Перевод заново сносит перегородку: подпись остаётся одна, и 102 убирается, а в нём
+    числится имущество. Окна выбора места у фоновой задачи нет — она отказывает, назвав
+    помещение, и ничего не меняет (5.1.3 п. 4, 5.1.6 п. 3, R-023)."""
+    building_id, floor_id, rooms = first_floor(admin)
+    room = f"r:{rooms['102']['id']}"
+    k = kinds(admin)
+    receipt = document(admin, "receipt", {"to_place": room},
+                       [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000},
+                        {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520}])
+    assert post(admin, receipt).status_code == 200
+    lines = admin.get(f"/api/inventory/documents/{receipt['id']}").json()["lines"]
+    unit_id = lines[0]["created_units"][0]["id"]
+
+    job = convert_onto(admin, upload(admin, building_id, sample_dxf(partition=None)), floor_id)
+    while tasks.run_one():
+        pass
+    status = admin.get(f"/api/system/tasks/{job}").json()
+    assert status["status"] == "failed", status
+    assert "102" in status["error"]
+
+    live = {r["number"]: r["id"] for r in admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]}
+    assert live == {"101": rooms["101"]["id"], "102": rooms["102"]["id"]}
+    assert admin.get(f"/api/inventory/units/{unit_id}").json()["place"]["key"] == room
+    stock = admin.get("/api/inventory/balances", params={"place": room}).json()["items"]
+    assert [(s["type_name"], s["qty"]) for s in stock] == [("Перчатки смотровые", 20)]
 
 
 def test_not_a_drawing_is_refused(admin) -> None:

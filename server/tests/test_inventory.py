@@ -452,3 +452,60 @@ def test_cancel_is_a_reverse_document(admin) -> None:
     assert admin.get("/api/inventory/balances").json()["items"] == []
     # отмену не отменяют
     assert admin.post(f"/api/inventory/documents/{back.json()['id']}/cancel").status_code == 409
+
+
+def without_partition(admin, rooms):  # type: ignore[no-untyped-def]
+    """План этажа без перегородки с одной подписью «214»: 215 убирается. Этаж, план, версия."""
+    floor_id = admin.get("/api/inventory/place", params={"key": rooms["214"]}).json()["place"][
+        "floor_id"
+    ]
+    saved = admin.get(f"/api/floors/{floor_id}/plan").json()
+    plan = saved["plan"]
+    plan["walls"] = [w for w in plan["walls"] if w["id"] != "w7"]
+    plan["openings"] = [o for o in plan["openings"] if o["wall"] != "w7"]
+    plan["rooms"] = [r for r in plan["rooms"] if r["number"] != "215"]
+    return floor_id, plan, saved["plan_version"]
+
+
+def test_r023_removed_room_hands_its_property_to_the_chosen_place(admin) -> None:
+    """Убрали перегородку — 215 уходит в архив. Что в нём числится, видно до сохранения и
+    переходит только в место, выбранное администратором (5.1.6 п. 3, 5.4.6, R-023)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["215"]},
+            [
+                {"type_id": k["экг"]["id"], "qty": 1, "price": 85000},
+                {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+            ],
+        ),
+    ).json()
+    uid = received["lines"][0]["created_units"][0]["id"]
+    floor_id, plan, version = without_partition(admin, rooms)
+    room215, room214 = rooms["215"][2:], rooms["214"][2:]
+
+    # предпросмотр: в убираемом 215 числятся единица и остаток
+    r = save(admin, floor_id, plan, version)
+    assert r.status_code == 409
+    removed = r.json()["error"]["details"]["removed"]
+    assert [(x["number"], x["property"]) for x in removed] == [("215", {"units": 1, "stock": 1})]
+
+    # подтвердили, не выбрав места, — отказ, ничего не изменилось
+    r = save(admin, floor_id, plan, version, confirm=True)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "needs_place", r.text
+    assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == rooms["215"]
+    assert len(admin.get(f"/api/floors/{floor_id}/plan").json()["rooms"]) == 2
+
+    # место выбрано — единица и остаток в 214, в архивном 215 ничего не числится
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: room214})
+    assert r.status_code == 200, r.text
+    assert [x["number"] for x in r.json()["rooms"]] == ["214"]
+    unit = admin.get(f"/api/inventory/units/{uid}").json()
+    assert unit["place"]["key"] == rooms["214"]
+    stock = admin.get("/api/inventory/balances").json()["items"]
+    assert [(s["place"], s["type_name"], s["qty"]) for s in stock] == [
+        (rooms["214"], "Перчатки смотровые", 20)
+    ]

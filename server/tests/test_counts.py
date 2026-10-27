@@ -5,6 +5,8 @@
 import uuid
 from datetime import date, timedelta
 
+from sqlalchemy import text
+
 from app.core.db import transaction
 from app.modules.access import api as access
 from app.modules.inventory import counts
@@ -485,3 +487,36 @@ def test_r049_old_and_new_request_at_once_the_new_one_wins(admin) -> None:
     )
     assert out == [None, None]
     assert counted(admin, count, place, gloves) == 9
+
+
+def test_r023_floor_count_sees_what_its_archived_rooms_hold(admin) -> None:
+    """215 ушло в архив, а в нём числятся единица и остаток (данные до исправления R-023):
+    ведомость этажа их видит — инвентаризация этажа охватывает всё, что на нём числится
+    (5.4.6 п. 1)."""
+    _, rooms, wh, k = setup(admin)
+    received = document(
+        admin,
+        "receipt",
+        {"to_place": rooms["215"]},
+        [
+            {"type_id": k["экг"]["id"], "qty": 1, "price": 85000},
+            {"type_id": k["перчатки"]["id"], "qty": 20, "price": 520},
+        ],
+    )
+    assert post(admin, received).status_code == 200
+    with transaction() as s:
+        s.execute(
+            text("UPDATE building.room SET archived_at = now() WHERE id = :id"),
+            {"id": rooms["215"][2:]},
+        )
+
+    r = admin.post("/api/inventory/counts", json={"floor_id": floor_id(admin, rooms)})
+    assert r.status_code == 201, r.text
+    count = r.json()
+    assert {p["key"] for p in count["places"]} == {rooms["214"], rooms["215"]}
+    assert count["summary"]["expected"] == 1
+    place = admin.get(
+        f"/api/inventory/counts/{count['id']}", params={"place": rooms["215"]}
+    ).json()["place"]
+    assert len(place["items"]) == 1
+    assert [(s["title"], s["expected"]) for s in place["stock"]] == [("Перчатки смотровые", 20)]
