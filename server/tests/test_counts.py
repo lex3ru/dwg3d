@@ -283,17 +283,18 @@ def test_c18_count_with_stock_recount_on_the_sample(admin) -> None:
 
     from app.modules.catalog.module import seed
     from app.samples import polyclinic
-    from tests.test_inventory import SAMPLE
+    from tests.test_inventory import SAMPLE, confirmed_rooms
 
     with transaction() as session:
         b = polyclinic.create(session, access.actor_of(access.find(session, "admin")))
     with transaction() as session:
         seed(session)
+    rooms = confirmed_rooms(admin, b["building_id"])
     done = admin.post(
         "/api/inventory/import",
         data={
             "building_id": str(b["building_id"]),
-            "mapping": json.dumps({"types": {}}),
+            "mapping": json.dumps({"types": {}, "rooms": rooms}),
             "apply": "true",
         },
         files={"file": ("имущество.xlsx", SAMPLE.read_bytes())},

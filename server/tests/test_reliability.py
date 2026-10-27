@@ -98,18 +98,21 @@ def test_crash_while_saving_plan_keeps_previous_plan(admin, monkeypatch) -> None
 
 
 def test_crash_while_loading_excel_loads_nothing(admin, monkeypatch) -> None:
+    import json
+
     from app.core.db import transaction
     from app.modules.access import api as access
     from app.modules.catalog.module import seed
     from app.samples import polyclinic
-    from tests.test_inventory import SAMPLE
+    from tests.test_inventory import SAMPLE, confirmed_rooms
 
     with transaction() as s:
         b = polyclinic.create(s, access.actor_of(access.find(s, "admin")))
     with transaction() as s:
         seed(s)
     files = {"file": ("имущество.xlsx", SAMPLE.read_bytes())}
-    data = {"building_id": str(b["building_id"]), "apply": "true"}
+    mapping = json.dumps({"rooms": confirmed_rooms(admin, b["building_id"])})
+    data = {"building_id": str(b["building_id"]), "mapping": mapping, "apply": "true"}
     # сбой — когда единицы уже заведены и остаётся провести «Ввод остатков»
     monkeypatch.setattr(documents, "post", crash)
     with pytest.raises(Crash):

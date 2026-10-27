@@ -16,6 +16,16 @@ from tests.test_building import building_with_floor, save, two_rooms
 SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "samples" / "имущество-пример.xlsx"
 
 
+def confirmed_rooms(admin, building_id) -> dict[str, str]:  # type: ignore[no-untyped-def]
+    """Помещения образца, совпавшие номером, но не названием, — подтверждены как есть (R-002)."""
+    check = admin.post(
+        "/api/inventory/import",
+        data={"building_id": str(building_id)},
+        files={"file": ("имущество.xlsx", SAMPLE.read_bytes())},
+    ).json()
+    return {r["key"]: r["place"] for r in check["rooms"] if r["confirm"]}
+
+
 def kinds(admin) -> dict[str, dict]:  # type: ignore[no-untyped-def]
     layer = admin.post("/api/catalog/layers", json={"name": "Оборудование"}).json()
 
