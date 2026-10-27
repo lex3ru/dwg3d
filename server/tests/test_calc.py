@@ -1,10 +1,14 @@
 """Расчёты (5.3.4, 5.3.5, 5.3.7; С7, С8): обзор камер со стенами и уровнями различимости,
 «непросматриваемые места», освещённость помещений с нормами."""
 
+import gc
+from typing import Any
+
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from app.core.db import transaction
+from app.modules.calc import cameras
 from app.modules.catalog.module import seed
 from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_planning import changes
@@ -176,3 +180,35 @@ def test_calc_time_is_logged(admin, caplog) -> None:
     lines = [r.getMessage() for r in caplog.records if r.name == "app.modules.calc.api"]
     assert len(lines) == 1
     assert lines[0].startswith(f"calc camera floor {f['id']}: {result['took_ms']} ms (data ")
+
+
+def _containers(value: Any) -> Any:
+    if isinstance(value, list | tuple | dict):
+        yield value
+        for v in value.values() if isinstance(value, dict) else value:
+            yield from _containers(v)
+
+
+def test_zone_cache_does_not_load_gc(admin) -> None:
+    """Кэш зон камер не удлиняет полную сборку мусора (8.2, DWG3D-10, ADR-0010): кольца и линии
+    3D в нём — кортежи из чисел, их сборщик не отслеживает. Вложенными списками это ~2 000
+    объектов на камеру: в CI полная сборка доходила до 250 мс и попадала в замер зоны обзора."""
+    types, _ = catalog(admin)
+    f, _ = floor(admin)
+    cam = types["Камера цилиндрическая"]["id"]
+    model = model_of(admin, cam, "4 мм")
+    create = [
+        {"type_id": cam, "model_id": model, "x": 200, "y": y, "angle": 270, "z": 2800}
+        for y in (1000, 1500, 2000, 2500, 3000)
+    ]
+    assert changes(admin, f["id"], create=create).status_code == 200
+    cameras._zones.clear()
+    result = run(admin, "camera", f["id"])
+    assert len(result["table"]["rows"]) == 5
+    gc.collect()
+    entries = list(cameras._zones.values())
+    assert len(entries) == 5
+    tracked = sum(
+        gc.is_tracked(c) for _, drawn, _, _, cone in entries for c in _containers((drawn, cone))
+    )
+    assert tracked < 50 * len(entries), tracked
