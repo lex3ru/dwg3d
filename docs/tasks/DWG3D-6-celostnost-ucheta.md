@@ -4,7 +4,7 @@ title: "Целостность учёта при изменении плана �
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-6-celostnost-ucheta
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/8
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/4eefdcb8-0beb-455f-9571-c9d21009a978
 updated: 2026-10-27
 ---
@@ -110,4 +110,4 @@ API); находки уровня «совет» можно отклонить �
 
 **Ловушки:** номера строк в FINDINGS — по `e43c6a9`, код с тех пор сдвинулся.
 
-**Как проверить:** `git log --oneline origin/main..HEAD` — только коммит плана.
+**Как проверить:** `git log --oneline origin/main..HEAD` — только коммиты плана; MR !8 — черновик.
