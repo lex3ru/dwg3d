@@ -13,7 +13,7 @@ import { useCardTitle } from "@/shell/context";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { FloorDialog } from "@/pages/Buildings";
-import { Choice, Field, FormError, Input } from "@/ui/form";
+import { Field, Input } from "@/ui/form";
 import { Empty, Loading } from "@/ui/misc";
 import { useTree } from "@/catalog/parts";
 import type { Tree } from "@/catalog/types";
@@ -30,6 +30,7 @@ import { Properties, NumberField } from "./Properties";
 import { EditorStore, clearDraft, layersChosen, readDraft, useEditor, type ItemOp, type Mode, type Tool } from "./store";
 import { PDF_RENDER_WIDTH, underlayToWorld, worldToUnderlay } from "./Underlay";
 import { useIsPhone, WalkBar } from "./Walk";
+import { holding, SaveDialog, type SaveState } from "./SaveDialog";
 
 const View3D = lazy(() => import("./View3D"));
 
@@ -220,7 +221,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
   const [wallDefaults, setWallDefaults] = useState<WallDefaults>({ thickness: 120, kind: "partition" });
   const [lengthPrompt, setLengthPrompt] = useState<{ at: [number, number]; apply: (mm: number) => void } | null>(null);
   const [calibration, setCalibration] = useState<[Pt, Pt] | null>(null);
-  const [saveState, setSaveState] = useState<{ preview: Check; keep: Record<number, string> } | null>(null);
+  const [saveState, setSaveState] = useState<SaveState | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [help, setHelp] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -326,7 +327,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
   // ---------------------------------------------------------------- сохранение (5.1.6)
 
   const save = useMutation({
-    mutationFn: (body: { merges?: { rooms: string[]; keep: string }[]; confirm?: boolean }) =>
+    mutationFn: (body: { merges?: { rooms: string[]; keep: string }[]; confirm?: boolean; moves?: Record<string, string> }) =>
       api<PlanView>("PUT", `/api/floors/${data.floor.id}/plan`, { plan: store.state.plan, plan_version: store.state.baseVersion, ...body }),
     onSuccess: (saved) => {
       store.saved(structuredClone(saved.plan), saved.plan_version);
@@ -337,20 +338,31 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
       client.invalidateQueries({ queryKey: ["building", data.building.id] });
       flash("ok", "План сохранён.");
     },
-    onError: (e: ApiError & { details?: Check }) => {
+    onError: (e: ApiError) => {
       if (e.code === "needs_confirmation") return;
+      // пока окно было открыто, в убираемом помещении появилось имущество — окно перечитывает
+      // проверку и спрашивает место и для него; ошибка видна в окне (R-023)
+      if (e.code === "needs_place") {
+        void checkPlan().then((preview) => setSaveState((s) => s && { ...s, preview }));
+        return;
+      }
       setSaveState(null);
       flash("bad", e.message);
     },
   });
 
-  const startSave = async () => {
+  const checkPlan = async () => {
     const preview = await post<Check>(`/api/floors/${data.floor.id}/plan/check`, { plan: store.state.plan });
     store.set({ check: preview });
     // несколько подписей в одном помещении — это и есть объединение, о нём спросит диалог
     preview.issues = preview.issues.filter((i) => i.code !== "labels_together" || !preview.merges.length);
+    return preview;
+  };
+
+  const startSave = async () => {
+    const preview = await checkPlan();
     if (preview.needs_confirmation || preview.issues.length) {
-      setSaveState({ preview, keep: Object.fromEntries(preview.merges.map((m) => [m.index, m.rooms[0]!.id])) });
+      setSaveState({ preview, keep: Object.fromEntries(preview.merges.map((m) => [m.index, m.rooms[0]!.id])), moves: {} });
       return;
     }
     save.mutate({});
@@ -359,7 +371,9 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
   const confirmSave = () => {
     if (!saveState) return;
     const merges = saveState.preview.merges.map((m) => ({ rooms: m.rooms.map((r) => r.id), keep: saveState.keep[m.index]! }));
-    save.mutate({ merges, confirm: true });
+    // место — только для убираемых помещений с имуществом из этой проверки
+    const moves = Object.fromEntries(holding(saveState.preview).flatMap((r) => (saveState.moves[r.id] ? [[r.id, saveState.moves[r.id]!]] : [])));
+    save.mutate({ merges, confirm: true, moves });
   };
 
   const fix = async () => {
@@ -893,59 +907,6 @@ function LengthPrompt({ at, onApply, onCancel }: { at: [number, number]; onApply
       </label>
       <input id="wall-length" autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Escape" && onCancel()} inputMode="decimal" className="h-8 w-24 rounded-md border border-line-strong px-2 font-mono text-[13px]" placeholder="мм" />
     </form>
-  );
-}
-
-function SaveDialog({ state, setState, onConfirm, pending, error }: {
-  state: { preview: Check; keep: Record<number, string> } | null; setState: (s: { preview: Check; keep: Record<number, string> } | null) => void; onConfirm: () => void; pending: boolean; error: string | null;
-}) {
-  const p = state?.preview;
-  return (
-    <Dialog
-      open={state !== null}
-      onOpenChange={(o) => !o && setState(null)}
-      title="Сохранить план?"
-      description={p?.needs_confirmation ? "Сохранение изменит помещения — проверьте, что изменится." : "В плане есть замечания проверки."}
-      footer={
-        <>
-          <Button onClick={() => setState(null)}>Вернуться к плану</Button>
-          <Button variant="primary" onClick={onConfirm} disabled={pending}>
-            Сохранить
-          </Button>
-        </>
-      }
-    >
-      {p && p.issues.length > 0 && (
-        <div className="rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">
-          Замечаний проверки: {p.issues.length} ({p.issues.slice(0, 3).map((i) => i.message.toLowerCase()).join(", ")}
-          {p.issues.length > 3 ? "…" : ""}). План с замечаниями сохранить можно; 3D и печать построятся как есть.
-        </div>
-      )}
-      {p?.merges.map((m) => (
-        <fieldset key={m.index} className="m-0 flex flex-col gap-2 border-0 p-0">
-          <legend className="mb-1 p-0 text-sm font-medium">
-            Помещения {m.rooms.map((r) => r.title).join(" и ")} станут одним. Какое остаётся?
-          </legend>
-          {m.rooms.map((r) => (
-            <Choice key={r.id} name={`merge-${m.index}`} value={r.id} checked={state!.keep[m.index] === r.id} onChange={() => setState({ ...state!, keep: { ...state!.keep, [m.index]: r.id } })} title={r.title} description="номер и название остаются; предметы и имущество другого переходят сюда" />
-          ))}
-        </fieldset>
-      ))}
-      {p?.splits.map((s) => (
-        <p key={s.index} className="m-0 text-sm">
-          От помещения <b>{s.from.title}</b> отделилась часть — она станет новым помещением. Номер остаётся за частью с подписью; чтобы выбрать другую, передвиньте подпись.
-        </p>
-      ))}
-      {p && p.removed.length > 0 && (
-        <p className="m-0 text-sm">
-          Уйдут в архив (стен вокруг больше нет): <b>{p.removed.map((r) => r.title).join(", ")}</b>. История остаётся.
-        </p>
-      )}
-      {p && p.rooms.filter((r) => r.status === "new").length > 0 && (
-        <p className="m-0 text-sm text-ink-2">Новых помещений: {p.rooms.filter((r) => r.status === "new").length}.</p>
-      )}
-      <FormError message={error} />
-    </Dialog>
   );
 }
 
