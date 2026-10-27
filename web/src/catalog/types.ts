@@ -84,6 +84,7 @@ export interface TypeFull extends TypeBrief {
   models: ModelInfo[];
   life_months: number | null;
   used: number;
+  accounted: number; // единиц и движений остатков по типу — вид учёта не меняется (R-024)
 }
 
 export interface Purpose {

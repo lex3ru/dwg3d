@@ -89,11 +89,12 @@ export function TextField({ label, value, onChange, placeholder, disabled, hint 
   return hint ? <Hinted id={hintId} hint={hint}>{field}</Hinted> : field;
 }
 
-export function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
+export function Segmented<T extends string>({ label, value, options, onChange, disabled, hint }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; disabled?: boolean; hint?: string }) {
+  const hintId = useId();
   return (
     <div className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
-      <div role="radiogroup" aria-label={label} className="flex rounded-md border border-line-strong p-0.5">
+      <div role="radiogroup" aria-label={label} aria-describedby={hint ? hintId : undefined} className="flex rounded-md border border-line-strong p-0.5">
         {options.map((o) => (
           <button
             key={o.value}
@@ -108,6 +109,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
           </button>
         ))}
       </div>
+      {hint && <span id={hintId}>{hint}</span>}
     </div>
   );
 }

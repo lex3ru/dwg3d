@@ -103,7 +103,8 @@ function MainTab({ t, ro, onGone }: { t: TypeFull; ro: boolean; onGone: () => vo
           <NumberField label={t.mount === "wall" ? "Высота установки" : "Высота установки (0 — под потолком)"} unit="мм" value={t.mount_height ?? 0} min={0} disabled={ro} onChange={(v) => set({ mount_height: v || null })} />
         )}
       </div>
-      <Segmented label="Вид учёта" value={t.accounting} disabled={ro} onChange={(accounting) => set({ accounting })} options={[{ value: "piece", title: "поштучно — у каждой вещи номер" }, { value: "quantity", title: "количеством — остаток" }]} />
+      {/* по типу есть учёт — вид учёта не меняется: единицы и остатки остались бы без своего вида (R-024) */}
+      <Segmented label="Вид учёта" value={t.accounting} disabled={ro || t.accounted > 0} hint={t.accounted > 0 ? "По типу уже есть учёт — вид учёта не меняется. Для другого вида учёта заведите новый тип." : undefined} onChange={(accounting) => set({ accounting })} options={[{ value: "piece", title: "поштучно — у каждой вещи номер" }, { value: "quantity", title: "количеством — остаток" }]} />
       <div className={grid}>
         <TextField label="Единица измерения" hint="Для учёта количеством: шт., упак., м, л…" value={t.unit} disabled={ro} onChange={(unit) => set({ unit: unit || "шт." })} />
         <label className="flex items-center gap-2 self-end text-sm">
