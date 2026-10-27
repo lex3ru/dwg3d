@@ -1,21 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileUp } from "lucide-react";
-import { useRef, useState } from "react";
+import { Check, CircleX, Download, FileUp, TriangleAlert } from "lucide-react";
+import { useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useTree } from "@/catalog/parts";
 import { get } from "@/lib/api";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { FormError } from "@/ui/form";
+import { Chip, type Tone } from "@/ui/misc";
 import { PlacePicker, useInvalidateInventory } from "./parts";
 import { money } from "./types";
 
+type How = "exact" | "similar" | "none";
+
 interface Report {
   building: { id: string; name: string };
-  names: { name: string; layer: string; accounting: string; rows: number[]; how: "exact" | "similar" | "none"; type_id: string | null; candidates: { type_id: string; name: string; score: number }[] }[];
-  rooms: { key: string; floor: string; room: string; room_name: string; rows: number[]; how: "exact" | "similar" | "none"; place: string | null; place_title: string | null }[];
+  names: { name: string; layer: string; accounting: string; rows: number[]; how: How; type_id: string | null; candidates: { type_id: string; name: string; score: number }[] }[];
+  // confirm — номер совпал, название нет: без явного выбора места не загрузится (R-002)
+  rooms: { key: string; floor: string; room: string; room_name: string; rows: number[]; how: How; confirm: boolean; place: string | null; place_title: string | null }[];
   rows: number;
-  errors: { row: number; message: string }[];
+  // name / room — ошибка сопоставления, показывается у своей строки таблицы
+  errors: { row: number; message: string; name?: string; room?: string }[];
   units: number;
   stock: number;
   total: number;
@@ -25,7 +30,36 @@ interface Report {
   created_types?: string[];
 }
 
-const HOW = { exact: "точно", similar: "похоже — проверьте", none: "не найдено" };
+// R-045: статус — цветом и значком; что требует внимания — сверху
+const HOW: Record<How, { text: string; tone: Tone; icon: typeof Check; rank: number }> = {
+  none: { text: "не найдено", tone: "bad", icon: CircleX, rank: 0 },
+  similar: { text: "похоже — проверьте", tone: "warn", icon: TriangleAlert, rank: 1 },
+  exact: { text: "точно", tone: "ok", icon: Check, rank: 2 },
+};
+
+const byAttention = <T extends { how: How }>(list: T[]) => [...list].sort((a, b) => HOW[a.how].rank - HOW[b.how].rank);
+
+function Status({ how, text, rows }: { how: How; text?: string; rows: number }) {
+  const { icon: Icon, tone } = HOW[how];
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
+      <span data-how={how}>
+        <Chip tone={tone}>
+          <Icon className="size-3.5" aria-hidden /> {text ?? HOW[how].text}
+        </Chip>
+      </span>
+      строк: {rows}
+    </div>
+  );
+}
+
+function RowErrors({ errors }: { errors: Report["errors"] }) {
+  return errors.map((e, i) => (
+    <p key={i} className="m-0 mt-1 text-[12px] text-bad">
+      {e.message}
+    </p>
+  ));
+}
 
 // 5.4.9, С10: шаблон → проверка с сопоставлением → загрузка документом «Ввод остатков»
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -74,6 +108,11 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     onClose();
   };
   const allTypes = (catalog.data?.types ?? []).filter((t) => !t.archived);
+  const namesId = useId();
+  const roomsId = useId();
+  const rowErrors = report?.errors.filter((e) => !e.name && !e.room) ?? [];
+  const roomErrors = (key: string) => report?.errors.filter((e) => e.room === key) ?? [];
+  const attention = (list: { how: How }[]) => list.filter((x) => x.how !== "exact").length;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()} title="Загрузить имущество из Excel" wide>
@@ -132,11 +171,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 Ошибок нет. Будет заведено единиц: {report.units}, позиций остатков: {report.stock}, на {money(report.total)}.
               </p>
             ) : (
-              <p className="m-0 rounded-lg bg-bad-soft px-3 py-2 text-[13px] text-bad">Есть что исправить ({report.errors.length}) — пока не исправлено, не загрузится ничего.</p>
+              <p className="m-0 rounded-lg bg-bad-soft px-3 py-2 text-[13px] text-bad">
+                Есть что исправить ({report.errors.length}) — пока не исправлено, не загрузится ничего.
+                {rowErrors.length < report.errors.length && " Ошибки сопоставления — в таблицах ниже, у своих строк."}
+              </p>
             )}
-            {report.errors.length > 0 && (
-              <ul className="m-0 max-h-40 list-none overflow-y-auto p-0 text-[13px]">
-                {report.errors.map((e, i) => (
+            {/* shrink-0: со своей прокруткой список иначе сжимается до нуля, когда таблицы не помещаются (R-047) */}
+            {rowErrors.length > 0 && (
+              <ul aria-label="Ошибки по строкам файла" className="m-0 max-h-40 shrink-0 list-none overflow-y-auto p-0 text-[13px]">
+                {rowErrors.map((e, i) => (
                   <li key={i} className="border-b border-line py-1">
                     <span className="text-ink-2">Строка {e.row}:</span> {e.message}
                   </li>
@@ -145,17 +188,19 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
             )}
             {!report.applied && (
               <>
-                <section className="flex flex-col gap-1.5">
-                  <h3 className="m-0 text-sm font-semibold">Наименования → типы каталога</h3>
+                <section aria-labelledby={namesId} className="flex flex-col gap-1.5">
+                  <h3 id={namesId} className="m-0 text-sm font-semibold">
+                    Наименования → типы каталога
+                    {attention(report.names) > 0 && <span className="font-normal text-ink-2"> · проверьте: {attention(report.names)}</span>}
+                  </h3>
                   <table className="w-full border-collapse text-[13px]">
                     <tbody>
-                      {report.names.map((n) => (
+                      {byAttention(report.names).map((n) => (
                         <tr key={n.name} className="border-b border-line">
                           <td className="py-1.5 pr-2">
                             {n.name}
-                            <div className="text-[11px] text-ink-3">
-                              строк: {n.rows.length} · {HOW[n.how]}
-                            </div>
+                            <Status how={n.how} rows={n.rows.length} />
+                            <RowErrors errors={report.errors.filter((e) => e.name === n.name)} />
                           </td>
                           <td className="w-1/2 py-1.5">
                             <select
@@ -189,20 +234,38 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
                     </tbody>
                   </table>
                 </section>
-                <section className="flex flex-col gap-1.5">
-                  <h3 className="m-0 text-sm font-semibold">Помещения → план «{report.building.name}»</h3>
+                <section aria-labelledby={roomsId} className="flex flex-col gap-1.5">
+                  <h3 id={roomsId} className="m-0 text-sm font-semibold">
+                    Помещения → план «{report.building.name}»
+                    {attention(report.rooms) > 0 && <span className="font-normal text-ink-2"> · проверьте: {attention(report.rooms)}</span>}
+                  </h3>
                   <table className="w-full border-collapse text-[13px]">
                     <tbody>
-                      {report.rooms.map((r) => (
+                      {byAttention(report.rooms).map((r) => (
                         <tr key={r.key} className="border-b border-line">
                           <td className="py-1.5 pr-2">
                             {r.floor} этаж, {r.room} {r.room_name}
-                            <div className="text-[11px] text-ink-3">
-                              строк: {r.rows.length} · {HOW[r.how]}
-                            </div>
+                            <Status how={r.how} text={r.confirm ? "похоже — подтвердите" : undefined} rows={r.rows.length} />
+                            {/* R-002: номер совпал, название нет — куда попадут вещи; ошибка строки говорит то же */}
+                            {r.confirm && r.place_title && !roomErrors(r.key).length && <div className="mt-1 text-[12px] text-ink-2">на плане — {r.place_title}</div>}
+                            <RowErrors errors={roomErrors(r.key)} />
                           </td>
                           <td className="w-1/2 py-1.5">
-                            <PlacePicker value={rooms[r.key] ?? r.place} onChange={(v) => setRooms({ ...rooms, [r.key]: v ?? "" })} label={`Место для ${r.floor}|${r.room}`} className="h-8 text-[13px]" />
+                            <div className="flex items-center gap-2">
+                              <div className="min-w-0 flex-1">
+                                <PlacePicker value={rooms[r.key] ?? r.place} onChange={(v) => setRooms({ ...rooms, [r.key]: v ?? "" })} label={`Место для ${r.floor}|${r.room}`} className="h-8 text-[13px]" />
+                              </div>
+                              {r.confirm && r.place && !rooms[r.key] && (
+                                <Button size="sm" onClick={() => setRooms({ ...rooms, [r.key]: r.place! })}>
+                                  Верно
+                                </Button>
+                              )}
+                              {r.confirm && rooms[r.key] === r.place && (
+                                <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-ok">
+                                  <Check className="size-3.5" aria-hidden /> подтверждено
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}

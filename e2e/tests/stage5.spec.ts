@@ -89,6 +89,71 @@ test("С10: список имущества из Excel — сопоставле�
   expect(stock.items.map((s: { qty: number }) => s.qty)).toEqual([40]);
 });
 
+// Случайное слово — не похоже ни на один тип, даже заведённый прошлыми прогонами
+const oddWord = () => Array.from({ length: 12 }, () => "бвгджзклмнпрстфхцчшщ"[Math.floor(Math.random() * 20)]).join("");
+
+test("С10: ошибки по строкам видны, даже когда таблицы сопоставления длинные (R-047)", async ({ page }) => {
+  await loginAdmin(page);
+  const b = await building(page, [["101", "Регистратура"]]);
+  const number = `E${Date.now().toString().slice(-8)}`;
+  // 30 наименований не помещаются в окно; номер с наклейки повторяется — ошибка строки 3
+  const rows = Array.from({ length: 30 }, (_, i) => [i < 2 ? number : "", oddWord(), "", "Оборудование", "поштучно", 1, "шт.", "", 1, "101", "Регистратура", "", "", "в работе", 1000, "01.01.2024", null, null, ""]);
+  await page.goto("/property");
+  await page.getByRole("button", { name: "Загрузить из Excel" }).click();
+  const dialog = page.getByRole("dialog", { name: "Загрузить имущество из Excel" });
+  await dialog.getByLabel("Здание").selectOption({ label: b.name });
+  await dialog.getByLabel("Файл со списком имущества").setInputFiles({ name: "имущество.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: xlsx("Имущество", [HEAD, ...rows]) });
+  await expect(dialog.getByText(/Есть что исправить/)).toBeVisible();
+  // строка есть в DOM и не скрыта — этого мало: список был сжат до нулевой высоты
+  const error = dialog.getByText(`номер ${number} повторяется в файле`);
+  await error.scrollIntoViewIfNeeded();
+  await expect(error).toBeInViewport({ ratio: 1 });
+});
+
+test("С10: помещение совпало номером, но не названием — без подтверждения не загрузится (R-002, R-045)", async ({ page }) => {
+  await loginAdmin(page);
+  const b = await building(page, [["101", "Холл"], ["102", "Процедурный кабинет"]]);
+  const name = oddWord();
+  const file = xlsx("Имущество", [
+    HEAD,
+    ["", name, "", "Мебель", "поштучно", 1, "шт.", "", 1, "101", "Регистратура", "", "", "в работе", 86000, "01.03.2019", 120, null, ""],
+    ["", name, "", "Мебель", "поштучно", 1, "шт.", "", 1, "102", "Процедурный", "", "", "в работе", 86000, "01.03.2019", 120, null, ""],
+  ]);
+  await page.goto("/property");
+  await page.getByRole("button", { name: "Загрузить из Excel" }).click();
+  const dialog = page.getByRole("dialog", { name: "Загрузить имущество из Excel" });
+  await dialog.getByLabel("Здание").selectOption({ label: b.name });
+  await dialog.getByLabel("Файл со списком имущества").setInputFiles({ name: "имущество.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: file });
+  await dialog.getByLabel(`Тип для «${name}»`).selectOption("new");
+  await dialog.getByRole("button", { name: "Проверить снова" }).click();
+  // 101: в файле «Регистратура», на плане «Холл» — «похоже», видны оба названия
+  const reg = dialog.getByRole("row", { name: /101 Регистратура/ });
+  await expect(reg).toContainText("похоже");
+  await expect(reg).toContainText("101 Холл");
+  await expect(dialog.getByRole("button", { name: "Загрузить", exact: true })).toBeDisabled();
+  // 102: «Процедурный» — часть названия на плане, подтверждать нечего
+  await expect(dialog.getByRole("row", { name: /102 Процедурный/ })).toContainText("точно");
+  await reg.getByRole("button", { name: "Верно" }).click();
+  await dialog.getByRole("button", { name: "Проверить снова" }).click();
+  await expect(dialog.getByText(/Ошибок нет. Будет заведено единиц: 2/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Загрузить", exact: true }).click();
+  await expect(dialog.getByText(/Загружено: единиц — 2/)).toBeVisible();
+  const units = await (await page.request.get("/api/inventory/units", { params: { building_id: b.id } })).json();
+  expect(units.items.map((u: { place: { key: string } }) => u.place.key).sort()).toEqual([b.rooms["101"], b.rooms["102"]].sort());
+});
+
+test("Строка документа: список «Наименование» раскрывается поверх карточки строк (R-044)", async ({ page }) => {
+  await loginAdmin(page);
+  const wh = await (await page.request.post("/api/inventory/warehouses", { headers: H, data: { name: unique("Склад ") } })).json();
+  const doc = await (await page.request.post("/api/inventory/documents", { headers: H, data: { kind: "receipt", header: { to_place: wh.key }, lines: [] } })).json();
+  await page.goto(`/documents/${doc.id}`);
+  await page.getByRole("button", { name: "Строка: тип и количество" }).click();
+  await page.getByLabel("Тип, строка 1").click();
+  const list = page.getByRole("listbox", { name: "Тип, строка 1: варианты" });
+  await list.scrollIntoViewIfNeeded();
+  await expect(list).toBeInViewport({ ratio: 1 });
+});
+
 test("С11 и С16: приход на склад с номерами подряд, расход перчаток", async ({ page }) => {
   await loginAdmin(page);
   const name = unique("Склад ");
