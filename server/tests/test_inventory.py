@@ -454,17 +454,22 @@ def test_cancel_is_a_reverse_document(admin) -> None:
     assert admin.post(f"/api/inventory/documents/{back.json()['id']}/cancel").status_code == 409
 
 
-def without_partition(admin, rooms):  # type: ignore[no-untyped-def]
-    """План этажа без перегородки с одной подписью «214»: 215 убирается. Этаж, план, версия."""
+def floor_plan(admin, rooms):  # type: ignore[no-untyped-def]
+    """Этаж помещений 214 и 215, его план и версия плана."""
     floor_id = admin.get("/api/inventory/place", params={"key": rooms["214"]}).json()["place"][
         "floor_id"
     ]
     saved = admin.get(f"/api/floors/{floor_id}/plan").json()
-    plan = saved["plan"]
+    return floor_id, saved["plan"], saved["plan_version"]
+
+
+def without_partition(admin, rooms):  # type: ignore[no-untyped-def]
+    """План этажа без перегородки с одной подписью «214»: 215 убирается. Этаж, план, версия."""
+    floor_id, plan, version = floor_plan(admin, rooms)
     plan["walls"] = [w for w in plan["walls"] if w["id"] != "w7"]
     plan["openings"] = [o for o in plan["openings"] if o["wall"] != "w7"]
     plan["rooms"] = [r for r in plan["rooms"] if r["number"] != "215"]
-    return floor_id, plan, saved["plan_version"]
+    return floor_id, plan, version
 
 
 def test_r023_removed_room_hands_its_property_to_the_chosen_place(admin) -> None:
@@ -509,3 +514,36 @@ def test_r023_removed_room_hands_its_property_to_the_chosen_place(admin) -> None
     assert [(s["place"], s["type_name"], s["qty"]) for s in stock] == [
         (rooms["214"], "Перчатки смотровые", 20)
     ]
+
+
+def test_r023_property_goes_to_a_room_made_by_the_same_save(admin) -> None:
+    """Перегородку сдвинули, подпись 215 убрали, справа подписали новую 216: имущество 215
+    можно отдать ей — по подписи из редактора; место не из этого плана — ошибка (R-023)."""
+    _, rooms, wh, k = setup(admin)
+    received = post(
+        admin,
+        document(
+            admin,
+            "receipt",
+            {"to_place": rooms["215"]},
+            [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000}],
+        ),
+    ).json()
+    uid = received["lines"][0]["created_units"][0]["id"]
+    floor_id, plan, version = floor_plan(admin, rooms)
+    plan["nodes"]["e"], plan["nodes"]["f"] = [4500, 0], [4500, 4000]
+    plan["rooms"] = [r for r in plan["rooms"] if r["number"] != "215"] + [
+        {"id": "new-3", "x": 5200, "y": 2000, "number": "216", "name": "Кладовая"}
+    ]
+    room215 = rooms["215"][2:]
+
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: "nowhere"})
+    assert r.status_code == 400 and r.json()["error"]["field"] == "moves", r.text
+
+    r = save(admin, floor_id, plan, version, confirm=True, moves={room215: "new-3"})
+    assert r.status_code == 200, r.text
+    saved = {x["number"]: x["id"] for x in r.json()["rooms"]}
+    assert set(saved) == {"214", "216"}
+    assert admin.get(f"/api/inventory/units/{uid}").json()["place"]["key"] == f"r:{saved['216']}"
+    summary = admin.get("/api/journal", params={"ref": f"room:{room215}"}).json()["items"][0]
+    assert "убраны: 215 Кабинет (имущество — в 216 Кладовая)" in summary["summary"]

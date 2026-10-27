@@ -294,6 +294,30 @@ def _holds(session: Session, *keys_or_lists: Any) -> bool:
     return any(q and q > 0 for _, q in rest)
 
 
+def room_property(session: Session, room_ids: list[uuid.UUID]
+                  ) -> dict[uuid.UUID, dict[str, int]]:
+    """Что числится в помещениях (5.1.6 п. 3, R-023): единиц (кроме списанных) и позиций
+    остатков с количеством больше нуля — только помещения, где что-то есть."""
+    keys = {room_key(rid): rid for rid in room_ids}
+    out: dict[uuid.UUID, dict[str, int]] = {}
+    units = session.execute(
+        select(Unit.place, func.count())
+        .where(Unit.place.in_(list(keys)), Unit.state != "written_off")
+        .group_by(Unit.place)
+    )
+    for place, n in units:
+        out.setdefault(keys[place], {"units": 0, "stock": 0})["units"] = n
+    stock = session.execute(
+        select(StockMove.place, func.sum(StockMove.qty))
+        .where(StockMove.place.in_(list(keys)))
+        .group_by(StockMove.place, StockMove.type_id, StockMove.model_id)
+    )
+    for place, qty in stock:
+        if qty and qty > 0:
+            out.setdefault(keys[place], {"units": 0, "stock": 0})["stock"] += 1
+    return out
+
+
 def add_cell(session: Session, actor: Actor, wh_id: uuid.UUID, name: str) -> Cell:
     admin(actor)
     wh = get_warehouse(session, actor, wh_id)

@@ -12,8 +12,10 @@ def _setup(_: FastAPI) -> None:
     api.register_settings()
     # тип, по которому есть учёт, не удаляется — только в архив (5.2.2)
     catalog.on_usage(api.type_usage)
-    # помещения объединили — имущество переходит к продолжающему (5.1.6 п. 3)
+    # помещения объединили или убрали — имущество переходит к продолжающему или в выбранное
+    # помещение; убрать помещение с имуществом без выбора нельзя (5.1.6 п. 3, R-023)
     building.on_rooms_continued(api.rooms_continued)
+    building.on_room_property(api.room_property)
     building.on_building_deleted(api.building_guard)
     search.register(api.search_units)
 

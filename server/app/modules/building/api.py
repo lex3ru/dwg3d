@@ -300,6 +300,13 @@ def live_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
                                 .order_by(Room.number, Room.name)))
 
 
+def archived_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
+    """Убранные помещения этажа — в них могло остаться имущество (R-023)."""
+    return list(session.scalars(select(Room).where(Room.floor_id == floor_id,
+                                                   Room.archived_at.is_not(None))
+                                .order_by(Room.number, Room.name)))
+
+
 def room_ids_of(session: Session, building_id: uuid.UUID) -> list[uuid.UUID]:
     """Все помещения здания, и убранные тоже — по ним документы прошлых лет."""
     return list(session.scalars(select(Room.id).where(Room.building_id == building_id)))
@@ -336,6 +343,35 @@ _on_rooms_continued: list[Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | 
 def on_rooms_continued(callback: Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | None]],
                                           None]) -> None:
     _on_rooms_continued.append(callback)
+
+
+# что числится в помещениях (учёт): {помещение: {"units": N, "stock": M}} — только помещения,
+# где что-то есть; убрать такое помещение можно, только выбрав, куда это перейдёт (R-023)
+_room_property: list[Callable[[Session, list[uuid.UUID]], dict[uuid.UUID, dict[str, int]]]] = []
+
+
+def on_room_property(check: Callable[[Session, list[uuid.UUID]],
+                                     dict[uuid.UUID, dict[str, int]]]) -> None:
+    _room_property.append(check)
+
+
+def room_property(session: Session, room_ids: list[uuid.UUID]
+                  ) -> dict[uuid.UUID, dict[str, int]]:
+    out: dict[uuid.UUID, dict[str, int]] = {}
+    if not room_ids:
+        return out
+    for check in _room_property:
+        for rid, held in check(session, room_ids).items():
+            mine = out.setdefault(rid, {})
+            for key, n in held.items():
+                mine[key] = mine.get(key, 0) + n
+    return out
+
+
+def _held_title(room: Room, held: dict[str, int]) -> str:
+    parts = [f"{what} {held[key]}" for key, what in (("units", "единиц"), ("stock", "остатков"))
+             if held.get(key)]
+    return f"{room_title(room)} ({', '.join(parts)})"
 
 
 # после сохранения плана: помещения этажа могли поменять очертания — модули выше
@@ -415,6 +451,7 @@ def _preview(session: Session, change: Change, plan: Plan) -> dict[str, Any]:
         Room.id.in_([*filter(None, change.keeps), *change.removed,
                      *[r for _, ids in change.merges for r in ids]])))}
     labels = {lbl.id: lbl for lbl in plan.rooms}
+    held = room_property(session, change.removed)
 
     def brief(rid: uuid.UUID) -> dict[str, Any]:
         room = live[rid]
@@ -439,7 +476,8 @@ def _preview(session: Session, change: Change, plan: Plan) -> dict[str, Any]:
                     "keep": change.keeps[i] if (i, ids) not in change.unresolved else None}
                    for i, ids in change.merges],
         "splits": [{"index": i, "from": brief(rid)} for i, rid in change.splits],
-        "removed": [brief(r) for r in change.removed],
+        # что числится в убираемом помещении — ему нужно место в этом плане (R-023)
+        "removed": [{**brief(r), "property": held.get(r)} for r in change.removed],
         "needs_confirmation": change.needs_confirmation,
     }
 
@@ -526,9 +564,11 @@ def fix_plan(actor: Actor, plan: Plan) -> dict[str, Any]:
 
 def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
               plan_version: int, merges: list[dict[str, Any]] | None = None,
-              confirm: bool = False, auto_merge: bool = False) -> dict[str, Any]:
+              confirm: bool = False, auto_merge: bool = False,
+              moves: dict[str, str] | None = None) -> dict[str, Any]:
     """Сохранить план этажа с помещениями (5.1.6) — целиком или никак. auto_merge —
-    при объединении остаётся первое помещение (перевод чертежа заново)."""
+    при объединении остаётся первое помещение (перевод чертежа заново). moves — куда
+    переходит имущество убираемых помещений: {помещение: подпись помещения этого плана}."""
     _require_admin(actor)
     floor = session.get(Floor, floor_id, with_for_update=True)
     if floor is None:
@@ -547,6 +587,26 @@ def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
     if change.unresolved or (change.needs_confirmation and not confirm):
         error = Conflict("Сохранение изменит помещения — подтвердите.",
                          code="needs_confirmation")
+        error.details = _preview(session, change, plan)
+        raise error
+    # имущество убираемого помещения не остаётся в архиве: администратор выбирает, в какое
+    # помещение этого плана оно перейдёт (5.1.6 п. 3, 5.4.6, R-023)
+    held = room_property(session, change.removed)
+    inside = {lbl for shape in analysis.rooms for lbl in shape.labels}
+    targets: dict[uuid.UUID, str] = {}
+    for rid in held:
+        target = (moves or {}).get(str(rid))
+        if target is None:
+            continue
+        if target not in inside:
+            raise AppError("Имущество убираемого помещения можно перенести только в помещение "
+                           "этого плана.", field="moves")
+        targets[rid] = target
+    if len(targets) < len(held):
+        homeless = [session.get(Room, rid) for rid in held if rid not in targets]
+        error = Conflict("В убираемых помещениях числится имущество: "
+                         + ", ".join(_held_title(r, held[r.id]) for r in homeless if r)
+                         + ". Выберите, куда его перенести.", code="needs_place")
         error.details = _preview(session, change, plan)
         raise error
 
@@ -593,7 +653,7 @@ def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
             kept.append(room)
     for rid in change.removed:
         live[rid].archived_at = now
-        continued[rid] = None
+        continued[rid] = uuid.UUID(label_ids[targets[rid]]) if rid in targets else None
 
     saved = plan.model_copy(update={"rooms": new_labels})
     floor.plan = saved.model_dump()
@@ -612,7 +672,10 @@ def save_plan(session: Session, actor: Actor, floor_id: uuid.UUID, plan: Plan,
         parts.append("новые: " + ", ".join(room_title(r) for r in created))
     if merged_titles:
         parts.append("объединены: " + "; ".join(merged_titles))
-    removed = [room_title(live[r]) for r in change.removed]
+    saved_rooms = {r.id: r for r in [*created, *kept]}
+    removed = [room_title(live[r]) + (f" (имущество — в {room_title(saved_rooms[to])})"
+                                      if (to := continued[r]) else "")
+               for r in change.removed]
     if removed:
         parts.append("убраны: " + ", ".join(removed))
     refs = [f"building:{floor.building_id}",

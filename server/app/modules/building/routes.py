@@ -134,13 +134,15 @@ def fix_plan(floor_id: uuid.UUID, body: PlanIn, actor: CurrentActor, session: DB
 class PlanSave(PlanIn):
     plan_version: int
     confirm: bool = False
+    # куда переходит имущество убираемых помещений: {помещение: подпись помещения плана}
+    moves: dict[str, str] = {}
 
 
 @router.put("/floors/{floor_id}/plan")
 def save_plan(floor_id: uuid.UUID, body: PlanSave, actor: CurrentActor, session: DB
               ) -> dict[str, Any]:
     return api.save_plan(session, actor, floor_id, body.plan, body.plan_version, body.merges,
-                         body.confirm)
+                         body.confirm, moves=body.moves)
 
 
 class LiftIn(BaseModel):
