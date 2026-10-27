@@ -108,6 +108,16 @@ _zones: dict[
 ] = {}
 
 
+def _frozen(value: Any) -> Any:
+    """Списки — в кортежи: кортежи из чисел сборка мусора не отслеживает, и кэш зон не удлиняет
+    каждую полную сборку (8.2, DWG3D-10, ADR-0010)."""
+    if isinstance(value, list):
+        return tuple(_frozen(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _frozen(v) for k, v in value.items()}
+    return value
+
+
 def _scene(ctx: Ctx) -> Scene:
     key = (ctx.floor.id, ctx.floor.plan_version)
     if key not in _scenes:
@@ -234,7 +244,7 @@ def compute(ctx: Ctx, options: dict[str, str]) -> Result:
             shapes = {k: _zone(cam, angles, hits, radii[k]) for k, *_ in levels}
             drawn = {k: rings(z.simplify(5)) for k, z in shapes.items()}
             cone3d = _cone(cam, shapes, angles, hits, radii[LEVELS[0][0]])
-            _zones[key] = (shapes, drawn, radii, reach, cone3d)
+            _zones[key] = (shapes, _frozen(drawn), radii, reach, _frozen(cone3d))
         shapes, drawn, radii, reach, cone = _zones[key]
         for k, _, _, color in levels:
             zone = shapes[k]

@@ -1,11 +1,13 @@
 """Сборка приложения: модули из app.modules.INSTALLED, общие обработчики, интерфейс."""
 
 import asyncio
+import gc
 import importlib
 import logging
+import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,6 +33,9 @@ from app.modules.access import api as access
 
 log = logging.getLogger("app")
 _SAFE = {"GET", "HEAD", "OPTIONS"}
+# библиотеки отчётов (Excel, PDF) иначе грузятся при первом отчёте — уже после заморозки, и их
+# объекты обходила бы каждая полная сборка (ADR-0010). В Windows нет Pango: PDF там не печатается
+REPORT_LIBS = ("openpyxl",) if sys.platform == "win32" else ("openpyxl", "weasyprint")
 PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
 # ошибки базы от одновременной работы (8.3 п. 2): значение уже занял, строку убрал другой
 # сеанс, база разорвала взаимоблокировку или не смогла упорядочить транзакции
@@ -160,6 +165,20 @@ def create_app() -> FastAPI:
             events.hub.unsubscribe(sub)
 
     _mount_web(app)
+    return app
+
+
+def serve_app() -> FastAPI:
+    """Приложение для `python -m app serve`. Всё, что создано при запуске (модули, маршруты,
+    схемы, библиотеки отчётов), — вне сборки мусора: полная сборка обходит только созданное
+    потом, и её пауза не попадает в расчёт зоны обзора (8.2, DWG3D-10, ADR-0010). Тесты создают
+    приложение через create_app, без заморозки: замороженное сборщик не освобождает."""
+    app = create_app()
+    for name in REPORT_LIBS:
+        with suppress(ImportError, OSError):  # нет системных библиотек — отчёт скажет сам
+            importlib.import_module(name)
+    gc.collect()
+    gc.freeze()
     return app
 
 
