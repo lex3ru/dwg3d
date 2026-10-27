@@ -4,7 +4,7 @@ title: "Загрузка имущества из Excel и строки доку�
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-9-zagruzka-excel
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/9
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/51d619bb-cf0c-4dfa-980a-ae24fcf27a6c
 updated: 2026-10-27
 ---

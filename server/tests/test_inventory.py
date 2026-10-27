@@ -426,6 +426,47 @@ def test_c10_property_list_from_excel(admin) -> None:
     assert not again["ok"] and any("уже занят" in e["message"] for e in again["errors"])
 
 
+def test_import_room_by_number_with_other_name_needs_confirmation(admin) -> None:
+    """R-002: номер совпал, название другое — не «точно», без подтверждения не загрузится."""
+    import json
+
+    from app.modules.catalog.module import seed
+    from app.samples import polyclinic
+
+    with transaction() as s:
+        actor = access.actor_of(access.find(s, "admin"))
+        b = polyclinic.create(s, actor)
+    with transaction() as s:
+        seed(s)
+    files = {"file": ("имущество.xlsx", SAMPLE.read_bytes())}
+    data = {"building_id": str(b["building_id"])}
+    check = admin.post("/api/inventory/import", data=data, files=files).json()
+    rooms = {(r["floor"], r["room"]): r for r in check["rooms"]}
+    # кабинеты в образце условные (ТЗ 4.6 п. 1): «101 Регистратура» на плане — «101 Холл»
+    reg = rooms[("1", "101")]
+    assert reg["how"] == "similar" and reg["confirm"], reg
+    assert reg["place_title"].endswith("101 Холл")
+    assert not check["ok"]
+    assert any(
+        e["row"] == reg["rows"][0] and "Регистратура" in e["message"] and "Холл" in e["message"]
+        for e in check["errors"]
+    ), check["errors"]
+    # «Кабинет невролога» ↔ «Кабинет кардиолога»: по сходству 0,8, но это другой кабинет
+    assert rooms[("2", "203")]["confirm"]
+    # название совпало — «точно», подтверждать нечего
+    assert rooms[("2", "201")]["how"] == "exact" and not rooms[("2", "201")]["confirm"]
+    # подтверждение — явный выбор места: то же помещение или другое
+    pending = [r for r in check["rooms"] if r["confirm"]]
+    assert len(pending) == 13
+    confirmed = {r["key"]: r["place"] for r in pending}
+    ok = admin.post(
+        "/api/inventory/import",
+        data={**data, "mapping": json.dumps({"rooms": confirmed})},
+        files=files,
+    ).json()
+    assert ok["ok"], ok["errors"][:3]
+
+
 def test_cancel_is_a_reverse_document(admin) -> None:
     _, rooms, wh, k = setup(admin)
     received = post(
