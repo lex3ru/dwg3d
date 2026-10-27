@@ -2,6 +2,9 @@
 (DWG3D-10)."""
 
 import gc
+import subprocess
+import sys
+from pathlib import Path
 
 from app import main
 from app.__main__ import serve_workers
@@ -30,3 +33,24 @@ def test_served_app_leaves_startup_objects_out_of_gc(app, monkeypatch) -> None:
         assert gc.get_freeze_count() > 10_000
     finally:
         gc.unfreeze()
+
+
+def test_served_app_freezes_report_libraries() -> None:
+    # библиотеки отчётов иначе грузятся при первом отчёте — уже после заморозки, и их объекты
+    # обходила бы каждая полная сборка (DWG3D-10, ADR-0010). В Windows нет Pango — PDF там не
+    # печатается и weasyprint не грузится. Отдельный процесс: в этом их уже загрузили другие тесты
+    names = ["openpyxl"] + ([] if sys.platform == "win32" else ["weasyprint"])
+    code = "\n".join([
+        "import gc, sys",
+        "from app import main",
+        "main.create_app = lambda: None",
+        "main.serve_app()",
+        "live = {id(o) for o in gc.get_objects()}",
+        "for name in sys.argv[1:]:",
+        "    mod = sys.modules.get(name)",
+        "    print(name, mod is not None and id(vars(mod)) not in live)",
+    ])
+    r = subprocess.run([sys.executable, "-c", code, *names], cwd=Path(__file__).parents[1],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == [x for name in names for x in (name, "True")]
