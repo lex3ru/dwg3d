@@ -384,9 +384,12 @@ def test_c10_property_list_from_excel(admin) -> None:
     assert corridor["how"] == "similar" and "Коридор" in corridor["place_title"]
     import json
 
-    # несопоставленное — ошибка, пока не выбрано: уберём сопоставление «Тонометра»
-    mapping: dict = {"types": {}}
-    assert check["ok"], check["errors"][:3]
+    # кабинеты в образце условные: совпавшие номером, но не названием, подтверждаются (R-002)
+    assert not check["ok"]
+    mapping: dict = {
+        "types": {},
+        "rooms": {r["key"]: r["place"] for r in check["rooms"] if r["confirm"]},
+    }
 
     ok = admin.post(
         "/api/inventory/import",

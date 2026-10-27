@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Popover } from "radix-ui";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTree } from "@/catalog/parts";
 import type { TypeBrief } from "@/catalog/types";
 import { get, query } from "@/lib/api";
@@ -65,6 +66,33 @@ export function PlacePicker({ value, onChange, label = "Место", allowEmpty,
   );
 }
 
+// Список вариантов поля — через портал: карточка с прокруткой его не обрезает (R-044).
+// Фокус остаётся в поле, щелчок по самому полю список не закрывает.
+function Dropdown({ open, onDismiss, anchor, label, className, children }: { open: boolean; onDismiss: () => void; anchor: ReactElement; label: string; className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <Popover.Root open={open} onOpenChange={(o) => !o && onDismiss()}>
+      <Popover.Anchor asChild ref={ref}>
+        {anchor}
+      </Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
+          asChild
+          align="start"
+          sideOffset={4}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => ref.current?.contains(e.target as Node) && e.preventDefault()}
+        >
+          <ul role="listbox" aria-label={label} className={cn("z-50 m-0 w-(--radix-popover-trigger-width) list-none overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg", className)}>
+            {children}
+          </ul>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 // Тип каталога с поиском
 export function TypePicker({ value, onChange, label = "Тип", filter, autoFocus }: { value: string | null | undefined; onChange: (t: TypeBrief | null) => void; label?: string; filter?: (t: TypeBrief) => boolean; autoFocus?: boolean }) {
   const tree = useTree();
@@ -77,50 +105,55 @@ export function TypePicker({ value, onChange, label = "Тип", filter, autoFocu
     return types.filter((t) => !q || t.name.toLowerCase().includes(q)).slice(0, 30);
   }, [types, text]);
   return (
-    <div className="relative">
-      <input
-        aria-label={label}
-        autoFocus={autoFocus}
-        value={open ? text : (current?.name ?? "")}
-        placeholder="Найти тип…"
-        onFocus={() => {
-          setText("");
-          setOpen(true);
-        }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => setText(e.target.value)}
-        className={selectCls}
-      />
-      {open && (
-        <ul role="listbox" aria-label={`${label}: варианты`} className="absolute top-full z-20 m-0 mt-1 max-h-64 w-full list-none overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {found.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={t.id === value}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onChange(t);
-                  setOpen(false);
-                }}
-                className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] hover:bg-surface-2"
-              >
-                {t.name}
-                <span className="text-[11px] text-ink-3">{t.accounting === "quantity" ? `количеством, ${t.unit}` : "поштучно"}</span>
-              </button>
-            </li>
-          ))}
-          {!found.length && <li className="px-2 py-1.5 text-[13px] text-ink-3">Ничего не нашлось</li>}
-        </ul>
-      )}
-    </div>
+    <Dropdown
+      open={open}
+      onDismiss={() => setOpen(false)}
+      label={`${label}: варианты`}
+      className="max-h-64"
+      anchor={
+        <input
+          aria-label={label}
+          autoFocus={autoFocus}
+          value={open ? text : (current?.name ?? "")}
+          placeholder="Найти тип…"
+          onFocus={() => {
+            setText("");
+            setOpen(true);
+          }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => setText(e.target.value)}
+          className={selectCls}
+        />
+      }
+    >
+      {found.map((t) => (
+        <li key={t.id}>
+          <button
+            type="button"
+            role="option"
+            aria-selected={t.id === value}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onChange(t);
+              setOpen(false);
+            }}
+            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] hover:bg-surface-2"
+          >
+            {t.name}
+            <span className="text-[11px] text-ink-3">{t.accounting === "quantity" ? `количеством, ${t.unit}` : "поштучно"}</span>
+          </button>
+        </li>
+      ))}
+      {!found.length && <li className="px-2 py-1.5 text-[13px] text-ink-3">Ничего не нашлось</li>}
+    </Dropdown>
   );
 }
 
 // Инвентарная единица: поиск по названию, номеру, серийному
 export function UnitPicker({ onPick, place, label = "Добавить единицу", exclude = [], states }: { onPick: (u: UnitBrief) => void; place?: string | null; label?: string; exclude?: string[]; states?: State[] }) {
   const [text, setText] = useState("");
+  // щелчок мимо или Esc прячет найденное до следующего ввода
+  const [hidden, setHidden] = useState(false);
   const [debounced, setDebounced] = useState("");
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -134,35 +167,48 @@ export function UnitPicker({ onPick, place, label = "Добавить едини
   });
   const items = (found.data?.items ?? []).filter((u) => !exclude.includes(u.id) && (!states || states.includes(u.state)));
   return (
-    <div className="relative">
-      <label className="flex h-9 items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 max-md:h-11">
-        <Search className="size-4 text-ink-3" />
-        <input aria-label={label} placeholder={`${label}: название, инв. или серийный номер`} value={text} onChange={(e) => setText(e.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none" />
-      </label>
-      {(debounced.length >= 2 || (place && text)) && (
-        <ul role="listbox" aria-label="Найденные единицы" className="absolute top-full z-20 m-0 mt-1 max-h-72 w-full list-none overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {items.map((u) => (
-            <li key={u.id}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={false}
-                onClick={() => {
-                  onPick(u);
-                  setText("");
-                }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] hover:bg-surface-2"
-              >
-                <span className="font-mono text-[12px] text-ink-2">{u.number}</span>
-                <span className="min-w-0 flex-1 truncate">{u.title}</span>
-                <span className="truncate text-[11px] text-ink-3">{u.place?.short}</span>
-              </button>
-            </li>
-          ))}
-          {!items.length && <li className="px-2 py-1.5 text-[13px] text-ink-3">{found.isLoading ? "Ищу…" : "Ничего не нашлось"}</li>}
-        </ul>
-      )}
-    </div>
+    <Dropdown
+      open={!hidden && (debounced.length >= 2 || (!!place && !!text))}
+      onDismiss={() => setHidden(true)}
+      label="Найденные единицы"
+      className="max-h-72"
+      anchor={
+        <label className="flex h-9 items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 max-md:h-11">
+          <Search className="size-4 text-ink-3" />
+          <input
+            aria-label={label}
+            placeholder={`${label}: название, инв. или серийный номер`}
+            value={text}
+            onFocus={() => setHidden(false)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setHidden(false);
+            }}
+            className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
+          />
+        </label>
+      }
+    >
+      {items.map((u) => (
+        <li key={u.id}>
+          <button
+            type="button"
+            role="option"
+            aria-selected={false}
+            onClick={() => {
+              onPick(u);
+              setText("");
+            }}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] hover:bg-surface-2"
+          >
+            <span className="font-mono text-[12px] text-ink-2">{u.number}</span>
+            <span className="min-w-0 flex-1 truncate">{u.title}</span>
+            <span className="truncate text-[11px] text-ink-3">{u.place?.short}</span>
+          </button>
+        </li>
+      ))}
+      {!items.length && <li className="px-2 py-1.5 text-[13px] text-ink-3">{found.isLoading ? "Ищу…" : "Ничего не нашлось"}</li>}
+    </Dropdown>
   );
 }
 

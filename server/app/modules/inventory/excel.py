@@ -337,9 +337,13 @@ def match(session: Session, actor: Actor, parsed: Parsed, building_id: uuid.UUID
             ),
             key=lambda x: -x[0],
         )
-        chosen, how = None, "none"
+        chosen, how, confirm = None, "none", False
         if exact:
             chosen, how = exact[0], "exact"
+            # R-002, ТЗ 4.6 п. 1: номер совпал, название другое — кабинет мог смениться;
+            # порог выше, чем у поиска по названию: «невролога» ↔ «кардиолога» — 0,8
+            if row.room_name and chosen.name and similarity(row.room_name, chosen.name) < 0.9:
+                how, confirm = "similar", True
         elif by_name and by_name[0][0] >= 0.75:
             chosen, how = by_name[0][1], "similar"
         rooms[key] = {
@@ -349,6 +353,7 @@ def match(session: Session, actor: Actor, parsed: Parsed, building_id: uuid.UUID
             "room_name": row.room_name,
             "rows": [row.n],
             "how": how,
+            "confirm": confirm,
             "place": room_key(chosen.id) if chosen else None,
             "place_title": places.title(room_key(chosen.id)) if chosen else None,
         }
@@ -389,6 +394,7 @@ def load(
             if row.number in seen:
                 errors.append({"row": row.n, "message": f"номер {row.number} повторяется в файле"})
             seen.add(row.number)
+    # ошибка сопоставления называет свою строку таблицы — окно покажет её там (R-047)
     type_of: dict[str, str] = {}
     for item in matched["names"]:
         chosen = types.get(item["name"]) or (str(item["type_id"]) if item["type_id"] else None)
@@ -398,6 +404,7 @@ def load(
                     "row": item["rows"][0],
                     "message": f"«{item['name']}» не сопоставлено с типом каталога — "
                     "выберите тип или «создать тип»",
+                    "name": item["name"],
                 }
             )
         else:
@@ -411,6 +418,19 @@ def load(
                     "row": item["rows"][0],
                     "message": f"помещение {item['room']} ({item['floor']} этаж) не найдено "
                     "на плане — выберите место",
+                    "room": item["key"],
+                }
+            )
+        elif item["confirm"] and not rooms.get(item["key"]):
+            # подтверждение — явный выбор места в сопоставлении, хоть того же самого
+            plan = item["place_title"].rsplit(" › ", 1)[-1]
+            errors.append(
+                {
+                    "row": item["rows"][0],
+                    "message": f"помещение {item['room']} «{item['room_name']}» "
+                    f"({item['floor']} этаж) сопоставлено по номеру с «{plan}» — "
+                    "названия разные: подтвердите или выберите другое место",
+                    "room": item["key"],
                 }
             )
         else:
