@@ -111,6 +111,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const namesId = useId();
   const roomsId = useId();
   const rowErrors = report?.errors.filter((e) => !e.name && !e.room) ?? [];
+  const roomErrors = (key: string) => report?.errors.filter((e) => e.room === key) ?? [];
   const attention = (list: { how: How }[]) => list.filter((x) => x.how !== "exact").length;
 
   return (
@@ -245,9 +246,9 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
                           <td className="py-1.5 pr-2">
                             {r.floor} этаж, {r.room} {r.room_name}
                             <Status how={r.how} text={r.confirm ? "похоже — подтвердите" : undefined} rows={r.rows.length} />
-                            {/* R-002: номер совпал, название нет — показать, куда попадут вещи */}
-                            {r.confirm && r.place_title && <div className="mt-1 text-[12px] text-ink-2">на плане — {r.place_title}</div>}
-                            <RowErrors errors={report.errors.filter((e) => e.room === r.key)} />
+                            {/* R-002: номер совпал, название нет — куда попадут вещи; ошибка строки говорит то же */}
+                            {r.confirm && r.place_title && !roomErrors(r.key).length && <div className="mt-1 text-[12px] text-ink-2">на плане — {r.place_title}</div>}
+                            <RowErrors errors={roomErrors(r.key)} />
                           </td>
                           <td className="w-1/2 py-1.5">
                             <div className="flex items-center gap-2">

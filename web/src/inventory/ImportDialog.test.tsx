@@ -111,11 +111,15 @@ test("ошибки сопоставления — у своих строк, ос
 test("«Верно» подтверждает помещение, найденное по номеру", async () => {
   const dialog = await checked();
   const reg = rowsOf(dialog, /^Помещения/)[1]!;
-  expect(within(reg).getByText("на плане — 1 этаж › 101 Холл")).toBeTruthy();
   fireEvent.click(within(reg).getByRole("button", { name: "Верно" }));
   expect(within(reg).queryByRole("button", { name: "Верно" })).toBeNull();
+  // после проверки ошибки нет — остаётся, куда попадут вещи, и что это подтверждено
+  fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ ...report, errors: report.errors.filter((e) => e.room !== "1|101") }) });
   fireEvent.click(within(dialog).getByRole("button", { name: "Проверить снова" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   const form = fetchMock.mock.calls[1]![1].body as FormData;
   expect(JSON.parse(form.get("mapping") as string).rooms).toEqual({ "1|101": "r:1" });
+  const again = rowsOf(dialog, /^Помещения/)[1]!;
+  expect(await within(again).findByText("на плане — 1 этаж › 101 Холл")).toBeTruthy();
+  expect(within(again).getByText("подтверждено")).toBeTruthy();
 });
