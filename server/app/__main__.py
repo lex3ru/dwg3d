@@ -89,7 +89,7 @@ def main() -> None:
         seed()
         from app.core.config import config
 
-        uvicorn.run("app.main:create_app", factory=True, host=args.host, port=args.port,
+        uvicorn.run("app.main:serve_app", factory=True, host=args.host, port=args.port,
                     proxy_headers=True, forwarded_allow_ips="*",
                     workers=serve_workers(args.workers or config().workers))
     elif args.command == "worker":

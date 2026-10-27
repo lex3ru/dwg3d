@@ -1,6 +1,7 @@
 """Сборка приложения: модули из app.modules.INSTALLED, общие обработчики, интерфейс."""
 
 import asyncio
+import gc
 import importlib
 import logging
 import uuid
@@ -160,6 +161,17 @@ def create_app() -> FastAPI:
             events.hub.unsubscribe(sub)
 
     _mount_web(app)
+    return app
+
+
+def serve_app() -> FastAPI:
+    """Приложение для `python -m app serve`. Всё, что создано при запуске (модули, маршруты,
+    схемы), — вне сборки мусора: полная сборка обходит только созданное потом, и её пауза не
+    попадает в расчёт зоны обзора (8.2, DWG3D-10, ADR-0010). Тесты создают приложение через
+    create_app, без заморозки: замороженное сборщик не освобождает."""
+    app = create_app()
+    gc.collect()
+    gc.freeze()
     return app
 
 

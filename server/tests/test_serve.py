@@ -19,12 +19,14 @@ def test_linux_serves_with_requested_processes() -> None:
     assert serve_workers(2, "linux") == 2
 
 
-def test_served_app_leaves_startup_objects_out_of_gc() -> None:
+def test_served_app_leaves_startup_objects_out_of_gc(app, monkeypatch) -> None:
     # полная сборка мусора обходит только то, что создано после запуска: в CI паузы сборки по
-    # 150–250 мс попадали в замер зоны обзора (8.2, DWG3D-10, ADR-0010)
+    # 150–250 мс попадали в замер зоны обзора (8.2, DWG3D-10, ADR-0010). Приложение — уже
+    # собранное: второй create_app в одном процессе удвоил бы подписки модулей (R-013)
+    monkeypatch.setattr(main, "create_app", lambda: app)
     gc.unfreeze()
     try:
-        main.serve_app()
+        assert main.serve_app() is app
         assert gc.get_freeze_count() > 10_000
     finally:
         gc.unfreeze()
