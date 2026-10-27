@@ -7,6 +7,7 @@ import struct
 from app.core.db import transaction
 from app.modules.catalog.module import seed
 from tests.conftest import login, make_client
+from tests.test_inventory import document, kinds, post
 
 
 def seeded(admin) -> dict:  # type: ignore[no-untyped-def]
@@ -235,3 +236,78 @@ def test_base_catalog_comes_with_3d_models(admin) -> None:  # type: ignore[no-un
     with transaction() as s:
         assert seed_models(s) is None
     assert admin.get(f"/api/catalog/types/{couch['id']}").json()["model_url"] is None
+
+
+def with_records(admin):  # type: ignore[no-untyped-def]
+    """Типы учёта; по монитору (поштучно) — две единицы, по перчаткам (количеством) — остаток."""
+    k = kinds(admin)
+    wh = admin.post("/api/inventory/warehouses", json={"name": "Основной"}).json()
+    receipt = document(
+        admin,
+        "receipt",
+        {"to_place": wh["key"]},
+        [
+            {"type_id": k["монитор"]["id"], "qty": 2, "price": 14500},
+            {"type_id": k["перчатки"]["id"], "qty": 5, "price": 520},
+        ],
+    )
+    assert post(admin, receipt).status_code == 200
+    return k
+
+
+def accounting_of(admin, t) -> str:  # type: ignore[no-untyped-def]
+    return admin.get(f"/api/catalog/types/{t['id']}").json()["accounting"]
+
+
+def test_r024_accounting_kind_stays_while_the_type_has_records(admin) -> None:
+    """Вид учёта типа, по которому есть единицы или движения остатков, не меняется: поштучные
+    единицы остались бы у количественного типа, а остаток — у поштучного (5.2.2, R-024)."""
+    k = with_records(admin)
+
+    def change(t, **values):  # type: ignore[no-untyped-def]
+        version = admin.get(f"/api/catalog/types/{t['id']}").json()["version"]
+        return admin.patch(f"/api/catalog/types/{t['id']}", json={**values, "version": version})
+
+    for t, other in ((k["монитор"], "quantity"), (k["перчатки"], "piece")):
+        r = change(t, accounting=other)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "accounting_in_use", r.text
+        assert accounting_of(admin, t) == t["accounting"]
+    # тот же вид учёта вместе с другой правкой — сохраняется
+    r = change(k["монитор"], accounting="piece", life_months=72)
+    assert r.status_code == 200 and r.json()["life_months"] == 72, r.text
+    # по типу учёта нет — вид учёта меняется
+    r = change(k["экг"], accounting="quantity")
+    assert r.status_code == 200 and r.json()["accounting"] == "quantity", r.text
+
+
+def test_r024_catalog_import_keeps_accounting_kind(admin) -> None:
+    """Загрузка каталога тоже не меняет вид учёта типа, по которому есть учёт; пустой «Вид
+    учёта» у существующего типа — «не менять», а не «поштучно» (R-024)."""
+    from openpyxl import load_workbook
+
+    k = with_records(admin)
+    data = admin.get("/api/catalog/export.xlsx").content
+
+    def load(accounting: dict[str, str | None]) -> dict:  # type: ignore[type-arg]
+        wb = load_workbook(io.BytesIO(data))
+        ws = wb["Типы"]
+        col = [c.value for c in ws[1]].index("Вид учёта") + 1
+        for row in range(2, ws.max_row + 1):
+            if ws.cell(row, 1).value in accounting:
+                ws.cell(row, col).value = accounting[ws.cell(row, 1).value]
+        out = io.BytesIO()
+        wb.save(out)
+        return admin.post(
+            "/api/catalog/import",
+            params={"apply": True},
+            files={"file": ("каталог.xlsx", io.BytesIO(out.getvalue()))},
+        ).json()
+
+    r = load({k["монитор"]["name"]: "количеством"})
+    assert r["applied"] is False and r["errors"][0]["sheet"] == "Типы", r
+    assert "вид учёта" in r["errors"][0]["message"].lower(), r
+    assert accounting_of(admin, k["монитор"]) == "piece"
+
+    r = load({k["перчатки"]["name"]: None})
+    assert r["applied"] is True and r["errors"] == [], r
+    assert accounting_of(admin, k["перчатки"]) == "quantity"
