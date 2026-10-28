@@ -26,6 +26,7 @@ const SPEED = 1400; // мм/с
 interface Props {
   buildingId: string;
   floorId: string;
+  projectId: string | null; // режим проекта: другие этажи — тоже с изменениями проекта (R-053)
   floors: FloorInfo[];
   plan: Plan; // текущий этаж — с несохранёнными правками
   lifts: Lift[];
@@ -42,12 +43,19 @@ interface FloorData {
   slabs: Pt[][];
 }
 
-export default function View3D({ floorId, floors, plan, lifts, onWalker, walkRequest, store, cat, readOnly }: Props) {
+export default function View3D({ floorId, projectId, floors, plan, lifts, onWalker, walkRequest, store, cat, readOnly }: Props) {
   const others = useQueries({
     queries: floors.map((f) => ({ queryKey: ["plan", f.id], queryFn: () => get<PlanView>(`/api/floors/${f.id}/plan`), staleTime: 30_000 })),
   });
+  // ключ — свой, не как у редактора этажа: тот не обновляет кэш после правок, и только что
+  // правленный этаж показался бы здесь без них
   const otherItems = useQueries({
-    queries: floors.map((f) => ({ queryKey: ["items", f.id], queryFn: () => get<{ items: Item[] }>(`/api/floors/${f.id}/items`), staleTime: 30_000, enabled: f.id !== floorId })),
+    queries: floors.map((f) => ({
+      queryKey: ["items", f.id, "3d", projectId ?? ""],
+      queryFn: () => get<{ items: Item[] }>(projectId ? `/api/projects/${projectId}/floors/${f.id}` : `/api/floors/${f.id}/items`),
+      staleTime: 30_000,
+      enabled: f.id !== floorId,
+    })),
   });
   const items = useEditor(store, (s) => s.items);
   const hidden = useEditor(store, (s) => s.hiddenLayers);

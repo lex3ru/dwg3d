@@ -131,9 +131,12 @@ export function WalkBar({ store, cat, link, rooms, onRegister }: { store: Editor
                 <Link to={`?card=unit:${unit.id}`}>Карточка</Link>
               </Button>
             ) : (
-              <Button variant="primary" disabled={!unlinked.length} onClick={() => onRegister(unlinked.map((i) => i.id))}>
-                <PackagePlus /> На учёт
-              </Button>
+              // без учёта (режим проекта) ставить на учёт нечего — как в свойствах на компьютере
+              link && (
+                <Button variant="primary" disabled={!unlinked.length} onClick={() => onRegister(unlinked.map((i) => i.id))}>
+                  <PackagePlus /> На учёт
+                </Button>
+              )
             )}
           </div>
           <div className="flex gap-2">

@@ -4,7 +4,7 @@ import {
   Redo2, RectangleHorizontal, Ruler, Save, Scissors, Spline, Square, SquareDashed, Tag, Undo2, Wand2,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, api, get, patch, post } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -23,6 +23,7 @@ import { footprint, normAngle, warningsFor, type Item, type WarningCode } from "
 import { PlacePanel } from "./PlacePanel";
 import { useCalcs } from "./calc";
 import { LabelsOffer, RegisterDialog, RemoveDialog, useLink, useLinkInStore, type Registered } from "./link";
+import { floorUrl, groundFloor, rememberFloor } from "./floors";
 import { copyItems, requestRemove, toChanges, type Catalog } from "./placement";
 import { copy, paste, remove, type Clip } from "./ops";
 import { dist, type Check, type Lift, type Plan, type PlanView, type Pt } from "./plan";
@@ -54,6 +55,7 @@ const TOOLS: { tool: Tool; title: string; icon: typeof Square; key?: string }[] 
 
 export function EditorPage() {
   const { buildingId, floorId } = useParams();
+  const { search } = useLocation();
   const navigate = useNavigate();
   const building = useQuery({
     queryKey: ["building", buildingId],
@@ -67,21 +69,23 @@ export function EditorPage() {
     }
   }, [building.data]);
   useEffect(() => {
-    if (building.data && !floorId && building.data.floors.length) {
-      const ground = building.data.floors.find((f) => f.elevation >= 0) ?? building.data.floors[0]!;
-      navigate(`/plan/${buildingId}/${ground.id}`, { replace: true });
-    }
-  }, [building.data, floorId, buildingId, navigate]);
+    // адрес без этажа — первый надземный с тем же ?project=, ?view=… (R-054)
+    if (building.data && !floorId && building.data.floors.length) navigate(`/plan/${buildingId}/${groundFloor(building.data.floors)!.id}${search}`, { replace: true });
+  }, [building.data, floorId, buildingId, search, navigate]);
+  // «Открыть на плане» у проекта ведёт на последний открытый этаж (R-043)
+  useEffect(() => {
+    if (buildingId && floorId) rememberFloor(buildingId, floorId);
+  }, [buildingId, floorId]);
   if (building.isLoading) return <Loading />;
   if (!building.data) return <Empty title="Здание не найдено" />;
   if (!building.data.floors.length) {
     return <Empty title={`В здании «${building.data.name}» нет этажей`}>Добавьте этажи в «Управление › Здания».</Empty>;
   }
   if (!floorId) return <Loading />;
-  return <FloorEditor key={floorId} floorId={floorId} />;
+  return <FloorEditor key={floorId} buildingId={building.data.id} floorId={floorId} />;
 }
 
-function FloorEditor({ floorId }: { floorId: string }) {
+function FloorEditor({ buildingId, floorId }: { buildingId: string; floorId: string }) {
   const me = useMe();
   const readOnly = me.role !== "admin";
   const [params] = useSearchParams();
@@ -98,6 +102,18 @@ function FloorEditor({ floorId }: { floorId: string }) {
   const tree = useTree(true);
   if (view.isLoading || items.isLoading || tree.isLoading || (projectId && project.isLoading)) return <Loading />;
   if (!view.data) return <Empty title="Этаж не найден" />;
+  // проект не открылся — так и сказать: молча открыть расстановку значит править её (R-054)
+  if (projectId && (!project.data || items.isError)) {
+    const error = (project.error ?? items.error) as ApiError | null;
+    return (
+      <Empty title={error?.status === 404 ? "Проект не найден" : "Проект не открылся"}>
+        {error?.status === 404 ? "Его удалили или адрес неверный." : error?.message}{" "}
+        <Link to={`/plan/${buildingId}/${floorId}`} className="text-accent-ink">
+          Открыть этаж без проекта
+        </Link>
+      </Empty>
+    );
+  }
   return <Loaded key={projectId ?? "layout"} data={view.data} items={items.data?.items ?? []} removed={items.data?.removed ?? []} project={projectId ? (project.data ?? null) : null} tree={tree.data} readOnly={readOnly} />;
 }
 
@@ -557,7 +573,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           <select
             aria-label="Этаж"
             value={data.floor.id}
-            onChange={(e) => navigate(`/plan/${data.building.id}/${e.target.value}${mode !== "2d" ? `?view=${mode}` : ""}`)}
+            onChange={(e) => navigate(floorUrl(data.building.id, e.target.value, { project: project?.id, view: mode }))}
             className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm text-ink max-md:h-11"
           >
             {[...floors].reverse().map((f) => (
@@ -567,7 +583,8 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
             ))}
           </select>
         </label>
-        {!readOnly && (
+        {/* в проекте — нет: этаж добавился бы в настоящее здание, проект меняет только расстановку */}
+        {!readOnly && !project && (
           <Button size="sm" variant="ghost" onClick={() => setAddingFloor(true)} title="Добавить этаж">
             <Plus /> этаж
           </Button>
@@ -723,7 +740,8 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
                 warnings={warnings}
                 floorHeight={data.floor.height}
               />
-              {phone && !readOnly && editMode === "place" && cat && <WalkBar store={store} cat={cat} link={link.data} rooms={data.rooms} onRegister={setRegistering} />}
+              {/* в проекте учёта нет, как и на компьютере: «Карточка» (?card=…) ещё и вывела бы из проекта */}
+              {phone && !readOnly && editMode === "place" && cat && <WalkBar store={store} cat={cat} link={project ? undefined : link.data} rooms={data.rooms} onRegister={setRegistering} />}
               {lengthPrompt && <LengthPrompt at={lengthPrompt.at} onApply={lengthPrompt.apply} onCancel={() => setLengthPrompt(null)} />}
               {draft && (
                 <div className="absolute top-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-2.5 text-sm text-warn shadow">
@@ -744,7 +762,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           {show3d && (
             <div className="relative min-w-0 flex-1">
               <Suspense fallback={<Loading />}>
-                <View3D buildingId={data.building.id} floorId={data.floor.id} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
+                <View3D buildingId={data.building.id} floorId={data.floor.id} projectId={project?.id ?? null} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
               </Suspense>
             </div>
           )}
@@ -809,7 +827,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           client.invalidateQueries({ queryKey: ["building", data.building.id] });
           client.invalidateQueries({ queryKey: ["buildings"] });
           client.invalidateQueries({ queryKey: ["plan"] });
-          navigate(`/plan/${data.building.id}/${floor.id}${mode !== "2d" ? `?view=${mode}` : ""}`);
+          navigate(floorUrl(data.building.id, floor.id, { view: mode }));
         }}
       />
       <PrintDialog open={printing} onOpenChange={setPrinting} floorId={data.floor.id} unsaved={edits > 0 && !readOnly} />
