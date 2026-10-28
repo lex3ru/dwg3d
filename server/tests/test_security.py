@@ -227,7 +227,8 @@ def test_r018_viewer_gets_only_files_of_what_is_visible(admin, app) -> None:
 
 def test_r018_interface_page_allows_only_own_scripts(tmp_path, monkeypatch) -> None:
     """Страница интерфейса несёт Content-Security-Policy: скрипты — только свои, без
-    встроенных и eval; чужие сайты не встраивают её в рамку (R-018 п. 1)."""
+    встроенных и eval; объект — только PDF из blob: (метки в новой вкладке); чужие сайты не
+    встраивают её в рамку (R-018 п. 1)."""
     (tmp_path / "index.html").write_text("<!doctype html><title>Планировка</title>")
     monkeypatch.setattr(config(), "static_dir", tmp_path)
     bare = FastAPI()
@@ -239,5 +240,5 @@ def test_r018_interface_page_allows_only_own_scripts(tmp_path, monkeypatch) -> N
             assert policy.get("default-src") == ["'self'"], (path, header)
             assert "'self'" in policy.get("script-src", []), header
             assert not {"'unsafe-inline'", "'unsafe-eval'"} & set(policy["script-src"]), header
-            assert policy.get("object-src") == ["'none'"], header
+            assert policy.get("object-src") == ["blob:"], header
             assert policy.get("frame-ancestors") == ["'none'"], header

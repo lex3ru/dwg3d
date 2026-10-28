@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 2 (10.1): С1 «Здание из чертежа» — загрузка, разбиение на этажи, перевод.

@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "./fixtures";
 import { ADMIN, login, loginAdmin, PASSWORD, unique } from "./helpers";
 
 // Приёмка этапа 9 (10.1): инвентаризация с телефона (5.4.6, 6.5.8) — С18; «просмотр» (5.7.1)

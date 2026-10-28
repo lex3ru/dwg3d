@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { deflateSync } from "node:zlib";
 import { login, loginAdmin, unique } from "./helpers";
 

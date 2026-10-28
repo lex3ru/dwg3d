@@ -40,6 +40,14 @@ _SAFE = {"GET", "HEAD", "OPTIONS"}
 # объекты обходила бы каждая полная сборка (ADR-0010). В Windows нет Pango: PDF там не печатается
 REPORT_LIBS = ("openpyxl",) if sys.platform == "win32" else ("openpyxl", "weasyprint")
 PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
+# Страница интерфейса (R-018 п. 1): скрипты — только свои, без встроенных и eval; WebAssembly —
+# декодер сжатых 3D-моделей; blob: — подложки, картинки моделей и PDF меток в новой вкладке
+# (вкладка blob: наследует политику, и PDF в ней — «объект»); стили — и встроенные: их ставят
+# библиотеки окон и 3D. Другие сайты не встраивают страницу в рамку
+WEB_CSP = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; "
+           "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; "
+           "connect-src 'self' blob: data:; worker-src 'self' blob:; media-src 'self' blob:; "
+           "object-src blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 # Swagger грузит скрипт и стили с CDN и запускается встроенным скриптом — его странице своя
 # политика; она открыта только администратору (R-018 п. 1, 2)
 DOCS_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -265,4 +273,5 @@ def _mount_web(app: FastAPI) -> None:
         candidate = (root / path).resolve()
         if path and candidate.is_file() and root.resolve() in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        return FileResponse(index, headers={"Cache-Control": "no-cache",
+                                            "Content-Security-Policy": WEB_CSP})

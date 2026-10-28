@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 import { xlsx } from "./xlsx";
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // 8.2: план этажа открывается за 2 с, 3D-вид — за 3 с. Нужно здание E2E_PERF_BUILDING

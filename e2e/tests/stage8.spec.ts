@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 8 (10.1): проекты — создание, правка в редакторе без изменения расстановки,
