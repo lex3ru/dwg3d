@@ -4,7 +4,7 @@ title: "Безопасность: стоимость для «просмотра
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-14-bezopasnost
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/14
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/a6bb347d-b24c-4932-a96c-16399e99b40d
 updated: 2026-10-28
 ---
