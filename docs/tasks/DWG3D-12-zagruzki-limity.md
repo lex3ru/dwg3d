@@ -4,7 +4,7 @@ title: "Загрузки и фоновые задачи: лимиты, тяжё�
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-12-zagruzki-limity
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/12
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/8ff005d3-e71b-4b93-86ad-a51e0cb6e459
 updated: 2026-10-28
 ---
