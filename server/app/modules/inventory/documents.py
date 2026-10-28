@@ -127,7 +127,16 @@ def _date(value: Any) -> date:
         raise AppError("Дата — в виде ГГГГ-ММ-ДД.", field="date") from None
 
 
-def create_document(session: Session, actor: Actor, kind: str, header: dict[str, Any]) -> Document:
+def new_draft(
+    session: Session,
+    actor: Actor,
+    kind: str,
+    header: dict[str, Any],
+    lines: list[dict[str, Any]] | None = None,
+) -> Document:
+    """Черновик без записи журнала — для того, что тут же его проводит (загрузка из Excel,
+    перенос здания, отмена, инвентаризация): изменение данных — это проведение, его запись и
+    будет в журнале (9.2 п. 3). Черновик, который правит человек, — create_document."""
     admin(actor)
     if kind not in KINDS:
         raise AppError("Неизвестный вид документа.", field="kind")
@@ -154,7 +163,47 @@ def create_document(session: Session, actor: Actor, kind: str, header: dict[str,
     session.add(doc)
     _header(doc, header)
     session.flush()
+    if lines:
+        _lines(session, doc, lines)
     return doc
+
+
+def create_document(
+    session: Session,
+    actor: Actor,
+    kind: str,
+    header: dict[str, Any],
+    lines: list[dict[str, Any]] | None = None,
+) -> Document:
+    doc = new_draft(session, actor, kind, header, lines)
+    journal.record(
+        session,
+        actor,
+        "inventory.document_create",
+        f"Создан черновик «{doc_title(doc.kind, doc.number)}»",
+        entity=f"document:{doc.id}",
+        refs=draft_refs(session, actor, doc),
+    )
+    return doc
+
+
+def draft_refs(session: Session, actor: Actor, doc: Document) -> list[str]:
+    """Ссылки записи о черновике: места документа, их этажи и здания, его единицы (5.7.3)."""
+    units = [line.unit_id for line in lines_of(session, doc) if line.unit_id]
+    return [
+        *Places(session, actor).refs(sorted(doc_places(session, doc))),
+        *[f"unit:{u}" for u in units],
+    ]
+
+
+def _draft(session: Session, actor: Actor, doc: Document) -> dict[str, Any]:
+    """Шапка и число строк черновика — для «было / стало» в журнале; места — названиями."""
+    places = Places(session, actor)
+    header = {k: getattr(doc, k) for k in HEADER_FIELDS}
+    for k in ("from_place", "to_place"):
+        header[k] = places.title(header[k]) or None
+    lines = session.scalar(select(func.count()).where(DocLine.document_id == doc.id))
+    return {**header, "lines": lines}
 
 
 # Разбор шапки и строк из запроса: неразборчивое значение — ошибка с полем и подсказкой, а
@@ -230,7 +279,7 @@ def _header(doc: Document, header: dict[str, Any]) -> None:
             raise AppError(f"{HEADER_HINTS[k]}.", field=k) from None
 
 
-def update_document(
+def edit_draft(
     session: Session,
     actor: Actor,
     doc_id: uuid.UUID,
@@ -238,6 +287,8 @@ def update_document(
     header: dict[str, Any],
     lines: list[dict[str, Any]] | None,
 ) -> Document:
+    """Правка черновика без записи журнала — для того, что тут же его проводит (как
+    new_draft). Правка человеком — update_document."""
     doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Проведённый документ не правится — его можно только отменить.")
@@ -248,10 +299,40 @@ def update_document(
         for old in session.scalars(select(DocLine).where(DocLine.document_id == doc.id)):
             session.delete(old)
         session.flush()
-        for i, raw in enumerate(lines):
-            session.add(_line(doc, i, raw))
+        _lines(session, doc, lines)
     doc.version += 1
     session.flush()
+    return doc
+
+
+def _lines(session: Session, doc: Document, lines: list[dict[str, Any]]) -> None:
+    for i, raw in enumerate(lines):
+        session.add(_line(doc, i, raw))
+    session.flush()
+
+
+def update_document(
+    session: Session,
+    actor: Actor,
+    doc_id: uuid.UUID,
+    version: int,
+    header: dict[str, Any],
+    lines: list[dict[str, Any]] | None,
+) -> Document:
+    doc = get_document(session, actor, doc_id, for_update=True)
+    was, refs = _draft(session, actor, doc), draft_refs(session, actor, doc)
+    doc = edit_draft(session, actor, doc_id, version, header, lines)
+    before, after = journal.changes(was, _draft(session, actor, doc))
+    journal.record(
+        session,
+        actor,
+        "inventory.document_update",
+        f"Изменён черновик «{doc_title(doc.kind, doc.number)}»",
+        entity=f"document:{doc.id}",
+        refs=[*refs, *draft_refs(session, actor, doc)],
+        before=before,
+        after=after,
+    )
     return doc
 
 
@@ -325,6 +406,15 @@ def delete_draft(session: Session, actor: Actor, doc_id: uuid.UUID) -> None:
     doc = get_document(session, actor, doc_id, for_update=True)
     if doc.status != "draft":
         raise Conflict("Удалить можно только черновик; проведённый документ отменяется.")
+    journal.record(
+        session,
+        actor,
+        "inventory.document_delete",
+        f"Удалён черновик «{doc_title(doc.kind, doc.number)}»",
+        entity=f"document:{doc.id}",
+        refs=draft_refs(session, actor, doc),
+        before=_draft(session, actor, doc),
+    )
     session.delete(doc)
 
 
@@ -807,6 +897,7 @@ def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Doc
         raise AppError("В документе нет строк.")
     if doc.kind == "repair" and doc.repair == "send" and not doc.contractor.strip():
         raise AppError("Укажите, кто ремонтирует.", field="contractor")
+    places = doc_places(session, doc)  # до проведения: откуда ушли единицы
     p = Posting(session, actor, doc)
     act = {
         "opening": p.new_items,
@@ -836,14 +927,23 @@ def post(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) -> Doc
     doc.posted_at = datetime.now(UTC)
     doc.posted_by = actor.full_name
     doc.version += 1
-    _journal(session, actor, doc, p, "inventory.document_post", "Проведён")
+    _journal(session, actor, doc, p, places, "inventory.document_post", "Проведён")
     _units_changed(session, actor, p.units)
     return doc
 
 
 def _journal(
-    session: Session, actor: Actor, doc: Document, p: Posting, action: str, verb: str
+    session: Session,
+    actor: Actor,
+    doc: Document,
+    p: Posting,
+    places: set[str],
+    action: str,
+    verb: str,
 ) -> None:
+    """Запись о проведении или отмене. Ссылки — места до и после, их этажи и здания, единицы:
+    документ найдётся в лентах помещения, этажа, здания (5.7.3) и дойдёт до «просмотра»
+    этих зданий (R-012)."""
     parts = []
     units = [*p.created, *p.units]
     if units:
@@ -855,7 +955,7 @@ def _journal(
     where = " → ".join(
         t for t in (p.places.title(doc.from_place), p.places.title(doc.to_place)) if t
     )
-    rooms = {u.place for u in units} | {doc.from_place or "", doc.to_place or ""}
+    keys = places | {u.place for u in units} | {doc.from_place, doc.to_place}
     journal.record(
         session,
         actor,
@@ -864,11 +964,7 @@ def _journal(
         + (f" ({where})" if where else "")
         + (": " + ", ".join(parts) if parts else ""),
         entity=f"document:{doc.id}",
-        refs=[
-            *[f"room:{k[2:]}" for k in rooms if k.startswith("r:")],
-            *[f"warehouse:{k[2:]}" for k in rooms if k.startswith("w:")],
-            *[f"unit:{u.id}" for u in units],
-        ],
+        refs=[*p.places.refs(sorted(k for k in keys if k)), *[f"unit:{u.id}" for u in units]],
     )
 
 
@@ -883,6 +979,7 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
         raise Conflict("Отменить можно только проведённый документ.")
     if doc.cancels_id:
         raise Conflict("Это уже обратный документ — отмену не отменяют.")
+    places = doc_places(session, doc)  # до отмены: где единицы сейчас
     today = date.today()
     events = list(
         session.scalars(
@@ -921,7 +1018,7 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
         previous[e.unit_id] = before[-1] if before else None
     if problems:
         raise AppError("Отменить нельзя: " + "; ".join(problems[:5]), code="cannot_cancel")
-    back = create_document(session, actor, doc.kind, {})
+    back = new_draft(session, actor, doc.kind, {})
     back.status, back.date, back.cancels_id = "posted", today, doc.id
     back.from_place, back.to_place = doc.to_place, doc.from_place
     back.basis = f"Отмена «{doc_title(doc.kind, doc.number)}»"
@@ -1001,7 +1098,7 @@ def cancel(session: Session, actor: Actor, doc_id: uuid.UUID) -> Document:
     doc.status = "cancelled"
     doc.cancelled_by_id = back.id
     doc.version += 1
-    _journal(session, actor, doc, p, "inventory.document_cancel", "Отменён")
+    _journal(session, actor, doc, p, places, "inventory.document_cancel", "Отменён")
     _units_changed(session, actor, p.units)
     return back
 
@@ -1180,9 +1277,19 @@ def documents(
     return out
 
 
-def attach_file(session: Session, actor: Actor, doc_id: uuid.UUID, file_id: uuid.UUID) -> None:
+def attach_file(
+    session: Session, actor: Actor, doc_id: uuid.UUID, file_id: uuid.UUID, name: str
+) -> None:
     doc = get_document(session, actor, doc_id)
     session.add(DocFile(id=uuid.uuid4(), document_id=doc.id, file_id=file_id))
+    journal.record(
+        session,
+        actor,
+        "inventory.document_file",
+        f"«{doc_title(doc.kind, doc.number)}»: файл «{name}»",
+        entity=f"document:{doc.id}",
+        refs=[f"file:{file_id}"],
+    )
 
 
 # ---------------------------------------------------------------- остатки (5.4.3)

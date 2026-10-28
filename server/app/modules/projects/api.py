@@ -461,6 +461,18 @@ def change_floor(
         touched.add(str(iid))
     p.updated_at = datetime.now(UTC)
     session.flush()
+    # в журнал проекта, этажа и здания (9.2 п. 3, R-011); в историю предметов — нет: их
+    # расстановка не менялась
+    counts = (("поставлено", len(create)), ("изменено", len(update)), ("убрано", len(delete)))
+    journal.record(
+        session,
+        actor,
+        "project.change",
+        f"Проект «{p.name}», «{floor.name}»: "
+        + (", ".join(f"{what} {n}" for what, n in counts if n) or "без изменений"),
+        entity=f"project:{p.id}",
+        refs=[f"building:{p.building_id}", f"floor:{floor.id}"],
+    )
     state = floor_state(session, actor, p, floor.id)
     return {
         "items": [i for i in state["items"] if i["id"] in touched],

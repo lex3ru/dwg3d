@@ -34,6 +34,7 @@ from app.modules.inventory.places import (
 )
 from app.modules.inventory.rules import doc_title, residual
 from app.modules.inventory.units import title_of, visible
+from app.modules.journal import api as journal
 
 __all__ = ["on_units_changed", "places_check", "room_key", "room_property"]
 from app.modules.system import api as system
@@ -115,7 +116,8 @@ def rooms_continued(
     session: Session, actor: Actor, continued: dict[uuid.UUID, uuid.UUID | None]
 ) -> None:
     """Помещения объединили или убрали (5.1.6 п. 3): единицы и остатки — к продолжающему
-    помещению или к выбранному администратором (R-023)."""
+    помещению или к выбранному администратором (R-023). Перенос — в журнале помещений и
+    единиц, с тем, кто сохранил план (9.2 п. 3, R-011)."""
     if not any(continued.values()):
         return
     docs.lock(session)  # остатки переносятся целиком — расход в это время ждёт (ADR-0003)
@@ -126,7 +128,9 @@ def rooms_continued(
             continue
         src, dst = room_key(old), room_key(new)
         target = places.get(dst)
-        for unit in session.scalars(select(Unit).where(Unit.place == src)):
+        units = list(session.scalars(select(Unit).where(Unit.place == src)))
+        stock = 0
+        for unit in units:
             unit.place, unit.building_id, unit.floor_id = dst, target.building_id, target.floor_id
             unit.version += 1
             session.add(
@@ -157,6 +161,7 @@ def rooms_continued(
         for type_id, model_id, qty, amount in rows:
             if not qty:
                 continue
+            stock += 1
             for place, sign in ((src, -1), (dst, 1)):
                 session.add(
                     StockMove(
@@ -172,6 +177,17 @@ def rooms_continued(
                         amount=Decimal(amount) * sign,
                     )
                 )
+        if units or stock:
+            journal.record(
+                session,
+                actor,
+                "inventory.room_merge",
+                f"Имущество «{places.get(src).short}» перенесено в «{target.short}» — "
+                f"помещение убрано при сохранении плана: единиц {len(units)}, "
+                f"остатков {stock}",
+                entity=f"room:{old}",
+                refs=[*places.refs([src, dst]), *[f"unit:{u.id}" for u in units]],
+            )
 
 
 def building_guard(session: Session, building_id: uuid.UUID) -> None:
@@ -351,8 +367,7 @@ def post_document(
 ) -> Document:
     """Составить документ и сразу провести (целиком или никак, 5.4.4)."""
     admin(actor)
-    doc = docs.create_document(session, actor, kind, header)
-    doc = docs.update_document(session, actor, doc.id, doc.version, {}, lines)
+    doc = docs.new_draft(session, actor, kind, header, lines)
     return docs.post(session, actor, doc.id, doc.version)
 
 

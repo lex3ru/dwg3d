@@ -110,7 +110,7 @@ def create_count(
         known.get(k)  # проверяет, что место есть и доступно
     if not keys:
         raise AppError("Выберите места: этаж, помещения или склад.", field="places")
-    doc = docs.create_document(session, actor, "inventory", {})
+    doc = docs.new_draft(session, actor, "inventory", {})
     for k in keys:
         session.add(CountPlace(document_id=doc.id, place=k))
     session.flush()
@@ -120,6 +120,7 @@ def create_count(
         "inventory.count_create",
         f"Начата «{doc_title(doc.kind, doc.number)}»: мест {len(keys)}",
         entity=f"document:{doc.id}",
+        refs=known.refs(keys),
     )
     return doc
 
@@ -523,7 +524,7 @@ def post_count(session: Session, actor: Actor, doc_id: uuid.UUID, version: int) 
             lines.append({**position, "qty": -diff, "from_place": place, "reason": "недостача"})
     if not lines:
         lines.append({"note": "расхождений нет", "reason": "без расхождений"})
-    doc = docs.update_document(session, actor, doc.id, doc.version, {"date": date.today()}, lines)
+    doc = docs.edit_draft(session, actor, doc.id, doc.version, {"date": date.today()}, lines)
     return docs.post(session, actor, doc.id, doc.version)
 
 

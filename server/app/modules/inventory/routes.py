@@ -369,9 +369,7 @@ class DocIn(BaseModel):
 
 @router.post("/documents", status_code=201)
 def create_document(body: DocIn, actor: Admin, session: DB) -> dict[str, Any]:
-    doc = documents.create_document(session, actor, body.kind or "", body.header)
-    if body.lines:
-        doc = documents.update_document(session, actor, doc.id, doc.version, {}, body.lines)
+    doc = documents.create_document(session, actor, body.kind or "", body.header, body.lines)
     return documents.doc_view(session, actor, doc)
 
 
@@ -430,7 +428,7 @@ def document_file(
         {"pdf", "jpeg", "png", "webp", "heic"},
         file.limit,
     )
-    documents.attach_file(session, actor, doc_id, record.id)
+    documents.attach_file(session, actor, doc_id, record.id, record.name)
     return documents.doc_view(session, actor, documents.get_document(session, actor, doc_id))
 
 

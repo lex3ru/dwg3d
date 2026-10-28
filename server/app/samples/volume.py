@@ -96,8 +96,7 @@ def _items(
 def _post(
     session: Session, actor: Actor, kind: str, header: dict[str, Any], lines: list[dict[str, Any]]
 ) -> Any:
-    doc = documents.create_document(session, actor, kind, header)
-    doc = documents.update_document(session, actor, doc.id, doc.version, {}, lines)
+    doc = documents.new_draft(session, actor, kind, header, lines)
     return documents.post(session, actor, doc.id, doc.version)
 
 

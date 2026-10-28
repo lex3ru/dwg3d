@@ -21,10 +21,12 @@ os.environ["APP_STATIC_DIR"] = "/nonexistent"
 os.environ["APP_DATA_DIR"] = tempfile.mkdtemp(prefix="app-data-")
 os.environ.setdefault("APP_BACKUP_DIR", "/nonexistent-backups")
 
+from fastapi import Request  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import event, text  # noqa: E402
+from sqlalchemy.orm import ORMExecuteState, Session  # noqa: E402
 
-from app.core.db import transaction  # noqa: E402
+from app.core.db import get_session, transaction  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.modules.access import api as access  # noqa: E402
 
@@ -59,9 +61,75 @@ def clean() -> Iterator[None]:
                        "core.job, core.schedule_run, core.worker_beat, system.setting CASCADE"))
 
 
+# ---------------------------------------------------------------- страж журнала (R-011)
+
+# Каждое изменение данных пишет запись журнала в той же транзакции (9.2 п. 3). Страж следит за
+# транзакциями запросов всех тестов: изменила таблицы — должна записать и журнал. Здесь —
+# таблицы, правка которых не изменение данных, и почему.
+NOT_DATA = {
+    "access.login_session": "сеанс: вход и выход пишутся сами, остальное — отметка «был»",
+    "core.job": "очередь фоновых задач; что изменит задача, она запишет сама",
+    "files.file": "файл до привязки: в журнал — то, к чему его привязали",
+    # отметки обхода хранят автора и время сами; итог инвентаризации — в записи о проведении
+    "inventory.count_mark": "отметка обхода",
+    "inventory.count_extra": "найденное сверх ведомости",
+    "inventory.count_stock": "пересчёт количества",
+    "inventory.count_device": "номер последней отметки устройства — от повторов (ADR-0006)",
+}
+unjournaled: list[str] = []
+
+
+def _touched(session: Session, table: str) -> None:
+    session.info.setdefault("touched", set()).add(table)
+
+
+@event.listens_for(Session, "after_flush")
+def _flushed(session: Session, _: object) -> None:
+    if "request" in session.info:
+        for obj in [*session.new, *session.deleted,
+                    *(o for o in session.dirty if session.is_modified(o))]:
+            _touched(session, obj.__table__.fullname)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _executed(state: ORMExecuteState) -> None:
+    if "request" in state.session.info and (state.is_insert or state.is_update
+                                            or state.is_delete):
+        _touched(state.session, state.statement.table.fullname)  # type: ignore[attr-defined]
+
+
+@event.listens_for(Session, "after_commit")
+def _committed(session: Session) -> None:
+    if session.in_nested_transaction():
+        return  # точка сохранения (проведение документа) — запись журнала будет дальше
+    touched = session.info.pop("touched", set())
+    if "journal.entry" not in touched and (data := touched - NOT_DATA.keys()):
+        unjournaled.append(f"{session.info['request']}: {', '.join(sorted(data))}")
+
+
+@event.listens_for(Session, "after_rollback")
+def _rolled_back(session: Session) -> None:
+    session.info.pop("touched", None)
+
+
+def _request_session(request: Request) -> Iterator[Session]:
+    with transaction() as session:
+        session.info["request"] = f"{request.method} {request.url.path}"
+        yield session
+
+
+@pytest.fixture(autouse=True)
+def journaled() -> Iterator[None]:
+    unjournaled.clear()
+    yield
+    assert not unjournaled, "изменение без записи журнала (9.2 п. 3): " + "; ".join(unjournaled)
+
+
 @pytest.fixture(scope="session")
 def app():  # type: ignore[no-untyped-def]
-    return create_app()
+    app = create_app()
+    app.dependency_overrides[get_session] = _request_session
+    return app
 
 
 def make_client(app) -> TestClient:  # type: ignore[no-untyped-def]
