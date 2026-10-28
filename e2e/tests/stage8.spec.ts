@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { loginAdmin, unique } from "./helpers";
 
@@ -6,10 +7,9 @@ import { loginAdmin, unique } from "./helpers";
 
 const H = { "X-Requested-With": "app" };
 
-// Этаж: кабинеты 301 и 302 рядом, коридор вдоль них
-async function floorWithRooms(page: Page) {
-  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name: unique("Проекты-") } })).json();
-  const floor = await (await page.request.post(`/api/buildings/${b.id}/floors`, { headers: H, data: { name: "3 этаж" } })).json();
+// Этаж: кабинеты N01 и N02 рядом, коридор вдоль них (N — номер этажа)
+async function addFloor(page: Page, building: string, n: number) {
+  const floor = await (await page.request.post(`/api/buildings/${building}/floors`, { headers: H, data: { name: `${n} этаж` } })).json();
   const wall = (id: string, a: string, z: string, thickness = 300, kind = "bearing") => ({ id, a, b: z, thickness, kind });
   const saved = await page.request.put(`/api/floors/${floor.id}/plan`, {
     headers: H,
@@ -26,16 +26,30 @@ async function floorWithRooms(page: Page) {
           { id: "o2", wall: "p2", kind: "door", at: 1500, width: 900, height: 2100 },
         ],
         rooms: [
-          { id: "new-1", x: 3000, y: 4000, number: "301", name: "Кабинет" },
-          { id: "new-2", x: 9000, y: 4000, number: "302", name: "Кабинет" },
-          { id: "new-3", x: 6000, y: 1000, number: "3К", name: "Коридор" },
+          { id: "new-1", x: 3000, y: 4000, number: `${n}01`, name: "Кабинет" },
+          { id: "new-2", x: 9000, y: 4000, number: `${n}02`, name: "Кабинет" },
+          { id: "new-3", x: 6000, y: 1000, number: `${n}К`, name: "Коридор" },
         ],
       },
     },
   });
   expect(saved.ok()).toBeTruthy();
   const rooms = Object.fromEntries((await saved.json()).rooms.map((r: { number: string; id: string }) => [r.number, r.id])) as Record<string, string>;
-  return { building: b.id as string, name: b.name as string, floor: floor.id as string, rooms };
+  return { floor: floor.id as string, rooms };
+}
+
+async function floorWithRooms(page: Page) {
+  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name: unique("Проекты-") } })).json();
+  return { building: b.id as string, name: b.name as string, ...(await addFloor(page, b.id, 3)) };
+}
+
+// Здание из двух этажей и проект без изменений
+async function twoFloorsAndProject(page: Page) {
+  const b = await (await page.request.post("/api/buildings", { headers: H, data: { name: unique("Режим проекта-") } })).json();
+  const first = await addFloor(page, b.id, 1);
+  const second = await addFloor(page, b.id, 2);
+  const project = await (await page.request.post("/api/projects", { headers: H, data: { building_id: b.id, name: unique("Проект ") } })).json();
+  return { building: b.id as string, first: first.floor, second: second.floor, project: project.id as string };
 }
 
 async function typeId(page: Page, name: string): Promise<string> {
@@ -68,6 +82,15 @@ async function layout(page: Page, floor: string): Promise<Item[]> {
   return (await (await page.request.get(`/api/floors/${floor}/items`)).json()).items;
 }
 
+// поставить тип из каталога щелчком в точку плана (мм)
+async function place(page: Page, name: string, x: number, y: number) {
+  await page.getByRole("tab", { name: "Каталог" }).click();
+  await page.getByLabel("Поиск в каталоге").fill(name);
+  await page.getByRole("list", { name: "Типы для расстановки" }).getByRole("button", { name }).first().click();
+  const p = await screen(page, x, y);
+  await page.mouse.click(p.x, p.y);
+}
+
 test("С9: проект оснащения — правка на плане, сравнение, смета, PDF, применение с выдачей со склада", async ({ page }) => {
   await loginAdmin(page);
   const f = await floorWithRooms(page);
@@ -98,15 +121,8 @@ test("С9: проект оснащения — правка на плане, с�
   await expect(page.getByRole("tab", { name: "Строительство" })).toBeHidden();
   await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
   await page.waitForTimeout(300);
-  const place = async (name: string, x: number, y: number) => {
-    await page.getByRole("tab", { name: "Каталог" }).click();
-    await page.getByLabel("Поиск в каталоге").fill(name);
-    await page.getByRole("list", { name: "Типы для расстановки" }).getByRole("button", { name }).first().click();
-    const p = await screen(page, x, y);
-    await page.mouse.click(p.x, p.y);
-  };
-  await place("Кушетка смотровая", 1500, 3500);
-  await place("Стол процедурный", 4500, 3500);
+  await place(page, "Кушетка смотровая", 1500, 3500);
+  await place(page, "Стол процедурный", 4500, 3500);
   const d = await screen(page, 3000, 4500);
   await page.mouse.click(d.x, d.y);
   await expect(page.getByRole("heading", { name: "Стол письменный 1200×600" })).toBeVisible();
@@ -161,4 +177,90 @@ test("С9: проект оснащения — правка на плане, с�
   expect(after.find((i) => i.type_id === table)!.params).toEqual({ "project.buy": true });
   const unit = await (await page.request.get(`/api/inventory/units/${placed.unit_id}`)).json();
   expect(unit.place.key).toBe(`r:${f.rooms["301"]}`);
+});
+
+// Из режима проекта нельзя выйти незаметно (5.3.6 п. 2, 6.5.2): иначе правки идут в настоящую
+// расстановку, а перенос связанного предмета проводит «Перемещение» в учёте
+
+test("Режим проекта: смена этажа не выходит из проекта, вид сохраняется (R-042)", async ({ page }) => {
+  await loginAdmin(page);
+  const t = await twoFloorsAndProject(page);
+  await page.goto(`/plan/${t.building}/${t.first}?project=${t.project}`);
+  const banner = page.getByRole("status", { name: "Режим проекта" });
+  await expect(banner).toBeVisible();
+  await page.getByRole("radiogroup", { name: "Вид" }).getByRole("radio", { name: "оба" }).click();
+  await page.getByLabel("Этаж", { exact: true }).selectOption({ label: "2 этаж" });
+  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.second}\?`));
+  // тот же проект и тот же вид
+  await expect(banner).toBeVisible();
+  const url = new URL(page.url());
+  expect(url.searchParams.get("project")).toBe(t.project);
+  expect(url.searchParams.get("view")).toBe("both");
+  // правка на другом этаже — в проект, расстановка не тронута
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await page.waitForTimeout(300);
+  await place(page, "Стол письменный 1200×600", 3000, 4000);
+  await expect.poll(async () => (await page.request.get(`/api/projects/${t.project}`).then((x) => x.json())).changes).toBe(1);
+  expect(await layout(page, t.second)).toHaveLength(0);
+});
+
+test("«Открыть на плане»: без изменений — последний открытый этаж, с изменениями — этаж изменений (R-043)", async ({ page }) => {
+  await loginAdmin(page);
+  const t = await twoFloorsAndProject(page);
+  const open = async () => {
+    await page.goto(`/projects/${t.project}`);
+    await page.getByRole("link", { name: "Открыть на плане" }).click();
+    await expect(page.getByRole("status", { name: "Режим проекта" })).toBeVisible();
+  };
+  const at = (floor: string) => new RegExp(`/plan/${t.building}/${floor}\?project=${t.project}`);
+  // новый проект: человек работал на 2 этаже — туда же
+  await page.goto(`/plan/${t.building}/${t.second}`);
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await open();
+  await expect(page).toHaveURL(at(t.second));
+  // изменения только на 1 этаже — на 1-й, хотя последним открыт 2-й
+  const desk = await typeId(page, "Стол письменный 1200×600");
+  const change = (floor: string) => page.request.post(`/api/projects/${t.project}/floors/${floor}/changes`, { headers: H, data: { create: [{ type_id: desk, x: 3000, y: 4000 }] } });
+  expect((await change(t.first)).ok()).toBeTruthy();
+  await open();
+  await expect(page).toHaveURL(at(t.first));
+  // изменения на обоих — на последнем открытом из них
+  expect((await change(t.second)).ok()).toBeTruthy();
+  await page.goto(`/plan/${t.building}/${t.second}`);
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await open();
+  await expect(page).toHaveURL(at(t.second));
+});
+
+test("Режим проекта не теряется молча: адрес без этажа, «+ этаж», проект не открылся (R-054)", async ({ page }) => {
+  await loginAdmin(page);
+  const t = await twoFloorsAndProject(page);
+  // адрес без этажа — первый этаж в том же проекте
+  await page.goto(`/plan/${t.building}?project=${t.project}`);
+  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.first}\?project=${t.project}`));
+  await expect(page.getByRole("status", { name: "Режим проекта" })).toBeVisible();
+  // «+ этаж» добавил бы этаж в настоящее здание: в проекте его нет, как и «Строительства»
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await expect(page.getByTitle("Добавить этаж")).toBeHidden();
+  // проект не открылся — так и сказано, расстановка вместо него не открывается
+  await page.goto(`/plan/${t.building}/${t.first}?project=${randomUUID()}`);
+  await expect(page.getByText("Проект не найден")).toBeVisible();
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeHidden();
+});
+
+test("3D в режиме проекта: другие этажи — из проекта, а не из расстановки (R-053)", async ({ page }) => {
+  await loginAdmin(page);
+  const t = await twoFloorsAndProject(page);
+  const desk = await typeId(page, "Стол письменный 1200×600");
+  await page.request.post(`/api/projects/${t.project}/floors/${t.first}/changes`, { headers: H, data: { create: [{ type_id: desk, x: 3000, y: 4000 }] } });
+  const asIs: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes(`/api/floors/${t.first}/items`)) asIs.push(r.url());
+  });
+  // 2 этаж в 3D показывает и 1-й под ним — с изменениями проекта
+  const fromProject = page.waitForResponse((r) => r.url().includes(`/api/projects/${t.project}/floors/${t.first}`) && r.ok(), { timeout: 10_000 });
+  await page.goto(`/plan/${t.building}/${t.second}?project=${t.project}&view=3d`);
+  await expect(page.locator("canvas")).toBeVisible();
+  await fromProject;
+  expect(asIs).toEqual([]);
 });
