@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, FileDown, FileUp, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, FileDown, FileUp, History, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError, api, get, patch, post, query } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
+import { placeJournalUrl } from "@/lib/journal";
 import type { FloorInfo } from "@/editor/plan";
 import { DrawingsSection } from "./Drawings";
 import { TransferImportDialog } from "./Transfer";
@@ -123,6 +124,11 @@ function BuildingCard({ id }: { id: string }) {
           <Button size="sm" onClick={() => setEditing(true)}>
             <Pencil /> Переименовать
           </Button>
+          <Button size="sm" asChild>
+            <Link to={placeJournalUrl(b.id)}>
+              <History /> Журнал
+            </Link>
+          </Button>
           <Button size="sm" variant="primary" onClick={() => setFloorDialog("new")}>
             <Plus /> Добавить этаж
           </Button>
@@ -180,6 +186,11 @@ function BuildingCard({ id }: { id: string }) {
                       </Button>
                       <Button size="sm" variant="ghost" aria-label={`Изменить ${f.name}`} onClick={() => setFloorDialog(f)}>
                         <Pencil />
+                      </Button>
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link to={placeJournalUrl(b.id, f.id)} aria-label={`Журнал: ${f.name}`} title="Журнал этажа">
+                          <History />
+                        </Link>
                       </Button>
                       {!f.walls && !f.rooms && (
                         <Button size="sm" variant="ghost" aria-label={`Удалить ${f.name}`} onClick={() => act.mutate(() => api("DELETE", `/api/floors/${f.id}`))}>

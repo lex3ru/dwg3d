@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Plus, Printer, QrCode, Save, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, History, Plus, Printer, QrCode, Save, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import type { TypeFull } from "@/catalog/types";
 import { ApiError, api, get, post, put } from "@/lib/api";
+import { journalUrl } from "@/lib/journal";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
 import { PageBody } from "@/shell/Shell";
@@ -167,6 +168,11 @@ function Editor({ doc }: { doc: Doc }) {
           <a href={`/api/inventory/documents/${doc.id}/print.pdf`} target="_blank" rel="noreferrer">
             <Printer /> Печать
           </a>
+        </Button>
+        <Button asChild>
+          <Link to={journalUrl(`document:${doc.id}`, doc.title)}>
+            <History /> Журнал
+          </Link>
         </Button>
         {doc.status === "posted" && !doc.cancels_id && (
           <Button variant="danger" onClick={() => setConfirm("cancel")}>
