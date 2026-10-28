@@ -5,6 +5,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,11 @@ import ezdxf
 from ezdxf import recover
 from ezdxf.entities import DXFGraphic
 
+from app.core.config import config
 from app.core.errors import AppError
+
+if sys.platform != "win32":
+    import resource  # до запуска dwg2dxf: в preexec_fn импорт может ждать блокировку
 
 Pt = tuple[float, float]
 
@@ -100,6 +105,21 @@ def dwg2dxf() -> str | None:
     return found if found and Path(found).exists() else None
 
 
+# процессорного времени dwg2dxf, с — не дольше разбора чертежа (15 мин, ADR-0011)
+DWG2DXF_SECONDS = 900
+
+
+def _limits(memory: int) -> None:
+    """В процессе dwg2dxf до запуска (Linux): память в байтах и процессорное время — кривой
+    или злонамеренный файл не съест память обработчика (R-017). Только setrlimit: до exec в
+    процессе с потоками нельзя ничего, что ждёт блокировку."""
+    for kind, value in ((resource.RLIMIT_AS, memory), (resource.RLIMIT_CPU, DWG2DXF_SECONDS)):
+        hard = resource.getrlimit(kind)[1]
+        if hard != resource.RLIM_INFINITY:
+            value = min(value, hard)
+        resource.setrlimit(kind, (value, value))
+
+
 def to_dxf(path: Path, workdir: Path) -> Path:
     """DXF как есть; DWG — через LibreDWG."""
     with open(path, "rb") as f:
@@ -113,12 +133,16 @@ def to_dxf(path: Path, workdir: Path) -> Path:
             code="no_dwg_converter",
         )
     out = workdir / "drawing.dxf"
-    env = dict(os.environ)
+    # LibreDWG (C) разбирает чужие файлы: без пароля базы и прочих настроек приложения в
+    # окружении (R-017); SYSTEMROOT нужен программам Windows
+    env = {k: os.environ[k] for k in ("PATH", "LD_LIBRARY_PATH", "SYSTEMROOT") if k in os.environ}
     lib = Path(tool).resolve().parent.parent / "lib"
     if lib.exists():
         env["LD_LIBRARY_PATH"] = f"{lib}:{env.get('LD_LIBRARY_PATH', '')}"
+    memory = config().dwg2dxf_memory_mb * 1024 * 1024
     result = subprocess.run(
-        [tool, "-y", "-o", str(out), str(path)], capture_output=True, timeout=900, env=env
+        [tool, "-y", "-o", str(out), str(path)], capture_output=True, timeout=DWG2DXF_SECONDS,
+        env=env, preexec_fn=None if sys.platform == "win32" else lambda: _limits(memory),
     )
     if not out.exists() or out.stat().st_size == 0:
         tail = result.stderr.decode(errors="replace")[-300:]
