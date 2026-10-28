@@ -1,7 +1,7 @@
 ---
 id: DWG3D-15
 title: "3D: Draco-модели каталога — декодер со своего сервера"
-status: in-progress
+status: done
 owner: Yury Mikhailov
 branch: DWG3D-15-draco
 mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/15
@@ -30,7 +30,7 @@ ADR-0014) пускает только свой сервер; в закрытой
 - [x] Обновлены `docs/3D-MODELS.md`, «Известные ограничения» в `docs/architecture.md` (убран
       пункт про Draco) и последствия в ADR-0014.
 - [x] CSP не ослаблена: декодеру хватает `'self'`, `blob:` и `'wasm-unsafe-eval'`.
-- [ ] CI зелёный.
+- [x] CI зелёный: пайплайн #1490 (e2e, web, server, agent-files).
 
 ## План
 
@@ -62,7 +62,7 @@ ADR-0014) пускает только свой сервер; в закрытой
 
 ## Решения и находки
 
-- 2026-10-28 — Декодер Draco не по адресу `/draco/` через свой плагин Vite, как предлагала
+- 2026-10-28 — См. ADR-0015. Декодер Draco не по адресу `/draco/` через свой плагин Vite, как предлагала
   задача, а из поставки three: в r186 `DRACOLoader` ссылается на свои файлы через
   `new URL(…, import.meta.url)`, и Vite сам кладёт их в `assets/` с хэшем в имени — и в
   разработке, и в сборке. Берём вариант для glTF (`DRACO_GLTF_CONFIG`: обёртка и wasm,
@@ -98,6 +98,8 @@ ADR-0014) пускает только свой сервер; в закрытой
 
 <!-- Новые записи сверху: дата · кто · агент / модель · что сделано · коммиты · Entire-Checkpoint -->
 
+- 2026-10-28 · Yury Mikhailov · Claude Code / claude-opus-5-5 · finish: CI #1490 зелёный,
+  ADR-0015 о загрузчике моделей, итог, MR готов к ревью.
 - 2026-10-28 · Yury Mikhailov · Claude Code / claude-opus-5-5 · план выполнен: тестовая
   Draco-модель, e2e и pytest, GLTFLoader из three с декодерами Draco (из поставки three) и
   meshopt в превью, 3D и виде сверху, видимая ошибка загрузки, документация. Коммиты
@@ -105,24 +107,22 @@ ADR-0014) пускает только свой сервер; в закрытой
 - 2026-10-28 · Yury Mikhailov · Claude Code / claude-opus-5-5 · начало сессии: задача из
   Plane, ветка, план.
 
-## Handoff
+## Итог
 
-<!-- Перезаписывается в конце каждой сессии навыком handoff. -->
+**Сделано.** Draco-сжатые модели каталога видны в превью карточки, видом сверху на плане и
+в 3D, без внешних адресов; CSP прежняя. Модели грузит `GLTFLoader` из three с декодерами
+Draco (из поставки three, в `assets/` сборки) и meshopt — `web/src/catalog/gltf.ts`,
+ADR-0015. Модель не загрузилась — в превью «Модель не загрузилась», в 3D коробки, на плане
+прямоугольник; пока грузится — `aria-busy`. Сервер правок не потребовал: размер Draco-модели
+он считал верно. Документация: `docs/3D-MODELS.md`, `docs/architecture.md`, ADR-0014,
+справка и `docs/ADMIN.md`.
 
-**Состояние:** план выполнен, проверки локально зелёные; CI на MR !15 ещё не смотрели.
-MR — черновик.
+**Как проверить.** `cd e2e && npx playwright test tests/stage4.spec.ts -g "Draco|не
+распаковалась"` — на интерфейсе разработки или на сборке (`E2E_URL=http://127.0.0.1:<порт>`
+на Windows); `cd server && uv run pytest tests/test_catalog.py -k draco`. Руками: карточка
+типа → «Вид» → «Загрузить GLB» → `e2e/fixtures/draco-box.glb` — коробка в контуре габаритов.
 
-**Следующий шаг:** дождаться CI на !15, затем навык `finish`.
-
-**Открытые вопросы:** нет.
-
-**Ловушки:** на Windows `localhost` может уйти на IPv6 к чужому приложению — e2e на
-сборке гонять с `E2E_URL=http://127.0.0.1:<порт>`. С2 из `stage1.spec.ts` на Windows падает
-на PDF (нет Pango) — к задаче не относится. r3f и пойманную ошибку загрузки модели сообщает
-как `pageerror`.
-
-**Как проверить:**
-`cd e2e && npx playwright test tests/stage4.spec.ts -g "Draco|не распаковалась"` (на
-интерфейсе разработки); на сборке — `cd web && npx vite build`, сервер с
-`APP_STATIC_DIR=../web/dist`, `E2E_URL=http://127.0.0.1:<порт> npx playwright test
-tests/stage4.spec.ts`; `cd server && uv run pytest tests/test_catalog.py -k draco`.
+**За рамками.** В `dist/assets/` лежит и полный декодер Draco (~1 МБ), на который ссылается
+модуль three; браузер его не грузит. r3f сообщает пойманную ошибку загрузки модели как
+непойманную (`reportError`). С2 из `stage1.spec.ts` на Windows падает на PDF (нет Pango) —
+известное ограничение, не этой задачи.
