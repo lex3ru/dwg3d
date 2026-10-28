@@ -99,6 +99,10 @@ def test_r018_text_from_users_is_not_a_formula_in_excel(admin) -> None:
     assert r.status_code == 200, r.text
     project = admin.post("/api/projects",
                          json={"building_id": b["id"], "name": trap.format("Вариант")}).json()
+    desk = types["Стол письменный 1200×600"]["id"]
+    r = admin.post(f"/api/projects/{project['id']}/floors/{f['id']}/changes",
+                   json={"create": [{"type_id": desk, "x": 4500, "y": 2000}]})
+    assert r.status_code == 200, r.text
     params = report_params(admin, b, f, rooms, got, types, project)
     books = {
         "каталог": admin.get("/api/catalog/export.xlsx"),
@@ -120,7 +124,7 @@ def test_r018_text_from_users_is_not_a_formula_in_excel(admin) -> None:
                           for c in cells)
     assert not formulas, "формулы в выгрузках:\n" + "\n".join(formulas)
     # текст на месте — его не выбросили вместо того, чтобы обезвредить
-    assert all(texts[k] for k in ("каталог", "реестр", "стоимость", "проект", "отчёт registry"))
+    assert all(texts[k] for k in ("каталог", "реестр", "стоимость", "проект", "отчёт registry")), texts
 
 
 def test_home_counts_what_needs_attention(admin) -> None:

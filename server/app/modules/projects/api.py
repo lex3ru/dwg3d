@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, stale
+from app.core.report import text_row
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.inventory import api as inventory
@@ -870,9 +871,8 @@ def export_xlsx(session: Session, actor: Actor, project_id: uuid.UUID) -> tuple[
     for c in ws[1]:
         c.font = Font(bold=True)
     for r in spec["rows"]:
-        ws.append(
-            [r["type"], r["model"], r["unit"], r["need"], r["have"], r["buy"], r["price"], r["sum"]]
-        )
+        ws.append(text_row(ws, [r["type"], r["model"], r["unit"], r["need"], r["have"],
+                                       r["buy"], r["price"], r["sum"]]))
     ws.append(["Итого к закупке", "", "", "", "", "", "", float(spec["total"])])
     ws[ws.max_row][0].font = Font(bold=True)
     for col, w in zip("ABCDEFGH", (34, 30, 8, 10, 16, 10, 14, 14), strict=True):

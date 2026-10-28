@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
 from app.core.errors import AppError
+from app.core.report import text_row
 from app.modules.catalog import api
 from app.modules.catalog.models import Characteristic, CharSet, ItemType, Layer, Model, Purpose
 
@@ -196,7 +197,7 @@ def export(session: Session) -> bytes:
                 12, min(48, len(columns[c - 1]) + 6)
             )
         for row in rows[key]:
-            ws.append(row)
+            ws.append(text_row(ws, row))
         ws.freeze_panes = "A2"
     out = io.BytesIO()
     wb.save(out)
