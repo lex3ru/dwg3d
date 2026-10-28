@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
@@ -145,6 +146,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/api/ws")
     async def changes(ws: WebSocket) -> None:
+        if not _same_origin(ws):
+            await ws.close(code=4403)
+            return
         # сеанс — в пуле потоков: запрос к базе прямо в цикле событий остановил бы, пока он
         # ждёт, все запросы этого процесса (R-051)
         token = ws.cookies.get(access.COOKIE)
@@ -224,6 +228,19 @@ def serve_app() -> FastAPI:
 def _actor_for(token: str | None) -> Actor | None:
     with transaction() as session:
         return access.actor_for_token(session, token)
+
+
+def _same_origin(ws: WebSocket) -> bool:
+    """Сокет открыт страницей самой системы (R-018 п. 5). SameSite=Lax отсекает чужие сайты, но
+    служба на другом порту того же сервера для браузера — «тот же сайт», и куки входа он ей
+    пришлёт. Браузер всегда сообщает Origin; без него — не браузер, ему куки не подсунуть."""
+    origin = ws.headers.get("origin")
+    if origin is None:
+        return True
+    o, host = urlsplit(origin), urlsplit(f"//{ws.headers.get('host', '')}")
+    default = {"http": 80, "https": 443}.get(o.scheme)
+    return o.hostname is not None and o.hostname == host.hostname and (
+        (o.port or default) == (host.port or default))
 
 
 def _building_refs(actor: Actor) -> set[str]:
