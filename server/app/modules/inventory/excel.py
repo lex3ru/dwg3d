@@ -467,12 +467,6 @@ def load(
                 },
             )
             created_types[item["name"]] = t.id
-    doc = documents.create_document(
-        session,
-        actor,
-        "opening",
-        {"basis": "Загрузка списка имущества из Excel"},
-    )
     lines = []
     for row in parsed.rows:
         type_id = created_types.get(row.name) or uuid.UUID(type_of[row.name])
@@ -496,7 +490,9 @@ def load(
                 "to_place": place_of[f"{row.floor}|{row.room}"],
             }
         )
-    documents.update_document(session, actor, doc.id, doc.version, {}, lines)
+    doc = documents.new_draft(
+        session, actor, "opening", {"basis": "Загрузка списка имущества из Excel"}, lines
+    )
     documents.post(session, actor, doc.id, doc.version)
     report["applied"] = True
     report["document_id"] = doc.id

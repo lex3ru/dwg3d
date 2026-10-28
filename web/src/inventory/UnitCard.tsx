@@ -9,6 +9,7 @@ import { ApiError, api, get, patch, post } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { journalUrl } from "@/lib/journal";
 import { TextField } from "@/editor/Properties";
 import { useCardTitle } from "@/shell/context";
 import { Button } from "@/ui/button";
@@ -307,6 +308,12 @@ export function UnitCard({ id }: { id: string }) {
             </li>
           ))}
           {!u.changes.length && <li className="text-ink-3">Карточку не правили. Движение — во вкладке «Движение».</li>}
+          {admin && (
+            <li>
+              <Link to={journalUrl(`unit:${u.id}`, u.title + (u.number ? ` № ${u.number}` : ""))}>Журнал единицы</Link>
+              <span className="text-ink-3"> — всё вместе: документы, перенос при объединении помещений, файлы</span>
+            </li>
+          )}
         </ul>
       )}
     </div>

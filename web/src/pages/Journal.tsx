@@ -1,11 +1,14 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { get, query } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay, formatTime } from "@/lib/format";
+import { feedRef } from "@/lib/journal";
 import type { JournalEntry, Page } from "@/lib/types";
+import type { FloorInfo } from "@/editor/plan";
+import type { BuildingSummary } from "./Buildings";
 import { PageBody } from "@/shell/Shell";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/form";
@@ -13,6 +16,14 @@ import { Card, Empty, Loading, PageHeader } from "@/ui/misc";
 
 const ACTIONS: { value: string; title: string }[] = [
   { value: "", title: "Все изменения" },
+  { value: "building.", title: "Здания" },
+  { value: "floor.", title: "Этажи и планы" },
+  { value: "drawing.", title: "Чертежи" },
+  { value: "planning.", title: "Расстановка" },
+  { value: "inventory.", title: "Учёт имущества" },
+  { value: "project.", title: "Проекты" },
+  { value: "catalog.", title: "Каталог" },
+  { value: "access.share", title: "Ссылки на просмотр" },
   { value: "auth.", title: "Входы и попытки входа" },
   { value: "user.", title: "Учётные записи" },
   { value: "settings.", title: "Настройки" },
@@ -29,6 +40,10 @@ function show(value: unknown): string {
 
 const FIELD_TITLES: Record<string, string> = {
   full_name: "ФИО", login: "Имя для входа", role: "Роль", buildings: "Здания", blocked: "Заблокирована", ip: "Адрес",
+  // черновик документа учёта
+  date: "Дата", from_place: "Откуда", to_place: "Куда", basis: "Основание", supplier: "Поставщик",
+  contractor: "Кто ремонтирует", repair: "Ремонт", repair_cost: "Стоимость ремонта", reason: "Причина",
+  note: "Примечание", lines: "Строк",
 };
 
 export function EntryView({ entry, compact }: { entry: JournalEntry; compact?: boolean }) {
@@ -77,24 +92,40 @@ export function EntryView({ entry, compact }: { entry: JournalEntry; compact?: b
   );
 }
 
-// Журнал (5.7.3, С22): лента изменений с фильтрами; фильтры — в адресе (6.1 п. 7)
+// Журнал (5.7.3, С22): лента изменений с фильтрами; фильтры — в адресе (6.1 п. 7). Ленты
+// здания и этажа — фильтрами, помещения, предмета, единицы, документа, пользователя — переходом
+// «Журнал» оттуда (R-041)
 export function Journal() {
   const [params, setParams] = useSearchParams();
   const filters = {
     q: params.get("q") ?? "",
     action: params.get("action") ?? "",
     ref: params.get("ref") ?? "",
+    about: params.get("about") ?? "",
+    building: params.get("building") ?? "",
+    floor: params.get("floor") ?? "",
     since: params.get("since") ?? "",
     until: params.get("until") ?? "",
   };
   const [text, setText] = useState(filters.q);
-  const set = (key: string, value: string) =>
+  const set = (values: Record<string, string>) =>
     setParams((p) => {
       const out = new URLSearchParams(p);
-      if (value) out.set(key, value);
-      else out.delete(key);
+      for (const [key, value] of Object.entries(values)) {
+        if (value) out.set(key, value);
+        else out.delete(key);
+      }
       return out;
     });
+  const buildings = useQuery({
+    queryKey: ["buildings", true],
+    queryFn: () => get<{ items: BuildingSummary[] }>("/api/buildings?archived=true"),
+  });
+  const building = useQuery({
+    queryKey: ["building", filters.building],
+    queryFn: () => get<{ floors: FloorInfo[] }>(`/api/buildings/${filters.building}`),
+    enabled: !!filters.building,
+  });
   const feed = useInfiniteQuery({
     queryKey: ["journal", filters],
     initialPageParam: undefined as number | undefined,
@@ -103,7 +134,7 @@ export function Journal() {
         `/api/journal${query({
           q: filters.q,
           action: filters.action,
-          ref: filters.ref,
+          ref: feedRef(filters),
           since: filters.since ? new Date(filters.since).toISOString() : undefined,
           until: filters.until ? new Date(new Date(filters.until).getTime() + 86_400_000).toISOString() : undefined,
           before_id: pageParam,
@@ -128,16 +159,16 @@ export function Journal() {
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          set("q", text.trim());
+          set({ q: text.trim() });
         }}
       >
         <label className="flex min-w-60 flex-1 flex-col gap-1 text-[13px] font-medium">
           Текст
-          <Input value={text} onChange={(e) => setText(e.target.value)} onBlur={() => set("q", text.trim())} placeholder="Например, фамилия или «пароль»" />
+          <Input value={text} onChange={(e) => setText(e.target.value)} onBlur={() => set({ q: text.trim() })} placeholder="Например, фамилия или «пароль»" />
         </label>
         <label className="flex flex-col gap-1 text-[13px] font-medium">
           Что
-          <select className={select} value={filters.action} onChange={(e) => set("action", e.target.value)}>
+          <select className={select} value={filters.action} onChange={(e) => set({ action: e.target.value })}>
             {ACTIONS.map((a) => (
               <option key={a.value} value={a.value}>
                 {a.title}
@@ -146,18 +177,41 @@ export function Journal() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-[13px] font-medium">
+          Здание
+          <select className={cn(select, "max-w-56")} value={filters.building} onChange={(e) => set({ building: e.target.value, floor: "", ref: "", about: "" })}>
+            <option value="">Все здания</option>
+            {buildings.data?.items.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+                {b.archived ? " (в архиве)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[13px] font-medium">
+          Этаж
+          <select className={select} value={filters.floor} disabled={!filters.building} onChange={(e) => set({ floor: e.target.value, ref: "", about: "" })}>
+            <option value="">{filters.building ? "Все этажи" : "Выберите здание"}</option>
+            {[...(building.data?.floors ?? [])].reverse().map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[13px] font-medium">
           С
-          <input type="date" className={select} value={filters.since} onChange={(e) => set("since", e.target.value)} />
+          <input type="date" className={select} value={filters.since} onChange={(e) => set({ since: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1 text-[13px] font-medium">
           По
-          <input type="date" className={select} value={filters.until} onChange={(e) => set("until", e.target.value)} />
+          <input type="date" className={select} value={filters.until} onChange={(e) => set({ until: e.target.value })} />
         </label>
       </form>
       {filters.ref && (
         <div className="flex items-center gap-2 text-sm text-ink-2">
-          Только записи по одной сущности.
-          <Button size="sm" variant="ghost" onClick={() => set("ref", "")}>
+          {filters.about ? <span>Лента: {filters.about}</span> : "Только записи по одной сущности."}
+          <Button size="sm" variant="ghost" onClick={() => set({ ref: "", about: "" })}>
             Показать все
           </Button>
         </div>

@@ -33,8 +33,11 @@ def record(session: Session, actor: Actor | None, action: str, summary: str, *,
         before=_plain(before), after=_plain(after),
     ))
     # сообщение канала PostgreSQL — не больше 8000 байт: при больших пачках (ряд из сотни
-    # светильников) хватает того, что изменилось, без полного перечня
-    events.publish(session, {"action": action, "entity": entity, "refs": all_refs[:40]})
+    # светильников) хватает того, что изменилось, без полного перечня. Здание и этаж — сразу
+    # за сущностью: по ним изменение доходит до «просмотра» этого здания (R-012)
+    where = [r for r in all_refs if r.startswith(("building:", "floor:"))]
+    events.publish(session, {"action": action, "entity": entity,
+                             "refs": list(dict.fromkeys([entity, *where, *all_refs]))[:40]})
 
 
 def changes(before: Mapping[str, Any], after: Mapping[str, Any]

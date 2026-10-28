@@ -130,6 +130,15 @@ def start_convert(
         {"drawing_id": str(drawing.id), "mapping": chosen, "actor_id": str(actor.user_id)},
         actor,
     )
+    # кто и когда запустил перевод — и если он не завершится (9.2 п. 3, R-011)
+    journal.record(
+        session,
+        actor,
+        "drawing.convert_start",
+        f"Чертёж «{drawing.name}»: начат перевод в планы, частей {len(chosen)}",
+        entity=f"drawing:{drawing.id}",
+        refs=[f"building:{drawing.building_id}"],
+    )
     return drawing.job_id
 
 

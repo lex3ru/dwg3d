@@ -3,6 +3,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { journalUrl, placeJournalUrl } from "@/lib/journal";
 import { usePurposes } from "@/catalog/parts";
 import { Button } from "@/ui/button";
 import { remove } from "./ops";
@@ -209,6 +210,11 @@ export function Properties({
           Стен {plan.walls.length}, проёмов {plan.openings.length}, помещений {check?.rooms.length ?? "…"}
         </div>
         <p className="m-0 text-[13px] text-ink-2">Выберите стену, проём, помещение или другой элемент, чтобы увидеть и изменить его свойства.</p>
+        {admin && floor && (
+          <Link to={placeJournalUrl(floor.building_id, floor.id)} className="text-[13px]">
+            Журнал этажа
+          </Link>
+        )}
       </Section>
     );
   }
@@ -311,7 +317,7 @@ export function Properties({
         </div>
         <PurposeField value={r.purpose_id} disabled={ro} onChange={(purpose_id) => set({ purpose_id })} />
         {admin && shape?.id && (
-          <Link to={`/journal?ref=room:${shape.id}`} className="text-[13px]">
+          <Link to={journalUrl(`room:${shape.id}`, `помещение ${[r.number, r.name].filter(Boolean).join(" ")}`.trim())} className="text-[13px]">
             Журнал помещения
           </Link>
         )}

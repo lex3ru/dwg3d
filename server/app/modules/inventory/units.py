@@ -303,6 +303,7 @@ def update_unit(
         "inventory.unit_edit",
         f"Карточка {unit.number}: изменено — {', '.join(_FIELD_TITLES.get(k, k) for k in after)}",
         entity=f"unit:{unit.id}",
+        refs=Places(session, actor).refs([unit.place]),
         before=before,
         after=after,
     )
@@ -371,6 +372,7 @@ def roll_back(session: Session, actor: Actor, change_id: uuid.UUID) -> Unit:
         "inventory.unit_rollback",
         f"Карточка {unit.number}: откат правки от {ch.at:%d.%m.%Y %H:%M}",
         entity=f"unit:{unit.id}",
+        refs=Places(session, actor).refs([unit.place]),
         before=ch.after,
         after=ch.before,
     )
@@ -404,6 +406,7 @@ def add_file(
         "inventory.unit_file",
         f"Карточка {unit.number}: {'фото' if kind == 'photo' else 'файл'} «{record.name}»",
         entity=f"unit:{unit.id}",
+        refs=Places(session, actor).refs([unit.place]),
     )
     return link
 
@@ -424,6 +427,7 @@ def remove_file(session: Session, actor: Actor, link_id: uuid.UUID) -> Unit:
         "inventory.unit_file_remove",
         f"Карточка {unit.number}: убран файл",
         entity=f"unit:{unit.id}",
+        refs=Places(session, actor).refs([unit.place]),
     )
     return unit
 

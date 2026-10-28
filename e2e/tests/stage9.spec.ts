@@ -370,6 +370,37 @@ test("С22: кто переставил кушетку — история пре
   await expect(page.getByText(/изменены: Кушетка смотровая/)).toBeVisible();
 });
 
+test("С22: ленты здания, этажа и документа; удалённый черновик оставляет след (R-041, R-011)", async ({ page }) => {
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  const [monitor] = await receipt(page, f.rooms["214"]!, await typeId(page, "Монитор 24″"), 1, 14500);
+  const draft = await (await page.request.post("/api/inventory/documents", { headers: H, data: { kind: "writeoff", header: { reason: "разбит" }, lines: [{ unit_id: monitor!.id }] } })).json();
+
+  // лента документа — из документа; черновик удалён, а след остался
+  await page.goto(`/documents/${draft.id}`);
+  await page.getByRole("main").getByRole("link", { name: "Журнал", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/journal\\?ref=document(:|%3A)${draft.id}`));
+  await expect(page.getByText(/Лента: Списание/)).toBeVisible();
+  await expect(page.getByText(/Создан черновик «Списание/)).toBeVisible();
+  expect((await page.request.delete(`/api/inventory/documents/${draft.id}`, { headers: H })).ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByText(/Удалён черновик «Списание/)).toBeVisible();
+
+  // лента здания — из «Зданий»: план, учёт, черновики
+  await page.goto(`/buildings?b=${f.building}`);
+  await page.getByRole("main").getByRole("link", { name: "Журнал", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/journal\\?building=${f.building}`));
+  await expect(page.getByRole("main").getByLabel("Здание")).toHaveValue(f.building);
+  await expect(page.getByText(/Сохранён план «2 этаж»/)).toBeVisible();
+  await expect(page.getByText(/Проведён «Приход/)).toBeVisible();
+  await expect(page.getByText(/Удалён черновик «Списание/)).toBeVisible();
+
+  // лента этажа — фильтром «Этаж»
+  await page.getByRole("main").getByRole("combobox", { name: /^Этаж/ }).selectOption({ label: "2 этаж" });
+  await expect(page).toHaveURL(new RegExp(`floor=${f.floor}`));
+  await expect(page.getByText(/Проведён «Приход/)).toBeVisible();
+});
+
 test("главная, отчёты и полная выгрузка здания", async ({ page }) => {
   await loginAdmin(page);
   const f = await floorWithRooms(page);

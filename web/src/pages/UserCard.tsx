@@ -3,6 +3,7 @@ import { KeyRound, Lock, LockOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiError, get, patch, post, query } from "@/lib/api";
+import { journalUrl } from "@/lib/journal";
 import { useMe } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import type { JournalEntry, Page, User } from "@/lib/types";
@@ -151,7 +152,7 @@ export function UserCard({ id }: { id: string }) {
       <div className="flex flex-col gap-2 border-t border-line pt-4">
         <div className="flex items-center justify-between">
           <h3 className="m-0 text-sm font-semibold">История</h3>
-          <Link to={`/journal${query({ ref: `user:${id}` })}`} className="text-[13px] text-accent">
+          <Link to={journalUrl(`user:${id}`, user.data.full_name)} className="text-[13px] text-accent">
             Весь журнал →
           </Link>
         </div>

@@ -257,10 +257,9 @@ def load(
     units: dict[str, uuid.UUID] = {}
     if not lines:
         return {"units": units, "document_id": None, "skipped": skipped, "renumbered": 0}
-    doc = documents.create_document(
-        session, actor, "opening", {"basis": "Перенос здания с другой установки"}
+    doc = documents.new_draft(
+        session, actor, "opening", {"basis": "Перенос здания с другой установки"}, lines
     )
-    doc = documents.update_document(session, actor, doc.id, doc.version, {}, lines)
     documents.post(session, actor, doc.id, doc.version)
     for line, key in zip(documents.lines_of(session, doc), keys, strict=True):
         if key and line.created_units:
@@ -304,5 +303,6 @@ def load(
             f"Перенос здания: {renumbered} единиц получили новые номера — прежние "
             "уже заняты на этой установке",
             entity=f"document:{doc.id}",
+            refs=places.Places(session, actor).refs(sorted(documents.doc_places(session, doc))),
         )
     return {"units": units, "document_id": doc.id, "skipped": skipped, "renumbered": renumbered}

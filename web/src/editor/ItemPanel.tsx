@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TypeFull } from "@/catalog/types";
 import { Link } from "react-router";
 import { get } from "@/lib/api";
+import { journalUrl } from "@/lib/journal";
 import { useMe } from "@/lib/auth";
 import { Button } from "@/ui/button";
 import { align, arrayCopies, distribute, fitAlong, footprint, sizeOf, WARNING_TEXT, type Align, type Item, type Placed, type WarningCode } from "./items";
@@ -74,7 +75,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
           {admin && (
             <>
               {" · "}
-              <Link to={`/journal?ref=item:${item.id}`}>История</Link>
+              <Link to={journalUrl(`item:${item.id}`, `${t?.name ?? "предмет"}, ${roomTitle(room)}`)}>История</Link>
             </>
           )}
           {t?.width ? <span className="block font-mono text-[12px] text-ink-3">{`${t.width} × ${t.depth ?? "?"} × ${t.height ?? "?"} мм`}</span> : null}

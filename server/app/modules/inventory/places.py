@@ -2,6 +2,7 @@
 
 import secrets
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -149,6 +150,28 @@ class Places:
         except (NotFound, AppError):
             return "место недоступно"
 
+    def refs(self, keys: Iterable[str | None]) -> list[str]:
+        """Ссылки записи журнала на места, их этажи и здания: по ним запись найдётся в лентах
+        помещения, склада, этажа и здания (5.7.3, R-041) и дойдёт до «просмотра» здания
+        (R-012). Недоступное место — без ссылок."""
+        wanted = [k for k in dict.fromkeys(keys) if k]
+        self.preload(wanted)
+        out: list[str] = []
+        for key in wanted:
+            try:
+                place = self.get(key)
+            except (NotFound, AppError):
+                continue
+            if place.kind == "room":
+                out.append(f"room:{place.room_id}")
+            if place.warehouse_id:
+                out.append(f"warehouse:{place.warehouse_id}")
+            if place.floor_id:
+                out.append(f"floor:{place.floor_id}")
+            if place.building_id:
+                out.append(f"building:{place.building_id}")
+        return list(dict.fromkeys(out))
+
 
 def is_storage(place: Place) -> bool:
     return place.kind in ("warehouse", "cell")
@@ -231,6 +254,7 @@ def create_warehouse(session: Session, actor: Actor, v: dict[str, Any]) -> Wareh
         "inventory.warehouse_create",
         f"Заведён склад «{wh.name}»",
         entity=f"warehouse:{wh.id}",
+        refs=Places(session, actor).refs([f"w:{wh.id}"]),
     )
     return wh
 
@@ -252,6 +276,7 @@ def update_warehouse(
     if v.get("version") is not None and int(v["version"]) != wh.version:
         raise stale("Склад")
     fields = _warehouse_fields(session, actor, v)
+    was = Places(session, actor).refs([f"w:{wh.id}"])  # склад могли перенести в другое здание
     for k, value in fields.items():
         setattr(wh, k, value)
     if "archived" in v:
@@ -267,6 +292,7 @@ def update_warehouse(
         "inventory.warehouse_update",
         f"Изменён склад «{wh.name}»",
         entity=f"warehouse:{wh.id}",
+        refs=[*was, *Places(session, actor).refs([f"w:{wh.id}"])],
     )
     return wh
 
@@ -399,6 +425,7 @@ def add_cell(session: Session, actor: Actor, wh_id: uuid.UUID, name: str) -> Cel
         "inventory.cell_create",
         f"Склад «{wh.name}»: ячейка «{cell.name}»",
         entity=f"warehouse:{wh.id}",
+        refs=Places(session, actor).refs([f"w:{wh.id}"]),
     )
     return cell
 
@@ -417,4 +444,5 @@ def remove_cell(session: Session, actor: Actor, cell_id: uuid.UUID) -> None:
         "inventory.cell_archive",
         f"Убрана ячейка «{cell.name}»",
         entity=f"warehouse:{cell.warehouse_id}",
+        refs=Places(session, actor).refs([f"w:{cell.warehouse_id}"]),
     )

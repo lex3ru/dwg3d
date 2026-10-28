@@ -5,6 +5,7 @@ import gc
 import importlib
 import logging
 import sys
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
@@ -37,6 +38,7 @@ _SAFE = {"GET", "HEAD", "OPTIONS"}
 # объекты обходила бы каждая полная сборка (ADR-0010). В Windows нет Pango: PDF там не печатается
 REPORT_LIBS = ("openpyxl",) if sys.platform == "win32" else ("openpyxl", "weasyprint")
 PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
+RECHECK_AFTER = 25  # с: как часто открытый сокет изменений перепроверяет сеанс (R-012)
 # ошибки базы от одновременной работы (8.3 п. 2): значение уже занял, строку убрал другой
 # сеанс, база разорвала взаимоблокировку или не смогла упорядочить транзакции
 CONFLICTS = {"23505", "23503", "40P01", "40001"}
@@ -126,17 +128,24 @@ def create_app() -> FastAPI:
     async def changes(ws: WebSocket) -> None:
         # сеанс — в пуле потоков: запрос к базе прямо в цикле событий остановил бы, пока он
         # ждёт, все запросы этого процесса (R-051)
-        actor = await run_in_threadpool(_actor_for, ws.cookies.get(access.COOKIE))
+        token = ws.cookies.get(access.COOKIE)
+        actor = await run_in_threadpool(_actor_for, token)
         if actor is None:
             await ws.close(code=4401)
             return
         await ws.accept()
+        me = f"user:{actor.user_id}"
+        buildings = _building_refs(actor)
+        checked = time.monotonic()
 
         def allowed(message: dict[str, Any]) -> bool:
+            if message.get("entity") == me:
+                return True  # о самом: заблокировали, сменили здания — сеанс перепроверится
             if actor.is_admin:
                 return True
-            return any(ref.startswith("building:") and ref[9:] in
-                       {str(b) for b in actor.building_ids} for ref in message.get("refs", []))
+            if str(message.get("action", "")).startswith("project."):
+                return False  # проектов «просмотр» не видит (2.2) — и не знает, что их правят
+            return any(ref in buildings for ref in message.get("refs", []))
 
         sub = events.hub.subscribe(allowed)
         receive = asyncio.ensure_future(ws.receive_text())
@@ -149,12 +158,23 @@ def create_app() -> FastAPI:
                 if receive in done:
                     receive.result()  # закрыто клиентом — WebSocketDisconnect
                     receive = asyncio.ensure_future(ws.receive_text())
-                if get in done:
-                    await ws.send_json(get.result())
-                else:
-                    get.cancel()
-                    if not done:
-                        await ws.send_json({"action": "ping"})
+                message = get.result() if get in done else None
+                get.cancel()
+                # сеанс проверен при подключении, а сокет живёт часами: заблокированный,
+                # вышедший или с истёкшим сеансом перестаёт получать изменения — сразу, если
+                # изменение о нём самом, иначе не позже RECHECK_AFTER (R-012)
+                if ((message is not None and message.get("entity") == me)
+                        or time.monotonic() - checked >= RECHECK_AFTER):
+                    fresh = await run_in_threadpool(_actor_for, token)
+                    if fresh is None:
+                        await ws.close(code=4401)
+                        return
+                    actor, buildings, checked = fresh, _building_refs(fresh), time.monotonic()
+                if message is not None:
+                    if allowed(message):  # здание могли отобрать, пока изменение ждало
+                        await ws.send_json(message)
+                elif not done:
+                    await ws.send_json({"action": "ping"})
         except WebSocketDisconnect:
             pass
         finally:
@@ -185,6 +205,11 @@ def serve_app() -> FastAPI:
 def _actor_for(token: str | None) -> Actor | None:
     with transaction() as session:
         return access.actor_for_token(session, token)
+
+
+def _building_refs(actor: Actor) -> set[str]:
+    """Ссылки на здания «просмотра»: изменения с ними ему приходят (6.1 п. 8)."""
+    return {f"building:{b}" for b in actor.building_ids}
 
 
 def _mount_web(app: FastAPI) -> None:

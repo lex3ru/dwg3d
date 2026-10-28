@@ -3,13 +3,22 @@
 import asyncio
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
 from starlette.websockets import WebSocketDisconnect
 
 from app import main
 from app.core import events
+from app.core.db import transaction
 from app.modules.access import api as access
+from tests import test_projects as projects
+from tests.conftest import login, make_client
+from tests.test_building import building_with_floor
+from tests.test_inventory import document, post, setup
 
 # тишина в сокете в тестах: больше разрешения часов Windows (15,6 мс) — иначе asyncio считает
 # таймер наступившим сразу и сервер шлёт ping сплошным потоком (DWG3D-8)
@@ -85,3 +94,99 @@ def test_closed_socket_leaves_no_waiting_tasks(admin, monkeypatch) -> None:
     while (left := admin.portal.call(waiting)) and time.monotonic() < deadline:
         time.sleep(0.05)
     assert left == [], "после закрытия сокета осталось ожидание изменений"
+
+
+def next_change(ws) -> dict:  # type: ignore[no-untyped-def,type-arg]
+    """Следующее изменение, пропуская ping."""
+    deadline = time.monotonic() + 5
+    while (message := ws.receive_json())["action"] == "ping":
+        assert time.monotonic() < deadline, "за 5 с пришли только ping, изменения нет"
+    return message  # type: ignore[no-any-return]
+
+
+def closed_code(ws) -> int:  # type: ignore[no-untyped-def]
+    """Код, с которым сервер закрыл сокет; за 5 с не закрыл — ошибка."""
+    deadline = time.monotonic() + 5
+    with pytest.raises(WebSocketDisconnect) as e:
+        while ws.receive_json():
+            assert time.monotonic() < deadline, "сокет не закрыт за 5 с"
+    return e.value.code
+
+
+@contextmanager
+def viewer(admin, app, *building_ids: str) -> Iterator[tuple[TestClient, dict]]:  # type: ignore[no-untyped-def,type-arg]
+    """«Просмотр» с доступом к зданиям — клиент и учётная запись."""
+    account = admin.post("/api/users", json={
+        "login": "petrova", "full_name": "Петрова Е. А.", "role": "viewer",
+        "building_ids": list(building_ids), "password": "Temporary-1"}).json()["user"]
+    with make_client(app) as c:
+        login(c, "petrova", "Temporary-1")
+        c.post("/api/auth/password", json={"current": "Temporary-1", "new": "Viewer-pass-1"})
+        yield c, account
+
+
+def test_r012_viewer_receives_accounting_changes_but_not_projects(admin, app, monkeypatch
+                                                                   ) -> None:
+    """«Просмотр» видит изменения учёта своего здания без перезагрузки (6.1 п. 8), а событий
+    проектов не получает — проектов он не видит (2.2, R-012)."""
+    monkeypatch.setattr(main, "PING_AFTER", QUIET)
+    building, rooms, _, k = setup(admin)
+    p = projects.project(admin, building["id"], "Перестановка")
+    with viewer(admin, app, building["id"]) as (v, _), v.websocket_connect("/api/ws") as ws:
+        assert events.hub.listening.wait(10), "канал изменений не слушается за 10 с"
+        assert ws.receive_json() == {"action": "ping"}
+        r = admin.patch(f"/api/projects/{p['id']}",
+                        json={"version": p["version"], "name": "Вариант Б"})
+        assert r.status_code == 200, r.text
+        post(admin, document(admin, "receipt", {"to_place": rooms["214"]},
+                             [{"type_id": k["экг"]["id"], "qty": 1, "price": 85000}]))
+        assert next_change(ws)["action"].startswith("inventory.document_")
+
+
+def test_r012_blocked_user_socket_is_closed_at_once(admin, app, monkeypatch) -> None:
+    """Заблокировали — сокет закрывается сразу, не дожидаясь перепроверки по времени
+    (R-012): события о самом пользователе перепроверяют сеанс."""
+    monkeypatch.setattr(main, "PING_AFTER", QUIET)
+    monkeypatch.setattr(main, "RECHECK_AFTER", 60, raising=False)
+    building, _ = building_with_floor(admin)
+    with viewer(admin, app, building["id"]) as (v, account), v.websocket_connect("/api/ws") as ws:
+        assert events.hub.listening.wait(10), "канал изменений не слушается за 10 с"
+        assert ws.receive_json() == {"action": "ping"}
+        assert admin.post(f"/api/users/{account['id']}/block").status_code == 200
+        assert closed_code(ws) == 4401
+
+
+def test_r012_ended_session_socket_is_closed(admin, monkeypatch) -> None:
+    """Сеанс кончился без события (истёк, удалён) — сокет закрывается при перепроверке
+    раз в RECHECK_AFTER (R-012)."""
+    monkeypatch.setattr(main, "PING_AFTER", QUIET)
+    monkeypatch.setattr(main, "RECHECK_AFTER", QUIET, raising=False)
+    with admin.websocket_connect("/api/ws") as ws:
+        assert ws.receive_json() == {"action": "ping"}
+        with transaction() as s:
+            s.execute(text("DELETE FROM access.login_session"))
+        assert closed_code(ws) == 4401
+
+
+def test_r012_viewer_given_a_building_receives_its_changes(admin, app, monkeypatch) -> None:
+    """Выдали «просмотру» ещё здание — его изменения приходят в уже открытый сокет."""
+    monkeypatch.setattr(main, "PING_AFTER", QUIET)
+    monkeypatch.setattr(main, "RECHECK_AFTER", 60, raising=False)
+    first, _ = building_with_floor(admin)
+    second = admin.post("/api/buildings", json={"name": "Стационар", "address": ""}).json()
+    with viewer(admin, app, first["id"]) as (v, account), v.websocket_connect("/api/ws") as ws:
+        assert events.hub.listening.wait(10), "канал изменений не слушается за 10 с"
+        assert ws.receive_json() == {"action": "ping"}
+        version = admin.get(f"/api/users/{account['id']}").json()["version"]  # сменил пароль
+        r = admin.patch(f"/api/users/{account['id']}", json={
+            "version": version, "building_ids": [first["id"], second["id"]]})
+        assert r.status_code == 200, r.text
+        assert next_change(ws)["action"] == "user.update"
+        r = admin.patch(f"/api/buildings/{second['id']}",
+                        json={"version": second["version"], "name": "Стационар 2"})
+        assert r.status_code == 200, r.text
+        # второй клиент на том же приложении — второй слушатель канала: изменение может
+        # прийти дважды, поэтому — до нужного
+        deadline = time.monotonic() + 5
+        while next_change(ws)["entity"] != f"building:{second['id']}":
+            assert time.monotonic() < deadline, "изменение второго здания не пришло за 5 с"
