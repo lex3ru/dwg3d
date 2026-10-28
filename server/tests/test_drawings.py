@@ -293,3 +293,143 @@ def test_floors_of_one_sheet_stand_on_top_of_each_other(admin) -> None:
     # второй этаж лежал на листе в 20 м правее — теперь над первым, здание у начала координат
     assert boxes[0] == boxes[1]
     assert abs(boxes[0][0]) < 200 and abs(boxes[0][1]) < 200
+
+
+def test_failed_conversion_leaves_the_drawing_ready_to_convert_again(admin) -> None:
+    """Перевод упал — чертёж не остаётся «переводится» навсегда: видно, почему не вышло, и
+    перевод можно повторить. Так же — после отмены и таймаута (R-026, ADR-0011)."""
+    from app.core.db import transaction
+    from app.modules.files import api as files
+    from app.modules.files.models import StoredFile
+
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    drawing = upload(admin, b["id"], sample_dxf())
+    with transaction() as s:
+        stored = files.path_of(s.get(StoredFile, uuid.UUID(drawing["file_url"].rsplit("/")[-1]))
+                               .sha256)
+    part = {"key": drawing["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}
+    hidden = stored.with_suffix(".hidden")
+    stored.rename(hidden)  # файл чертежа пропал — задача перевода падает
+    try:
+        r = admin.post(f"/api/drawings/{drawing['id']}/convert", json={"parts": [part]})
+        assert r.status_code == 200, r.text
+        while tasks.run_one():
+            pass
+    finally:
+        hidden.rename(stored)
+    failed = admin.get(f"/api/system/tasks/{r.json()['job_id']}").json()
+    assert failed["status"] == "failed", failed
+    again = admin.get(f"/api/drawings/{drawing['id']}").json()
+    assert (again["status"], again["error"]) == ("ready", failed["error"])
+
+    r = admin.post(f"/api/drawings/{drawing['id']}/convert", json={"parts": [part]})
+    assert r.status_code == 200, r.text
+    while tasks.run_one():
+        pass
+    assert admin.get(f"/api/system/tasks/{r.json()['job_id']}").json()["status"] == "done"
+    assert admin.get(f"/api/drawings/{drawing['id']}").json()["status"] == "done"
+
+
+def tangle(lines: int = 12000) -> bytes:
+    """Чертёж из случайных пересекающихся линий: разбор — секунды, перевод — минуты (R-026,
+    artifacts/stage4-dxf-50k.txt: 50 000 линий — дольше 25 минут)."""
+    import random
+
+    rnd = random.Random(12)
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 4
+    msp = doc.modelspace()
+    doc.layers.add("Стены")
+    for _ in range(lines):
+        msp.add_line((rnd.uniform(0, 30000), rnd.uniform(0, 20000)),
+                     (rnd.uniform(0, 30000), rnd.uniform(0, 20000)), dxfattribs={"layer": "Стены"})
+    out = io.StringIO()
+    doc.write(out)
+    return out.getvalue().encode()
+
+
+def test_r026_heavy_drawing_does_not_hold_the_queue_and_can_be_cancelled(admin, tmp_path) -> None:
+    """Обработчик `python -m app worker`: пока переводится тяжёлый чертёж, другие задачи
+    выполняются; перевод отменяют — этаж не заводится, чертёж снова готов к переводу."""
+    from app.core.db import transaction
+
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    drawing = upload(admin, b["id"], tangle())
+    assert drawing["status"] == "ready" and drawing["parts"], drawing
+    r = admin.post(f"/api/drawings/{drawing['id']}/convert", json={"parts": [
+        {"key": drawing["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}]})
+    heavy = r.json()["job_id"]
+    with transaction() as s:
+        light = tasks.enqueue(s, "system.purge_journal")
+    log = tmp_path / "worker.log"
+    # «путаница» после ~40 с перевода ест память без предела (до 12 ГБ за минуту): отмена
+    # приходит за секунды, а предел не даст медленному раннеру задохнуться
+    env = {**os.environ, "APP_TASK_MEMORY_MB": "1024"}
+    with log.open("wb") as out:
+        worker = subprocess.Popen([sys.executable, "-m", "app", "worker"], cwd=ROOT / "server",
+                                  stdout=out, stderr=subprocess.STDOUT, env=env)
+        try:
+            deadline = time.monotonic() + 60
+            while (admin.get(f"/api/system/tasks/{light}").json()["status"] != "done"
+                   and time.monotonic() < deadline and worker.poll() is None):
+                time.sleep(0.5)
+            state = {j: admin.get(f"/api/system/tasks/{j}").json()["status"]
+                     for j in (heavy, light)}
+            assert state == {heavy: "running", light: "done"}, (
+                f"{state}\n" + log.read_text(encoding="utf-8", errors="replace")[-3000:])
+
+            r = admin.post(f"/api/system/tasks/{heavy}/cancel")
+            assert r.status_code == 200, r.text
+            deadline = time.monotonic() + 20
+            while (admin.get(f"/api/system/tasks/{heavy}").json()["status"] != "cancelled"
+                   and time.monotonic() < deadline):
+                time.sleep(0.5)
+            assert admin.get(f"/api/system/tasks/{heavy}").json()["status"] == "cancelled"
+        finally:
+            worker.terminate()
+            worker.wait(timeout=30)
+    after = admin.get(f"/api/drawings/{drawing['id']}").json()
+    assert after["status"] == "ready" and after["error"], after
+    assert admin.get(f"/api/buildings/{b['id']}").json()["floors"] == []
+
+
+def _dwg(tmp_path: Path) -> Path:
+    dwg = tmp_path / "план.dwg"
+    dwg.write_bytes(b"AC1032" + b"\0" * 128)
+    return dwg
+
+
+def test_r017_dwg2dxf_gets_no_secrets(monkeypatch, tmp_path) -> None:
+    """R-017: LibreDWG разбирает чужие файлы — в его окружении нет пароля базы и прочих
+    настроек приложения; в Linux его память и время ограничены."""
+    seen: dict = {}  # type: ignore[type-arg]
+
+    def run(args, **kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        Path(args[args.index("-o") + 1]).write_text("0\nEOF\n")
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    tool = tmp_path / "dwg2dxf"
+    tool.write_text("")
+    monkeypatch.setenv("APP_DWG2DXF", str(tool))
+    monkeypatch.setenv("APP_SECRET_PROBE", "пароль-базы")
+    monkeypatch.setattr(read.subprocess, "run", run)
+    read.to_dxf(_dwg(tmp_path), tmp_path)
+    env = seen["env"]
+    assert not [k for k in env if k.startswith("APP_")], sorted(env)
+    assert all("пароль-базы" not in v for v in env.values())
+    if sys.platform != "win32":
+        assert seen.get("preexec_fn") is not None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="ограничения процесса (setrlimit) — Linux")
+def test_r017_dwg2dxf_is_limited_in_memory_and_time(monkeypatch, tmp_path) -> None:
+    tool = tmp_path / "dwg2dxf"
+    tool.write_text('#!/bin/sh\n# -y -o ВЫХОД ВХОД\n'
+                    '{ ulimit -v; ulimit -t; env; } > "$3"\n')
+    tool.chmod(0o755)
+    monkeypatch.setenv("APP_DWG2DXF", str(tool))
+    out = read.to_dxf(_dwg(tmp_path), tmp_path).read_text().splitlines()
+    memory, cpu = out[0], out[1]
+    assert memory != "unlimited" and cpu != "unlimited", out[:2]
+    assert not [line for line in out[2:] if line.startswith("APP_")]

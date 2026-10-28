@@ -54,7 +54,7 @@ cd e2e && npx playwright test     # на работающей системе: E2
 
 | Каталог | Что |
 | --- | --- |
-| `server/app/core` | ядро: настройки `APP_*`, база, вход, фоновые задачи, события, поиск |
+| `server/app/core` | ядро: настройки `APP_*`, база, вход, приём загрузок, фоновые задачи, события, поиск |
 | `server/app/modules/<имя>` | модуль: `api.py` — для других модулей, `routes.py` — HTTP, `models.py`, `module.py` |
 | `server/migrations/versions` | миграции Alembic |
 | `server/app/samples` | тестовые данные: `polyclinic`, `volume` (стенд объёмов ТЗ 8.1, на отдельной базе) |
@@ -80,6 +80,9 @@ journal → access, files, system → building, catalog → planning, inventory 
   зависит. Таблицы модуля — в схеме базы с его именем, внешние ключи — к своим таблицам, ядру или
   модулям ниже. Проверяет `server/tests/test_architecture.py`. Новый модуль — в `TIERS` и `INSTALLED`.
 - Каждое изменение данных пишется в журнал (`journal.api.record`) в той же транзакции.
+- Файл загрузки принимает `uploads.receive(...)` после зависимости входа, не `UploadFile`/`Form`
+  (ADR-0012, проверяет `test_architecture.py`). Фоновая задача объявляет `timeout`, а если модуль
+  меняет статус записи до очереди — `on_fail` (ADR-0011).
 - Схема базы меняется только миграцией `server/migrations/versions/ГГГГММДД_NNNN_что.py`;
   `tests/test_migrations.py` сверяет миграции с моделями.
 - `docs/ADMIN.md` руками не правится: он собирается из `web/src/help/content.ts` командой

@@ -9,12 +9,13 @@ from typing import Any, BinaryIO
 
 from sqlalchemy.orm import Session
 
+from app.core import uploads
 from app.core.actor import Actor
 from app.core.config import config
 from app.core.errors import AppError, NotFound
 from app.modules.files.models import StoredFile
 
-MAX_SIZE = 300 * 1024 * 1024
+MAX_SIZE = uploads.MAX_FILE
 
 # что принимается и как узнаётся по первым байтам; модули выше передают, какие виды ждут
 KINDS: dict[str, tuple[str, tuple[bytes, ...]]] = {
@@ -71,8 +72,7 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
                     head = chunk[:64]
                 size += len(chunk)
                 if size > min(limit, MAX_SIZE):
-                    raise AppError(f"Файл больше {min(limit, MAX_SIZE) // 1024 // 1024} МБ.",
-                                   code="too_large")
+                    raise uploads.too_large("Файл", min(limit, MAX_SIZE))
                 digest.update(chunk)
                 tmp.write(chunk)
         kind = _sniff(head)
@@ -97,6 +97,21 @@ def store(session: Session, actor: Actor | None, stream: BinaryIO, name: str,
     return record
 
 
+# Лимит загрузки через /api/files — по назначению файла: подложку этажа задаёт модуль здания,
+# снимок при обходе — модуль учёта (7.3 п. 4); их настройки модулю файлов не видны
+_upload_limits: dict[str, Any] = {}
+
+
+def on_upload_limit(purpose: str, limit: Any) -> None:
+    """limit(session) -> (что за файл, наибольший размер в байтах)."""
+    _upload_limits[purpose] = limit
+
+
+def upload_limit(session: Session, purpose: str) -> tuple[str, int]:
+    limit = _upload_limits.get(purpose)
+    return limit(session) if limit is not None else ("Файл", MAX_SIZE)
+
+
 # Гость по ссылке получает только файлы плана и 3D (подложку своего здания, модели каталога):
 # модули выше говорят, чей это файл (5.7.2)
 _guest_checks: list[Any] = []
@@ -104,7 +119,8 @@ _guest_checks: list[Any] = []
 
 def on_guest_file(check: Any) -> None:
     """check(session, actor, file_id) -> bool: файл нужен гостю для плана и 3D."""
-    _guest_checks.append(check)
+    if check not in _guest_checks:  # повторная подписка не удваивает (R-013)
+        _guest_checks.append(check)
 
 
 def guest_may(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:

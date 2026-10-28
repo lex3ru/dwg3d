@@ -8,7 +8,7 @@ import { PlacePicker, usePlaceTree } from "@/inventory/parts";
 import { today, type Doc } from "@/inventory/types";
 import { ApiError, get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { useJob, watchJob } from "@/lib/jobs";
+import { CancelJob, useJob, watchJob } from "@/lib/jobs";
 import type { BuildingSummary } from "@/pages/Buildings";
 import { lastBuilding } from "@/pages/PlanIndex";
 import { PageBody } from "@/shell/Shell";
@@ -276,12 +276,14 @@ function FullExport({ building }: { building: BuildingSummary }) {
           {job.message ?? "Собираю…"} {job.progress.total ? `(${job.progress.done} из ${job.progress.total})` : ""} — можно уйти с экрана, по окончании придёт сообщение.
         </p>
       )}
+      {running && <CancelJob job={job} />}
       {job?.status === "done" && (
         <a href={`/api/reports/exports/${job.id}`} download className="text-[13px]">
           Скачать архив
         </a>
       )}
       {job?.status === "failed" && <FormError message={job.error ?? "Выгрузка не удалась."} />}
+      {job?.status === "cancelled" && <p className="m-0 text-[13px] text-ink-2">Выгрузка отменена.</p>}
       <FormError message={error} />
     </Card>
   );

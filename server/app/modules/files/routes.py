@@ -1,9 +1,11 @@
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
 
+from app.core import uploads
 from app.core.auth import Admin, AnyActor
 from app.core.db import DB
 from app.core.errors import Forbidden
@@ -11,12 +13,22 @@ from app.modules.files import api
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
+UNDERLAY = "pdf,png,jpeg,webp"
 
-@router.post("", status_code=201)
-def upload(file: UploadFile, actor: Admin, session: DB, accept: str = "pdf,png,jpeg,webp"
-           ) -> dict[str, Any]:
+
+def _limit(session: Session, request: Request) -> tuple[str, int]:
+    # подложка этажа — PDF или картинка (5.1.4); без PDF — снимок при обходе (5.4.6)
+    accept = request.query_params.get("accept", UNDERLAY).split(",")
+    return api.upload_limit(session, "underlay" if "pdf" in accept else "photo")
+
+
+Upload = Annotated[uploads.Upload, uploads.receive(_limit)]
+
+
+@router.post("", status_code=201, openapi_extra=uploads.form())
+def upload(actor: Admin, file: Upload, session: DB, accept: str = UNDERLAY) -> dict[str, Any]:
     kinds = {k for k in accept.split(",") if k in api.KINDS}
-    record = api.store(session, actor, file.file, file.filename or "файл", kinds)
+    record = api.store(session, actor, file.file, file.name or "файл", kinds, file.limit)
     return api.view(record)
 
 

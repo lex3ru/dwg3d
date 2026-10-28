@@ -2,7 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { get } from "./api";
+import { Button } from "@/ui/button";
+import { FormError } from "@/ui/form";
+import { ApiError, get, post } from "./api";
 
 // Длительные операции (6.6): ход виден, уйти с экрана можно — по окончании придёт
 // сообщение со ссылкой на результат. Следим за задачами из localStorage.
@@ -10,11 +12,17 @@ import { get } from "./api";
 export interface Job {
   id: string;
   title: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: { done: number; total: number | null };
   message: string | null;
   error: string | null;
+  cancel_requested?: boolean;
   result?: Record<string, unknown> | null;
+}
+
+/** Задача завершилась: выполнена, не удалась или отменена (R-026). */
+export function finished(job: Job | null | undefined): boolean {
+  return !!job && (job.status === "done" || job.status === "failed" || job.status === "cancelled");
 }
 
 interface Watched {
@@ -60,7 +68,7 @@ export function useJob(id: string | null | undefined) {
         const j = await get<Job>(`/api/system/tasks/${id}`);
         if (!alive) return;
         setJob(j);
-        if (j.status === "done" || j.status === "failed") return;
+        if (finished(j)) return;
       } catch {
         /* связь прервалась — спросим ещё раз */
       }
@@ -79,7 +87,7 @@ interface Notice {
   id: string;
   title: string;
   href: string;
-  ok: boolean;
+  status: Job["status"];
   text: string;
 }
 
@@ -93,10 +101,11 @@ export function JobNotices() {
       for (const w of list) {
         try {
           const j = await get<Job>(`/api/system/tasks/${w.id}`);
-          if (j.status === "done" || j.status === "failed") {
+          if (finished(j)) {
             write(read().filter((x) => x.id !== w.id));
             client.invalidateQueries();
-            if (alive) setNotices((n) => [...n, { ...w, ok: j.status === "done", text: j.status === "done" ? "готово" : (j.error ?? "не удалось") }]);
+            const text = j.status === "done" ? "готово" : j.status === "cancelled" ? "отменено" : (j.error ?? "не удалось");
+            if (alive) setNotices((n) => [...n, { ...w, status: j.status, text }]);
           }
         } catch {
           write(read().filter((x) => x.id !== w.id));
@@ -116,7 +125,7 @@ export function JobNotices() {
         <div key={n.id} className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 shadow-lg">
           <div className="flex flex-1 flex-col gap-1 text-sm">
             <span className="font-medium">{n.title}</span>
-            <span className={n.ok ? "text-ok" : "text-bad"}>{n.text}</span>
+            <span className={n.status === "done" ? "text-ok" : n.status === "cancelled" ? "text-ink-2" : "text-bad"}>{n.text}</span>
             <Link to={n.href} className="text-[13px] text-accent" onClick={() => setNotices((x) => x.filter((y) => y.id !== n.id))}>
               Открыть результат →
             </Link>
@@ -126,6 +135,38 @@ export function JobNotices() {
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** «Отменить» у хода задачи (R-026, ADR-0011): из очереди задача уходит сразу, выполняемую
+ * обработчик останавливает за 1–2 с — её изменения не сохраняются. */
+export function CancelJob({ job }: { job: Job | null }) {
+  const [asked, setAsked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!job || finished(job)) return null;
+  const cancel = async () => {
+    setError(null);
+    setAsked(true);
+    try {
+      await post(`/api/system/tasks/${job.id}/cancel`);
+    } catch (e) {
+      // уже завершилась — ход покажет итог сам
+      if ((e as ApiError).code !== "finished") {
+        setAsked(false);
+        setError((e as ApiError).message);
+      }
+    }
+  };
+  const stopping = asked || !!job.cancel_requested;
+  return (
+    <div className="flex flex-col gap-1">
+      <div>
+        <Button onClick={cancel} disabled={stopping}>
+          {stopping ? "Отменяется…" : "Отменить"}
+        </Button>
+      </div>
+      <FormError message={error} />
     </div>
   );
 }

@@ -4,6 +4,7 @@
 import json
 import math
 import uuid
+from datetime import timedelta
 from typing import Any, BinaryIO
 
 from sqlalchemy import select
@@ -48,12 +49,13 @@ def view(d: Drawing, full: bool = False) -> dict[str, Any]:
 
 
 def upload(
-    session: Session, actor: Actor, building_id: uuid.UUID, stream: BinaryIO, name: str
+    session: Session, actor: Actor, building_id: uuid.UUID, stream: BinaryIO, name: str,
+    limit: int = files.MAX_SIZE,
 ) -> Drawing:
     if not actor.is_admin:
         raise Forbidden()
     building = api.get_building(session, actor, building_id)
-    record = files.store(session, actor, stream, name, {"dwg", "dxf"})
+    record = files.store(session, actor, stream, name, {"dwg", "dxf"}, limit)
     drawing = Drawing(
         id=uuid.uuid4(),
         building_id=building.id,
@@ -141,7 +143,23 @@ def _load(session: Session, drawing: Drawing):  # type: ignore[no-untyped-def]
     return read.load(files.path_of(record.sha256))
 
 
-@tasks.task("building.analyze_drawing", "Разбор чертежа на этажи")
+def _not_done(session: Session, payload: dict[str, Any], error: str) -> None:
+    """Задача чертежа не выполнена (ошибка, таймаут, отмена, сбой — ADR-0011): её
+    транзакция откачена, а статус «разбирается» или «переводится» записан ещё при постановке
+    в очередь. Не разобранный чертёж — с ошибкой; не переведённый — снова готов к переводу,
+    с причиной: иначе он навсегда «переводится», и повторить перевод нельзя."""
+    drawing = session.get(Drawing, uuid.UUID(payload["drawing_id"]), with_for_update=True)
+    if drawing is None:
+        return
+    if drawing.status == "analyzing":
+        drawing.status, drawing.error = "failed", error
+    elif drawing.status == "converting":
+        drawing.status, drawing.error = "ready", error
+
+
+# чертежи — в своей полосе очереди: тяжёлый не держит выгрузки и отчёты (R-026)
+@tasks.task("building.analyze_drawing", "Разбор чертежа на этажи", lane="drawings",
+            timeout=timedelta(minutes=15), on_fail=_not_done)
 def analyze_drawing(
     session: Session, payload: dict[str, Any], progress: tasks.Progress
 ) -> dict[str, Any]:
@@ -181,7 +199,8 @@ def analyze_drawing(
     return {"parts": len(found)}
 
 
-@tasks.task("building.convert_drawing", "Перевод чертежа в план")
+@tasks.task("building.convert_drawing", "Перевод чертежа в план", lane="drawings",
+            timeout=timedelta(minutes=60), on_fail=_not_done)
 def convert_drawing(
     session: Session, payload: dict[str, Any], progress: tasks.Progress
 ) -> dict[str, Any]:

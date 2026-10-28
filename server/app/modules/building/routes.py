@@ -1,15 +1,17 @@
 import uuid
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Response, UploadFile
+from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
-from app.core.auth import AnyActor, CurrentActor
+from app.core import uploads
+from app.core.auth import Admin, AnyActor, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
 from app.modules.building import api, drawings
 from app.modules.building.plan import Plan
+from app.modules.system import api as system
 
 router = APIRouter(prefix="/api", tags=["building"])
 
@@ -193,10 +195,16 @@ def export_floor(floor_id: uuid.UUID, fmt: str, actor: CurrentActor, session: DB
 
 # ---------------------------------------------------------------- чертежи (5.1.3)
 
-@router.post("/buildings/{building_id}/drawings", status_code=201)
-def upload_drawing(building_id: uuid.UUID, file: UploadFile, actor: CurrentActor, session: DB
+DrawingUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "drawing"))]
+
+
+@router.post("/buildings/{building_id}/drawings", status_code=201,
+             openapi_extra=uploads.form())
+def upload_drawing(building_id: uuid.UUID, actor: Admin, file: DrawingUpload, session: DB
                    ) -> dict[str, Any]:
-    drawing = drawings.upload(session, actor, building_id, file.file, file.filename or "чертёж")
+    drawing = drawings.upload(session, actor, building_id, file.file, file.name or "чертёж",
+                              file.limit)
     return drawings.view(drawing)
 
 

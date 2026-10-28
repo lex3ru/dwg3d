@@ -27,6 +27,7 @@ const TABS = [
   { key: "general", title: "Общие" },
   { key: "inventory", title: "Учёт имущества" },
   { key: "calc", title: "Расчёты" },
+  { key: "uploads", title: "Загрузка файлов" },
   { key: "status", title: "Состояние сервера" },
 ];
 
@@ -54,7 +55,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
-      {tab === "general" ? <General /> : tab === "inventory" ? <KeyedSettings key="inventory" keys={INVENTORY_KEYS} /> : tab === "calc" ? <KeyedSettings key="calc" keys={CALC_KEYS} /> : <ServerStatus />}
+      {tab === "general" ? <General /> : tab === "inventory" ? <KeyedSettings key="inventory" keys={INVENTORY_KEYS} /> : tab === "calc" ? <KeyedSettings key="calc" keys={CALC_KEYS} /> : tab === "uploads" ? <KeyedSettings key="uploads" keys={UPLOAD_KEYS} /> : <ServerStatus />}
     </PageBody>
   );
 }
@@ -114,7 +115,7 @@ function General() {
   );
 }
 
-// 4.6 п. 2, 5.4.7, 7.3 п. 4: вид номера, наклейки, размеры файлов
+// 4.6 п. 2, 5.4.7: вид номера, наклейки
 const INVENTORY_KEYS: [string, string, string][] = [
   ["inventory_number_template", "Вид инвентарного номера", "Цифры нулями в конце: 000000 → 000154; ИН-0000 → ИН-0154. Номера выдаются подряд и после списания не повторяются."],
   ["label_width_mm", "Наклейка: ширина, мм", ""],
@@ -124,8 +125,17 @@ const INVENTORY_KEYS: [string, string, string][] = [
   ["label_sheet_top_mm", "Лист А4: поле сверху, мм", ""],
   ["label_sheet_left_mm", "Лист А4: поле слева, мм", ""],
   ["label_sheet_gap_mm", "Лист А4: промежуток между наклейками, мм", "Раскладка — под марку листа с готовыми наклейками."],
-  ["photo_max_mb", "Фото — до, МБ", ""],
-  ["document_max_mb", "Документ — до, МБ", ""],
+];
+
+// 7.3 п. 4: наибольший размер загружаемого файла по видам; больший сервер не принимает
+const UPLOAD_KEYS: [string, string, string][] = [
+  ["drawing_max_mb", "Чертёж DWG/DXF — до, МБ", "До 300 МБ."],
+  ["underlay_max_mb", "Подложка этажа — до, МБ", "PDF или картинка; до 300 МБ."],
+  ["excel_max_mb", "Excel — до, МБ", "Имущество и каталог; до 50 МБ."],
+  ["model3d_max_mb", "3D-модель GLB — до, МБ", "До 100 МБ."],
+  ["photo_max_mb", "Фото — до, МБ", "Карточка единицы и снимок при обходе; до 100 МБ."],
+  ["document_max_mb", "Документ — до, МБ", "Скан к единице или документу учёта; до 200 МБ."],
+  ["transfer_max_mb", "Пакет переноса здания — до, МБ", "Несёт все файлы здания; до 10 240 МБ."],
 ];
 
 // 4.6 п. 3, 4; 5.3.4, 5.3.5: пороги камер и параметры расчёта освещённости

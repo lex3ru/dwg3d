@@ -4,6 +4,7 @@ from app.core import search
 from app.core.module import Module
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
+from app.modules.files import api as files
 from app.modules.inventory import api
 from app.modules.inventory.routes import qr, router
 from app.modules.system import api as system
@@ -24,6 +25,8 @@ def _setup(_: FastAPI) -> None:
     # место — строка без внешнего ключа: страница состояния называет единицы в убранных и
     # несуществующих местах (R-028)
     system.on_status_check(api.places_check)
+    # снимок при обходе через /api/files — до лимита фото (7.3 п. 4)
+    files.on_upload_limit("photo", lambda session: system.upload_limit(session, "photo"))
 
 
 module = Module(name="inventory", title="Учёт имущества", routers=[router, qr], setup=_setup)

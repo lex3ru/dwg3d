@@ -450,7 +450,8 @@ _changed_hooks: list[ChangedHook] = []
 def on_items_changed(hook: ChangedHook) -> None:
     """Подписаться на действия расстановки: вызывается в той же транзакции; ошибка в
     подписчике отменяет всё действие."""
-    _changed_hooks.append(hook)
+    if hook not in _changed_hooks:  # повторная подписка не удваивает (R-013)
+        _changed_hooks.append(hook)
 
 
 def items_of_units(session: Session, unit_ids: list[uuid.UUID]) -> dict[uuid.UUID, Item]:
