@@ -49,6 +49,19 @@ def test_anonymous_websocket_is_closed(client) -> None:
     assert e.value.code == 4401
 
 
+def test_r018_websocket_from_another_origin_is_closed(admin, monkeypatch) -> None:
+    """Сокет изменений открывается только со страниц самой системы. Другая служба на том же
+    сервере (другой порт) для браузера — «тот же сайт», куки входа он ей пришлёт (R-018 п. 5)."""
+    monkeypatch.setattr(main, "PING_AFTER", QUIET)
+    for origin in ("http://testserver:8080", "https://evil.test", "null"):
+        with pytest.raises(WebSocketDisconnect) as e:
+            with admin.websocket_connect("/api/ws", headers={"origin": origin}) as ws:
+                ws.receive_json()
+        assert e.value.code == 4403, origin
+    with admin.websocket_connect("/api/ws", headers={"origin": "http://testserver"}) as ws:
+        assert ws.receive_json() == {"action": "ping"}
+
+
 def test_session_check_does_not_hold_other_requests(admin, monkeypatch) -> None:
     # сокет проверяет сеанс в базе; пока проверка ждёт базу, процесс отвечает на другие
     # запросы (R-051): иначе стоят все запросы этого процесса uvicorn

@@ -3,6 +3,7 @@
 
 import html
 import io
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -95,10 +96,27 @@ th {{ background: #eee; text-align: left; font-weight: 600; }}
     return HTML(string=doc).write_pdf()
 
 
+def text_cell(ws: Any, value: Any) -> Any:
+    """Ячейка листа Excel, где текст остаётся текстом. openpyxl пишет строку, начинающуюся с
+    «=», формулой, и `=HYPERLINK(…)` из загруженного списка сработал бы у того, кто откроет
+    выгрузку (R-018 п. 6)."""
+    from openpyxl.cell import WriteOnlyCell
+
+    c = WriteOnlyCell(ws, value=value)
+    if c.data_type == "f":
+        c.data_type = "s"
+    return c
+
+
+def text_row(ws: Any, values: Iterable[Any]) -> list[Any]:
+    """Строка для ws.append, где текст остаётся текстом (R-018 п. 6). Ячейки создаются только
+    для строк с «=»: выгрузка реестра — до 50 000 строк (8.1)."""
+    return [text_cell(ws, v) if isinstance(v, str) and v.startswith("=") else v for v in values]
+
+
 def xlsx(r: Report) -> bytes:
     # потоком (write-only): листы на десятки тысяч строк не держатся в памяти целиком (8.1)
     from openpyxl import Workbook
-    from openpyxl.cell import WriteOnlyCell
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
@@ -124,7 +142,7 @@ def xlsx(r: Report) -> bytes:
         def styled(values: list[Any], font: Any, fill_: Any = None, ws: Any = ws) -> list[Any]:
             out = []
             for v in values:
-                c = WriteOnlyCell(ws, value=v)
+                c = text_cell(ws, v)
                 c.font = font
                 if fill_ is not None:
                     c.fill = fill_
@@ -133,11 +151,11 @@ def xlsx(r: Report) -> bytes:
 
         ws.append(styled([r.title], Font(bold=True, size=12)))
         if r.subtitle:
-            ws.append([r.subtitle])
+            ws.append(text_row(ws, [r.subtitle]))
         ws.append([])
         ws.append(styled(list(s.columns), bold, fill))
         for row in s.rows:
-            ws.append(list(row))
+            ws.append(text_row(ws, row))
         if s.total:
             ws.append(styled(list(s.total), bold))
     buf = io.BytesIO()

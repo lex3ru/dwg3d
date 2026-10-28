@@ -112,19 +112,21 @@ def upload_limit(session: Session, purpose: str) -> tuple[str, int]:
     return limit(session) if limit is not None else ("Файл", MAX_SIZE)
 
 
-# Гость по ссылке получает только файлы плана и 3D (подложку своего здания, модели каталога):
-# модули выше говорят, чей это файл (5.7.2)
-_guest_checks: list[Any] = []
+# Файл по ключу получает администратор и тот, кто видит, к чему файл относится: ключ
+# неугадываем, но им не открыть файл документа или чужого здания (R-018 п. 3). Чей это файл,
+# говорят модули выше. Гостю по ссылке — только файлы плана и 3D (5.7.2)
+_access_checks: list[Any] = []
 
 
-def on_guest_file(check: Any) -> None:
-    """check(session, actor, file_id) -> bool: файл нужен гостю для плана и 3D."""
-    if check not in _guest_checks:  # повторная подписка не удваивает (R-013)
-        _guest_checks.append(check)
+def on_file_access(check: Any) -> None:
+    """check(session, actor, file_id) -> bool: «просмотр» или гость видит то, к чему относится
+    файл. Что открыто гостю (только план и 3D), check решает сам."""
+    if check not in _access_checks:  # повторная подписка не удваивает (R-013)
+        _access_checks.append(check)
 
 
-def guest_may(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
-    return any(check(session, actor, file_id) for check in _guest_checks)
+def may_read(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    return actor.is_admin or any(check(session, actor, file_id) for check in _access_checks)
 
 
 def get(session: Session, file_id: uuid.UUID) -> StoredFile:

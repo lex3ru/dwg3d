@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { userKey } from "@/lib/userStorage";
 import type { CalcResult } from "./calc";
 import type { Item } from "./items";
 import type { Check, Lift, Plan, Pt } from "./plan";
@@ -267,7 +268,7 @@ export class EditorStore {
   }
 }
 
-const draftKey = (floorId: string) => `plan-draft:${floorId}`;
+const draftKey = (floorId: string) => userKey(`plan-draft:${floorId}`);
 
 // Какие слои скрыты и заблокированы — у каждого человека своё, в браузере. null — ещё
 // не трогали: тогда по видимости слоя из каталога.

@@ -44,6 +44,18 @@ def visible(actor: Actor) -> Any:
     return Unit.building_id.in_(list(actor.building_ids) or [uuid.uuid4()])
 
 
+def is_unit_file(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    """Фото или документ единицы, которую видит действующий. Гостю по ссылке учёт не открыт
+    (5.7.2). Фото из пакета переноса бывает без строки в unit_file — проверяется и оно."""
+    if actor.is_guest:
+        return False
+    linked = select(UnitFile.unit_id).where(UnitFile.file_id == file_id)
+    q = select(Unit.id).where(
+        visible(actor), or_(Unit.id.in_(linked), Unit.photo_file_id == file_id)
+    ).limit(1)
+    return session.scalar(q) is not None
+
+
 def get_unit(
     session: Session, actor: Actor, unit_id: uuid.UUID, for_update: bool = False
 ) -> Unit:
@@ -553,25 +565,29 @@ def registry(
     )
     rows = session.execute(light).all()
     by = sort.lstrip("-")
-    types = catalog.types_by_id(session, {r.type_id for r in rows}) if by == "title" or (
-        by == "number" and not actor.sees_inventory_numbers) else {}
+    # «просмотр» не видит стоимость и номера (2.2) и не должен узнать их по порядку строк
+    # (R-015): по цене и номеру ему сортируется по наименованию, при равных — по ключу записи
+    if by == "price" and not actor.sees_cost:
+        by = "title"
+    if by not in ("title", "place", "state", "commissioned_on", "price", "responsible"):
+        by = "number" if actor.sees_inventory_numbers else "title"
+    tie = (lambda r: r.number) if actor.sees_inventory_numbers else (lambda r: str(r.id))
+    types = catalog.types_by_id(session, {r.type_id for r in rows}) if by == "title" else {}
     places = Places(session, actor)
-    key = {
-        "number": lambda r: r.number,
-        "title": lambda r: (types[r.type_id].name, r.number),
-        "place": lambda r: (places.title(r.place), r.number),
-        "state": lambda r: (r.state, r.number),
-        "commissioned_on": lambda r: (r.commissioned_on, r.number),
-        "price": lambda r: (float(r.price or 0), r.number),
-        "responsible": lambda r: (r.responsible, r.number),
-    }.get(by, lambda r: r.number)
-    if not actor.sees_inventory_numbers and by == "number":
-        key = lambda r: (types[r.type_id].name, str(r.id))  # noqa: E731
+    titles: dict[str, str] = {}
     if by == "place":
         places.preload(r.place for r in rows)
         titles = {p: places.title(p) for p in {r.place for r in rows}}
-        key = lambda r: (titles[r.place], r.number)  # noqa: E731
-    rows.sort(key=key, reverse=sort.startswith("-"))
+    first = {
+        "number": lambda r: r.number,
+        "title": lambda r: types[r.type_id].name,
+        "place": lambda r: titles[r.place],
+        "state": lambda r: r.state,
+        "commissioned_on": lambda r: r.commissioned_on,
+        "price": lambda r: float(r.price or 0),
+        "responsible": lambda r: r.responsible,
+    }[by]
+    rows.sort(key=lambda r: (first(r), tie(r)), reverse=sort.startswith("-"))
     page = [r.id for r in rows[offset : offset + limit]]
     loaded = {u.id: u for u in session.scalars(select(Unit).where(Unit.id.in_(page)))}
     units = [loaded[i] for i in page]

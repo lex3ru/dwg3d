@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 3 (10.1): каталог — С4 «Новый тип», С5 «Новый слой», загрузка и выгрузка

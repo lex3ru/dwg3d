@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 6 (10.1): связь планировки и учёта (5.5) и телефон (6.5.12) — С10 (обходом),

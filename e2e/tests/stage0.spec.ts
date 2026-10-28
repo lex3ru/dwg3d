@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { login, loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 0 (10.1): администратор входит и заводит учётную запись «просмотр»;
@@ -98,4 +98,12 @@ test("каркас на телефоне: вкладки внизу, карто�
   await expect(card).toBeVisible();
   const box = await card.boundingBox();
   expect(box!.width).toBeGreaterThan(350);
+});
+
+test("страница интерфейса — с политикой безопасности (R-018 п. 1)", async ({ page }) => {
+  const r = await page.request.get("/");
+  test.skip((await r.text()).includes("/@vite/client"), "интерфейс разработки: политику ставит сервер приложения со сборкой");
+  const policy = r.headers()["content-security-policy"] ?? "";
+  expect(policy).toContain("script-src 'self'");
+  expect(policy).not.toContain("'unsafe-eval'");
 });

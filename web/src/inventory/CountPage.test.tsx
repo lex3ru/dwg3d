@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, ApiError, get, post } from "@/lib/api";
+import { setStorageUser, userKey } from "@/lib/userStorage";
 import { CountPage } from "./CountPage";
 import { loadQueue } from "./queue";
 
@@ -15,6 +16,7 @@ vi.mock("./scanner", () => ({ QrCamera: () => null }));
 
 beforeEach(() => {
   localStorage.clear();
+  setStorageUser("u1");
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 afterEach(() => {
@@ -68,7 +70,7 @@ test("пересчёт уходит через очередь, пережива�
   const banner = await screen.findByRole("alert");
   expect(banner.textContent).toContain("Сервер не принимает отметки — отметок ждёт отправки: 1");
   expect(api).toHaveBeenCalledWith("PUT", "/api/inventory/counts/c1/stock", { place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }, expect.anything());
-  expect(loadQueue("count-queue:c1")).toMatchObject([{ kind: "stock", place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }]);
+  expect(loadQueue(userKey("count-queue:c1"))).toMatchObject([{ kind: "stock", place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }]);
   expect(input.value).toBe("23");
 
   fireEvent.click(screen.getByRole("button", { name: "Провести" }));
@@ -80,7 +82,7 @@ test("пересчёт уходит через очередь, пережива�
   // сервер поднялся — очередь досылает сама, раз в 4 с
   await act(() => vi.advanceTimersByTimeAsync(4000));
   expect(api).toHaveBeenCalledTimes(2);
-  expect(loadQueue("count-queue:c1")).toEqual([]);
+  expect(loadQueue(userKey("count-queue:c1"))).toEqual([]);
   expect(within(ask).queryByText(/Ещё не отправлено/)).toBeNull();
   expect(go.disabled).toBe(false);
 });
@@ -97,7 +99,7 @@ test("сеанс кончился (401) — отметка ждёт входа, 
   const banner = await screen.findByRole("alert");
   expect(banner.textContent).toContain("Нужно войти снова — отметок ждёт отправки: 1");
   await act(() => vi.advanceTimersByTimeAsync(8000));
-  expect(loadQueue("count-queue:c1")).toHaveLength(1);
+  expect(loadQueue(userKey("count-queue:c1"))).toHaveLength(1);
   expect(screen.queryByText("Нужно войти в систему.")).toBeNull();
 });
 
@@ -113,7 +115,7 @@ test("пропущенный сервером скан не показывает
   fireEvent.submit(code.closest("form")!);
   await act(() => vi.advanceTimersByTimeAsync(0));
   expect(post).toHaveBeenCalledOnce();
-  expect(loadQueue("count-queue:c1")).toEqual([]);
+  expect(loadQueue(userKey("count-queue:c1"))).toEqual([]);
   expect(screen.queryByRole("status", { name: "Последняя метка" })).toBeNull();
 });
 
@@ -139,6 +141,36 @@ test("запрос повис — через 15 с «Нет связи», пер
   expect(again!.slice(0, 3)).toEqual(first!.slice(0, 3));
   expect(first![3]?.headers).toEqual({ "X-Count-Device": expect.any(String), "X-Count-Seq": expect.stringMatching(/^[1-9]\d*$/) });
   expect(again![3]?.headers).toEqual(first![3]?.headers);
-  expect(loadQueue("count-queue:c1")).toEqual([]);
+  expect(loadQueue(userKey("count-queue:c1"))).toEqual([]);
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+// R-018 п. 4: очередь отметок — своя у каждого пользователя. На общем телефоне другой вошедший
+// её не видит и не отправит от своего имени; вернувшийся — дошлёт
+test("неотправленные отметки одного пользователя не уходят от имени другого", async () => {
+  vi.mocked(get).mockResolvedValue(view);
+  vi.mocked(api).mockRejectedValue(new ApiError(0, "offline", "Нет связи с сервером."));
+  page();
+  const input = await screen.findByLabelText<HTMLInputElement>("Фактически: Бахилы 100 пар");
+  fireEvent.change(input, { target: { value: "23" } });
+  fireEvent.blur(input);
+  expect((await screen.findByRole("alert")).textContent).toContain("отметок ждёт отправки: 1");
+  cleanup();
+
+  vi.mocked(api).mockClear();
+  setStorageUser("u2");
+  page();
+  await screen.findByLabelText("Фактически: Бахилы 100 пар");
+  await act(() => vi.advanceTimersByTimeAsync(8000));
+  expect(api).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alert")).toBeNull();
+  cleanup();
+
+  setStorageUser("u1");
+  vi.mocked(api).mockResolvedValue(undefined);
+  page();
+  await screen.findByLabelText("Фактически: Бахилы 100 пар");
+  await act(() => vi.advanceTimersByTimeAsync(4000));
+  expect(api).toHaveBeenCalledWith("PUT", "/api/inventory/counts/c1/stock", { place: "w:1", type_id: "t1", model_id: "m1", counted: 23 }, expect.anything());
+  expect(loadQueue(userKey("count-queue:c1"))).toEqual([]);
 });

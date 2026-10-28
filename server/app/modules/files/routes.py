@@ -34,9 +34,8 @@ def upload(actor: Admin, file: Upload, session: DB, accept: str = UNDERLAY) -> d
 
 @router.get("/{file_id}")
 def download(file_id: uuid.UUID, actor: AnyActor, session: DB) -> FileResponse:
-    # ключ файла неугадываем; права на то, к чему файл относится, проверяет модуль-владелец,
-    # выдавая ссылку на файл; гостю — только файлы плана и 3D
-    if actor.is_guest and not api.guest_may(session, actor, file_id):
+    # кроме администратора — только тот, кто видит, к чему файл относится (R-018 п. 3)
+    if not api.may_read(session, actor, file_id):
         raise Forbidden()
     record = api.get(session, file_id)
     return FileResponse(api.path_of(record.sha256), media_type=record.content_type,

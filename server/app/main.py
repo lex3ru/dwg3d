@@ -11,10 +11,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -24,7 +26,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core import events, search
 from app.core.actor import Actor
-from app.core.auth import CurrentActor
+from app.core.auth import Admin, CurrentActor
 from app.core.config import config
 from app.core.db import DB, transaction
 from app.core.errors import AppError, stale
@@ -38,6 +40,20 @@ _SAFE = {"GET", "HEAD", "OPTIONS"}
 # объекты обходила бы каждая полная сборка (ADR-0010). В Windows нет Pango: PDF там не печатается
 REPORT_LIBS = ("openpyxl",) if sys.platform == "win32" else ("openpyxl", "weasyprint")
 PING_AFTER = 25  # с: тишина в сокете изменений, после которой сервер шлёт ping (6.1 п. 8)
+# Страница интерфейса (R-018 п. 1): скрипты — только свои, без встроенных и eval; WebAssembly —
+# декодер сжатых 3D-моделей; blob: — подложки, картинки моделей и PDF меток в новой вкладке
+# (вкладка blob: наследует политику, и PDF в ней — «объект»); стили — и встроенные: их ставят
+# библиотеки окон и 3D. Другие сайты не встраивают страницу в рамку
+WEB_CSP = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; "
+           "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; "
+           "connect-src 'self' blob: data:; worker-src 'self' blob:; media-src 'self' blob:; "
+           "object-src blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+# Swagger грузит скрипт и стили с CDN и запускается встроенным скриптом — его странице своя
+# политика; она открыта только администратору (R-018 п. 1, 2)
+DOCS_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https://fastapi.tiangolo.com; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'")
 RECHECK_AFTER = 25  # с: как часто открытый сокет изменений перепроверяет сеанс (R-012)
 # ошибки базы от одновременной работы (8.3 п. 2): значение уже занял, строку убрал другой
 # сеанс, база разорвала взаимоблокировку или не смогла упорядочить транзакции
@@ -59,8 +75,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     logging.basicConfig(level=config().log_level,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # схема API и Swagger — ниже, только администратору (R-018 п. 2)
     app = FastAPI(title="Планировка и учёт имущества", lifespan=lifespan,
-                  docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
+                  docs_url=None, openapi_url=None, redoc_url=None)
 
     for module in installed_modules():
         for router in module.routers:
@@ -119,6 +136,17 @@ def create_app() -> FastAPI:
         session.execute(text("SELECT 1"))
         return {"ok": True}
 
+    # схема — 120 адресов с параметрами: не для тех, кто вошёл без прав или не вошёл (R-018 п. 2)
+    @app.get("/api/openapi.json", include_in_schema=False)
+    def schema(_: Admin) -> JSONResponse:
+        return JSONResponse(app.openapi())
+
+    @app.get("/api/docs", include_in_schema=False)
+    def docs(_: Admin) -> Response:
+        page = get_swagger_ui_html(openapi_url="/api/openapi.json", title=f"{app.title} — API")
+        page.headers["Content-Security-Policy"] = DOCS_CSP
+        return page
+
     @app.get("/api/search", tags=["system"])
     def find(q: str, actor: CurrentActor, session: DB
              ) -> dict[str, Any]:
@@ -126,6 +154,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/api/ws")
     async def changes(ws: WebSocket) -> None:
+        if not _same_origin(ws):
+            await ws.close(code=4403)
+            return
         # сеанс — в пуле потоков: запрос к базе прямо в цикле событий остановил бы, пока он
         # ждёт, все запросы этого процесса (R-051)
         token = ws.cookies.get(access.COOKIE)
@@ -207,6 +238,19 @@ def _actor_for(token: str | None) -> Actor | None:
         return access.actor_for_token(session, token)
 
 
+def _same_origin(ws: WebSocket) -> bool:
+    """Сокет открыт страницей самой системы (R-018 п. 5). SameSite=Lax отсекает чужие сайты, но
+    служба на другом порту того же сервера для браузера — «тот же сайт», и куки входа он ей
+    пришлёт. Браузер всегда сообщает Origin; без него — не браузер, ему куки не подсунуть."""
+    origin = ws.headers.get("origin")
+    if origin is None:
+        return True
+    o, host = urlsplit(origin), urlsplit(f"//{ws.headers.get('host', '')}")
+    default = {"http": 80, "https": 443}.get(o.scheme)
+    return o.hostname is not None and o.hostname == host.hostname and (
+        (o.port or default) == (host.port or default))
+
+
 def _building_refs(actor: Actor) -> set[str]:
     """Ссылки на здания «просмотра»: изменения с ними ему приходят (6.1 п. 8)."""
     return {f"building:{b}" for b in actor.building_ids}
@@ -229,4 +273,5 @@ def _mount_web(app: FastAPI) -> None:
         candidate = (root / path).resolve()
         if path and candidate.is_file() and root.resolve() in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        return FileResponse(index, headers={"Cache-Control": "no-cache",
+                                            "Content-Security-Policy": WEB_CSP})

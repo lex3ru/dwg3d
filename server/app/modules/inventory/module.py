@@ -5,7 +5,7 @@ from app.core.module import Module
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.files import api as files
-from app.modules.inventory import api
+from app.modules.inventory import api, units
 from app.modules.inventory.routes import qr, router
 from app.modules.system import api as system
 
@@ -25,6 +25,8 @@ def _setup(_: FastAPI) -> None:
     # место — строка без внешнего ключа: страница состояния называет единицы в убранных и
     # несуществующих местах (R-028)
     system.on_status_check(api.places_check)
+    # фото и документы единицы — тем, кому она видна, гостю — нет (R-018 п. 3)
+    files.on_file_access(units.is_unit_file)
     # снимок при обходе через /api/files — до лимита фото (7.3 п. 4)
     files.on_upload_limit("photo", lambda session: system.upload_limit(session, "photo"))
 

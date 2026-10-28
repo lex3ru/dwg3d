@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { login, loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 4 (10.1): режим «Расстановка» — С6 «Расстановка кабинета» и расстановка

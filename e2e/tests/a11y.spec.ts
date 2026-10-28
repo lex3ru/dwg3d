@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Удобство (8.6 п. 2): контраст текста не ниже 4,5 : 1 и прочие правила WCAG 2 AA (axe) —

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { login, loginAdmin, unique } from "./helpers";
 
 // Итоговая приёмка (10.3), удобство 8.6: встроенная справка по разделам — F1 или «Справка»

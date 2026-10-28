@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { Button } from "@/ui/button";
 import { FormError } from "@/ui/form";
 import { ApiError, get, post } from "./api";
+import { userKey } from "./userStorage";
 
 // Длительные операции (6.6): ход виден, уйти с экрана можно — по окончании придёт
 // сообщение со ссылкой на результат. Следим за задачами из localStorage.
@@ -35,7 +36,7 @@ const KEY = "watched-jobs";
 
 function read(): Watched[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "[]") as Watched[];
+    return JSON.parse(localStorage.getItem(userKey(KEY)) ?? "[]") as Watched[];
   } catch {
     return [];
   }
@@ -43,7 +44,7 @@ function read(): Watched[] {
 
 function write(list: Watched[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list));
+    localStorage.setItem(userKey(KEY), JSON.stringify(list));
   } catch {
     /* не запомнится — сообщение придёт, пока страница открыта */
   }

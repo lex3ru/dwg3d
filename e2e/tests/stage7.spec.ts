@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { loginAdmin, unique } from "./helpers";
 
 // Приёмка этапа 7 (10.1): расчёты как модули (5.3.7) — обзор камер с уровнями различимости

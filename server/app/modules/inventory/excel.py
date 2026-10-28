@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
 from app.core.errors import AppError
+from app.core.report import text_row
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.inventory import documents
@@ -546,7 +547,7 @@ def _book(title: str, head: list[str], rows: list[list[Any]], widths: list[int])
         cells.append(c)
     ws.append(cells)
     for r in rows:
-        ws.append(r)
+        ws.append(text_row(ws, r))
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
