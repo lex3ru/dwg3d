@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, test } from "vitest";
+import { setStorageUser } from "@/lib/userStorage";
 import type { Item } from "./items";
 import { emptyPlan } from "./plan";
 import { EditorStore, readDraft, type ItemOp } from "./store";
@@ -93,4 +94,16 @@ describe("расстановка", () => {
     expect(s.state.itemPast).toHaveLength(1);
     expect(sent).toHaveLength(1);
   });
+});
+
+// R-018 п. 4: несохранённый план — того, кто его правил; на общем компьютере другой вошедший
+// его не видит, а тот, кто правил, найдёт при следующем входе
+test("черновик плана — свой у каждого пользователя", () => {
+  setStorageUser("u1");
+  new EditorStore("f1", emptyPlan(), 7, []).apply((p) => void (p.nodes.a = [0, 0]));
+  expect(readDraft("f1")?.edits).toBe(1);
+  setStorageUser("u2");
+  expect(readDraft("f1")).toBeNull();
+  setStorageUser("u1");
+  expect(Object.keys(readDraft("f1")!.plan.nodes)).toEqual(["a"]);
 });

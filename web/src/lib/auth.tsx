@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { ApiError, get } from "./api";
 import type { Me } from "./types";
+import { setStorageUser } from "./userStorage";
 
 const MeContext = createContext<Me | null>(null);
 
@@ -22,6 +23,8 @@ export function useMeQuery() {
 
 export function MeProvider({ me, children }: { me: Me; children: ReactNode }) {
   const client = useQueryClient();
+  // до отрисовки страниц: они читают свои данные из браузера уже при первой отрисовке
+  setStorageUser(me.id);
   useEffect(() => {
     // сеанс кончился (бездействие, блокировка) — на вход
     const onLost = () => client.setQueryData(["me"], null);

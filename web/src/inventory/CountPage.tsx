@@ -5,6 +5,7 @@ import { useParams } from "react-router";
 import type { TypeBrief } from "@/catalog/types";
 import { ApiError, api, get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { userKey } from "@/lib/userStorage";
 import { useCardTitle } from "@/shell/context";
 import { PageBody } from "@/shell/Shell";
 import { Button } from "@/ui/button";
@@ -111,7 +112,7 @@ export function CountPage() {
   const [error, setError] = useState<string | null>(null);
 
   // очередь отметок с досылкой: метки, ручные отметки и пересчёт остатков (R-030)
-  const storeKey = `count-queue:${countId}`;
+  const storeKey = userKey(`count-queue:${countId}`);
   const [queue, setQueue] = useState<Job[]>(() => loadQueue(storeKey));
   const [wait, setWait] = useState<Wait | null>(null);
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["inventory", "count", countId] }), [client, countId]);
