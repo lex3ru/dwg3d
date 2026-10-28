@@ -16,7 +16,7 @@ import json
 import time
 import uuid
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any
 
@@ -221,7 +221,7 @@ def start(
     )
 
 
-@tasks.task("transfer.import", "Загрузка здания")
+@tasks.task("transfer.import", "Загрузка здания", timeout=timedelta(minutes=60))
 def run(session: Session, payload: dict[str, Any], progress: tasks.Progress) -> dict[str, Any]:
     actor = access.actor_of(access.get(session, uuid.UUID(payload["user_id"])))
     path = _path(uuid.UUID(payload["upload"]))

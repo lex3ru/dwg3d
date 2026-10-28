@@ -45,6 +45,20 @@ def job(job_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
     return tasks.job_view(found)
 
 
+@router.post("/tasks/{job_id}/cancel")
+def cancel_job(job_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict[str, Any]:
+    """Отменить длительную операцию (R-026, ADR-0011): свою — каждый, любую — администратор.
+    Из очереди задача уходит сразу, выполняемую обработчик останавливает за 1–2 с."""
+    found = session.get(tasks.Job, job_id, with_for_update=True)
+    if found is None or not (actor.is_admin or found.created_by == actor.user_id):
+        raise NotFound("Задача не найдена.")
+    tasks.cancel(session, found)
+    title = tasks.job_view(found)["title"]
+    journal.record(session, actor, "task.cancel", f"Отменена задача «{title}»",
+                   entity=f"task:{found.id}")
+    return tasks.job_view(found)
+
+
 @tasks.task("system.purge_journal", "Очистка журнала по сроку хранения",
             every=timedelta(days=1))
 def purge_journal(session: Session, _payload: dict[str, Any], _progress: tasks.Progress

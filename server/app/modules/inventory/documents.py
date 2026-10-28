@@ -72,7 +72,8 @@ _units_hooks: list[UnitsHook] = []
 
 
 def on_units_changed(hook: UnitsHook) -> None:
-    _units_hooks.append(hook)
+    if hook not in _units_hooks:  # повторная подписка не удваивает (R-013)
+        _units_hooks.append(hook)
 
 
 def _units_changed(session: Session, actor: Actor, units: list[Unit]) -> None:

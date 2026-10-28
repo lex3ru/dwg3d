@@ -255,7 +255,8 @@ _usage: list[Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]] = []
 
 
 def on_usage(check: Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]) -> None:
-    _usage.append(check)
+    if check not in _usage:  # повторная подписка не удваивает (R-013)
+        _usage.append(check)
 
 
 def used(
@@ -270,7 +271,8 @@ _accounted: list[Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]] =
 
 
 def on_accounted(check: Callable[[Session, uuid.UUID | None, uuid.UUID | None], int]) -> None:
-    _accounted.append(check)
+    if check not in _accounted:  # повторная подписка не удваивает (R-013)
+        _accounted.append(check)
 
 
 def accounted(session: Session, type_id: uuid.UUID) -> int:

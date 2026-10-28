@@ -45,6 +45,8 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "app", "worker"]
+    # задача — в дочернем процессе (ADR-0011): init подбирает осиротевшие dwg2dxf
+    init: true
     healthcheck:
       disable: true
     depends_on:

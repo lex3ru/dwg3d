@@ -182,7 +182,8 @@ _checks: list[Callable[[Session], dict[str, Any]]] = []
 
 
 def on_status_check(check: Callable[[Session], dict[str, Any]]) -> None:
-    _checks.append(check)
+    if check not in _checks:  # повторная подписка не удваивает (R-013)
+        _checks.append(check)
 
 
 def status(session: Session) -> dict[str, Any]:

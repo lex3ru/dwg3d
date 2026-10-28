@@ -146,7 +146,8 @@ _on_building_deleted: list[Callable[[Session, uuid.UUID], None]] = []
 
 
 def on_building_deleted(callback: Callable[[Session, uuid.UUID], None]) -> None:
-    _on_building_deleted.append(callback)
+    if callback not in _on_building_deleted:  # повторная подписка не удваивает (R-013)
+        _on_building_deleted.append(callback)
 
 
 def delete_building(session: Session, actor: Actor, building_id: uuid.UUID) -> None:
@@ -256,7 +257,8 @@ _floor_guards: list[Callable[[Session, uuid.UUID], None]] = []
 
 
 def guard_floor_delete(check: Callable[[Session, uuid.UUID], None]) -> None:
-    _floor_guards.append(check)
+    if check not in _floor_guards:  # повторная подписка не удваивает (R-013)
+        _floor_guards.append(check)
 
 
 def delete_floor(session: Session, actor: Actor, floor_id: uuid.UUID) -> None:
@@ -352,7 +354,8 @@ _on_rooms_continued: list[Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | 
 
 def on_rooms_continued(callback: Callable[[Session, Actor, dict[uuid.UUID, uuid.UUID | None]],
                                           None]) -> None:
-    _on_rooms_continued.append(callback)
+    if callback not in _on_rooms_continued:  # повторная подписка не удваивает (R-013)
+        _on_rooms_continued.append(callback)
 
 
 # что числится в помещениях (учёт): {помещение: {"units": N, "stock": M}} — только помещения,
@@ -362,7 +365,8 @@ _room_property: list[Callable[[Session, list[uuid.UUID]], dict[uuid.UUID, dict[s
 
 def on_room_property(check: Callable[[Session, list[uuid.UUID]],
                                      dict[uuid.UUID, dict[str, int]]]) -> None:
-    _room_property.append(check)
+    if check not in _room_property:  # повторная подписка не удваивает (R-013)
+        _room_property.append(check)
 
 
 def room_property(session: Session, room_ids: list[uuid.UUID]
@@ -390,7 +394,8 @@ _on_plan_saved: list[Callable[[Session, Actor, uuid.UUID], None]] = []
 
 
 def on_plan_saved(callback: Callable[[Session, Actor, uuid.UUID], None]) -> None:
-    _on_plan_saved.append(callback)
+    if callback not in _on_plan_saved:  # повторная подписка не удваивает (R-013)
+        _on_plan_saved.append(callback)
 
 
 # ---------------------------------------------------------------- план (5.1.4–5.1.6)

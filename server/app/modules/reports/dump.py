@@ -7,7 +7,7 @@
 import re
 import uuid
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -131,7 +131,7 @@ def _floor_tables(session: Session, actor: Actor, b: Any) -> tuple[report.Report
     return rooms, layout
 
 
-@tasks.task("reports.full_export", "Полная выгрузка")
+@tasks.task("reports.full_export", "Полная выгрузка", timeout=timedelta(minutes=60))
 def run(session: Session, payload: dict[str, Any], progress: tasks.Progress) -> dict[str, Any]:
     account = access.get(session, uuid.UUID(payload["user_id"]))
     actor = access.actor_of(account)

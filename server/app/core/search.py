@@ -25,7 +25,8 @@ _providers: list[Provider] = []
 
 
 def register(provider: Provider) -> None:
-    _providers.append(provider)
+    if provider not in _providers:  # повторная подписка не удваивает (R-013)
+        _providers.append(provider)
 
 
 def search(session: Session, actor: Actor, query: str, limit: int = 30) -> list[Hit]:

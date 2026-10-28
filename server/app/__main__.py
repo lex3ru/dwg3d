@@ -107,7 +107,8 @@ def main() -> None:
 
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
-        tasks.run_worker(lambda: stopping)
+        # процесс задачи, начатый заново (spawn, Windows), готовит модули так же
+        tasks.run_worker(lambda: stopping, setup=create_app)
     elif args.command == "create-admin":
         from app.core.db import transaction
         from app.modules.access import api

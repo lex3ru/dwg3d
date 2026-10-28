@@ -119,7 +119,8 @@ _guest_checks: list[Any] = []
 
 def on_guest_file(check: Any) -> None:
     """check(session, actor, file_id) -> bool: файл нужен гостю для плана и 3D."""
-    _guest_checks.append(check)
+    if check not in _guest_checks:  # повторная подписка не удваивает (R-013)
+        _guest_checks.append(check)
 
 
 def guest_may(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
