@@ -82,6 +82,14 @@ def upload(
     return drawing
 
 
+def is_drawing_file(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    """Исходный чертёж видит тот, кому видно здание; гостю по ссылке — только план (5.7.2)."""
+    if actor.is_guest:
+        return False
+    q = select(Drawing.building_id).where(Drawing.file_id == file_id)
+    return any(actor.can_see_building(b) for b in session.scalars(q))
+
+
 def drawings(session: Session, actor: Actor, building_id: uuid.UUID) -> list[Drawing]:
     api.get_building(session, actor, building_id)
     return list(

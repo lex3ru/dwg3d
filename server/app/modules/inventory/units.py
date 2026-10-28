@@ -44,6 +44,18 @@ def visible(actor: Actor) -> Any:
     return Unit.building_id.in_(list(actor.building_ids) or [uuid.uuid4()])
 
 
+def is_unit_file(session: Session, actor: Actor, file_id: uuid.UUID) -> bool:
+    """Фото или документ единицы, которую видит действующий. Гостю по ссылке учёт не открыт
+    (5.7.2). Фото из пакета переноса бывает без строки в unit_file — проверяется и оно."""
+    if actor.is_guest:
+        return False
+    linked = select(UnitFile.unit_id).where(UnitFile.file_id == file_id)
+    q = select(Unit.id).where(
+        visible(actor), or_(Unit.id.in_(linked), Unit.photo_file_id == file_id)
+    ).limit(1)
+    return session.scalar(q) is not None
+
+
 def get_unit(
     session: Session, actor: Actor, unit_id: uuid.UUID, for_update: bool = False
 ) -> Unit:

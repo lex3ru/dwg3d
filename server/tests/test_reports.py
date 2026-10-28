@@ -124,7 +124,8 @@ def test_r018_text_from_users_is_not_a_formula_in_excel(admin) -> None:
                           for c in cells)
     assert not formulas, "формулы в выгрузках:\n" + "\n".join(formulas)
     # текст на месте — его не выбросили вместо того, чтобы обезвредить
-    assert all(texts[k] for k in ("каталог", "реестр", "стоимость", "проект", "отчёт registry")), texts
+    expected = ("каталог", "реестр", "стоимость", "проект", "отчёт registry")
+    assert all(texts[k] for k in expected), texts
 
 
 def test_home_counts_what_needs_attention(admin) -> None:
