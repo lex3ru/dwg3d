@@ -190,7 +190,7 @@ test("Режим проекта: смена этажа не выходит из 
   await expect(banner).toBeVisible();
   await page.getByRole("radiogroup", { name: "Вид" }).getByRole("radio", { name: "оба" }).click();
   await page.getByLabel("Этаж", { exact: true }).selectOption({ label: "2 этаж" });
-  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.second}\?`));
+  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.second}\\?`));
   // тот же проект и тот же вид
   await expect(banner).toBeVisible();
   const url = new URL(page.url());
@@ -212,7 +212,7 @@ test("«Открыть на плане»: без изменений — посл
     await page.getByRole("link", { name: "Открыть на плане" }).click();
     await expect(page.getByRole("status", { name: "Режим проекта" })).toBeVisible();
   };
-  const at = (floor: string) => new RegExp(`/plan/${t.building}/${floor}\?project=${t.project}`);
+  const at = (floor: string) => new RegExp(`/plan/${t.building}/${floor}\\?project=${t.project}`);
   // новый проект: человек работал на 2 этаже — туда же
   await page.goto(`/plan/${t.building}/${t.second}`);
   await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
@@ -237,7 +237,7 @@ test("Режим проекта не теряется молча: адрес б�
   const t = await twoFloorsAndProject(page);
   // адрес без этажа — первый этаж в том же проекте
   await page.goto(`/plan/${t.building}?project=${t.project}`);
-  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.first}\?project=${t.project}`));
+  await expect(page).toHaveURL(new RegExp(`/plan/${t.building}/${t.first}\\?project=${t.project}`));
   await expect(page.getByRole("status", { name: "Режим проекта" })).toBeVisible();
   // «+ этаж» добавил бы этаж в настоящее здание: в проекте его нет, как и «Строительства»
   await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();

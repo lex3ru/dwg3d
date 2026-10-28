@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, CheckCheck, Copy, FileDown, FileSpreadsheet, M
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import type { ProjectView } from "@/editor/Editor";
+import { lastFloor, projectFloor } from "@/editor/floors";
 import { money } from "@/inventory/types";
 import { ApiError, api, get, patch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -100,8 +101,9 @@ export function ProjectPage() {
   if (project.isLoading) return <Loading />;
   if (!p) return <Empty title="Проект не найден" />;
   const floors = building.data?.floors ?? [];
-  const firstFloor = floors.find((f) => p.floor_ids.includes(f.id)) ?? floors.find((f) => f.elevation >= 0) ?? floors[0];
-  const planUrl = (floorId?: string, itemId?: string) => `/plan/${p.building_id}/${floorId ?? firstFloor?.id ?? ""}?project=${p.id}${itemId ? `&item=${itemId}` : ""}`;
+  // «Открыть на плане» — туда, где проект правят (R-043)
+  const openFloor = projectFloor(floors, p.floor_ids, lastFloor(p.building_id));
+  const planUrl = (floorId?: string, itemId?: string) => `/plan/${p.building_id}/${floorId ?? openFloor?.id ?? ""}?project=${p.id}${itemId ? `&item=${itemId}` : ""}`;
   const setTab = (t: string) =>
     setParams((x) => {
       const out = new URLSearchParams(x);
@@ -122,11 +124,18 @@ export function ProjectPage() {
         }
         actions={
           <>
-            <Button variant="primary" asChild>
-              <Link to={planUrl()}>
+            {/* этаж известен, когда загрузилось здание */}
+            {openFloor ? (
+              <Button variant="primary" asChild>
+                <Link to={planUrl()}>
+                  <MapIcon /> Открыть на плане
+                </Link>
+              </Button>
+            ) : (
+              <Button variant="primary" disabled>
                 <MapIcon /> Открыть на плане
-              </Link>
-            </Button>
+              </Button>
+            )}
             <Button onClick={() => setApplying(true)} disabled={!p.changes || p.archived}>
               <CheckCheck /> Применить
             </Button>
