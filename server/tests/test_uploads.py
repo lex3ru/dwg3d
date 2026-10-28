@@ -1,7 +1,9 @@
 """Загрузки (7.3 п. 4, ADR-0012): тело без прав не читается (R-014), у каждого вида файла —
 свой лимит из настроек, и он проверяется до приёма (R-040)."""
 
+import asyncio
 import io
+import json
 import uuid
 from collections.abc import Iterator
 
@@ -97,19 +99,47 @@ KINDS = [
 ]
 
 
+def stream_post(app, client, url: str, chunks: Iterator[bytes]) -> tuple[int, dict]:  # type: ignore[no-untyped-def,type-arg]
+    """POST прямо в ASGI-приложение, тело — частями, как из сети, без Content-Length.
+    TestClient так не умеет: первым же сообщением он отдаёт приложению тело целиком."""
+    path, _, query = url.partition("?")
+    cookie = "; ".join(f"{k}={v}" for k, v in client.cookies.items())
+    scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+             "http_version": "1.1", "method": "POST", "scheme": "http", "path": path,
+             "raw_path": path.encode(), "query_string": query.encode(), "root_path": "",
+             "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+             "headers": [(b"content-type", FORM["Content-Type"].encode()),
+                         (b"x-requested-with", b"app"), (b"cookie", cookie.encode())]}
+    started: dict = {}  # type: ignore[type-arg]
+    body: list[bytes] = []
+
+    async def receive() -> dict:  # type: ignore[type-arg]
+        chunk = next(chunks, None)
+        return {"type": "http.request", "body": chunk or b"", "more_body": chunk is not None}
+
+    async def send(message: dict) -> None:  # type: ignore[type-arg]
+        if message["type"] == "http.response.start":
+            started.update(message)
+        elif message["type"] == "http.response.body":
+            body.append(message.get("body", b""))
+
+    asyncio.run(app(scope, receive, send))
+    return started["status"], json.loads(b"".join(body))
+
+
 @pytest.mark.parametrize(("key", "path", "head"), KINDS,
                          ids=[f"{k}-{i}" for i, (k, _, _) in enumerate(KINDS)])
 def test_r040_each_kind_is_refused_over_its_limit_before_it_is_received(
-        admin, key: str, path, head: bytes) -> None:  # type: ignore[no-untyped-def]
+        app, admin, key: str, path, head: bytes) -> None:  # type: ignore[no-untyped-def]
     """R-040: файл больше лимита своего вида отклоняется с 413. Без Content-Length сервер
     обрывает приём на лимите, а не дочитывает тело."""
     settings(admin, **{key: 1})
     url = path(admin)
     fields = {"building_id": _building(admin)} if url == "/api/inventory/import" else None
     pulled: list[int] = []
-    r = admin.post(url, content=multipart(head, 5, pulled, fields), headers=FORM)
-    assert r.status_code == 413, r.text
-    assert r.json()["error"]["code"] == "too_large" and "1 МБ" in r.json()["error"]["message"]
+    status, answer = stream_post(app, admin, url, multipart(head, 5, pulled, fields))
+    assert status == 413, answer
+    assert answer["error"]["code"] == "too_large" and "1 МБ" in answer["error"]["message"]
     assert len(pulled) <= 2, f"сервер забрал {len(pulled)} МБ при лимите 1 МБ"
 
 

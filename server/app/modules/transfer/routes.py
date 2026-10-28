@@ -1,14 +1,16 @@
 import os
 import tempfile
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, UploadFile
+from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.core import uploads
 from app.core.auth import Admin
 from app.core.db import DB
+from app.modules.system import api as system
 from app.modules.transfer import package
 
 router = APIRouter(prefix="/api", tags=["transfer"])
@@ -26,8 +28,12 @@ def export(
     return FileResponse(path, media_type="application/zip", filename=name)
 
 
-@router.post("/transfer/check")
-def check(file: UploadFile, actor: Admin, session: DB) -> dict[str, Any]:
+PackageUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "transfer"))]
+
+
+@router.post("/transfer/check", openapi_extra=uploads.form())
+def check(actor: Admin, file: PackageUpload, session: DB) -> dict[str, Any]:
     """Загрузить пакет и проверить: что заведётся, что совпало, какие номера заняты."""
     package._admin(actor)
     upload = package.receive(file.file)

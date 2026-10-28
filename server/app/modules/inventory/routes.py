@@ -5,15 +5,19 @@ from datetime import date
 from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, Header, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.core import uploads
 from app.core.auth import Admin, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
 from app.modules.building import api as building
+from app.modules.files import api as files
 from app.modules.inventory import api, cost, counts, documents, excel, places, printing, units
 from app.modules.inventory.rules import doc_title
+from app.modules.system import api as system
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 qr = APIRouter(prefix="/api/q", tags=["inventory"])
@@ -254,16 +258,28 @@ def roll_back(change_id: uuid.UUID, actor: Admin, session: DB) -> dict[str, Any]
     return units.unit_view(session, actor, units.roll_back(session, actor, change_id))
 
 
-@router.post("/units/{unit_id}/files", status_code=201)
+def _unit_file_limit(session: Session, request: Request) -> tuple[str, int]:
+    photo = request.query_params.get("kind") == "photo"
+    return system.upload_limit(session, "photo" if photo else "document")
+
+
+UnitFileUpload = Annotated[uploads.Upload, uploads.receive(_unit_file_limit)]
+DocumentUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "document"))]
+ExcelUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "excel"))]
+
+
+@router.post("/units/{unit_id}/files", status_code=201, openapi_extra=uploads.form())
 def add_file(
-    unit_id: uuid.UUID, file: UploadFile, actor: Admin, session: DB, kind: str = "doc"
+    unit_id: uuid.UUID, actor: Admin, file: UnitFileUpload, session: DB, kind: str = "doc"
 ) -> dict[str, Any]:
     units.add_file(
         session,
         actor,
         unit_id,
         file.file,
-        file.filename or "файл",
+        file.name or "файл",
         "photo" if kind == "photo" else "doc",
     )
     return units.unit_view(session, actor, units.get_unit(session, actor, unit_id))
@@ -402,19 +418,17 @@ def print_document(doc_id: uuid.UUID, actor: Admin, session: DB) -> Response:
     return _pdf(data, f"{doc_title(doc.kind, doc.number)}.pdf")
 
 
-@router.post("/documents/{doc_id}/files", status_code=201)
-def document_file(doc_id: uuid.UUID, file: UploadFile, actor: Admin, session: DB) -> dict[str, Any]:
-    from app.modules.files import api as files
-    from app.modules.system import api as system
-
-    limit = int(system.get(session, "document_max_mb")) * 1024 * 1024
+@router.post("/documents/{doc_id}/files", status_code=201, openapi_extra=uploads.form())
+def document_file(
+    doc_id: uuid.UUID, actor: Admin, file: DocumentUpload, session: DB
+) -> dict[str, Any]:
     record = files.store(
         session,
         actor,
         file.file,
-        file.filename or "скан",
+        file.name or "скан",
         {"pdf", "jpeg", "png", "webp", "heic"},
-        limit,
+        file.limit,
     )
     documents.attach_file(session, actor, doc_id, record.id)
     return documents.doc_view(session, actor, documents.get_document(session, actor, doc_id))
@@ -478,19 +492,21 @@ def import_template(_: Admin) -> Response:
     return _xlsx(excel.template(), "имущество-шаблон.xlsx")
 
 
-@router.post("/import")
-def import_property(
-    file: UploadFile,
-    actor: Admin,
-    session: DB,
-    building_id: Annotated[uuid.UUID, Form()],
-    mapping: Annotated[str, Form()] = "{}",
-    apply: Annotated[bool, Form()] = False,
-) -> dict[str, Any]:
+@router.post(
+    "/import",
+    openapi_extra=uploads.form(building_id="string", mapping="string", apply="boolean"),
+)
+def import_property(actor: Admin, file: ExcelUpload, session: DB) -> dict[str, Any]:
+    # поля формы: здание, сопоставление типов и помещений (JSON), загружать ли
     try:
-        m = json.loads(mapping or "{}")
+        building_id = uuid.UUID(file.fields.get("building_id", ""))
+    except ValueError:
+        raise AppError("Выберите здание.", field="building_id") from None
+    try:
+        m = json.loads(file.fields.get("mapping") or "{}")
     except ValueError:
         raise AppError("Неверное сопоставление.") from None
+    apply = file.fields.get("apply", "").lower() in ("true", "1", "on", "yes")
     return excel.load(
         session, actor, file.file, building_id, m.get("types", {}), m.get("rooms", {}), apply
     )

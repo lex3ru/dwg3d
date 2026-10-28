@@ -48,12 +48,13 @@ def view(d: Drawing, full: bool = False) -> dict[str, Any]:
 
 
 def upload(
-    session: Session, actor: Actor, building_id: uuid.UUID, stream: BinaryIO, name: str
+    session: Session, actor: Actor, building_id: uuid.UUID, stream: BinaryIO, name: str,
+    limit: int = files.MAX_SIZE,
 ) -> Drawing:
     if not actor.is_admin:
         raise Forbidden()
     building = api.get_building(session, actor, building_id)
-    record = files.store(session, actor, stream, name, {"dwg", "dxf"})
+    record = files.store(session, actor, stream, name, {"dwg", "dxf"}, limit)
     drawing = Drawing(
         id=uuid.uuid4(),
         building_id=building.id,

@@ -15,6 +15,17 @@
 		Referrer-Policy same-origin
 		-Server
 	}
+	# Тело запроса (R-014, ADR-0012). Вход и лимит вида файла приложение проверяет само до
+	# приёма; здесь — вторая линия: общий предел файла (300 МБ) и запас на форму, у пакета
+	# переноса здания — верхняя граница его настройки (10 240 МБ)
+	@transfer path /api/transfer/check
+	request_body @transfer {
+		max_size 10241MiB
+	}
+	@other not path /api/transfer/check
+	request_body @other {
+		max_size 301MiB
+	}
 	reverse_proxy app:8000
 }
 

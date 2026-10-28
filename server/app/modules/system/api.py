@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.core import uploads
 from app.core.actor import Actor
 from app.core.config import config
 from app.core.errors import AppError, stale
@@ -35,6 +36,16 @@ def _text(limit: int) -> Callable[[Any], str]:
     return check
 
 
+def _megabytes(high: int, title: str) -> Callable[[Any], int]:
+    def check(value: Any) -> int:
+        if (not isinstance(value, int | float) or isinstance(value, bool)
+                or value != int(value) or not 1 <= value <= high):
+            raise AppError(f"{title}: целое число мегабайт от 1 до {high}.")
+        return int(value)
+
+    return check
+
+
 @dataclass(frozen=True)
 class SettingDef:
     title: str
@@ -42,11 +53,26 @@ class SettingDef:
     check: Callable[[Any], Any]
 
 
+# 7.3 п. 4: вид файла — название, лимит по умолчанию и наибольший, МБ. Виды 7.3 идут через
+# хранилище файлов — не больше его общего предела (uploads.MAX_FILE); пакета переноса здания
+# в 7.3 нет, он несёт все файлы здания (ADR-0012)
+UPLOADS: dict[str, tuple[str, int, int]] = {
+    "drawing": ("Чертёж", 100, uploads.MAX_FILE // uploads.MB),
+    "underlay": ("Подложка", 50, uploads.MAX_FILE // uploads.MB),
+    "excel": ("Файл Excel", 10, 50),
+    "model3d": ("3D-модель", 20, 100),
+    "photo": ("Фото", 15, 100),
+    "document": ("Документ", 25, 200),
+    "transfer": ("Пакет переноса здания", 2048, 10240),
+}
+
 SETTINGS: dict[str, SettingDef] = {
     # 6.7 п. 3: печатается в шапке документов, отчётов и на наклейках
     "organization_name": SettingDef("Название учреждения", "", _text(300)),
     # 5.7.3: журнал и история хранятся столько лет
     "journal_years": SettingDef("Срок хранения журнала, лет", 5, _years),
+    **{f"{kind}_max_mb": SettingDef(f"{title} — до, МБ", default, _megabytes(high, title))
+       for kind, (title, default, high) in UPLOADS.items()},
 }
 
 
@@ -58,6 +84,11 @@ def register(key: str, definition: SettingDef) -> None:
 def get(session: Session, key: str) -> Any:
     row = session.get(Setting, key)
     return row.value if row is not None else SETTINGS[key].default
+
+
+def upload_limit(session: Session, kind: str) -> tuple[str, int]:
+    """Что за файл и наибольший размер в байтах (7.3 п. 4) — для `uploads.receive`."""
+    return UPLOADS[kind][0], int(get(session, f"{kind}_max_mb")) * uploads.MB
 
 
 def all_settings(session: Session) -> dict[str, Any]:

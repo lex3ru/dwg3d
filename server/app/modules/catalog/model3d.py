@@ -9,13 +9,13 @@ from typing import Any, BinaryIO
 import numpy as np
 from sqlalchemy.orm import Session
 
+from app.core import uploads
 from app.core.actor import Actor
 from app.core.errors import AppError
 from app.modules.catalog import api
 from app.modules.catalog.models import ItemType
 from app.modules.files import api as files
-
-MAX_SIZE = 20 * 1024 * 1024  # 7.3: 3D-модель — до 20 МБ
+from app.modules.system import api as system
 
 
 def _matrix(node: dict[str, Any]) -> np.ndarray:
@@ -90,12 +90,16 @@ def attach(
     name: str,
     credit: str = "",
     transform: dict[str, Any] | None = None,
+    limit: int | None = None,
 ) -> ItemType:
+    """limit — наибольший размер в байтах; по умолчанию — из настроек (7.3 п. 4)."""
     api._admin(actor)
     api.get_type(session, type_id)
-    data = stream.read(MAX_SIZE + 1)
-    if len(data) > MAX_SIZE:
-        raise AppError("3D-модель больше 20 МБ.", code="too_large")
+    what, most = system.upload_limit(session, "model3d")
+    most = limit or most
+    data = stream.read(most + 1)
+    if len(data) > most:
+        raise uploads.too_large(what, most)
     size = size_of(data)
     import io
 

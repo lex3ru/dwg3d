@@ -1,13 +1,15 @@
 import uuid
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Response, UploadFile
+from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
+from app.core import uploads
 from app.core.auth import Admin, AnyActor
 from app.core.db import DB
 from app.modules.catalog import api, excel, model3d
+from app.modules.system import api as system
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -178,11 +180,16 @@ def type_values(type_id: uuid.UUID, body: ValuesIn, actor: Admin, session: DB) -
     return api.type_view(session, t, actor)
 
 
-@router.post("/types/{type_id}/model3d")
+Model3dUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "model3d"))]
+
+
+@router.post("/types/{type_id}/model3d", openapi_extra=uploads.form())
 def upload_model3d(
-    type_id: uuid.UUID, file: UploadFile, actor: Admin, session: DB
+    type_id: uuid.UUID, actor: Admin, file: Model3dUpload, session: DB
 ) -> dict[str, Any]:
-    t = model3d.attach(session, actor, type_id, file.file, file.filename or "модель.glb")
+    t = model3d.attach(session, actor, type_id, file.file, file.name or "модель.glb",
+                       limit=file.limit)
     return api.type_view(session, t, actor)
 
 
@@ -294,6 +301,10 @@ def export(_: Admin, session: DB) -> Response:
     )
 
 
-@router.post("/import")
-def load(file: UploadFile, actor: Admin, session: DB, apply: bool = False) -> dict[str, Any]:
+ExcelUpload = Annotated[uploads.Upload, uploads.receive(
+    lambda session, _: system.upload_limit(session, "excel"))]
+
+
+@router.post("/import", openapi_extra=uploads.form())
+def load(actor: Admin, file: ExcelUpload, session: DB, apply: bool = False) -> dict[str, Any]:
     return excel.load(session, actor, file.file, apply)

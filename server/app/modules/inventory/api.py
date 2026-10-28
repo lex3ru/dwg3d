@@ -75,10 +75,6 @@ def register_settings() -> None:
     system.register(
         "label_sheet_gap_mm", S("Лист А4: промежуток, мм", 0, _number(0, 20, "Промежуток"))
     )
-    system.register("photo_max_mb", S("Фото — до, МБ", 15, _number(1, 100, "Размер фото")))
-    system.register(
-        "document_max_mb", S("Документ — до, МБ", 25, _number(1, 200, "Размер документа"))
-    )
 
 
 def label_settings(session: Session) -> dict[str, Any]:
