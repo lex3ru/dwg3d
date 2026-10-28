@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { ApiError, get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
-import { useJob, watchJob } from "@/lib/jobs";
+import { CancelJob, finished, useJob, watchJob } from "@/lib/jobs";
 import type { FloorInfo } from "@/editor/plan";
 import { Button } from "@/ui/button";
 import { FormError } from "@/ui/form";
@@ -133,7 +133,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
 
   // по окончании задачи — перечитать
   useEffect(() => {
-    if (job && (job.status === "done" || job.status === "failed")) {
+    if (finished(job)) {
       client.invalidateQueries({ queryKey: ["drawing", id] });
       client.invalidateQueries({ queryKey: ["drawings", buildingId] });
       client.invalidateQueries({ queryKey: ["building", buildingId] });
@@ -168,6 +168,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
     onSuccess: (r) => {
       watchJob({ id: r.job_id, title: `Перевод чертежа в планы — ${buildingName}`, href: `/buildings?b=${buildingId}` });
       client.invalidateQueries({ queryKey: ["drawing", id] });
+      client.invalidateQueries({ queryKey: ["drawings", buildingId] });
     },
     onError: (e) => setError((e as ApiError).message),
   });
@@ -184,6 +185,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
           <div className="h-2 rounded bg-accent transition-all" style={{ width: `${Math.max(5, share * 100)}%` }} />
         </div>
         <p className="m-0 text-[12px] text-ink-3">Можно уйти с экрана — по окончании придёт сообщение.</p>
+        <CancelJob job={job} />
       </div>
     );
   }
@@ -191,6 +193,11 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
   const existing = parts.filter((p) => choice[p.key] && choice[p.key] !== "new" && floors.find((f) => f.id === choice[p.key])?.walls);
   return (
     <div className="flex flex-col gap-3 border-t border-line px-3 py-3">
+      {d.error && (
+        <p className="m-0 rounded-lg bg-bad-soft px-3 py-2 text-[13px] text-bad" role="alert">
+          Перевод не выполнен: {d.error} Планы этажей не изменились — перевод можно повторить.
+        </p>
+      )}
       <p className="m-0 text-[13px] text-ink-2">На листе найдено частей: {parts.length}. Укажите, какая часть — какой этаж; таблицы, штампы и подписи переводить не нужно.</p>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {parts.map((p, i) => {

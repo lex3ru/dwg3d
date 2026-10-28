@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError, post } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { useJob, watchJob } from "@/lib/jobs";
+import { CancelJob, useJob, watchJob } from "@/lib/jobs";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 import { Field, FormError, Input } from "@/ui/form";
@@ -167,7 +167,9 @@ export function TransferImportDialog({ open, onClose }: { open: boolean; onClose
               {job?.message ?? "Загружаю…"} {job?.progress.total ? `(${job.progress.done} из ${job.progress.total})` : ""}
             </p>
           )}
+          {running && <CancelJob job={job} />}
           {job?.status === "failed" && <FormError message={job.error ?? "Загрузка не удалась — ничего не заведено."} />}
+          {job?.status === "cancelled" && <p className="m-0 text-ink-2">Загрузка отменена — ничего не заведено.</p>}
         </div>
       )}
       <FormError message={error} />
