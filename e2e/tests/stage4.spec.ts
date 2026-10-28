@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "./fixtures";
 import { login, loginAdmin, unique } from "./helpers";
 
@@ -5,6 +6,8 @@ import { login, loginAdmin, unique } from "./helpers";
 // светильников из С8 (без освещённости).
 
 const H = { "X-Requested-With": "app" };
+// коробка 1,0 × 0,5 × 0,8 м со сжатием Draco — fixtures/draco-box.mjs
+const DRACO_BOX = readFileSync(new URL("../fixtures/draco-box.glb", import.meta.url));
 
 interface Item {
   id: string;
@@ -265,4 +268,99 @@ test("Постановка в 3D: перетаскиванием из катал
   // отмена — как на плане
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await items(page, f.floor)).length).toBe(1);
+});
+
+// Draco-сжатая модель (DWG3D-15): так GLB выгружают Blender и Sketchfab. Декодер — со своего
+// сервера (/draco/): CSP пускает только свой сервер, а в закрытой сети чужих адресов нет вовсе
+
+// тип 1000 × 800 × 500 мм в видимом слое и его карточка, вкладка «Вид»
+async function typeForModel(page: Page) {
+  const layers = (await (await page.request.get("/api/catalog")).json()).layers;
+  const name = unique("Коробка Draco ");
+  const t = await (
+    await page.request.post("/api/catalog/types", {
+      headers: H,
+      data: { name, layer_id: layers.find((l: { visible: boolean }) => l.visible).id, width: 1000, height: 500, depth: 800 },
+    })
+  ).json();
+  await page.goto(`/catalog?type=${t.id}&tab=view`);
+  return { id: t.id as string, name };
+}
+
+// GLB — в карточку типа; ждёт, пока превью его загрузит (или не загрузит)
+async function upload(page: Page, type: string, name: string, buffer: Buffer) {
+  const loaded = page.waitForResponse((r) => r.url().includes("/api/files/") && r.request().method() === "GET");
+  await page.getByLabel("Файл 3D-модели").setInputFiles({ name, mimeType: "model/gltf-binary", buffer });
+  await loaded;
+  await expect(page.getByRole("region", { name: "Просмотр 3D-модели" })).toHaveAttribute("aria-busy", "false");
+  return (await (await page.request.get(`/api/catalog/types/${type}`)).json()) as { model_url: string; model_size: number[] };
+}
+
+// предмет типа — в кабинет 214
+async function placeInRoom(page: Page, f: { building: string; floor: string }, name: string) {
+  await page.goto(`/plan/${f.building}/${f.floor}`);
+  await page.getByRole("tab", { name: "Расстановка" }).click();
+  await placeAt(page, name, 3000, 4000);
+  await expect.poll(async () => (await items(page, f.floor)).length).toBe(1);
+}
+
+// 3D; ждёт, пока модель загрузится (или не загрузится) и там
+async function show3D(page: Page, modelUrl: string) {
+  const loaded = page.waitForResponse((r) => r.url().includes(modelUrl));
+  await page.getByRole("radio", { name: "3D", exact: true }).click();
+  await loaded;
+  await expect(page.getByRole("region", { name: "3D-вид" })).toHaveAttribute("aria-busy", "false");
+}
+
+test("Draco-модель: превью, вид сверху на плане и 3D — декодер со своего сервера", async ({ page }) => {
+  await loginAdmin(page);
+  const origin = new URL(page.url()).origin;
+  const foreign: string[] = [];
+  page.on("request", (r) => {
+    if (/^https?:/.test(r.url()) && new URL(r.url()).origin !== origin) foreign.push(r.url());
+  });
+  const failed: string[] = [];
+  page.on("pageerror", (e) => failed.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error" && /модель|draco|gltf/i.test(m.text())) failed.push(m.text());
+  });
+  const f = await floorWithRooms(page);
+  const t = await typeForModel(page);
+
+  // превью в карточке типа: декодер распаковал сетку
+  const model = await upload(page, t.id, "коробка.glb", DRACO_BOX);
+  expect(foreign, "запросы на чужие адреса").toEqual([]);
+  await expect(page.getByRole("region", { name: "Просмотр 3D-модели" }).getByRole("alert")).toHaveCount(0);
+  // размер сервер берёт из описания сцены, не распаковывая: он совпал с габаритами типа
+  expect(model.model_size).toEqual([1, 0.5, 0.8]);
+  await expect(page.getByText("Размер модели не совпадает")).toHaveCount(0);
+
+  // на плане — видом сверху, снятым с модели; в 3D — моделью
+  await placeInRoom(page, f, t.name);
+  await expect(page.locator(`svg[aria-label="План этажа"] [id="tv-${t.id}"]`)).toBeAttached();
+  await show3D(page, model.model_url);
+  expect(foreign, "запросы на чужие адреса").toEqual([]);
+  expect(failed, "ошибки загрузки модели").toEqual([]);
+});
+
+test("Модель не распаковалась: в превью — сообщение, в 3D — коробка, страница работает", async ({ page }) => {
+  await loginAdmin(page);
+  const crashed: string[] = [];
+  page.on("pageerror", (e) => crashed.push(e.message));
+  const f = await floorWithRooms(page);
+  const t = await typeForModel(page);
+  // сжатые данные испорчены, описание сцены цело: сервер файл примет, декодер — нет
+  const broken = Buffer.from(DRACO_BOX);
+  const bin = 12 + 8 + broken.readUInt32LE(12) + 8;
+  broken.fill(0, bin, bin + 16);
+  const model = await upload(page, t.id, "испорчена.glb", broken);
+  await expect(page.getByRole("region", { name: "Просмотр 3D-модели" }).getByRole("alert")).toContainText("Модель не загрузилась");
+
+  // на плане — прямоугольником, в 3D — коробкой; переключатели 3D работают
+  await placeInRoom(page, f, t.name);
+  await show3D(page, model.model_url);
+  await page.getByRole("radio", { name: "Прогулка" }).click();
+  await expect(page.getByRole("radio", { name: "Прогулка" })).toHaveAttribute("aria-checked", "true");
+  // и пойманную ошибку r3f сообщает браузеру как непойманную (reportError) — других нет
+  expect(crashed.filter((m) => !m.includes(`Could not load ${model.model_url}`)), "ошибки страницы").toEqual([]);
 });
