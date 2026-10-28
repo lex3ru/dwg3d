@@ -4,7 +4,7 @@ title: "3D: Draco-модели каталога — декодер со свое
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-15-draco
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/15
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/60ffd27c-6b89-46f2-adf7-95a3496a3019
 updated: 2026-10-28
 ---
