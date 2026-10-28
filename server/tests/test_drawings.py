@@ -362,9 +362,12 @@ def test_r026_heavy_drawing_does_not_hold_the_queue_and_can_be_cancelled(admin, 
     with transaction() as s:
         light = tasks.enqueue(s, "system.purge_journal")
     log = tmp_path / "worker.log"
+    # «путаница» после ~40 с перевода ест память без предела (до 12 ГБ за минуту): отмена
+    # приходит за секунды, а предел не даст медленному раннеру задохнуться
+    env = {**os.environ, "APP_TASK_MEMORY_MB": "1024"}
     with log.open("wb") as out:
         worker = subprocess.Popen([sys.executable, "-m", "app", "worker"], cwd=ROOT / "server",
-                                  stdout=out, stderr=subprocess.STDOUT)
+                                  stdout=out, stderr=subprocess.STDOUT, env=env)
         try:
             deadline = time.monotonic() + 60
             while (admin.get(f"/api/system/tasks/{light}").json()["status"] != "done"

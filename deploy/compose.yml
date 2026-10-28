@@ -13,6 +13,9 @@ x-app: &app
     APP_DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app
     APP_BACKUP_DIR: /backups
     APP_WORKERS: ${APP_WORKERS:-4}
+    # память процесса фоновой задачи сверх занятого обработчиком и dwg2dxf, МБ (ADR-0011)
+    APP_TASK_MEMORY_MB: ${APP_TASK_MEMORY_MB:-4096}
+    APP_DWG2DXF_MEMORY_MB: ${APP_DWG2DXF_MEMORY_MB:-4096}
     TZ: ${TZ:-Europe/Moscow}
   volumes:
     - files:/data

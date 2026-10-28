@@ -4,6 +4,7 @@
 
 import multiprocessing
 import os
+import sys
 import threading
 import time
 import uuid
@@ -12,9 +13,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy import select
 
 from app.core import tasks
+from app.core.config import config
 from app.core.db import transaction
 from app.modules.journal import api as journal
 from app.modules.journal.models import Entry
@@ -49,6 +52,12 @@ def _crash(session, payload: dict[str, Any], progress: tasks.Progress) -> dict[s
     if multiprocessing.parent_process() is None:
         raise RuntimeError("задача должна идти в дочернем процессе")
     os._exit(9)
+
+
+@tasks.task("test.hungry", "Задача, которой не хватает памяти", on_fail=_failed)
+def _hungry(session, payload: dict[str, Any], progress: tasks.Progress) -> dict[str, Any]:
+    blocks = [bytearray(64 * 1024 * 1024) for _ in range(payload["blocks"])]
+    return {"mb": 64 * len(blocks)}
 
 
 @contextmanager
@@ -124,6 +133,22 @@ def test_r026_a_crashed_task_fails_and_the_worker_goes_on() -> None:
         assert wait(after, "done")["status"] == "done"
     assert failed["status"] == "failed" and failed["error"], failed
     assert [a for a, _ in journal_of("crash")] == ["test.on_fail"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="предел памяти процесса (setrlimit) — Linux")
+def test_r026_a_task_out_of_memory_fails_and_the_worker_goes_on(monkeypatch) -> None:
+    """Кривой чертёж за минуту съедает десятки ГБ. Процесс задачи упирается в предел памяти
+    (APP_TASK_MEMORY_MB сверх занятого обработчиком): задача не выполнена с понятной
+    причиной, модуль узнаёт об этом, обработчик работает дальше."""
+    monkeypatch.setattr(config(), "task_memory_mb", 256)
+    hungry = enqueue("test.hungry", tag="hungry", blocks=32)  # 2 ГБ
+    with worker():
+        failed = wait(hungry, "failed")
+        after = enqueue("test.quick", tag="after")
+        assert wait(after, "done")["status"] == "done"
+    assert failed["status"] == "failed" and "не хватило памяти" in failed["error"], failed
+    assert "256 МБ" in failed["error"]
+    assert [a for a, _ in journal_of("hungry")] == ["test.on_fail"]
 
 
 def test_r026_a_queued_task_is_cancelled_at_once(admin) -> None:

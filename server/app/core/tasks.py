@@ -40,6 +40,9 @@ from app.core.config import config
 from app.core.db import Base, engine, transaction
 from app.core.errors import AppError, Conflict
 
+if sys.platform != "win32":
+    import resource
+
 CHANNEL = "core_jobs"
 LANES = ("main", "drawings")  # полосы очереди: в каждой одна задача, полосы — одновременно
 SILENCE = timedelta(minutes=2)  # пульса нет дольше — обработчик задачи замолчал (R-013)
@@ -215,9 +218,11 @@ def _fail(job_id: uuid.UUID, error: str, status: str = "failed") -> bool:
         return True
 
 
-def _execute(job_id: uuid.UUID, kind: str, payload: dict[str, Any]) -> None:
+def _execute(job_id: uuid.UUID, kind: str, payload: dict[str, Any],
+             memory_mb: int | None = None) -> None:
     """Выполнить взятую задачу. «Готово» пишется в той же транзакции, что и её данные:
-    остановленная задача не оставит данных без «готово» и «готово» без данных."""
+    остановленная задача не оставит данных без «готово» и «готово» без данных.
+    memory_mb — предел памяти процесса задачи, если он есть (для причины отказа)."""
     definition = _registry.get(kind)
     if definition is None:
         _fail(job_id, f"Неизвестная задача «{kind}».")
@@ -229,6 +234,13 @@ def _execute(job_id: uuid.UUID, kind: str, payload: dict[str, Any]) -> None:
                 status="done", result=result, finished_at=datetime.now(UTC)))
     except AppError as e:
         _fail(job_id, e.message)
+    except MemoryError:
+        # данные задачи освобождены вместе с её кадрами — на отметку памяти хватит
+        limit = f" — больше {memory_mb} МБ" if memory_mb else ""
+        log.error("task %s %s: out of memory%s", kind, job_id, limit)
+        _fail(job_id, f"Задаче не хватило памяти{limit}: данных слишком много или файл "
+                      "устроен необычно. Предел меняет администратор сервера "
+                      "(APP_TASK_MEMORY_MB).")
     except Exception:
         log.error("task %s %s failed:\n%s", kind, job_id, traceback.format_exc())
         _fail(job_id, "Задача прервалась из-за внутренней ошибки; подробности — в журнале "
@@ -302,12 +314,37 @@ def _pulse(name: str) -> None:
 # ---------------------------------------------------------------- процесс задачи (ADR-0011)
 
 
+def _data_size() -> int:
+    """Сколько данных процесс уже занял, байт (VmData): у процесса задачи — унаследованное от
+    обработчика; потоки OpenBLAS дают сотни МБ, и тем больше, чем больше ядер."""
+    try:
+        with open("/proc/self/status") as status:
+            for line in status:
+                if line.startswith("VmData:"):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
+
+
+def _limit_memory(memory_mb: int) -> None:
+    """Предел памяти процесса задачи (Linux) — memory_mb сверх уже занятого. RLIMIT_DATA
+    считает выделенную память — кучу и анонимные отображения, но не библиотеки и не
+    зарезервированное адресное пространство."""
+    limit = _data_size() + memory_mb * 1024 * 1024
+    hard = resource.getrlimit(resource.RLIMIT_DATA)[1]
+    if hard != resource.RLIM_INFINITY:
+        limit = min(limit, hard)
+    resource.setrlimit(resource.RLIMIT_DATA, (limit, limit))
+
+
 def _child(job_id: str, kind: str, payload: dict[str, Any], module: str,
-           setup: Callable[[], Any] | None) -> None:
+           setup: Callable[[], Any] | None, memory_mb: int) -> None:
     if sys.platform != "win32":
         os.setpgrp()  # своя группа: остановка задачи останавливает и её подпроцессы (dwg2dxf)
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
+        _limit_memory(memory_mb)
     # обработчик пропал — задача никому не нужна: Windows не останавливает потомков сам
     parent = multiprocessing.parent_process()
     if parent is not None:
@@ -318,7 +355,7 @@ def _child(job_id: str, kind: str, payload: dict[str, Any], module: str,
         if setup is not None:
             setup()
         importlib.import_module(module)
-    _execute(uuid.UUID(job_id), kind, payload)
+    _execute(uuid.UUID(job_id), kind, payload, memory_mb if sys.platform != "win32" else None)
 
 
 @dataclass
@@ -338,7 +375,8 @@ def _start(job: Job, setup: Callable[[], Any] | None) -> _Running | None:
     context = multiprocessing.get_context("spawn" if sys.platform == "win32" else "fork")
     process = context.Process(
         target=_child, name=f"task {job.kind}", daemon=True,
-        args=(str(job.id), job.kind, job.payload, definition.handler.__module__, setup))
+        args=(str(job.id), job.kind, job.payload, definition.handler.__module__, setup,
+              config().task_memory_mb))
     process.start()
     return _Running(job.id, definition.timeout, process,
                     time.monotonic() + definition.timeout.total_seconds())
