@@ -4,6 +4,8 @@ import io
 import zipfile
 from datetime import date
 
+from openpyxl import load_workbook
+
 from app.core import tasks
 from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_calc import catalog
@@ -42,14 +44,11 @@ def setup(admin):  # type: ignore[no-untyped-def]
     return b, f, rooms, got, types
 
 
-def test_every_report_builds(pdf, admin) -> None:
-    b, f, rooms, got, types = setup(admin)
-    defs = {d["key"]: d for d in admin.get("/api/reports").json()["items"]}
-    assert len(defs) == 13
+def report_params(admin, b, f, rooms, got, types, project):  # type: ignore[no-untyped-def]
+    """Параметры каждого отчёта по данным setup."""
     count = admin.post("/api/inventory/counts", json={"places": [f"r:{rooms['214']}"]}).json()
-    project = admin.post("/api/projects", json={"building_id": b["id"], "name": "Вариант"}).json()
     layers = ",".join(t["layer_id"] for t in types.values() if t["layer_id"])[:2000]
-    params = {
+    return {
         "registry": {"building_id": b["id"]},
         "balances": {"at": str(date.today()), "building_id": b["id"]},
         "movement": {"since": "2020-01-01", "building_id": b["id"]},
@@ -64,6 +63,14 @@ def test_every_report_builds(pdf, admin) -> None:
         "labels": {"place": f"r:{rooms['214']}"},
         "document": {"document_id": got["id"]},
     }
+
+
+def test_every_report_builds(pdf, admin) -> None:
+    b, f, rooms, got, types = setup(admin)
+    defs = {d["key"]: d for d in admin.get("/api/reports").json()["items"]}
+    assert len(defs) == 13
+    project = admin.post("/api/projects", json={"building_id": b["id"], "name": "Вариант"}).json()
+    params = report_params(admin, b, f, rooms, got, types, project)
     magic = {"pdf": b"%PDF-", "xlsx": b"PK", "dxf": b"  0"}
     for key, d in defs.items():
         for fmt in d["formats"]:
@@ -73,6 +80,47 @@ def test_every_report_builds(pdf, admin) -> None:
     # отчёт без обязательного — понятная ошибка
     r = admin.get("/api/reports/room.pdf")
     assert r.status_code == 400 and "место" in r.json()["error"]["message"].lower()
+
+
+def test_r018_text_from_users_is_not_a_formula_in_excel(admin) -> None:
+    """Текст, введённый или загруженный пользователем, в выгрузке Excel остаётся текстом:
+    `=HYPERLINK(…)` в названии не должен стать формулой у того, кто откроет файл (R-018 п. 6)."""
+    b, f, rooms, got, types = setup(admin)
+    trap = '=HYPERLINK("http://example.test","{}")'
+    for name in ("Стол письменный 1200×600", "Светильник светодиодный 600×600",
+                 "Камера купольная", "Кушетка смотровая", "Перчатки смотровые нитриловые"):
+        t = types[name]
+        r = admin.patch(f"/api/catalog/types/{t['id']}",
+                        json={"version": t["version"], "name": trap.format(name)})
+        assert r.status_code == 200, r.text
+        types[name] = r.json()
+    r = admin.patch(f"/api/buildings/{b['id']}",
+                    json={"version": b["version"], "name": trap.format("Поликлиника")})
+    assert r.status_code == 200, r.text
+    project = admin.post("/api/projects",
+                         json={"building_id": b["id"], "name": trap.format("Вариант")}).json()
+    params = report_params(admin, b, f, rooms, got, types, project)
+    books = {
+        "каталог": admin.get("/api/catalog/export.xlsx"),
+        "реестр": admin.get("/api/inventory/units/export.xlsx"),
+        "стоимость": admin.get("/api/inventory/cost.xlsx"),
+        "проект": admin.get(f"/api/projects/{project['id']}/export.xlsx"),
+    }
+    for d in admin.get("/api/reports").json()["items"]:
+        if "xlsx" in d["formats"]:
+            books[f"отчёт {d['key']}"] = admin.get(f"/api/reports/{d['key']}.xlsx",
+                                                   params=params[d["key"]])
+    formulas, texts = [], {}
+    for book, r in books.items():
+        assert r.status_code == 200, (book, r.text[:300])
+        cells = [c for ws in load_workbook(io.BytesIO(r.content)).worksheets
+                 for row in ws.iter_rows() for c in row]
+        formulas += [f"{book}: {c.coordinate} {c.value}" for c in cells if c.data_type == "f"]
+        texts[book] = any(isinstance(c.value, str) and c.value.startswith("=HYPERLINK")
+                          for c in cells)
+    assert not formulas, "формулы в выгрузках:\n" + "\n".join(formulas)
+    # текст на месте — его не выбросили вместо того, чтобы обезвредить
+    assert all(texts[k] for k in ("каталог", "реестр", "стоимость", "проект", "отчёт registry"))
 
 
 def test_home_counts_what_needs_attention(admin) -> None:
