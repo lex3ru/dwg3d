@@ -390,13 +390,13 @@ test("С22: ленты здания, этажа и документа; удал�
   await page.goto(`/buildings?b=${f.building}`);
   await page.getByRole("main").getByRole("link", { name: "Журнал", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/journal\\?building=${f.building}`));
-  await expect(page.getByLabel("Здание")).toHaveValue(f.building);
+  await expect(page.getByRole("main").getByLabel("Здание")).toHaveValue(f.building);
   await expect(page.getByText(/Сохранён план «2 этаж»/)).toBeVisible();
   await expect(page.getByText(/Проведён «Приход/)).toBeVisible();
   await expect(page.getByText(/Удалён черновик «Списание/)).toBeVisible();
 
   // лента этажа — фильтром «Этаж»
-  await page.getByLabel("Этаж").selectOption({ label: "2 этаж" });
+  await page.getByRole("main").getByRole("combobox", { name: /^Этаж/ }).selectOption({ label: "2 этаж" });
   await expect(page).toHaveURL(new RegExp(`floor=${f.floor}`));
   await expect(page.getByText(/Проведён «Приход/)).toBeVisible();
 });
