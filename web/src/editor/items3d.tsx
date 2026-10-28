@@ -1,7 +1,9 @@
-import { useGLTF } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
+import { useLoader, useThree } from "@react-three/fiber";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { withDecoders } from "@/catalog/gltf";
+import { ModelBoundary } from "@/catalog/ModelBoundary";
 import { placeModel, transformOf } from "@/catalog/model3d";
 import type { TypeBrief } from "@/catalog/types";
 import { normAngle, sizeOf, stickToWall, wallGeometry, type Item } from "./items";
@@ -59,9 +61,12 @@ export function Items3D({ items, cat, hidden, selected, interactive, store, plan
       {ghost && <Ghost item={ghost} type={cat.types.get(ghost.type_id)} color={cat.layers.get(cat.types.get(ghost.type_id)?.layer_id ?? "")?.color ?? "#2f6fde"} />}
       {groups.map((g) =>
         g.type?.model_url ? (
-          <Suspense key={g.type.id} fallback={<Boxes group={g} />}>
-            <Models group={g} url={g.type.model_url} />
-          </Suspense>
+          // модель не загрузилась — коробки, как у типа без модели
+          <ModelBoundary key={`${g.type.id}|${g.type.model_url}`} url={g.type.model_url} fallback={<Boxes group={g} />}>
+            <Suspense fallback={<Boxes group={g} />}>
+              <Models group={g} url={g.type.model_url} />
+            </Suspense>
+          </ModelBoundary>
         ) : (
           <Boxes key={g.type?.id ?? g.items[0]!.type_id} group={g} />
         ),
@@ -81,7 +86,7 @@ function Boxes({ group }: { group: Group }) {
 }
 
 function Models({ group, url }: { group: Group; url: string }) {
-  const gltf = useGLTF(url);
+  const gltf = useLoader(GLTFLoader, url, withDecoders);
   const t = group.type!;
   const tr = transformOf(t.model_transform);
   const { w, d, h } = sizeOf(t);

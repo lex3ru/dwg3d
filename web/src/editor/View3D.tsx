@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, useProgress } from "@react-three/drei";
 import { Footprints, Orbit as OrbitIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -79,13 +79,14 @@ export default function View3D({ floorId, projectId, floors, plan, lifts, onWalk
     return { floor: f, plan: view?.plan ?? { nodes: {}, walls: [], openings: [], columns: [], stairs: [], rooms: [], underlay: null }, slabs: view?.slabs ?? [] };
   });
   const shown = data.filter((d) => (scope === "floor" ? d.floor.id === floorId : d.floor.position <= current.position));
+  const busy = useProgress((s) => s.active); // грузятся 3D-модели
 
   useEffect(() => {
     if (mode === "orbit") onWalker(null);
   }, [mode, onWalker]);
 
   return (
-    <div className="relative h-full w-full bg-[#dfe5ec] dark:bg-[#1b2129]">
+    <div role="region" aria-label="3D-вид" aria-busy={busy} className="relative h-full w-full bg-[#dfe5ec] dark:bg-[#1b2129]">
       <Canvas shadows={false} camera={{ fov: 55, near: 0.05, far: 2000, position: [30, 30, 30] }} dpr={[1, 2]}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[40, 80, 30]} intensity={1.4} />
