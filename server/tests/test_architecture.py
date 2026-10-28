@@ -119,3 +119,39 @@ def test_tables_live_in_their_module_schema() -> None:
             if target not in {owner, "core"} and TIERS.get(target, 99) >= TIERS.get(owner, 0):
                 bad.append(f"{cls.__name__}: внешний ключ на {fk.target_fullname} — не ниже")
     assert not bad, "\n".join(bad)
+
+
+def test_r013_second_create_app_does_not_double_subscriptions(app) -> None:  # type: ignore[no-untyped-def]
+    """Модули подписываются (`on_*`, `register`) в `create_app()`; второй вызов в том же
+    процессе не удваивает подписчиков — иначе каждое событие обрабатывалось бы дважды (R-013)."""
+    import sys
+
+    from app.main import create_app
+
+    def lists() -> dict[str, list]:  # type: ignore[type-arg]
+        return {f"{name}.{attr}": value for name, module in list(sys.modules.items())
+                if name.startswith("app.") and module is not None
+                for attr, value in vars(module).items() if type(value) is list}
+
+    before = {k: list(v) for k, v in lists().items()}
+    try:
+        create_app()
+        grown = {k: (len(before[k]), len(v)) for k, v in lists().items()
+                 if k in before and len(v) != len(before[k])}
+        assert not grown, grown
+    finally:
+        for k, v in lists().items():
+            if k in before:
+                v[:] = before[k]
+
+
+def test_uploads_are_received_after_the_access_check() -> None:
+    """ADR-0012: FastAPI разбирает `UploadFile`, `File` и `Form` раньше проверки входа — тело
+    ложится на диск и без прав. Файл принимает зависимость `core/uploads.py` (R-014)."""
+    found = []
+    for path in sorted(ROOT.rglob("routes.py")):
+        text = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if re.search(r"\b(UploadFile|File|Form)\b", line):
+                found.append(f"{path.relative_to(ROOT)}:{line_no}: {line.strip()}")
+    assert not found, "\n".join(found)

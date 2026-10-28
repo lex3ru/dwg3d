@@ -4,6 +4,8 @@ import io
 import json
 import struct
 
+import pytest
+
 from app.core.db import transaction
 from app.modules.catalog.module import seed
 from tests.conftest import login, make_client
@@ -202,6 +204,44 @@ def test_3d_model_is_measured(admin) -> None:
         files={"file": ("кушетка.glb", io.BytesIO(b"not a glb at all, no"))},
     )
     assert r.status_code == 400
+
+
+def packed(text: bytes) -> bytes:
+    """GLB с любым описанием сцены — и испорченным тоже."""
+    text += b" " * ((4 - len(text) % 4) % 4)
+    body = struct.pack("<I4s", len(text), b"JSON") + text
+    return struct.pack("<4sII", b"glTF", 2, 12 + len(body)) + body
+
+
+def scene(nodes: list[dict], **extra: object) -> bytes:  # type: ignore[type-arg]
+    doc = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": nodes,
+           "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+           "accessors": [{"componentType": 5126, "count": 2, "type": "VEC3",
+                          "min": [0, 0, 0], "max": [1, 1, 1]}]}
+    return packed(json.dumps({**doc, **extra}).encode())
+
+
+BROKEN_GLB = {
+    "bad-json": packed(b'{"nodes": [oops'),  # кривой JSON
+    "node-index": scene([{"children": [7]}]),  # узел вне списка
+    "mesh-index": scene([{"mesh": 5}]),  # сетка вне списка
+    "accessor-index": scene([{"mesh": 0}], accessors=[]),  # координаты вне списка
+    "cycle": scene([{"children": [1]}, {"children": [0], "mesh": 0}]),  # цикл в children
+    # у узла glTF 2.0 один родитель; здесь каждый ссылается на следующий дважды — путей
+    # обхода 2^12, а при 25 узлах — 2^24, и запрос не отвечает (artifacts/stage4-glb-fuzz.txt)
+    "shared-child": scene([{"children": [i + 1, i + 1]} for i in range(12)] + [{"mesh": 0}]),
+    "deep-chain": scene([{"children": [i + 1]} for i in range(2999)] + [{"mesh": 0}]),
+}
+
+
+@pytest.mark.parametrize("data", BROKEN_GLB.values(), ids=BROKEN_GLB.keys())
+def test_r025_broken_glb_is_refused_with_a_reason(admin, data: bytes) -> None:
+    """R-025: испорченная модель — «GLB повреждён», а не 500 и не зависание."""
+    t = admin.post("/api/catalog/types", json={"name": "Кушетка"}).json()
+    r = admin.post(f"/api/catalog/types/{t['id']}/model3d",
+                   files={"file": ("кушетка.glb", io.BytesIO(data))})
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "bad_glb"
 
 
 def test_purposes(admin) -> None:
