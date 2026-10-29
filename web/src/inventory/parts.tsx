@@ -212,13 +212,14 @@ export function UnitPicker({ onPick, place, label = "Добавить едини
   );
 }
 
-// Печать QR-меток: листом А4 или на принтер этикеток (5.4.7)
-export async function printLabels(body: { unit_ids?: string[]; codes?: string[]; room_ids?: string[] }, mode: "sheet" | "printer" = "sheet") {
+// Печать QR-меток: листом А4 или на принтер этикеток (5.4.7). Адрес в метках — постоянный, из
+// «Настроек» (R-016); система открыта по другому — возвращает предупреждение, иначе null.
+export async function printLabels(body: { unit_ids?: string[]; codes?: string[]; room_ids?: string[] }, mode: "sheet" | "printer" = "sheet"): Promise<string | null> {
   const r = await fetch("/api/inventory/labels.pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "app" },
     credentials: "same-origin",
-    body: JSON.stringify({ ...body, mode, origin: window.location.origin }),
+    body: JSON.stringify({ ...body, mode }),
   });
   if (!r.ok) {
     const e = await r.json().catch(() => null);
@@ -226,4 +227,18 @@ export async function printLabels(body: { unit_ids?: string[]; codes?: string[];
   }
   const url = URL.createObjectURL(await r.blob());
   window.open(url, "_blank");
+  return labelWarning(r.headers.get("X-Label-Url"));
+}
+
+export function labelWarning(base: string | null): string | null {
+  if (!base || sameOrigin(base, window.location.origin)) return null;
+  return `Метки ведут на ${base}, а система сейчас открыта по ${window.location.origin}. Проверьте адрес меток: «Настройки» → «Учёт имущества».`;
+}
+
+function sameOrigin(a: string, b: string) {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
 }

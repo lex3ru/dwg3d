@@ -160,7 +160,7 @@ function Editor({ doc }: { doc: Doc }) {
           </>
         )}
         {created.length > 0 && (
-          <Button onClick={() => void printLabels({ unit_ids: created.map((u) => u.id) }).catch((e) => setError({ message: (e as Error).message }))}>
+          <Button onClick={() => void printLabels({ unit_ids: created.map((u) => u.id) }).then((w) => setError(w ? { message: w } : null), (e) => setError({ message: (e as Error).message }))}>
             <QrCode /> Метки ({created.length})
           </Button>
         )}

@@ -145,7 +145,7 @@ export function UnitCard({ id }: { id: string }) {
           <Button size="sm" variant="danger" onClick={() => void act("writeoff")}>
             <XCircle /> Списать
           </Button>
-          <Button size="sm" onClick={() => void printLabels({ unit_ids: [u.id] }).catch((e) => setError((e as Error).message))}>
+          <Button size="sm" onClick={() => void printLabels({ unit_ids: [u.id] }).then(setError, (e) => setError((e as Error).message))}>
             <QrCode /> Метка
           </Button>
         </div>

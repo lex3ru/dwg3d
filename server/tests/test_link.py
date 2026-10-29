@@ -280,9 +280,7 @@ def test_new_room_outlines_move_linked_units_with_their_items(admin) -> None:
 def test_door_label_opens_the_room_for_a_walk(pdf, admin) -> None:
     _, rooms, _, _ = setup(admin)
     room = rooms["214"][2:]
-    r = admin.post(
-        "/api/inventory/labels.pdf", json={"room_ids": [room], "origin": "http://localhost"}
-    )
+    r = admin.post("/api/inventory/labels.pdf", json={"room_ids": [room]})
     assert r.status_code == 200 and r.content[:5] == b"%PDF-"
     with transaction() as s:
         code = s.get(RoomLabel, uuid.UUID(room)).label_code

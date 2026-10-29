@@ -401,7 +401,7 @@ export function LabelsOffer({ result, onClose }: { result: Registered | null; on
               variant="primary"
               onClick={() => {
                 setError(null);
-                printLabels({ unit_ids: result.unit_ids }).catch((e: Error) => setError(e.message));
+                printLabels({ unit_ids: result.unit_ids }).then(setError, (e: Error) => setError(e.message));
               }}
             >
               <Printer /> Напечатать метки ({result.unit_ids.length})

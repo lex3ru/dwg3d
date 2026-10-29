@@ -179,7 +179,7 @@ test("С11 и С16: приход на склад с номерами подря�
   const numbers = doc.lines[0].created_units.map((u: { number: string }) => Number(u.number));
   expect(numbers).toEqual(numbers.map((_: number, i: number) => numbers[0] + i));
   // метки печатаются
-  const labels = await page.request.post("/api/inventory/labels.pdf", { headers: H, data: { unit_ids: doc.lines[0].created_units.map((u: { id: string }) => u.id), origin: "http://localhost" } });
+  const labels = await page.request.post("/api/inventory/labels.pdf", { headers: H, data: { unit_ids: doc.lines[0].created_units.map((u: { id: string }) => u.id) } });
   expect((await labels.body()).subarray(0, 5).toString()).toBe("%PDF-");
 
   // С16: расход перчаток со склада
@@ -249,4 +249,33 @@ test("С19: стоимость на дату с разбивкой по этаж
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Excel" }).click();
   expect((await download).suggestedFilename()).toMatch(/^стоимость-на-.*\.xlsx$/);
+});
+
+test("R-016: метки ведут на постоянный адрес — в «Настройках» видно куда, при печати не оттуда — предупреждение", async ({ page }) => {
+  await loginAdmin(page);
+  const b = await building(page, [["214", "Кабинет терапевта"]]);
+  const opened = await newDoc(page, "opening", { to_place: b.rooms["214"] }, [{ type_id: await typeId(page, "Кресло врача"), qty: 1, price: 11200 }]);
+  const chair = opened.lines[0].created_units[0];
+  const setLabelUrl = async (label_url: string) => {
+    const { version } = await (await page.request.get("/api/system/settings")).json();
+    expect((await page.request.patch("/api/system/settings", { headers: H, data: { version, values: { label_url } } })).ok()).toBeTruthy();
+  };
+  await setLabelUrl("https://uchet.local");
+  try {
+    await page.goto("/settings?tab=inventory");
+    await expect(page.getByText("Сейчас метки ведут на https://uchet.local (задан выше).")).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: /^Метки ведут на https:\/\/uchet\.local, а система сейчас открыта по / })).toBeVisible();
+
+    // печать: адрес меток сервер отдаёт в X-Label-Url (сам PDF здесь не важен — на Windows
+    // WeasyPrint его не строит)
+    await page.route("**/api/inventory/labels.pdf", (route) => route.fulfill({ status: 200, contentType: "application/pdf", headers: { "X-Label-Url": "https://uchet.local" }, body: "%PDF-1.4" }));
+    await page.goto(`/property?card=unit:${chair.id}`);
+    const card = page.getByRole("complementary", { name: "Карточка" });
+    const popup = page.waitForEvent("popup");
+    await card.getByRole("button", { name: "Метка" }).click();
+    await (await popup).close();
+    await expect(card.getByRole("alert")).toContainText("Метки ведут на https://uchet.local");
+  } finally {
+    await setLabelUrl("");
+  }
 });
