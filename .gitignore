@@ -35,6 +35,7 @@ dist/
 
 # the rewrite: local backups of a test installation
 /deploy/backups/
+/deploy/.version
 /server/.dev-data/
 /server/.volume-data/
 /e2e/test-results/

@@ -9,7 +9,9 @@
 # Первый запуск создаёт deploy/.env (пароль базы, адрес, порты, каталог копий), собирает
 # и запускает систему и заводит первого администратора — его временный пароль печатается
 # в конце. Повторный запуск — обновление: сначала резервная копия (8.3 п. 5), потом новая
-# версия; данные переносятся сами (миграции базы при запуске приложения).
+# версия; данные переносятся сами (миграции базы при запуске приложения). Если новая версия
+# не собралась или не запустилась, скрипт печатает, как вернуть прежнюю (R-037,
+# docs/INSTALL.md, «Если обновление не удалось»).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,6 +21,26 @@ die() { printf '\n\033[31mОшибка: %s\033[0m\n' "$*" >&2; exit 1; }
 command -v docker >/dev/null || die "нет Docker. Установите Docker Engine и Docker Compose (docs/INSTALL.md)."
 docker compose version >/dev/null 2>&1 || die "нет Docker Compose v2 (команда «docker compose»)."
 docker info >/dev/null 2>&1 || die "Docker не запущен или у пользователя нет к нему доступа (нужна группа docker или sudo)."
+
+# версия — тег vX.Y.Z (ADR-0023), между тегами — «тег-коммитов-gхеш»; прежняя — та, что
+# поставил последний удачный запуск (.version)
+version="$(git -C .. describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --always 2>/dev/null || echo неизвестна)"
+previous="$(cat .version 2>/dev/null || true)"
+copy=""
+
+# обновление не удалось — как вернуть прежнюю версию; restore: новая версия успела запуститься
+# и могла перенести данные, нужна копия перед обновлением
+failed() { # сообщение [restore]
+  [ "$fresh" = 0 ] || die "$1"
+  printf '\n\033[31mОшибка: %s\033[0m\n' "$1" >&2
+  printf 'Вернуть прежнюю версию (docs/INSTALL.md, «Если обновление не удалось»):\n' >&2
+  printf '  git checkout %s\n' "${previous:-<прежняя версия>}" >&2
+  if [ "${2:-}" = restore ]; then
+    printf '  cd %s && docker compose build && ./restore.sh %s\n' \
+      "$(pwd)" "${copy:-<копия перед обновлением>}" >&2
+  fi
+  exit 1
+}
 
 if [ ! -f .env ]; then
   address="${1:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
@@ -60,7 +82,7 @@ ENV
   chmod 600 .env
   fresh=1
 else
-  say "Обновление установленной системы."
+  say "Обновление установленной системы: ${previous:-версия неизвестна} → $version."
   fresh=0
 fi
 
@@ -69,17 +91,21 @@ mkdir -p "$BACKUP_DIR"
 
 if [ "$fresh" = 0 ] && [ -n "$(docker compose ps -q backup 2>/dev/null)" ]; then
   say "Резервная копия перед обновлением…"
-  docker compose exec -T backup backup.sh || die "резервная копия не удалась — обновление отменено."
+  out="$(docker compose exec -T backup backup.sh)" || die "резервная копия не удалась — обновление отменено."
+  printf '%s\n' "$out"
+  copy="$(cd "$BACKUP_DIR" && pwd)/$(printf '%s\n' "$out" | sed -n 's#^backup: done /backups/##p')"
 fi
 
 say "Сборка…"
-docker compose build --pull
+docker compose build --pull || failed "сборка не удалась, система работает на прежней версии."
 say "Запуск…"
-docker compose up -d --wait --remove-orphans
+docker compose up -d --wait --remove-orphans \
+  || failed "новая версия не запустилась. Причина — в журнале: docker compose logs --tail 200 app" restore
+echo "$version" > .version
 
 admin="$(docker compose exec -T app python -m app create-admin --name 'Администратор' 2>/dev/null | grep -v ' INFO ' || true)"
 
-say "Готово. Система: $PUBLIC_URL"
+say "Готово. Версия $version, система: $PUBLIC_URL"
 if printf '%s' "$admin" | grep -q 'Временный пароль'; then
   printf '%s\n' "$admin"
   echo "Войдите с именем «admin» и этим паролем; система попросит придумать свой."
