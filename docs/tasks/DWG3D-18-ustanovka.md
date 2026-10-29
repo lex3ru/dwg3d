@@ -51,7 +51,7 @@ updated: 2026-10-29
 - [x] 3. `deploy/Dockerfile`: базовые образы — `тег@sha256`, архив LibreDWG — в файл,
       `LIBREDWG_SHA256` и `sha256sum -c`, потом распаковка. Сборка с неверной суммой падает —
       вывод в «Решения и находки».
-- [ ] 4. `compose.yml` и `deploy/backup/Dockerfile`: `postgres`, `caddy` — по дайджесту; общий
+- [x] 4. `compose.yml` и `deploy/backup/Dockerfile`: `postgres`, `caddy` — по дайджесту; общий
       якорь `x-logging` (json-file, 20m × 5) у всех служб. `test_deploy.py` зелёный;
       `docker inspect` показывает ограничения журналов у запущенных контейнеров (на стенде
       шага 8).
@@ -61,15 +61,16 @@ updated: 2026-10-29
 - [x] 6. CI на той же версии Debian, что образ: `UV_RELEASE` и образ uv в `.gitlab-ci.yml`,
       сумма архива uv для `e2e`; ADR-0001 — последствия. pytest в образе CI локально зелёный,
       с тестами PDF: 225 passed, 3 skipped (чертежи заказчика и LibreDWG — как всегда).
-- [ ] 7. Откат (R-037): `install.sh` запоминает установленную версию
+- [x] 7. Откат (R-037): `install.sh` запоминает установленную версию
       (`git describe --tags --always`), при обновлении печатает прежнюю версию и путь копии
       «перед обновлением», при неудачной сборке или запуске — команды отката. INSTALL:
       «Обновление базовых образов» и «Если обновление не удалось»; как ставятся теги версий —
       ADR-0023.
-- [ ] 8. Откат на стенде: клон в отдельном каталоге, свой `COMPOSE_PROJECT_NAME`, порты
-      8080/8443, свои имена образов (не трогать стенд `planuchet`): установить версию A,
+- [x] 8. Откат на стенде: клон в отдельном каталоге, свой `COMPOSE_PROJECT_NAME`, порты
+      8081/8444, свои имена образов (не трогать стенд `planuchet`): установить версию A,
       завести данные, обновиться на B со сломанной миграцией → `install.sh` падает → шаги из
-      INSTALL → работает A с данными из копии. Протокол — в «Решения и находки».
+      INSTALL → работает A с данными из копии. Протокол — в «Решения и находки»; первый прогон
+      нашёл ошибку `restore.sh` (исправлена), второй — откат прошёл.
 - [ ] 9. Документы и проверки: FINDINGS (R-037, R-038, R-039), `e2e/README.md` (стенд объёмов
       собирается из того же Dockerfile), `architecture.md` при необходимости; проверки как в
       CI; e2e на образе из `deploy/Dockerfile` (Debian 13 в работе, в том числе DWG).
@@ -114,10 +115,46 @@ updated: 2026-10-29
   дерева (`git stash create` + `git archive`): ruff чистый, pytest 225 passed, 3 skipped за
   4 мин 34 с. WeasyPrint предупреждает «HarfBuzz-Subset will be required by future versions»
   (`libharfbuzz-subset0` не ставится ни в образе, ни в CI) — пока только предупреждение.
+- 2026-10-29 — стенд отката: WSL Ubuntu (тот же Docker Engine), клон ветки в `~/dwg3d18-otkat`,
+  теги только в клоне (A = `v9.0.0` — ветка, B = `v9.1.0` — миграция `9001` создаёт
+  `core.otkat_probe` со строкой, затем `serve` падает), `COMPOSE_PROJECT_NAME=planuchet-otkat`,
+  порты 8081/8444, свои имена образов в неотслеживаемом `deploy/compose.override.yml`. Стенд
+  `planuchet` не тронут. Ловушка: `wsl -- bash -lc '…'` раскрывает `$…` во внешней оболочке —
+  только `wsl --exec`.
+- 2026-10-29 — прогон 1 (A = `3e5a292`): у всех пяти контейнеров `json-file`
+  `{"max-file":"5","max-size":"20m"}`. Обновление на B: копия перед обновлением, сборка,
+  `up --wait` не завис — «container planuchet-otkat-app-1 is unhealthy», `install.sh` напечатал
+  `git checkout v9.0.0` и `restore.sh <копия>`; в базе — `9001` и строка B, `.version` —
+  по-прежнему `v9.0.0`. Откат по INSTALL **упал**: `pg_restore --clean --if-exists` —
+  «cannot drop schema core because other objects depend on it… table core.otkat_probe»,
+  «errors ignored on restore: 2», `restore.sh` вышел с ошибкой, система выключена, база —
+  смесь двух версий. `--clean` удаляет только объекты из копии. Исправлено в `1b7bd6a`: база
+  пересоздаётся (`dropdb --force`, `createdb`), `pg_restore --exit-on-error`; `install.sh`
+  первым шагом отката печатает сохранение журнала.
+- 2026-10-29 — прогон 2 (стенд снесён: `down -v`, копии; A = `1b7bd6a`, установка 26 с из
+  кэша): «Поликлиника» — `0016`, 3 этажа, 69 помещений, 324 записи журнала, 79 файлов.
+  Обновление на B: `install.sh` — код 1 за 14 с, напечатал по порядку сохранение журнала,
+  `git checkout v9.0.0`, `docker compose build && ./restore.sh …/daily/2026-10-29_212507`.
+  Шаги из INSTALL как есть — 23 с, всё здорово: `0016`, `core.otkat_probe` нет, 3 / 69 / 324,
+  79 файлов (как в копии), `.version` и `git describe` — `v9.0.0`, HTTPS 200, http → 301 на
+  https; в `update-failed.log` — причина сбоя B; в журнале `app` — ни одной ошибки, кроме
+  fontconfig (ниже).
+- 2026-10-29 — прогон 3, «не собралось» (C = `v9.2.0`, неверная `LIBREDWG_SHA256`): копия,
+  сборка падает на сверке суммы, `install.sh` — код 1, «сборка не удалась, система работает
+  на прежней версии», `git checkout v9.0.0`; система всё это время отвечает 200, контейнеры
+  прежние.
+- 2026-10-29 — DWG на Debian 13: образцы из подписанного архива LibreDWG (`example_r14`,
+  `example_2007`, `sample_2018`) через `drawing.read.to_dxf` в образе — DXF 805 КБ, 1,4 МБ,
+  78 КБ.
+- 2026-10-29 — e2e целиком на стенде отката (образ из `deploy/Dockerfile`, Debian 13, за
+  Caddy по HTTPS, `E2E_URL=https://localhost:8444`, временный пароль — `reset-password`):
+  61 passed, 9 skipped (замеры объёмов без `E2E_VOLUME`) за 4,2 мин.
 - 2026-10-29 — замечено, не в этой задаче: при печати PDF fontconfig пишет «No writable cache
   directories» (12 строк на процесс) — `HOME=/app` принадлежит root, кэш шрифтов не пишется и
   строится заново в каждом процессе. Так же было на Debian 12 (fontconfig 2.14) — не следствие
-  переезда.
+  переезда. Та же причина у ezdxf: «Cannot create cache home directory: '/app/.cache/ezdxf'».
+  В журнале `app` — 16 таких строк при каждом запуске. Лечится каталогом кэша, доступным
+  пользователю `app` (`XDG_CACHE_HOME`), — отдельной задачей.
 - 2026-10-29 — `.claude/launch.json` ссылается на `legacy/.tools/libredwg` (R-038), но
   AGENTS.md велит устаревшие конфигурации не трогать, и в задаче Plane этого пункта нет: не
   правим, в FINDINGS — с причиной.

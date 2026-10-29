@@ -159,7 +159,13 @@ journal → access, files, system → building, catalog → planning, inventory 
 
 - **Установка** — `deploy/install.sh` → Docker Compose `deploy/compose.yml`: `db` (PostgreSQL),
   `app` (`serve`), `worker`, `caddy`, `backup`. Образ `deploy/Dockerfile` собирает интерфейс,
-  сервер и LibreDWG. Подробно — `docs/INSTALL.md`.
+  сервер и LibreDWG на Debian 13 из закреплённых дайджестами образов; архив LibreDWG — по
+  sha256, контекст сборки — белый список `.dockerignore` (ADR-0022). Подробно —
+  `docs/INSTALL.md`.
+- **Версии и откат (ADR-0023)** — теги `vX.Y.Z`; установка и обновление — `git checkout <тег>`
+  и `install.sh`. Он делает копию перед обновлением, после удачного запуска пишет версию в
+  `deploy/.version`, при сбое печатает откат: прежний тег и `restore.sh` с этой копией
+  (база пересоздаётся пустой и восстанавливается из копии).
 - **Настройки** — переменные `APP_*` (`server/app/core/config.py`), на установке — `deploy/.env`
   (создаёт `install.sh`). Процессов приложения — `APP_WORKERS`, по умолчанию 4; при разработке
   в Windows — всегда один (ADR-0007). Каждый процесс собирается через `serve_app`: загружает
@@ -173,7 +179,8 @@ journal → access, files, system → building, catalog → planning, inventory 
 - **Резервные копии** — сервис `backup`: `pg_dump` и файлы (жёсткие ссылки на прошлую копию),
   по расписанию `BACKUP_AT`, хранение `KEEP_DAILY`/`KEEP_MONTHLY`. Итог пишет в `last.json`,
   его показывает модуль `system`. Восстановление — `deploy/restore.sh`.
-- **Логи** — stdout процессов (`docker compose logs`). Внутренняя ошибка отдаётся с кодом,
+- **Логи** — stdout процессов (`docker compose logs`), у каждой службы — до 5 файлов по 20 МБ
+  (`x-logging` в `compose.yml`, R-039). Внутренняя ошибка отдаётся с кодом,
   тот же код — в логе. Проверка живости — `GET /api/health`. Метрик нет.
 - **Защита запросов**: меняющие запросы к `/api/` принимаются только с заголовком
   `X-Requested-With: app`; cookie сеанса — только по HTTPS (`APP_SECURE_COOKIES`). Сокет
