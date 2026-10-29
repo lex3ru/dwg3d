@@ -473,6 +473,8 @@ test("главная, отчёты и полная выгрузка здания
   expect((await xlsx).suggestedFilename()).toMatch(/\.xlsx$/);
   await page.getByRole("button", { name: /Ведомость помещения/ }).click();
   const form = page.getByLabel("Параметры: Ведомость помещения");
+  // выбор места дорисовывает список при обращении к полю (R-036)
+  await form.getByLabel("Место").focus();
   await form.getByLabel("Место").selectOption(`r:${f.rooms["214"]}`);
   const pdf = page.waitForEvent("download");
   await form.getByRole("button", { name: "PDF" }).click();

@@ -147,6 +147,8 @@ test("С12 и С13: выданное ждёт в «Неразмещённых»,
   await page.keyboard.press("Delete");
   const ask = page.getByRole("dialog", { name: "Убрать учтённое с плана" });
   await ask.getByText("Вернуть на склад").click();
+  // выбор места дорисовывает список при обращении к полю (R-036)
+  await ask.getByLabel("Куда вернуть").focus();
   await ask.getByLabel("Куда вернуть").selectOption({ label: `Склад «${wh.name}»` });
   await ask.getByRole("button", { name: "Вернуть" }).click();
   await expect(ask).toBeHidden();

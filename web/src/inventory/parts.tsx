@@ -26,7 +26,26 @@ export function StateChip({ state }: { state: State }) {
 
 const selectCls = "h-9 w-full rounded-lg border border-line-strong bg-surface px-2 text-sm text-ink max-md:h-11";
 
-// Место хранения: помещения по зданиям и этажам, склады с ячейками
+function placeTitle(tree: PlaceTree | undefined, key: string, onlyStorage?: boolean): string | null {
+  for (const w of tree?.warehouses ?? []) {
+    if (w.key === key) return `Склад «${w.name}»`;
+    const cell = w.cells.find((c) => c.key === key);
+    if (cell) return `${w.name} › ${cell.name}`;
+  }
+  if (onlyStorage) return null;
+  for (const b of tree?.buildings ?? []) {
+    for (const f of b.floors) {
+      const room = f.rooms.find((r) => r.key === key);
+      if (room) return room.title;
+    }
+  }
+  return null;
+}
+
+// Место хранения: помещения по зданиям и этажам, склады с ячейками. 8.1: помещений до
+// 10 000 — весь список рисуется, только когда к полю обращаются (навели, нажали, перешли с
+// клавиатуры); до того в нём пустой пункт и выбранное место — экраны и строки документа не
+// платят за отрисовку тысяч пунктов (R-036)
 export function PlacePicker({ value, onChange, label = "Место", allowEmpty, emptyTitle = "— не выбрано —", className, onlyStorage }: {
   value: string | null | undefined;
   onChange: (key: string | null) => void;
@@ -37,10 +56,14 @@ export function PlacePicker({ value, onChange, label = "Место", allowEmpty,
   onlyStorage?: boolean;
 }) {
   const tree = usePlaceTree();
+  const [full, setFull] = useState(false);
+  const open = () => setFull(true);
+  const chosen = useMemo(() => (!full && value ? placeTitle(tree.data, value, onlyStorage) : null), [full, value, tree.data, onlyStorage]);
   return (
-    <select aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} className={cn(selectCls, className)}>
+    <select aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} onPointerEnter={open} onPointerDown={open} onFocus={open} className={cn(selectCls, className)}>
       {(allowEmpty || !value) && <option value="">{emptyTitle}</option>}
-      {tree.data?.warehouses.map((w) => (
+      {!full && value && chosen !== null && <option value={value}>{chosen}</option>}
+      {full && tree.data?.warehouses.map((w) => (
         <optgroup key={w.id} label={`Склад «${w.name}»`}>
           <option value={w.key}>Склад «{w.name}»</option>
           {w.cells.map((c) => (
@@ -50,7 +73,8 @@ export function PlacePicker({ value, onChange, label = "Место", allowEmpty,
           ))}
         </optgroup>
       ))}
-      {!onlyStorage &&
+      {full &&
+        !onlyStorage &&
         tree.data?.buildings.flatMap((b) =>
           b.floors.map((f) => (
             <optgroup key={f.id} label={`${b.name} · ${f.name}`}>
