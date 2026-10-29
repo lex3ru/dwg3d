@@ -29,15 +29,18 @@ previous="$(cat .version 2>/dev/null || true)"
 copy=""
 
 # обновление не удалось — как вернуть прежнюю версию; restore: новая версия успела запуститься
-# и могла перенести данные, нужна копия перед обновлением
+# и могла перенести данные — журнал сохранить, пока контейнеры не пересозданы, и вернуть копию
+# перед обновлением
 failed() { # сообщение [restore]
   [ "$fresh" = 0 ] || die "$1"
   printf '\n\033[31mОшибка: %s\033[0m\n' "$1" >&2
   printf 'Вернуть прежнюю версию (docs/INSTALL.md, «Если обновление не удалось»):\n' >&2
+  if [ "${2:-}" = restore ]; then
+    printf '  cd %s && docker compose logs --tail 500 app worker > update-failed.log\n' "$(pwd)" >&2
+  fi
   printf '  git checkout %s\n' "${previous:-<прежняя версия>}" >&2
   if [ "${2:-}" = restore ]; then
-    printf '  cd %s && docker compose build && ./restore.sh %s\n' \
-      "$(pwd)" "${copy:-<копия перед обновлением>}" >&2
+    printf '  docker compose build && ./restore.sh %s\n' "${copy:-<копия перед обновлением>}" >&2
   fi
   exit 1
 }

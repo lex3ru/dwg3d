@@ -16,9 +16,14 @@ read -r -p "Заменить данные системы копией $(basename
 [ "$answer" = "да" ] || { echo "Отменено."; exit 1; }
 
 docker compose stop app worker caddy
+# база пересоздаётся пустой: pg_restore --clean удаляет только то, что есть в копии, а таблицы,
+# которые появились после неё (откат неудачного обновления, R-037), не дают удалить схему —
+# восстановление падало на полпути
 docker compose run --rm -T --no-deps -v "$copy:/restore:ro" --entrypoint sh backup -c '
   set -e
-  pg_restore --clean --if-exists --no-owner -d "$PGDATABASE" /restore/db.dump
+  dropdb --force --if-exists "$PGDATABASE"
+  createdb "$PGDATABASE"
+  pg_restore --no-owner --exit-on-error -d "$PGDATABASE" /restore/db.dump
 '
 docker compose run --rm -T --no-deps -v "$copy:/restore:ro" --user 0 --entrypoint sh app -c '
   set -e
