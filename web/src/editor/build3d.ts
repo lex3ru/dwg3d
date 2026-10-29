@@ -8,6 +8,19 @@ import { add, centerline, extend, joinExtensions, pointAt, polylineLength, rot, 
 export const SLAB = 0.2; // толщина перекрытия, м
 const M = 0.001;
 
+// В узле стены перекрываются: верх перегородки совпадает с верхом несущей стены, торец — с её
+// гранью, колонна в стене — с верхом стены. Такие грани разных материалов «дерутся» в буфере
+// глубины и мерцают при повороте (R-029). При равной глубине видна грань с меньшим сдвигом
+// (polygonOffset материала): колонна, затем несущая стена, затем перегородка.
+export const DEPTH_OFFSET = { columns: 0, bearing: 1, partition: 2 } as const;
+
+// Ближняя плоскость камеры, м. В прогулке — у самых стен; в обзоре — по расстоянию до цели:
+// точность глубины около d² / (near · 2²⁴), с near 0,05 м на 150 м неразличимы грани ближе 3 см
+export const WALK_NEAR = 0.05;
+export function orbitNear(distance: number): number {
+  return Math.min(5, Math.max(WALK_NEAR, distance / 200));
+}
+
 export interface FloorGeometry {
   bearing: THREE.BufferGeometry | null;
   partition: THREE.BufferGeometry | null;
