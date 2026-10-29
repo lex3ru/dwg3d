@@ -4,7 +4,7 @@ title: Быстродействие при 20 одновременных пол�
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-17-nagruzka
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/17
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/cecefd2a-6eb3-4e55-ba10-4bbb7dfa1f27
 updated: 2026-10-29
 ---
