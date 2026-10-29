@@ -48,13 +48,14 @@ updated: 2026-10-29
       `web/src`. На `main` падает: 4 из 5 (пятый — проверка разбора правил `.dockerignore`).
 - [ ] 2. Debian 12 или 13 — ADR-0022. Проверить на Debian 13: сборка LibreDWG, пакеты Pango и
       шрифтов для WeasyPrint, uv-образ нужной версии.
-- [ ] 3. `deploy/Dockerfile`: базовые образы — `тег@sha256`, архив LibreDWG — в файл,
+- [x] 3. `deploy/Dockerfile`: базовые образы — `тег@sha256`, архив LibreDWG — в файл,
       `LIBREDWG_SHA256` и `sha256sum -c`, потом распаковка. Сборка с неверной суммой падает —
       вывод в «Решения и находки».
 - [ ] 4. `compose.yml` и `deploy/backup/Dockerfile`: `postgres`, `caddy` — по дайджесту; общий
       якорь `x-logging` (json-file, 20m × 5) у всех служб. `test_deploy.py` зелёный;
-      `docker inspect` показывает ограничения журналов у запущенных контейнеров.
-- [ ] 5. `.dockerignore` — белый список: `server/app`, `server/migrations`, `server/alembic.ini`,
+      `docker inspect` показывает ограничения журналов у запущенных контейнеров (на стенде
+      шага 8).
+- [x] 5. `.dockerignore` — белый список: `server/app`, `server/migrations`, `server/alembic.ini`,
       `server/pyproject.toml`, `server/uv.lock`, `web/` без `node_modules` и `dist`. В собранном
       образе нет `.dev-data`, `.volume-data`, `tests`, `tools`.
 - [ ] 6. CI на той же версии Debian, что образ: `UV_RELEASE` и образ uv в `.gitlab-ci.yml`,
@@ -91,6 +92,26 @@ updated: 2026-10-29
   `web/.env.local`. Разбор правил `.dockerignore` в тесте — упрощённый, как у Docker
   (последнее совпавшее правило, правило про каталог — на всё внутри); сверить с настоящим
   контекстом сборки в шаге 5.
+- 2026-10-29 — LibreDWG 0.14: сумма архива `62ebb73b…81275` совпала с суммой GitHub, подпись
+  `.sig` проверена ключом Reini Urban (`38A4167B0DB69E49C5F7216CB8C28866AB27A7A2`, с
+  keyserver.ubuntu.com, во временной связке ключей). uv — 0.12.24 (08.10.2026, последний
+  выпуск 0.12; 0.13.0 вышла 09.10 и за 18 дней получила шесть исправлений); сумма архива для
+  `e2e` — из `.sha256` релиза, совпала с суммой GitHub. Дайджесты — списков платформ
+  (`docker buildx imagetools inspect`), не одной amd64.
+- 2026-10-29 — образ на Debian 13 (`planuchet-app:dwg3d-18`, сборка 6 мин 52 с): Debian 13.7,
+  Python 3.12.16 (в образе uv — 3.12.15, `.venv` работает), `dwg2dxf 0.14`, WeasyPrint 70.0
+  печатает PDF с кириллицей (Pango 1.56.3, HarfBuzz 10.2.0, DejaVu 2.37); в `/app` — только
+  `.venv`, `alembic.ini`, `app`, `migrations`, `pyproject.toml`, `uv.lock`, `web`.
+- 2026-10-29 — неверная сумма: `--build-arg LIBREDWG_SHA256=000…0` → «sha256sum: WARNING: 1
+  computed checksum did NOT match», `/tmp/libredwg.tar.xz: FAILED`, сборка падает на 4,5 с,
+  до распаковки; образ не создан.
+- 2026-10-29 — настоящий контекст сборки (`COPY . /ctx` и `find` с новым `.dockerignore`):
+  `server/{alembic.ini,app,migrations,pyproject.toml,uv.lock}` и `web/` без `node_modules`,
+  `dist`, `tsconfig.tsbuildinfo` — 331 файл; совпадает с разбором правил в `test_deploy.py`.
+- 2026-10-29 — замечено, не в этой задаче: при печати PDF fontconfig пишет «No writable cache
+  directories» (12 строк на процесс) — `HOME=/app` принадлежит root, кэш шрифтов не пишется и
+  строится заново в каждом процессе. Так же было на Debian 12 (fontconfig 2.14) — не следствие
+  переезда.
 - 2026-10-29 — `.claude/launch.json` ссылается на `legacy/.tools/libredwg` (R-038), но
   AGENTS.md велит устаревшие конфигурации не трогать, и в задаче Plane этого пункта нет: не
   правим, в FINDINGS — с причиной.

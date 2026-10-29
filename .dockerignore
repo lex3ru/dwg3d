@@ -1,11 +1,15 @@
-# в образ идут только сервер и интерфейс (deploy/Dockerfile)
+# в образ идут только сервер и интерфейс (deploy/Dockerfile), белым списком: данные
+# разработки (server/.dev-data, server/.volume-data), тесты, окружения и настройки в
+# контекст сборки не попадают, даже если лежат в рабочей копии (R-038)
 *
-!server/
+!server/app/
+!server/migrations/
+!server/alembic.ini
+!server/pyproject.toml
+!server/uv.lock
 !web/
-server/.venv
-server/.pytest_cache
-server/.ruff_cache
-server/tests
 **/__pycache__
+**/.env*
 web/node_modules
 web/dist
+web/tsconfig.tsbuildinfo

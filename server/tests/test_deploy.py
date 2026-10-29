@@ -44,6 +44,23 @@ def test_r038_base_images_are_pinned_by_digest() -> None:
     assert [image for image in images if not PINNED.fullmatch(image)] == []
 
 
+def test_backup_dumps_with_the_postgres_of_the_database() -> None:
+    """pg_dump старше сервера не выгрузит базу: закрепляя образы, их не развести."""
+    assert base_images(DEPLOY / "backup" / "Dockerfile") == [services()["db"]["image"]]
+
+
+def test_ci_checks_on_the_debian_and_uv_of_the_image() -> None:
+    """CI проверяет на той же версии Debian и uv, что собирает образ (ADR-0001, ADR-0022):
+    иначе тесты PDF зелёные с одной Pango, а печатает другая."""
+    ci = yaml.safe_load((ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8"))
+    images = base_images(DEPLOY / "Dockerfile")
+    uv = next(i for i in images if i.startswith("ghcr.io/astral-sh/uv:")).split("@")[0]
+    assert ci["server"]["image"].replace("$UV_RELEASE", ci["variables"]["UV_RELEASE"]) == uv
+    debian = re.fullmatch(r".*-python3\.12-(\w+)-slim", uv)
+    assert debian
+    assert [i for i in images if "alpine" not in i and debian[1] not in i] == []
+
+
 def test_r038_libredwg_archive_is_checked_before_unpacking() -> None:
     """Архив LibreDWG из интернета сверяется с суммой из Dockerfile до распаковки: с неверной
     суммой сборка падает (R-038)."""
