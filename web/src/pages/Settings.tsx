@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { ApiError, get, patch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { labelWarning } from "@/inventory/parts";
 import { PageBody } from "@/shell/Shell";
 import { Button } from "@/ui/button";
 import { Field, FormError, Input } from "@/ui/form";
@@ -55,7 +56,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
-      {tab === "general" ? <General /> : tab === "inventory" ? <KeyedSettings key="inventory" keys={INVENTORY_KEYS} /> : tab === "calc" ? <KeyedSettings key="calc" keys={CALC_KEYS} /> : tab === "uploads" ? <KeyedSettings key="uploads" keys={UPLOAD_KEYS} /> : <ServerStatus />}
+      {tab === "general" ? <General /> : tab === "inventory" ? <KeyedSettings key="inventory" keys={INVENTORY_KEYS}><LabelAddress /></KeyedSettings> : tab === "calc" ? <KeyedSettings key="calc" keys={CALC_KEYS} /> : tab === "uploads" ? <KeyedSettings key="uploads" keys={UPLOAD_KEYS} /> : <ServerStatus />}
     </PageBody>
   );
 }
@@ -115,9 +116,10 @@ function General() {
   );
 }
 
-// 4.6 п. 2, 5.4.7: вид номера, наклейки
+// 4.6 п. 2, 5.4.7: вид номера, адрес и вид наклеек
 const INVENTORY_KEYS: [string, string, string][] = [
   ["inventory_number_template", "Вид инвентарного номера", "Цифры нулями в конце: 000000 → 000154; ИН-0000 → ИН-0154. Номера выдаются подряд и после списания не повторяются."],
+  ["label_url", "Адрес системы для QR-меток", "Постоянный адрес, который открывается с телефонов, например https://uchet.local. Пусто — адрес установки."],
   ["label_width_mm", "Наклейка: ширина, мм", ""],
   ["label_height_mm", "Наклейка: высота, мм", "40×25 или 58×40 мм — под принтер этикеток; на нём печатается по одной наклейке на страницу."],
   ["label_sheet_cols", "Лист А4: наклеек в ряду", ""],
@@ -126,6 +128,37 @@ const INVENTORY_KEYS: [string, string, string][] = [
   ["label_sheet_left_mm", "Лист А4: поле слева, мм", ""],
   ["label_sheet_gap_mm", "Лист А4: промежуток между наклейками, мм", "Раскладка — под марку листа с готовыми наклейками."],
 ];
+
+// Куда сейчас ведут QR-метки (5.4.7, R-016): адрес с телефона должен открываться
+const SOURCE: Record<string, string> = {
+  settings: "задан выше",
+  install: "адрес установки, PUBLIC_URL",
+  request: "адрес, по которому открыта система",
+};
+
+function LabelAddress() {
+  const address = useQuery({ queryKey: ["label-address"], queryFn: () => get<{ url: string; source: string }>("/api/inventory/labels/address") });
+  if (!address.data) return null;
+  const { url, source } = address.data;
+  const local = /^https?:\/\/(localhost|127\.|\[::1\])/i.test(url);
+  const warnings = [
+    source === "request" && "Адрес установки не задан: ссылка в метке зависит от того, по какому адресу открыли систему. Укажите постоянный адрес.",
+    local && "С телефона такой адрес не откроется: укажите имя или IP-адрес сервера в сети учреждения.",
+    labelWarning(url),
+  ].filter(Boolean) as string[];
+  return (
+    <div className="flex flex-col gap-1.5 text-[13px]">
+      <div className="text-ink-2">
+        Сейчас метки ведут на <span className="font-mono text-ink">{url}</span> ({SOURCE[source]}).
+      </div>
+      {warnings.map((w) => (
+        <div key={w} role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-warn">
+          {w}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // 7.3 п. 4: наибольший размер загружаемого файла по видам; больший сервер не принимает
 const UPLOAD_KEYS: [string, string, string][] = [
@@ -151,7 +184,10 @@ const CALC_KEYS: [string, string, string][] = [
   ["calc_light_step_mm", "Освещённость: шаг сетки, мм", "Чем меньше, тем подробнее раскраска и дольше расчёт."],
 ];
 
-function KeyedSettings({ keys }: { keys: [string, string, string][] }) {
+// строкой, остальные — числа
+const TEXT_KEYS = new Set(["inventory_number_template", "label_url"]);
+
+function KeyedSettings({ keys, children }: { keys: [string, string, string][]; children?: ReactNode }) {
   const client = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => get<Settings>("/api/system/settings") });
   const [values, setValues] = useState<Record<string, string>>({});
@@ -165,10 +201,11 @@ function KeyedSettings({ keys }: { keys: [string, string, string][] }) {
     mutationFn: () =>
       patch<Settings>("/api/system/settings", {
         version: settings.data!.version,
-        values: Object.fromEntries(keys.map(([k]) => [k, k === "inventory_number_template" ? values[k] : Number(String(values[k]).replace(",", "."))])),
+        values: Object.fromEntries(keys.map(([k]) => [k, TEXT_KEYS.has(k) ? values[k] : Number(String(values[k]).replace(",", "."))])),
       }),
     onSuccess: (data) => {
       client.setQueryData(["settings"], data);
+      client.invalidateQueries({ queryKey: ["label-address"] });
       setSaved(true);
     },
     onError: (e) => setError(e as ApiError),
@@ -187,9 +224,10 @@ function KeyedSettings({ keys }: { keys: [string, string, string][] }) {
       >
         {keys.map(([k, title, hint]) => (
           <Field key={k} label={title} hint={hint || undefined} error={error?.field === k ? error.message : undefined}>
-            {(p) => <Input {...p} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} className={k === "inventory_number_template" ? "font-mono" : "w-32"} />}
+            {(p) => <Input {...p} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} className={TEXT_KEYS.has(k) ? "font-mono" : "w-32"} />}
           </Field>
         ))}
+        {children && <div className="sm:col-span-2">{children}</div>}
         <div className="sm:col-span-2">
           <FormError message={error && !error.field ? error.message : null} />
         </div>

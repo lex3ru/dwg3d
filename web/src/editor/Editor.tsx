@@ -12,6 +12,7 @@ import { formatDateTime } from "@/lib/format";
 import { useCardTitle } from "@/shell/context";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
+import { ErrorBoundary } from "@/ui/ErrorBoundary";
 import { FloorDialog } from "@/pages/Buildings";
 import { Field, Input } from "@/ui/form";
 import { Empty, Loading } from "@/ui/misc";
@@ -761,9 +762,11 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           )}
           {show3d && (
             <div className="relative min-w-0 flex-1">
-              <Suspense fallback={<Loading />}>
-                <View3D buildingId={data.building.id} floorId={data.floor.id} projectId={project?.id ?? null} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
-              </Suspense>
+              <ErrorBoundary fallback={(retry) => <Unavailable3D onRetry={retry} />}>
+                <Suspense fallback={<Loading />}>
+                  <View3D buildingId={data.building.id} floorId={data.floor.id} projectId={project?.id ?? null} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           )}
         </div>
@@ -818,7 +821,7 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
 
       <SaveDialog state={saveState} setState={setSaveState} onConfirm={confirmSave} pending={save.isPending} error={save.error && (save.error as ApiError).code !== "needs_confirmation" ? (save.error as ApiError).message : null} />
       <CalibrateDialog open={calibration !== null} measured={calibration ? dist(calibration[0], calibration[1]) : 0} onApply={applyCalibration} onCancel={() => setCalibration(null)} />
-      <HelpDialog open={help} onOpenChange={setHelp} />
+      <HelpDialog open={help} onOpenChange={setHelp} readOnly={readOnly} />
       <FloorDialog
         building={{ id: data.building.id, floors }}
         floor={addingFloor ? "new" : null}
@@ -860,6 +863,18 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           />
         </>
       )}
+    </div>
+  );
+}
+
+// 3D не показалось: нет WebGL, сбой видеокарты, ошибка в сцене — план и остальной редактор
+// работают (R-032). «Попробовать снова» создаёт 3D-вид заново.
+function Unavailable3D({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 bg-surface-2 px-6 text-center">
+      <div className="text-base font-medium">3D-вид недоступен</div>
+      <div className="max-w-sm text-sm text-ink-2">Браузер или видеокарта не смогли показать 3D. План и остальной редактор работают.</div>
+      <Button onClick={onRetry}>Попробовать снова</Button>
     </div>
   );
 }
@@ -1013,15 +1028,18 @@ function PrintDialog({ open, onOpenChange, floorId, unsaved }: { open: boolean; 
   );
 }
 
-function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function HelpDialog({ open, onOpenChange, readOnly }: { open: boolean; onOpenChange: (o: boolean) => void; readOnly: boolean }) {
+  const view: [string, ReactNode][] = [
+    ["Колесо мыши", "приблизить / отдалить"],
+    ["Пробел + перетаскивание, средняя кнопка", "сдвинуть план"],
+    ["Shift + щелчок, рамка", "выделить несколько"],
+  ];
   const common: [string, ReactNode][] = [
     ["Ctrl+Z / Ctrl+Y", "отменить / повторить"],
     ["Ctrl+C / Ctrl+V", "копировать / вставить выделенное"],
     ["Delete", "удалить выделенное"],
     ["Ctrl+S", "сохранить план"],
-    ["Колесо мыши", "приблизить / отдалить"],
-    ["Пробел + перетаскивание, средняя кнопка", "сдвинуть план"],
-    ["Shift + щелчок, рамка", "выделить несколько"],
+    ...view,
   ];
   const build: [string, ReactNode][] = [
     ["Esc", "закончить цепочку стен, снять выделение"],
@@ -1036,7 +1054,8 @@ function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
     ["Esc", "перестать ставить выбранный тип, снять выделение"],
     ["В 3D: перетаскивание, Shift", "двигать по полу (настенный — вдоль стены), поворачивать"],
   ];
-  const rows: [string, ReactNode][] = [...common, ["", <b key="b">Строительство</b>], ...build, ["", <b key="p">Расстановка</b>], ...place];
+  // «просмотр» и гость: клавиш правки нет — их и не показываем (ТЗ 2.3, R-031)
+  const rows: [string, ReactNode][] = readOnly ? [...view, ["Esc", "снять выделение"]] : [...common, ["", <b key="b">Строительство</b>], ...build, ["", <b key="p">Расстановка</b>], ...place];
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Клавиши редактора">
       <table className="w-full border-collapse text-sm">

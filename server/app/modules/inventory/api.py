@@ -4,12 +4,14 @@ import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import search
 from app.core.actor import Actor
+from app.core.config import config
 from app.core.errors import AppError, Conflict, NotFound
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
@@ -62,9 +64,22 @@ def _number(low: float, high: float, what: str) -> Any:
     return check
 
 
+def _url(value: Any) -> str:
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    u = urlsplit(text)
+    extra = u.path or u.query or u.fragment
+    if u.scheme not in ("http", "https") or not u.netloc or extra or len(text) > 200:
+        raise AppError("Адрес — вида https://uchet.local или https://10.0.0.5:8443, без пути.")
+    return text
+
+
 def register_settings() -> None:
     S = system.SettingDef
     system.register("inventory_number_template", S("Вид инвентарного номера", "000000", _template))
+    # пусто — адрес установки (R-016)
+    system.register("label_url", S("Адрес системы для QR-меток", "", _url))
     system.register("label_width_mm", S("Наклейка: ширина, мм", 40, _number(15, 120, "Ширина")))
     system.register("label_height_mm", S("Наклейка: высота, мм", 25, _number(10, 100, "Высота")))
     system.register(
@@ -76,6 +91,17 @@ def register_settings() -> None:
     system.register(
         "label_sheet_gap_mm", S("Лист А4: промежуток, мм", 0, _number(0, 20, "Промежуток"))
     )
+
+
+def label_base(session: Session, request_url: str) -> tuple[str, str]:
+    """Адрес в QR-метках и откуда он: ссылка постоянная (5.4.7) — из «Настроек», по умолчанию
+    адрес установки (PUBLIC_URL), а не адрес, по которому печатающий открыл систему (R-016).
+    Ни того, ни другого (разработка) — адрес запроса."""
+    if url := system.get(session, "label_url"):
+        return url, "settings"
+    if url := config().public_url.strip().rstrip("/"):
+        return url, "install"
+    return request_url.rstrip("/"), "request"
 
 
 def label_settings(session: Session) -> dict[str, Any]:
@@ -556,8 +582,9 @@ def count_pdf(session: Session, actor: Actor, doc_id: uuid.UUID, what: str) -> t
     return counts.statement_pdf(session, actor, doc_id, org)
 
 
-def place_labels_pdf(session: Session, actor: Actor, place: str, base_url: str) -> bytes:
-    """Метки на место (помещение — с меткой на дверь)."""
+def place_labels_pdf(session: Session, actor: Actor, place: str, request_url: str) -> bytes:
+    """Метки на место (помещение — с меткой на дверь); request_url — адрес запроса, если адрес
+    меток не задан (`label_base`)."""
     from app.modules.inventory import printing
 
     admin(actor)
@@ -569,7 +596,8 @@ def place_labels_pdf(session: Session, actor: Actor, place: str, base_url: str) 
         items.insert(0, {"code": room_label(session, p.room_id), "number": "", "title": p.title})
     if not items:
         raise AppError("В месте нечего метить.")
-    return printing.labels_pdf(items, label_settings(session), base_url, "sheet")
+    base, _ = label_base(session, request_url)
+    return printing.labels_pdf(items, label_settings(session), base, "sheet")
 
 
 def place_title(session: Session, actor: Actor, key: str) -> str:

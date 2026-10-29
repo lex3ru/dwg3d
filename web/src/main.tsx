@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { ApiError } from "@/lib/api";
+import { ErrorBoundary } from "@/ui/ErrorBoundary";
 import { App } from "./App";
 import "./index.css";
 
@@ -19,7 +20,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
       <BrowserRouter>
-        <App />
+        {/* сбой в каркасе (меню, строка сверху) — сообщение вместо белого экрана (R-032) */}
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

@@ -145,7 +145,7 @@ export function UnitCard({ id }: { id: string }) {
           <Button size="sm" variant="danger" onClick={() => void act("writeoff")}>
             <XCircle /> Списать
           </Button>
-          <Button size="sm" onClick={() => void printLabels({ unit_ids: [u.id] }).catch((e) => setError((e as Error).message))}>
+          <Button size="sm" onClick={() => void printLabels({ unit_ids: [u.id] }).then(setError, (e) => setError((e as Error).message))}>
             <QrCode /> Метка
           </Button>
         </div>
@@ -168,8 +168,8 @@ export function UnitCard({ id }: { id: string }) {
 
       {tab === "main" && (
         <div className="flex flex-col gap-3">
-          <TextField label="Ответственный" value={u.responsible} disabled={!admin || !live} placeholder="ФИО" onChange={(responsible) => void edit({ responsible })} />
-          <TextField label="Подразделение" value={u.department} disabled={!admin || !live} onChange={(department) => void edit({ department })} />
+          <TextField label="Ответственный" value={u.responsible} readOnly={!admin || !live} placeholder="ФИО" onChange={(responsible) => void edit({ responsible })} />
+          <TextField label="Подразделение" value={u.department} readOnly={!admin || !live} onChange={(department) => void edit({ department })} />
           {admin && live && (u.state === "in_use" || u.state === "broken") && (
             <label className="flex flex-col gap-1 text-[12px] text-ink-2">
               Состояние
@@ -202,7 +202,7 @@ export function UnitCard({ id }: { id: string }) {
               </tbody>
             </table>
           )}
-          <TextField label="Примечание" value={u.note} disabled={!admin || !live} onChange={(note) => void edit({ note })} />
+          <TextField label="Примечание" value={u.note} readOnly={!admin || !live} onChange={(note) => void edit({ note })} />
           {u.children.length > 0 && (
             <div className="text-[13px]">
               <div className="text-[12px] text-ink-2">В составе этой единицы:</div>

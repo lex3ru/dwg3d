@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Outlet } from "react-router";
 import { JobNotices } from "@/lib/jobs";
+import { SectionBoundary } from "@/ui/ErrorBoundary";
 import { CardPanel } from "./CardPanel";
 import { ShellProvider } from "./context";
 import { Sidebar } from "./Sidebar";
@@ -37,7 +38,9 @@ export function Shell() {
           <Topbar />
           <div className="flex min-h-0 flex-1">
             <main className="min-w-0 flex-1 overflow-y-auto">
-              <Outlet />
+              <SectionBoundary>
+                <Outlet />
+              </SectionBoundary>
             </main>
             <CardPanel />
           </div>

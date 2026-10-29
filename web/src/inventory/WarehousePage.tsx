@@ -180,7 +180,7 @@ function PlaceView({ place, onBack }: { place: string; onBack: () => void }) {
             </Link>
           </Button>
           {/* С10: метки на кабинет — на дверь (обход выбирает помещение по ней) и на вещи */}
-          <Button size="sm" onClick={() => void printLabels({ room_ids: [p.room_id!], unit_ids: data.data!.units.map((u) => u.id) }).catch((e) => setError((e as Error).message))}>
+          <Button size="sm" onClick={() => void printLabels({ room_ids: [p.room_id!], unit_ids: data.data!.units.map((u) => u.id) }).then(setError, (e) => setError((e as Error).message))}>
             <QrCode /> Метки на помещение ({data.data.units.length + 1})
           </Button>
         </div>
@@ -263,7 +263,7 @@ function PlaceView({ place, onBack }: { place: string; onBack: () => void }) {
               <Plus /> Ячейка
             </Button>
           </form>
-          <Button size="sm" className="self-start" onClick={() => void printLabels({ codes: [wh.label_code, ...wh.cells.map((c) => c.label_code)] }).catch((e) => setError((e as Error).message))}>
+          <Button size="sm" className="self-start" onClick={() => void printLabels({ codes: [wh.label_code, ...wh.cells.map((c) => c.label_code)] }).then(setError, (e) => setError((e as Error).message))}>
             <QrCode /> Метки склада и ячеек
           </Button>
         </Card>

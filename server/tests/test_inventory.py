@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import config
 from app.core.db import transaction
 from app.modules.access import api as access
 from tests.conftest import login, make_client
@@ -97,9 +98,7 @@ def test_c11_receipt_gives_numbers_in_a_row_and_stock(pdf, admin) -> None:
     )
     # метки на напечатанный приход и печатная форма
     ids = [u["id"] for u in posted["lines"][0]["created_units"]]
-    pdf = admin.post(
-        "/api/inventory/labels.pdf", json={"unit_ids": ids, "origin": "https://uchet.local"}
-    )
+    pdf = admin.post("/api/inventory/labels.pdf", json={"unit_ids": ids})
     assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-"
     form = admin.get(f"/api/inventory/documents/{doc['id']}/print.pdf")
     assert form.content[:5] == b"%PDF-"
@@ -645,3 +644,67 @@ def test_r028_database_refuses_states_kinds_and_places_that_do_not_exist(admin) 
         json={"kind": "transfer", "header": {"to_place": "склад"}, "lines": []},
     )
     assert r.status_code == 400 and r.json()["error"]["field"] == "to_place", r.text
+
+
+def _label_bases(monkeypatch) -> list[str]:  # type: ignore[no-untyped-def]
+    """С каким адресом печатаются метки — без WeasyPrint: адрес не зависит от печати PDF."""
+    from app.modules.inventory import printing
+
+    seen: list[str] = []
+
+    def labels_pdf(labels, settings, base_url, mode="sheet"):  # type: ignore[no-untyped-def]
+        seen.append(base_url)
+        return b"%PDF-"
+
+    monkeypatch.setattr(printing, "labels_pdf", labels_pdf)
+    return seen
+
+
+def _set_label_url(admin, value: str):  # type: ignore[no-untyped-def]
+    version = admin.get("/api/system/settings").json()["version"]
+    return admin.patch(
+        "/api/system/settings", json={"version": version, "values": {"label_url": value}}
+    )
+
+
+def test_r016_label_address_is_permanent_not_the_printing_browser(admin, monkeypatch) -> None:
+    """5.4.7: ссылка в метке постоянная. Адрес — из «Настроек», по умолчанию PUBLIC_URL
+    установки, а не тот, по которому администратор открыл систему (R-016)."""
+    _, rooms, _, _ = setup(admin)
+    room = rooms["214"]
+    seen = _label_bases(monkeypatch)
+    monkeypatch.setattr(config(), "public_url", "https://uchet.local/")
+
+    def label() -> str:
+        # браузер печатающего — на самом сервере, по https://localhost
+        r = admin.post(
+            "/api/inventory/labels.pdf", json={"room_ids": [room[2:]], "origin": "https://localhost"}
+        )
+        assert r.status_code == 200, r.text
+        return r.headers["x-label-url"]
+
+    assert label() == "https://uchet.local"
+    # метки места из отчётов — с тем же адресом
+    assert admin.get("/api/reports/labels.pdf", params={"place": room}).status_code == 200
+    assert seen == ["https://uchet.local", "https://uchet.local"]
+    assert admin.get("/api/inventory/labels/address").json() == {
+        "url": "https://uchet.local", "source": "install"}
+
+    # адрес из «Настроек» главнее адреса установки
+    assert _set_label_url(admin, " https://inv.example:8443/ ").status_code == 200
+    assert label() == "https://inv.example:8443"
+    assert admin.get("/api/inventory/labels/address").json()["source"] == "settings"
+
+    # ни настройки, ни PUBLIC_URL (разработка) — адрес, по которому открыта система
+    assert _set_label_url(admin, "").status_code == 200
+    monkeypatch.setattr(config(), "public_url", "")
+    assert label() == "http://testserver"
+    assert admin.get("/api/inventory/labels/address").json() == {
+        "url": "http://testserver", "source": "request"}
+
+
+def test_r016_label_address_is_checked(admin) -> None:
+    assert _set_label_url(admin, "https://10.0.0.5:8443").status_code == 200
+    for bad in ("uchet.local", "ftp://uchet.local", "https://uchet.local/q", "https://u.local?x=1"):
+        r = _set_label_url(admin, bad)
+        assert r.status_code == 400 and r.json()["error"]["field"] == "label_url", bad

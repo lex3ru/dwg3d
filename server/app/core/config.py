@@ -18,6 +18,9 @@ class Config(BaseSettings):
     static_dir: Path = Path("/app/web")
     # cookie сеанса только по HTTPS; в тестах и при разработке без Caddy — false
     secure_cookies: bool = True
+    # адрес системы из установки (PUBLIC_URL в deploy/.env, его пишет install.sh): по умолчанию
+    # на него ведут QR-метки (5.4.7, R-016); пусто — при разработке
+    public_url: str = ""
     # сеанс завершается после стольких часов бездействия — 8.4 п. 2
     session_idle_hours: int = 12
     log_level: str = "INFO"

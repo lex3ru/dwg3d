@@ -11,6 +11,7 @@ import { get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
+import { ReadField } from "./Properties";
 import type { Item } from "./items";
 import type { Pt } from "./plan";
 import { useEditor, type EditorStore } from "./store";
@@ -428,7 +429,7 @@ export function CalcParams({ item, list, onChange, readOnly }: { item: Item; lis
               label={`${p.title}${p.unit ? `, ${p.unit}` : ""}`}
               hint={`${c.title}. ${p.hint}`}
               value={typeof v === "number" ? v : null}
-              disabled={readOnly}
+              readOnly={readOnly}
               onChange={(value) => {
                 const next = { ...item.params };
                 if (value === null) delete next[key];
@@ -444,9 +445,11 @@ export function CalcParams({ item, list, onChange, readOnly }: { item: Item; lis
 }
 
 // Число или пусто — «по умолчанию» (что это значит, решает модуль расчёта)
-function ParamField({ label, hint, value, disabled, onChange }: { label: string; hint: string; value: number | null; disabled: boolean; onChange: (v: number | null) => void }) {
+function ParamField({ label, hint, value, readOnly, onChange }: { label: string; hint: string; value: number | null; readOnly: boolean; onChange: (v: number | null) => void }) {
   const [text, setText] = useState(value === null ? "" : String(value));
   useEffect(() => setText(value === null ? "" : String(value)), [value]);
+  // «просмотр» — значение текстом (R-031)
+  if (readOnly) return <ReadField label={label}>{value === null ? "по умолчанию" : <span className="font-mono">{value.toLocaleString("ru-RU")}</span>}</ReadField>;
   const commit = () => {
     const t = text.trim().replace(",", ".");
     if (!t) {
@@ -465,7 +468,6 @@ function ParamField({ label, hint, value, disabled, onChange }: { label: string;
         type="text"
         inputMode="decimal"
         value={text}
-        disabled={disabled}
         placeholder="по умолчанию"
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}

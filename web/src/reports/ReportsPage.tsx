@@ -61,7 +61,8 @@ export function ReportsPage() {
   return (
     <PageBody>
       <PageHeader title="Отчёты" subtitle="Выберите отчёт, задайте параметры и выгрузите в Excel или PDF." />
-      <div className="grid gap-3 md:grid-cols-2">
+      {/* items-start: раскрытый отчёт не растягивает соседний в той же строке (R-046) */}
+      <div className="grid items-start gap-3 md:grid-cols-2">
         {defs.data?.items.map((d) => (
           <Card key={d.key} className={cn("flex flex-col gap-2 p-4", open === d.key && "border-accent")}>
             <button type="button" onClick={() => setOpen(open === d.key ? null : d.key)} className="cursor-pointer border-0 bg-transparent p-0 text-left" aria-expanded={open === d.key}>

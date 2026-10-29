@@ -39,12 +39,6 @@ def _pdf(data: bytes, name: str) -> Response:
     )
 
 
-def _base(origin: str) -> str:
-    if not origin.startswith(("http://", "https://")) or len(origin) > 200:
-        raise AppError("Неверный адрес системы для меток.", field="origin")
-    return origin
-
-
 # ---------------------------------------------------------------- места хранения
 
 
@@ -295,12 +289,19 @@ class LabelsIn(BaseModel):
     codes: list[str] = Field(default_factory=list, max_length=500)  # склады и ячейки
     room_ids: list[uuid.UUID] = Field(default_factory=list, max_length=2000)  # на двери
     mode: str = "sheet"
-    origin: str
+
+
+@router.get("/labels/address")
+def label_address(request: Request, _: Admin, session: DB) -> dict[str, str]:
+    """Куда ведут QR-метки и откуда этот адрес: settings, install, request (R-016)."""
+    url, source = api.label_base(session, str(request.base_url))
+    return {"url": url, "source": source}
 
 
 @router.post("/labels.pdf")
-def labels(body: LabelsIn, actor: Admin, session: DB) -> Response:
-    """QR-метки (5.4.7): листом А4 с наклейками или на принтер этикеток."""
+def labels(body: LabelsIn, request: Request, actor: Admin, session: DB) -> Response:
+    """QR-метки (5.4.7): листом А4 с наклейками или на принтер этикеток. Адрес меток — в
+    заголовке X-Label-Url: интерфейс предупреждает, если система открыта по другому (R-016)."""
     from app.modules.catalog import api as catalog
 
     rows = [units.get_unit(session, actor, i) for i in body.unit_ids]
@@ -323,13 +324,13 @@ def labels(body: LabelsIn, actor: Admin, session: DB) -> Response:
         items.append({"code": api.room_label(session, room_id), "number": "", "title": room.title})
     if not items:
         raise AppError("Не выбрано, что печатать.")
+    base, _ = api.label_base(session, str(request.base_url))
     data = printing.labels_pdf(
-        items,
-        api.label_settings(session),
-        _base(body.origin),
-        "printer" if body.mode == "printer" else "sheet",
+        items, api.label_settings(session), base, "printer" if body.mode == "printer" else "sheet"
     )
-    return _pdf(data, "метки.pdf")
+    response = _pdf(data, "метки.pdf")
+    response.headers["X-Label-Url"] = base
+    return response
 
 
 # ---------------------------------------------------------------- документы

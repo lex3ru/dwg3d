@@ -332,7 +332,7 @@ function RegistryTab() {
         )}
         {admin && (
           <>
-            <Button size="sm" disabled={!selected.size} onClick={() => void printLabels({ unit_ids: [...selected] }).catch((e) => setError((e as Error).message))}>
+            <Button size="sm" disabled={!selected.size} onClick={() => void printLabels({ unit_ids: [...selected] }).then(setError, (e) => setError((e as Error).message))}>
               <QrCode /> Метки
             </Button>
             <Button size="sm" disabled={!selected.size} onClick={() => void move()}>

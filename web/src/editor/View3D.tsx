@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { get } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
-import { SLAB, blockers, buildFloor, liftGeometry, type Blocker } from "./build3d";
+import { DEPTH_OFFSET, SLAB, WALK_NEAR, blockers, buildFloor, liftGeometry, orbitNear, type Blocker } from "./build3d";
 import type { Item } from "./items";
 import { Items3D } from "./items3d";
 import type { Catalog } from "./placement";
@@ -85,9 +85,14 @@ export default function View3D({ floorId, projectId, floors, plan, lifts, onWalk
     if (mode === "orbit") onWalker(null);
   }, [mode, onWalker]);
 
+  // видеокарта отобрала контекст (сброс драйвера, нехватка памяти) — сцена больше не рисуется;
+  // сообщение и «Попробовать снова» — у границы ошибок вокруг 3D (R-032)
+  const [lost, setLost] = useState(false);
+  if (lost) throw new Error("WebGL: контекст потерян");
+
   return (
     <div role="region" aria-label="3D-вид" aria-busy={busy} className="relative h-full w-full bg-[#dfe5ec] dark:bg-[#1b2129]">
-      <Canvas shadows={false} camera={{ fov: 55, near: 0.05, far: 2000, position: [30, 30, 30] }} dpr={[1, 2]}>
+      <Canvas shadows={false} camera={{ fov: 55, near: WALK_NEAR, far: 2000, position: [30, 30, 30] }} dpr={[1, 2]} onCreated={({ gl }) => gl.domElement.addEventListener("webglcontextlost", () => setLost(true))}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[40, 80, 30]} intensity={1.4} />
         <hemisphereLight args={["#ffffff", "#8a8f99", 0.4]} />
@@ -133,12 +138,14 @@ export default function View3D({ floorId, projectId, floors, plan, lifts, onWalk
   );
 }
 
+const behind = (n: number) => ({ polygonOffset: n > 0, polygonOffsetFactor: n, polygonOffsetUnits: n });
+
 const materials = {
-  bearing: new THREE.MeshStandardMaterial({ color: "#c9ced6", roughness: 0.9 }),
-  partition: new THREE.MeshStandardMaterial({ color: "#eceef1", roughness: 0.9 }),
+  bearing: new THREE.MeshStandardMaterial({ color: "#c9ced6", roughness: 0.9, ...behind(DEPTH_OFFSET.bearing) }),
+  partition: new THREE.MeshStandardMaterial({ color: "#eceef1", roughness: 0.9, ...behind(DEPTH_OFFSET.partition) }),
   glass: new THREE.MeshStandardMaterial({ color: "#8fc3ef", transparent: true, opacity: 0.35, roughness: 0.1 }),
   slab: new THREE.MeshStandardMaterial({ color: "#b8bec7", roughness: 1 }),
-  columns: new THREE.MeshStandardMaterial({ color: "#9aa2ad", roughness: 0.8 }),
+  columns: new THREE.MeshStandardMaterial({ color: "#9aa2ad", roughness: 0.8, ...behind(DEPTH_OFFSET.columns) }),
   stairs: new THREE.MeshStandardMaterial({ color: "#d6c7ae", roughness: 0.9 }),
   lift: new THREE.MeshStandardMaterial({ color: "#5b8ff0", transparent: true, opacity: 0.25 }),
 };
@@ -201,6 +208,14 @@ function Orbit({ data }: { data: FloorData[] }) {
     controls.current?.target.set(cx, top / 2, cz);
     controls.current?.update();
   }, [data, camera, size]);
+  // ближняя плоскость — по расстоянию до цели (R-029)
+  useFrame(() => {
+    if (!controls.current || !(camera instanceof THREE.PerspectiveCamera)) return;
+    const near = orbitNear(camera.position.distanceTo(controls.current.target));
+    if (Math.abs(camera.near - near) <= near * 0.1) return;
+    camera.near = near;
+    camera.updateProjectionMatrix();
+  });
   return <OrbitControls ref={controls} makeDefault enableDamping />;
 }
 
@@ -224,6 +239,13 @@ function Walk({ floors, start, at, lifts, onWalker }: { floors: FloorData[]; sta
     state.current = { floor: start.position, p, height: start.elevation + EYE, yaw: 0, pitch: 0 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start.id]);
+
+  // обзор отодвигал ближнюю плоскость — в прогулке стены рядом
+  useEffect(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera)) return;
+    camera.near = WALK_NEAR;
+    camera.updateProjectionMatrix();
+  }, [camera]);
 
   useEffect(() => {
     const el = gl.domElement;

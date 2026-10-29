@@ -17,7 +17,8 @@
 ## Окружение
 
 - **Браузер** на компьютере и телефоне — единственный клиент. QR-метки сканирует камера телефона
-  прямо в браузере (`jsqr`); метка ведёт на `/q/<код>`.
+  прямо в браузере (`jsqr`); метка ведёт на `/q/<код>` постоянного адреса системы — из «Настроек»,
+  по умолчанию `PUBLIC_URL` установки (`APP_PUBLIC_URL`, ADR-0016).
 - **Caddy** — HTTPS перед приложением. `CADDY_TLS=internal` — свой сертификат для локальной сети
   (корневой отдаётся по `http://<сервер>/ca.crt`), адрес почты — Let's Encrypt.
 - **LibreDWG `dwg2dxf`** — внешняя программа, переводит DWG в DXF (`APP_DWG2DXF`; в образ
@@ -48,7 +49,7 @@
 | projects | `…/projects` | предлагаемые изменения расстановки, сравнение и применение |
 | reports | `…/reports` | отчёты и ведомости, главная, полная выгрузка |
 | transfer | `…/transfer` | перенос здания на другую установку ZIP-пакетом |
-| Интерфейс | `web/src` | SPA на React; данные — React Query; редактор `editor/`: план в SVG, 3D на three.js |
+| Интерфейс | `web/src` | SPA на React; данные — React Query; редактор `editor/`: план в SVG, 3D на three.js; сбой отрисовки раздела или 3D ловит граница ошибок (`ui/ErrorBoundary.tsx`) |
 
 Уровни модулей снизу вверх (`server/app/modules/__init__.py`):
 journal → access, files, system → building, catalog → planning, inventory → calc, link, projects → reports, transfer.
