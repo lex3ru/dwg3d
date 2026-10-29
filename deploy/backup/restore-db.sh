@@ -9,6 +9,8 @@
 #   restore-db.sh undo             обратно: прежняя база снова <имя>
 #   restore-db.sh drop-before      удалить <имя>_before_restore — система запустилась
 set -eu
+# без «NOTICE: database … does not exist, skipping» от --if-exists
+export PGOPTIONS="-c client_min_messages=warning"
 db="$PGDATABASE"
 new="${db}_restore"
 old="${db}_before_restore"
