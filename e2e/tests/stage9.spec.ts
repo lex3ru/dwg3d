@@ -440,3 +440,17 @@ test("главная, отчёты и полная выгрузка здания
   expect(zip.ok()).toBeTruthy();
   expect((await zip.body()).subarray(0, 2).toString()).toBe("PK");
 });
+
+test("R-046: раскрытый отчёт не растягивает соседний в той же строке", async ({ page }) => {
+  await loginAdmin(page);
+  await page.goto("/reports");
+  const toggles = page.getByRole("main").locator("button[aria-expanded]");
+  const [first, second] = [toggles.nth(0).locator(".."), toggles.nth(1).locator("..")];
+  const before = (await second.boundingBox())!;
+  // в одной строке сетки — иначе проверять нечего
+  expect(Math.abs((await first.boundingBox())!.y - before.y)).toBeLessThan(1);
+  await toggles.nth(0).click();
+  await expect(toggles.nth(0)).toHaveAttribute("aria-expanded", "true");
+  expect((await first.boundingBox())!.height).toBeGreaterThan(before.height + 20);
+  expect((await second.boundingBox())!.height).toBeCloseTo(before.height, 0);
+});
