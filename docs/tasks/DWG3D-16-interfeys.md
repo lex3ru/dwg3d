@@ -4,7 +4,7 @@ title: "Интерфейс: 3D, режим только просмотра, пе
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-16-interfeys
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/16
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/4fda82a6-fb37-4de2-a27a-b0960be73667
 updated: 2026-10-29
 ---
