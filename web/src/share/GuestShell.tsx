@@ -3,6 +3,7 @@ import { Outlet } from "react-router";
 import { useMe } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { ShellProvider } from "@/shell/context";
+import { SectionBoundary } from "@/ui/ErrorBoundary";
 
 // Гость по ссылке (6.4): без меню — только план и 3D здания
 export function GuestShell() {
@@ -18,7 +19,9 @@ export function GuestShell() {
           </span>
         </header>
         <main className="min-h-0 flex-1 overflow-hidden">
-          <Outlet />
+          <SectionBoundary>
+            <Outlet />
+          </SectionBoundary>
         </main>
       </div>
     </ShellProvider>
