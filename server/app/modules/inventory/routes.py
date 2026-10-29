@@ -436,7 +436,7 @@ def stock_history(
     return {"items": documents.stock_history(session, actor, place, type_id, model_id)}
 
 
-@router.get("/cost")
+@router.post("/cost", status_code=202)
 def cost_statement(
     actor: Admin,
     session: DB,
@@ -444,22 +444,15 @@ def cost_statement(
     group_by: str = "building,floor,layer",
     building_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    return cost.statement(
-        session, actor, at or date.today(), [g for g in group_by.split(",") if g], building_id
-    )
+    """Ведомость стоимости на дату (5.4.5 п. 4, С19) — фоновой задачей (8.2: «идёт в фоне»,
+    R-036, ADR-0021): ход и итог — /api/system/tasks/{job_id}, Excel — /cost/{job_id}.xlsx."""
+    groups = [g for g in group_by.split(",") if g]
+    return {"job_id": cost.start(session, actor, at or date.today(), groups, building_id)}
 
 
-@router.get("/cost.xlsx")
-def cost_export(
-    actor: Admin,
-    session: DB,
-    at: date | None = None,
-    group_by: str = "building,floor,layer",
-    building_id: uuid.UUID | None = None,
-) -> Response:
-    st = cost.statement(
-        session, actor, at or date.today(), [g for g in group_by.split(",") if g], building_id
-    )
+@router.get("/cost/{job_id}.xlsx")
+def cost_export(job_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    st = cost.result(session, actor, job_id)
     return _xlsx(excel.statement_export(st), f"стоимость-на-{st['at']:%d.%m.%Y}.xlsx")
 
 

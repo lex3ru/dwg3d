@@ -27,7 +27,7 @@ from app.modules.access import api as access
 from app.modules.inventory import documents, units
 from app.modules.inventory.excel import HEAD
 from app.modules.inventory.models import StockMove
-from tests.test_inventory import document, post, setup
+from tests.test_inventory import document, post, setup, statement
 
 HOLD = 0.5  # сколько первый сеанс держит транзакцию после своего действия, с
 
@@ -304,7 +304,7 @@ def moved(admin, uid: str, to: str, ago: int) -> dict:  # type: ignore[no-untype
 
 def where(admin, ago: int) -> list[str]:  # type: ignore[no-untyped-def]
     """Где числится имущество на дату — по «Стоимости на дату» с разбивкой по местам."""
-    st = admin.get("/api/inventory/cost", params={"at": day(ago), "group_by": "place"}).json()
+    st = statement(admin, at=day(ago), group_by="place")
     return [r["group"][0] for r in st["rows"]]
 
 

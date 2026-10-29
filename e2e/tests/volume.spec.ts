@@ -27,23 +27,32 @@ async function timed<T>(fn: () => Promise<T>): Promise<[T, number]> {
 
 // n одинаковых запросов разом — как n человек, нажавших одно и то же (8.1: до 20 одновременно
 // работающих). Обрыв соединения — код 0.
-async function burst(page: Page, url: string, n: number) {
+async function burst(page: Page, url: string, n: number, method: "GET" | "POST" = "GET") {
   const shots = await Promise.all(
     Array.from({ length: n }, async () => {
       const t = Date.now();
       try {
-        const r = await page.request.get(url, { timeout: 300_000 });
-        await r.body();
-        return { status: r.status(), ms: Date.now() - t };
+        const r = await page.request.fetch(url, { method, headers: H, timeout: 300_000 });
+        const body = await r.body();
+        return { status: r.status(), ms: Date.now() - t, body: body.toString() };
       } catch {
-        return { status: 0, ms: Date.now() - t };
+        return { status: 0, ms: Date.now() - t, body: "" };
       }
     }),
   );
   const ms = shots.map((s) => s.ms).sort((a, b) => a - b);
   const codes: Record<number, number> = {};
   for (const s of shots) codes[s.status] = (codes[s.status] ?? 0) + 1;
-  return { codes, median: ms[Math.floor(n / 2)]!, worst: ms[n - 1]! };
+  return { codes, median: ms[Math.floor(n / 2)]!, worst: ms[n - 1]!, bodies: shots.map((s) => s.body) };
+}
+
+// фоновая задача досчиталась (или не смогла)
+async function untilDone(page: Page, id: string) {
+  for (;;) {
+    const j = await (await page.request.get(`/api/system/tasks/${id}`)).json();
+    if (j.status === "done" || j.status === "failed" || j.status === "cancelled") return j;
+    await page.waitForTimeout(250);
+  }
 }
 
 async function stand(page: Page) {
@@ -189,11 +198,7 @@ test.describe("8.2 на объёмах 8.1", () => {
     }
     const exportOf = async (building?: string) => {
       const started = await (await page.request.post(`/api/reports/exports${building ? `?building_id=${building}` : ""}`, { headers: H })).json();
-      for (;;) {
-        const j = await (await page.request.get(`/api/system/tasks/${started.job_id}`)).json();
-        if (j.status === "done" || j.status === "failed") return j;
-        await page.waitForTimeout(250);
-      }
+      return untilDone(page, started.job_id);
     };
     const [one, ms] = await timed(() => exportOf(s.building));
     expect(one.status, one.error).toBe("done");
@@ -223,17 +228,24 @@ test.describe("8.2 на объёмах 8.1", () => {
     test.setTimeout(1_200_000);
     await loginAdmin(page);
     await stand(page);
-    for (const [what, url] of [
-      ["реестр", "/api/inventory/units?limit=100"],
-      ["ведомость стоимости", "/api/inventory/cost?group_by=building,floor,layer"],
-    ] as const) {
-      for (const n of [50, 200]) {
-        const b = await burst(page, url, n);
-        const line = `${what}, ${n} одновременных: коды ${JSON.stringify(b.codes)}, медиана ${b.median} мс, худший ${b.worst} мс (справочно)`;
-        times.push(line);
-        console.log(`8.2 · ${line}`);
-        expect.soft(b.codes, `${what}, ${n} одновременных`).toEqual({ 200: n });
-      }
+    const say = (line: string) => {
+      times.push(line);
+      console.log(`8.2 · ${line}`);
+    };
+    for (const n of [50, 200]) {
+      const b = await burst(page, "/api/inventory/units?limit=100", n);
+      say(`реестр, ${n} одновременных: коды ${JSON.stringify(b.codes)}, медиана ${b.median} мс, худший ${b.worst} мс (справочно)`);
+      expect.soft(b.codes, `реестр, ${n} одновременных`).toEqual({ 200: n });
+    }
+    // ведомость стоимости — фоновой задачей (8.2: «идёт в фоне», ADR-0021): запуск отвечает
+    // сразу, одинаковые запросы, пока считается, — одна задача, и она досчитывается
+    for (const n of [50, 200]) {
+      const b = await burst(page, "/api/inventory/cost?group_by=building,floor,layer", n, "POST");
+      const jobs = [...new Set(b.bodies.filter((x) => x.startsWith("{")).map((x) => JSON.parse(x).job_id as string))];
+      const [done, ms] = await timed(() => Promise.all(jobs.map((id) => untilDone(page, id))));
+      say(`ведомость стоимости, ${n} одновременных запусков: коды ${JSON.stringify(b.codes)}, худший запуск ${b.worst} мс, задач ${jobs.length}, досчитаны за ${ms} мс (справочно)`);
+      expect.soft(b.codes, `ведомость, ${n} одновременных`).toEqual({ 202: n });
+      expect.soft(done.map((j) => j.status), `ведомость, ${n} одновременных`).toEqual(jobs.map(() => "done"));
     }
     const [health, ms] = await timed(() => page.request.get("/api/health"));
     expect(health.ok()).toBeTruthy();

@@ -43,8 +43,8 @@ E2E_VOLUME=1 E2E_URL=http://localhost:8011 npx playwright test tests/volume.spec
 
 Одновременные запросы и пик имеет смысл мерить, как в установке: приложение в образе
 `deploy/Dockerfile`, 4 процесса, ограничено 4 ядрами и 8 ГБ (8.2), — а не `python -m app serve`
-в Windows, где процесс один (ADR-0007). Например, с базой `volume` в контейнере
-`planuchet-devdb`:
+в Windows, где процесс один (ADR-0007), и с обработчиком фоновых задач: ведомость стоимости
+считает он (ADR-0021). Например, с базой `volume` в контейнере `planuchet-devdb`:
 
 ```bash
 docker build -f deploy/Dockerfile -t planuchet-perf:dev .
@@ -52,6 +52,9 @@ docker network create planuchet-perf && docker network connect planuchet-perf pl
 docker run -d --name planuchet-perf --network planuchet-perf --cpus 4 --memory 8g \
   -p 127.0.0.1:8020:8000 -e APP_SECURE_COOKIES=false \
   -e APP_DATABASE_URL=postgresql+psycopg://app:app@planuchet-devdb:5432/volume planuchet-perf:dev
+docker run -d --name planuchet-perf-worker --network planuchet-perf --init \
+  -e APP_DATABASE_URL=postgresql+psycopg://app:app@planuchet-devdb:5432/volume \
+  planuchet-perf:dev python -m app worker
 E2E_VOLUME=1 E2E_URL=http://127.0.0.1:8020 npx playwright test tests/volume.spec.ts -g "одновременных"
 ```
 

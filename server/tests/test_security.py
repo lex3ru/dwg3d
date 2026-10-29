@@ -18,7 +18,7 @@ from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_catalog import glb
 from tests.test_drawings import sample_dxf, upload
 from tests.test_events import viewer
-from tests.test_inventory import document, post, setup
+from tests.test_inventory import document, post, setup, statement
 from tests.test_journal import PDF
 from tests.test_transfer import PNG
 
@@ -82,6 +82,7 @@ def test_viewer_gets_no_cost_numbers_or_projects_anywhere(pdf, admin, app) -> No
             "/api/auth/password", json={"current": "Viewer-pass-123", "new": "Viewer-pass-456"}
         )
         b, f, u = building["id"], floor, units[0]
+        cost = statement(admin)["job_id"]
         reachable = [
             "/api/buildings",
             f"/api/buildings/{b}",
@@ -104,8 +105,8 @@ def test_viewer_gets_no_cost_numbers_or_projects_anywhere(pdf, admin, app) -> No
             f"/api/floors/{f}/export.pdf",
         ]
         closed = [
-            "/api/inventory/cost",
-            "/api/inventory/cost.xlsx",
+            f"/api/inventory/cost/{cost}.xlsx",
+            f"/api/system/tasks/{cost}",
             "/api/inventory/documents",
             f"/api/inventory/documents/{got['id']}",
             f"/api/inventory/documents/{got['id']}/print.pdf",
@@ -137,6 +138,7 @@ def test_viewer_gets_no_cost_numbers_or_projects_anywhere(pdf, admin, app) -> No
         assert not leaks, "просмотру видно:\n" + "\n".join(leaks)
         for url in closed:
             assert viewer.get(url).status_code in (403, 404), url
+        assert viewer.post("/api/inventory/cost").status_code == 403
         # поиск по номеру ничего не находит — номера просмотру не известны
         assert not viewer.get("/api/search", params={"q": NUMBERS[0]}).json().get("items")
 
