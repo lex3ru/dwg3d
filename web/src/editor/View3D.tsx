@@ -85,9 +85,14 @@ export default function View3D({ floorId, projectId, floors, plan, lifts, onWalk
     if (mode === "orbit") onWalker(null);
   }, [mode, onWalker]);
 
+  // видеокарта отобрала контекст (сброс драйвера, нехватка памяти) — сцена больше не рисуется;
+  // сообщение и «Попробовать снова» — у границы ошибок вокруг 3D (R-032)
+  const [lost, setLost] = useState(false);
+  if (lost) throw new Error("WebGL: контекст потерян");
+
   return (
     <div role="region" aria-label="3D-вид" aria-busy={busy} className="relative h-full w-full bg-[#dfe5ec] dark:bg-[#1b2129]">
-      <Canvas shadows={false} camera={{ fov: 55, near: 0.05, far: 2000, position: [30, 30, 30] }} dpr={[1, 2]}>
+      <Canvas shadows={false} camera={{ fov: 55, near: 0.05, far: 2000, position: [30, 30, 30] }} dpr={[1, 2]} onCreated={({ gl }) => gl.domElement.addEventListener("webglcontextlost", () => setLost(true))}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[40, 80, 30]} intensity={1.4} />
         <hemisphereLight args={["#ffffff", "#8a8f99", 0.4]} />

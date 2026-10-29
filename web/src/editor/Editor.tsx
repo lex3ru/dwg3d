@@ -12,6 +12,7 @@ import { formatDateTime } from "@/lib/format";
 import { useCardTitle } from "@/shell/context";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
+import { ErrorBoundary } from "@/ui/ErrorBoundary";
 import { FloorDialog } from "@/pages/Buildings";
 import { Field, Input } from "@/ui/form";
 import { Empty, Loading } from "@/ui/misc";
@@ -761,9 +762,11 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           )}
           {show3d && (
             <div className="relative min-w-0 flex-1">
-              <Suspense fallback={<Loading />}>
-                <View3D buildingId={data.building.id} floorId={data.floor.id} projectId={project?.id ?? null} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
-              </Suspense>
+              <ErrorBoundary fallback={(retry) => <Unavailable3D onRetry={retry} />}>
+                <Suspense fallback={<Loading />}>
+                  <View3D buildingId={data.building.id} floorId={data.floor.id} projectId={project?.id ?? null} floors={floors} plan={plan} lifts={store.state.lifts} onWalker={setWalker} walkRequest={walkRequest} store={store} cat={cat} readOnly={readOnly} />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           )}
         </div>
@@ -860,6 +863,18 @@ function Loaded({ data, items: serverItems, removed, project, tree, readOnly }: 
           />
         </>
       )}
+    </div>
+  );
+}
+
+// 3D не показалось: нет WebGL, сбой видеокарты, ошибка в сцене — план и остальной редактор
+// работают (R-032). «Попробовать снова» создаёт 3D-вид заново.
+function Unavailable3D({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 bg-surface-2 px-6 text-center">
+      <div className="text-base font-medium">3D-вид недоступен</div>
+      <div className="max-w-sm text-sm text-ink-2">Браузер или видеокарта не смогли показать 3D. План и остальной редактор работают.</div>
+      <Button onClick={onRetry}>Попробовать снова</Button>
     </div>
   );
 }

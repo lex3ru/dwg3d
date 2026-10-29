@@ -187,3 +187,43 @@ test("«просмотр» видит план выданного здания �
   const put = await viewer.request.put(`/api/floors/${b.floors[0]}/plan`, { headers: H, data: { plan_version: 2, plan: {} } });
   expect(put.status()).toBe(403);
 });
+
+test("R-032: без WebGL на месте 3D — сообщение, план и меню работают", async ({ page }) => {
+  // компьютер без WebGL: браузер не даёт контекст
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: unknown[]) {
+      return kind.includes("webgl") ? null : original.call(this, kind as "2d", ...(rest as []));
+    } as typeof original;
+  });
+  await loginAdmin(page);
+  const b = await building(page, unique("Без-WebGL-"));
+  await page.request.put(`/api/floors/${b.floors[0]}/plan`, {
+    headers: H,
+    data: { plan_version: 1, plan: { nodes: { a: [0, 0], b: [4000, 0], c: [4000, 3000], d: [0, 3000] }, walls: [["w1", "a", "b"], ["w2", "b", "c"], ["w3", "c", "d"], ["w4", "d", "a"]].map(([id, a, bb]) => ({ id, a, b: bb, thickness: 200 })), rooms: [{ id: "new", x: 2000, y: 1500, number: "7", name: "Палата" }] } },
+  });
+  await page.goto(`/plan/${b.id}`);
+  await page.getByRole("radio", { name: "оба" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "3D-вид недоступен" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await expect(page.getByText("Палата")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Разделы" }).first()).toBeVisible();
+  // только план — сообщения нет
+  await page.getByRole("radio", { name: "2D" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "3D-вид недоступен" })).toHaveCount(0);
+});
+
+test("R-032: видеокарта отобрала контекст WebGL — сообщение, «Попробовать снова» возвращает 3D", async ({ page }) => {
+  await loginAdmin(page);
+  const b = await building(page, unique("Контекст-WebGL-"));
+  await page.goto(`/plan/${b.id}`);
+  await page.getByRole("radio", { name: "оба" }).click();
+  const view = page.getByRole("region", { name: "3D-вид" });
+  await expect(view.locator("canvas")).toBeVisible();
+  await view.locator("canvas").evaluate((c: HTMLCanvasElement) => (c.getContext("webgl2") ?? c.getContext("webgl"))!.getExtension("WEBGL_lose_context")!.loseContext());
+  await expect(page.getByRole("alert").filter({ hasText: "3D-вид недоступен" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "План этажа" })).toBeVisible();
+  await page.getByRole("button", { name: "Попробовать снова" }).click();
+  await expect(view.locator("canvas")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "3D-вид недоступен" })).toHaveCount(0);
+});
