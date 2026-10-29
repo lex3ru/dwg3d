@@ -4,7 +4,7 @@ import {
   AlignVerticalSpaceAround, Copy, PackageOpen, PackagePlus, Rows3, Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { TypeFull } from "@/catalog/types";
+import type { ModelInfo, TypeFull } from "@/catalog/types";
 import { Link } from "react-router";
 import { get } from "@/lib/api";
 import { journalUrl } from "@/lib/journal";
@@ -15,7 +15,7 @@ import { CalcParams, type CalcInfo } from "./calc";
 import { registrable, UnitBlock, type LinkView } from "./link";
 import { copiesAt, copyItems, requestRemove, standalone, type Catalog } from "./placement";
 import { type Pt, type Room } from "./plan";
-import { NumberField, Segmented, TextField } from "./Properties";
+import { NumberField, ReadField, Segmented, TextField } from "./Properties";
 import { useEditor, type EditorStore } from "./store";
 
 function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
@@ -27,6 +27,7 @@ function Section({ title, children }: { title: ReactNode; children: ReactNode })
   );
 }
 
+const modelTitle = (m: ModelInfo) => [m.manufacturer, m.name].filter(Boolean).join(" ");
 const roomTitle = (r: Room | undefined) => (r ? [r.number, r.name].filter(Boolean).join(" ") || "помещение без номера" : "вне помещений");
 
 // Справа в «Расстановке» (5.3.1, 5.3.2): свойства выбранного предмета или нескольких
@@ -42,7 +43,7 @@ export function ItemPanel({ store, cat, rooms, readOnly, warnings, link, onRegis
   if (chosen.length === 1)
     return <OneItem key={chosen[0]!.id} item={chosen[0]!} store={store} cat={cat} roomsById={roomsById} readOnly={readOnly} warnings={warnings.get(chosen[0]!.id) ?? []} link={link} onRegister={onRegister} calcs={calcs} />;
   if (chosen.length > 1) return <ManyItems items={chosen} store={store} cat={cat} readOnly={readOnly} onRegister={onRegister} link={link} />;
-  return <FloorSummary store={store} cat={cat} roomsById={roomsById} warnings={warnings} />;
+  return <FloorSummary store={store} cat={cat} roomsById={roomsById} warnings={warnings} readOnly={readOnly} />;
 }
 
 function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegister, calcs }: { item: Item; store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; readOnly: boolean; warnings: WarningCode[]; link: LinkView | undefined; onRegister: (ids: string[]) => void; calcs: CalcInfo[] }) {
@@ -57,6 +58,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
   const containers = t?.container ? [] : items.filter((i) => i.id !== item.id && !i.parent_id && cat.types.get(i.type_id)?.container && i.room_id === (parent?.room_id ?? item.room_id));
   const room = roomsById.get((parent ?? item).room_id ?? "");
   const models = (full.data?.models ?? []).filter((m) => !m.archived || m.id === item.model_id);
+  const model = models.find((m) => m.id === item.model_id);
   const nameOf = (i: Item) => cat.types.get(i.type_id)?.name ?? "предмет";
   const admin = useMe().role === "admin";
 
@@ -87,23 +89,26 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
             ))}
           </ul>
         )}
-        <label className="flex flex-col gap-1 text-[12px] text-ink-2">
-          Модель
-          <select
-            aria-label="Модель"
-            disabled={readOnly}
-            value={item.model_id ?? ""}
-            onChange={(e) => set({ model_id: e.target.value || null })}
-            className="h-8 rounded-md border border-line-strong bg-surface px-2 text-[13px] text-ink max-md:h-11"
-          >
-            <option value="">не выбрана — просто тип</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {[m.manufacturer, m.name].filter(Boolean).join(" ")}
-              </option>
-            ))}
-          </select>
-        </label>
+        {readOnly ? (
+          <ReadField label="Модель">{model ? modelTitle(model) : item.model_id ? "…" : "не выбрана — просто тип"}</ReadField>
+        ) : (
+          <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+            Модель
+            <select
+              aria-label="Модель"
+              value={item.model_id ?? ""}
+              onChange={(e) => set({ model_id: e.target.value || null })}
+              className="h-8 rounded-md border border-line-strong bg-surface px-2 text-[13px] text-ink max-md:h-11"
+            >
+              <option value="">не выбрана — просто тип</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {modelTitle(m)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {parent ? (
           <div className="flex items-center gap-2 text-[13px]">
             <PackageOpen className="size-4 text-ink-2" /> Лежит в «{nameOf(parent)}»
@@ -116,10 +121,10 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2.5">
-              <NumberField label="X" unit="мм" value={item.x ?? 0} disabled={readOnly} onChange={(x) => set({ x })} />
-              <NumberField label="Y" unit="мм" value={item.y ?? 0} disabled={readOnly} onChange={(y) => set({ y })} />
-              <NumberField label="Поворот" unit="°" value={item.angle} disabled={readOnly} onChange={(angle) => set({ angle: ((angle % 360) + 360) % 360 })} />
-              <NumberField label={t?.mount === "ceiling" ? "Высота низа" : "Высота установки"} unit="мм" value={item.z} min={0} disabled={readOnly} onChange={(z) => set({ z })} />
+              <NumberField label="X" unit="мм" value={item.x ?? 0} readOnly={readOnly} onChange={(x) => set({ x })} />
+              <NumberField label="Y" unit="мм" value={item.y ?? 0} readOnly={readOnly} onChange={(y) => set({ y })} />
+              <NumberField label="Поворот" unit="°" value={item.angle} readOnly={readOnly} onChange={(angle) => set({ angle: ((angle % 360) + 360) % 360 })} />
+              <NumberField label={t?.mount === "ceiling" ? "Высота низа" : "Высота установки"} unit="мм" value={item.z} min={0} readOnly={readOnly} onChange={(z) => set({ z })} />
             </div>
             {!readOnly && (
               <div className="flex gap-1.5">
@@ -133,7 +138,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
           </>
         )}
         {!item.parent_id && <CalcParams item={item} list={calcs} readOnly={readOnly} onChange={(params) => set({ params })} />}
-        <TextField label="Подпись на плане" hint="Видна рядом с предметом и в отчётах, например «К-3» у камеры." value={item.label} placeholder="необязательно" disabled={readOnly} onChange={(label) => set({ label })} />
+        <TextField label="Подпись на плане" hint="Видна рядом с предметом и в отчётах, например «К-3» у камеры." value={item.label} placeholder="необязательно" readOnly={readOnly} onChange={(label) => set({ label })} />
         {!readOnly && !parent && containers.length > 0 && (
           <label className="flex flex-col gap-1 text-[12px] text-ink-2">
             Положить в
@@ -185,7 +190,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
               ))}
             </ul>
           ) : (
-            <p className="m-0 text-[12px] text-ink-3">Пусто. Перетащите предмет из каталога прямо на него или выберите «Положить в» у предмета.</p>
+            <p className="m-0 text-[12px] text-ink-3">{readOnly ? "Пусто." : "Пусто. Перетащите предмет из каталога прямо на него или выберите «Положить в» у предмета."}</p>
           )}
         </Section>
       )}
@@ -287,7 +292,7 @@ function ManyItems({ items, store, cat, readOnly, onRegister, link }: { items: I
   );
 }
 
-function FloorSummary({ store, cat, roomsById, warnings }: { store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; warnings: Map<string, WarningCode[]> }) {
+function FloorSummary({ store, cat, roomsById, warnings, readOnly }: { store: EditorStore; cat: Catalog; roomsById: Map<string, Room>; warnings: Map<string, WarningCode[]>; readOnly: boolean }) {
   const items = useEditor(store, (s) => s.items);
   const byId = new Map(items.map((i) => [i.id, i]));
   const list = [...warnings.entries()].slice(0, 50);
@@ -295,7 +300,10 @@ function FloorSummary({ store, cat, roomsById, warnings }: { store: EditorStore;
     <>
       <Section title="Расстановка этажа">
         <p className="m-0 text-[13px] text-ink-2">
-          Предметов: {items.length}. Перетащите тип из каталога слева на план или в 3D; выбранный предмет двигается мышью, поворачивается ручкой (шаг 15°, Alt — свободно), Delete — убрать, Ctrl+D — копия.
+          Предметов: {items.length}.
+          {readOnly
+            ? " Выберите предмет на плане или в 3D, чтобы увидеть его свойства."
+            : " Перетащите тип из каталога слева на план или в 3D; выбранный предмет двигается мышью, поворачивается ручкой (шаг 15°, Alt — свободно), Delete — убрать, Ctrl+D — копия."}
         </p>
       </Section>
       <section className="flex flex-col gap-2 px-4 py-4" aria-label="Предупреждения расстановки">

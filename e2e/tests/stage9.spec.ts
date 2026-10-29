@@ -296,6 +296,52 @@ test("С20: заведующий с «просмотром» видит план
   expect((await viewer.request.get(`/api/home?building_id=${f.building}`)).status()).toBe(403);
 });
 
+test("R-031: «просмотр» видит свойства текстом — без полей и указаний по правке", async ({ page, browser }) => {
+  await loginAdmin(page);
+  const f = await floorWithRooms(page);
+  const couch = await typeId(page, "Кушетка смотровая");
+  const made = await (await page.request.post(`/api/floors/${f.floor}/items/changes`, { headers: H, data: { create: [{ type_id: couch, x: 3000, y: 4500, label: "К-1" }] } })).json();
+  const item = made.items.find((i: { type_id: string }) => i.type_id === couch)?.id;
+  const [one] = await receipt(page, f.rooms["214"]!, await typeId(page, "Монитор 24″"), 1, 14500);
+  const name = unique("prosmotr");
+  await page.request.post("/api/users", { headers: H, data: { login: name, full_name: "Смотрящий С. С.", role: "viewer", building_ids: [f.building], password: "Temporary-pass-1" } });
+
+  const viewer = await (await browser.newContext({ ignoreHTTPSErrors: true })).newPage();
+  await login(viewer, name, "Temporary-pass-1");
+  await viewer.getByLabel("Текущий пароль").fill("Temporary-pass-1");
+  await viewer.getByLabel("Новый пароль", { exact: true }).fill("Viewer-pass-12");
+  await viewer.getByLabel("Новый пароль ещё раз").fill("Viewer-pass-12");
+  await viewer.getByRole("button", { name: "Сменить и продолжить" }).click();
+  await expect(viewer.getByRole("navigation", { name: "Разделы" }).first()).toBeVisible();
+
+  // сводка этажа — без указаний, как ставить и двигать
+  const props = viewer.getByRole("complementary", { name: "Свойства" });
+  await viewer.goto(`/plan/${f.building}/${f.floor}`);
+  await expect(props).toContainText("Предметов: 1.");
+  await expect(props).not.toContainText("Перетащите");
+  // предмет и помещение — значения текстом, полей нет (ТЗ 2.3, 6.1 п. 3)
+  await viewer.goto(`/plan/${f.building}/${f.floor}?item=${item}`);
+  await expect(props).toContainText("Кушетка смотровая");
+  await expect(props).toContainText("К-1");
+  await expect(props.getByRole("textbox")).toHaveCount(0);
+  await expect(props.getByRole("combobox")).toHaveCount(0);
+  await viewer.goto(`/plan/${f.building}/${f.floor}?room=${f.rooms["214"]}`);
+  await expect(props).toContainText("Помещение 214");
+  await expect(props).toContainText("Кабинет");
+  await expect(props.getByRole("textbox")).toHaveCount(0);
+  // клавиши — только для просмотра
+  await viewer.getByRole("button", { name: "Подсказка по клавишам" }).click();
+  const keys = viewer.getByRole("dialog", { name: "Клавиши редактора" });
+  await expect(keys).toContainText("сдвинуть план");
+  await expect(keys).not.toContainText("сохранить план");
+  await viewer.keyboard.press("Escape");
+  // карточка единицы
+  await viewer.goto(`/property?card=unit:${one!.id}`);
+  const card = viewer.getByRole("complementary", { name: "Карточка" });
+  await expect(card).toContainText("Ответственный");
+  await expect(card.getByRole("textbox")).toHaveCount(0);
+});
+
 test("С21: ссылка подрядчику — план без учётной записи, без учёта; отзыв досрочно", async ({ page, browser }) => {
   await loginAdmin(page);
   const f = await floorWithRooms(page);

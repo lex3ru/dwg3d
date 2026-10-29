@@ -14,8 +14,19 @@ import type { WallDefaults } from "./Canvas";
 // Свойства выбранного (5.3.1 «справа»): числа правятся на месте, Enter или уход с поля —
 // один шаг отмены.
 
-export function NumberField({ label, value, unit, onChange, step = 1, min, max, disabled, digits = 0, hint }: {
-  label: string; value: number; unit?: string; onChange: (v: number) => void; step?: number; min?: number; max?: number; disabled?: boolean; digits?: number;
+// Только для чтения («просмотр», гость, каталог у не-администратора): значение текстом — поля,
+// которое нельзя менять, и подсказки, что в него писать, на экране нет (ТЗ 2.3, 6.1 п. 3; R-031)
+export function ReadField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 text-[12px] text-ink-2">
+      {label}
+      <span className="text-[13px] text-ink">{children}</span>
+    </div>
+  );
+}
+
+export function NumberField({ label, value, unit, onChange, step = 1, min, max, disabled, readOnly, digits = 0, hint }: {
+  label: string; value: number; unit?: string; onChange: (v: number) => void; step?: number; min?: number; max?: number; disabled?: boolean; readOnly?: boolean; digits?: number;
   // подсказка под полем, где неочевидно, что писать (8.6 п. 3)
   hint?: string;
 }) {
@@ -29,6 +40,13 @@ export function NumberField({ label, value, unit, onChange, step = 1, min, max, 
     } else setText(String(shown));
   };
   const hintId = useId();
+  if (readOnly)
+    return (
+      <ReadField label={label}>
+        <span className="font-mono">{shown.toLocaleString("ru-RU")}</span>
+        {unit && ` ${unit}`}
+      </ReadField>
+    );
   const field = (
     <label className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
@@ -65,10 +83,11 @@ function Hinted({ id, hint, children }: { id: string; hint: string; children: Re
   );
 }
 
-export function TextField({ label, value, onChange, placeholder, disabled, hint }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; hint?: string }) {
+export function TextField({ label, value, onChange, placeholder, disabled, readOnly, hint }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; readOnly?: boolean; hint?: string }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   const hintId = useId();
+  if (readOnly) return <ReadField label={label}>{value || "—"}</ReadField>;
   const field = (
     <label className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
@@ -90,8 +109,9 @@ export function TextField({ label, value, onChange, placeholder, disabled, hint 
   return hint ? <Hinted id={hintId} hint={hint}>{field}</Hinted> : field;
 }
 
-export function Segmented<T extends string>({ label, value, options, onChange, disabled, hint }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; disabled?: boolean; hint?: string }) {
+export function Segmented<T extends string>({ label, value, options, onChange, disabled, readOnly, hint }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; disabled?: boolean; readOnly?: boolean; hint?: string }) {
   const hintId = useId();
+  if (readOnly) return <ReadField label={label}>{options.find((o) => o.value === value)?.title ?? "—"}</ReadField>;
   return (
     <div className="flex flex-col gap-1 text-[12px] text-ink-2">
       {label}
@@ -116,17 +136,28 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
 }
 
 // Назначение помещения из справочника (5.2): от него — норма освещённости и рабочая поверхность
-function PurposeField({ value, onChange, disabled }: { value: string | null; onChange: (v: string | null) => void; disabled?: boolean }) {
+function PurposeField({ value, onChange, readOnly }: { value: string | null; onChange: (v: string | null) => void; readOnly?: boolean }) {
   const list = usePurposes(true);
   const items = list.data?.items ?? [];
   const current = items.find((p) => p.id === value);
+  const norm = current && (
+    <span className="text-ink-3">
+      норма {current.norm} лк на высоте {(current.surface / 1000).toLocaleString("ru-RU")} м
+    </span>
+  );
+  if (readOnly)
+    return (
+      <div className="flex flex-col gap-1 text-[12px] text-ink-2">
+        <ReadField label="Назначение">{current?.name ?? "не задано"}</ReadField>
+        {norm}
+      </div>
+    );
   return (
     <label className="flex flex-col gap-1 text-[12px] text-ink-2">
       Назначение
       <select
         aria-label="Назначение"
         value={value ?? ""}
-        disabled={disabled}
         onChange={(e) => onChange(e.target.value || null)}
         className="h-8 rounded-md border border-line-strong bg-surface px-2 text-[13px] text-ink max-md:h-11"
       >
@@ -140,11 +171,7 @@ function PurposeField({ value, onChange, disabled }: { value: string | null; onC
             </option>
           ))}
       </select>
-      {current && (
-        <span className="text-ink-3">
-          норма {current.norm} лк на высоте {(current.surface / 1000).toLocaleString("ru-RU")} м
-        </span>
-      )}
+      {norm}
     </label>
   );
 }
@@ -186,7 +213,7 @@ export function Properties({
   if (selection.length > 1) {
     return (
       <Section title={`Выбрано: ${selection.length}`} actions={!ro && <Button size="sm" variant="danger" onClick={del}><Trash2 /> Удалить</Button>}>
-        <p className="m-0 text-[13px] text-ink-2">Перетащите, чтобы сдвинуть всё вместе; Ctrl+C и Ctrl+V — копия.</p>
+        {!ro && <p className="m-0 text-[13px] text-ink-2">Перетащите, чтобы сдвинуть всё вместе; Ctrl+C и Ctrl+V — копия.</p>}
       </Section>
     );
   }
@@ -209,7 +236,7 @@ export function Properties({
         <div className="text-[13px] text-ink-2">
           Стен {plan.walls.length}, проёмов {plan.openings.length}, помещений {check?.rooms.length ?? "…"}
         </div>
-        <p className="m-0 text-[13px] text-ink-2">Выберите стену, проём, помещение или другой элемент, чтобы увидеть и изменить его свойства.</p>
+        <p className="m-0 text-[13px] text-ink-2">Выберите стену, проём, помещение или другой элемент, чтобы увидеть {ro ? "его свойства" : "и изменить его свойства"}.</p>
         {admin && floor && (
           <Link to={placeJournalUrl(floor.building_id, floor.id)} className="text-[13px]">
             Журнал этажа
@@ -252,12 +279,12 @@ export function Properties({
       >
         <div className="text-[13px] text-ink-2">{openings ? `Проёмов: ${openings}` : "Без проёмов"}</div>
         <div className={grid2}>
-          <NumberField label="Длина" unit="м" digits={3} value={length / 1000} min={0.01} onChange={(m) => setLength(m * 1000)} disabled={ro || Math.abs(wall.bulge) > 1e-9} />
-          <NumberField label="Толщина" unit="мм" value={wall.thickness} min={10} max={3000} onChange={(thickness) => set({ thickness })} disabled={ro} />
+          <NumberField label="Длина" unit="м" digits={3} value={length / 1000} min={0.01} onChange={(m) => setLength(m * 1000)} readOnly={ro} disabled={Math.abs(wall.bulge) > 1e-9} />
+          <NumberField label="Толщина" unit="мм" value={wall.thickness} min={10} max={3000} onChange={(thickness) => set({ thickness })} readOnly={ro} />
         </div>
-        <Segmented label="Вид" value={wall.kind} disabled={ro} onChange={(kind) => set({ kind })} options={[{ value: "partition", title: "Перегородка" }, { value: "bearing", title: "Несущая" }]} />
+        <Segmented label="Вид" value={wall.kind} readOnly={ro} onChange={(kind) => set({ kind })} options={[{ value: "partition", title: "Перегородка" }, { value: "bearing", title: "Несущая" }]} />
         {Math.abs(wall.bulge) > 1e-9 && (
-          <NumberField label="Стрелка дуги" unit="мм" hint="Насколько середина дуги отходит от прямой между концами; 0 — прямая стена." value={(wall.bulge * dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!)) / 2} disabled={ro} onChange={(s) => set({ bulge: Math.max(-1, Math.min(1, (2 * s) / dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!))) })} />
+          <NumberField label="Стрелка дуги" unit="мм" hint="Насколько середина дуги отходит от прямой между концами; 0 — прямая стена." value={(wall.bulge * dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!)) / 2} readOnly={ro} onChange={(s) => set({ bulge: Math.max(-1, Math.min(1, (2 * s) / dist(plan.nodes[wall.a]!, plan.nodes[wall.b]!))) })} />
         )}
       </Section>
     );
@@ -271,20 +298,20 @@ export function Properties({
     const set = (patch: Partial<typeof o>) => edit((p) => Object.assign(p.openings.find((x) => x.id === o.id)!, patch));
     return (
       <Section title={OPENING_TITLES[o.kind]} actions={!ro && <Button size="sm" variant="danger" onClick={del}><Trash2 /> Удалить</Button>}>
-        <Segmented<OpeningKind> label="Вид" value={o.kind} disabled={ro} onChange={(kind) => set({ kind })} options={(["door", "window", "passage", "glazing"] as const).map((k) => ({ value: k, title: OPENING_TITLES[k] }))} />
+        <Segmented<OpeningKind> label="Вид" value={o.kind} readOnly={ro} onChange={(kind) => set({ kind })} options={(["door", "window", "passage", "glazing"] as const).map((k) => ({ value: k, title: OPENING_TITLES[k] }))} />
         <div className={grid2}>
-          <NumberField label="Ширина" unit="мм" value={o.width} min={100} max={length} disabled={ro} onChange={(width) => set({ width })} />
-          <NumberField label="Высота" unit="мм" value={o.height} min={100} disabled={ro} onChange={(height) => set({ height })} />
-          {(o.kind === "window" || o.kind === "glazing") && <NumberField label="Подоконник" unit="мм" hint="Высота низа окна от пола." value={o.sill} min={0} disabled={ro} onChange={(sill) => set({ sill })} />}
-          <NumberField label="От начала стены" unit="мм" hint="Расстояние от начала стены до края проёма." value={o.at - o.width / 2} min={0} max={length - o.width} disabled={ro} onChange={(s) => set({ at: s + o.width / 2 })} />
+          <NumberField label="Ширина" unit="мм" value={o.width} min={100} max={length} readOnly={ro} onChange={(width) => set({ width })} />
+          <NumberField label="Высота" unit="мм" value={o.height} min={100} readOnly={ro} onChange={(height) => set({ height })} />
+          {(o.kind === "window" || o.kind === "glazing") && <NumberField label="Подоконник" unit="мм" hint="Высота низа окна от пола." value={o.sill} min={0} readOnly={ro} onChange={(sill) => set({ sill })} />}
+          <NumberField label="От начала стены" unit="мм" hint="Расстояние от начала стены до края проёма." value={o.at - o.width / 2} min={0} max={length - o.width} readOnly={ro} onChange={(s) => set({ at: s + o.width / 2 })} />
         </div>
         {o.kind === "door" && (
           <>
-            <Segmented label="Петли" value={o.hinge} disabled={ro} onChange={(hinge) => set({ hinge })} options={[{ value: "start", title: "У начала" }, { value: "end", title: "У конца" }]} />
-            <Segmented label="Открывается" value={o.side} disabled={ro} onChange={(side) => set({ side })} options={[{ value: "left", title: "Влево" }, { value: "right", title: "Вправо" }]} />
+            <Segmented label="Петли" value={o.hinge} readOnly={ro} onChange={(hinge) => set({ hinge })} options={[{ value: "start", title: "У начала" }, { value: "end", title: "У конца" }]} />
+            <Segmented label="Открывается" value={o.side} readOnly={ro} onChange={(side) => set({ side })} options={[{ value: "left", title: "Влево" }, { value: "right", title: "Вправо" }]} />
           </>
         )}
-        <TextField label="Обозначение" hint="Марка проёма по проекту, печатается на плане." value={o.label ?? ""} placeholder="Д-201" disabled={ro} onChange={(label) => set({ label: label || null })} />
+        <TextField label="Обозначение" hint="Марка проёма по проекту, печатается на плане." value={o.label ?? ""} placeholder="Д-201" readOnly={ro} onChange={(label) => set({ label: label || null })} />
       </Section>
     );
   }
@@ -310,12 +337,12 @@ export function Properties({
           </>
         }
       >
-        <TextField label="Номер" value={r.number} placeholder="214" disabled={ro} onChange={(number) => set({ number })} />
-        <TextField label="Название" value={r.name} placeholder="Кабинет терапевта" disabled={ro} onChange={(name) => set({ name })} />
+        <TextField label="Номер" value={r.number} placeholder="214" readOnly={ro} onChange={(number) => set({ number })} />
+        <TextField label="Название" value={r.name} placeholder="Кабинет терапевта" readOnly={ro} onChange={(name) => set({ name })} />
         <div className="text-[13px] text-ink-2">
           Площадь: <span className="font-mono text-ink">{shape ? `${shape.area.toLocaleString("ru-RU")} м²` : "подпись вне помещений"}</span>
         </div>
-        <PurposeField value={r.purpose_id} disabled={ro} onChange={(purpose_id) => set({ purpose_id })} />
+        <PurposeField value={r.purpose_id} readOnly={ro} onChange={(purpose_id) => set({ purpose_id })} />
         {admin && shape?.id && (
           <Link to={journalUrl(`room:${shape.id}`, `помещение ${[r.number, r.name].filter(Boolean).join(" ")}`.trim())} className="text-[13px]">
             Журнал помещения
@@ -331,11 +358,11 @@ export function Properties({
     const set = (patch: Partial<typeof c>) => edit((p) => Object.assign(p.columns.find((x) => x.id === c.id)!, patch));
     return (
       <Section title="Колонна" actions={!ro && <Button size="sm" variant="danger" onClick={del}><Trash2 /> Удалить</Button>}>
-        <Segmented label="Сечение" value={c.round ? "round" : "rect"} disabled={ro} onChange={(v) => set({ round: v === "round" })} options={[{ value: "rect", title: "Прямоугольное" }, { value: "round", title: "Круглое" }]} />
+        <Segmented label="Сечение" value={c.round ? "round" : "rect"} readOnly={ro} onChange={(v) => set({ round: v === "round" })} options={[{ value: "rect", title: "Прямоугольное" }, { value: "round", title: "Круглое" }]} />
         <div className={grid2}>
-          <NumberField label={c.round ? "Диаметр" : "Ширина"} unit="мм" value={c.w} min={50} disabled={ro} onChange={(w) => set(c.round ? { w, d: w } : { w })} />
-          {!c.round && <NumberField label="Глубина" unit="мм" value={c.d} min={50} disabled={ro} onChange={(d) => set({ d })} />}
-          {!c.round && <NumberField label="Поворот" unit="°" value={c.angle} disabled={ro} onChange={(angle) => set({ angle })} />}
+          <NumberField label={c.round ? "Диаметр" : "Ширина"} unit="мм" value={c.w} min={50} readOnly={ro} onChange={(w) => set(c.round ? { w, d: w } : { w })} />
+          {!c.round && <NumberField label="Глубина" unit="мм" value={c.d} min={50} readOnly={ro} onChange={(d) => set({ d })} />}
+          {!c.round && <NumberField label="Поворот" unit="°" value={c.angle} readOnly={ro} onChange={(angle) => set({ angle })} />}
         </div>
       </Section>
     );
@@ -351,10 +378,10 @@ export function Properties({
       <Section title="Лестница" actions={!ro && <Button size="sm" variant="danger" onClick={del}><Trash2 /> Удалить</Button>}>
         <div className="text-[13px] text-ink-2">{above ? `Ведёт на «${above.name}»` : "Выше этажей нет — лестница никуда не ведёт"}</div>
         <div className={grid2}>
-          <NumberField label="Ширина марша" unit="мм" value={s.width} min={600} disabled={ro} onChange={(width) => set({ width })} />
-          <NumberField label="Длина" unit="мм" value={s.length} min={500} disabled={ro} onChange={(length) => set({ length })} />
-          <NumberField label="Ступеней" value={s.steps} min={2} max={60} disabled={ro} onChange={(steps) => set({ steps: Math.round(steps) })} />
-          <NumberField label="Направление" unit="°" hint="Куда идёт подъём: 0° — вправо по плану, 90° — вверх." value={s.angle} disabled={ro} onChange={(angle) => set({ angle })} />
+          <NumberField label="Ширина марша" unit="мм" value={s.width} min={600} readOnly={ro} onChange={(width) => set({ width })} />
+          <NumberField label="Длина" unit="мм" value={s.length} min={500} readOnly={ro} onChange={(length) => set({ length })} />
+          <NumberField label="Ступеней" value={s.steps} min={2} max={60} readOnly={ro} onChange={(steps) => set({ steps: Math.round(steps) })} />
+          <NumberField label="Направление" unit="°" hint="Куда идёт подъём: 0° — вправо по плану, 90° — вверх." value={s.angle} readOnly={ro} onChange={(angle) => set({ angle })} />
         </div>
       </Section>
     );
@@ -372,29 +399,43 @@ export function Properties({
     };
     return (
       <Section title={`Лифт${lift.name ? ` ${lift.name}` : ""}`} actions={!ro && <Button size="sm" variant="danger" onClick={() => onLiftDelete(lift)}><Trash2 /> Убрать лифт</Button>}>
-        <TextField label="Обозначение" value={lift.name} placeholder="Л1" disabled={ro} onChange={(name) => onLiftChange(lift, { name })} />
+        <TextField label="Обозначение" value={lift.name} placeholder="Л1" readOnly={ro} onChange={(name) => onLiftChange(lift, { name })} />
         <div className={grid2}>
-          <NumberField label="Шахта, ширина" unit="мм" value={lift.w} min={300} max={10000} disabled={ro} onChange={(w) => onLiftChange(lift, { w })} />
-          <NumberField label="Шахта, глубина" unit="мм" value={lift.d} min={300} max={10000} disabled={ro} onChange={(d) => onLiftChange(lift, { d })} />
-          <NumberField label="Поворот" unit="°" value={lift.angle} disabled={ro} onChange={(angle) => onLiftChange(lift, { angle })} />
+          <NumberField label="Шахта, ширина" unit="мм" value={lift.w} min={300} max={10000} readOnly={ro} onChange={(w) => onLiftChange(lift, { w })} />
+          <NumberField label="Шахта, глубина" unit="мм" value={lift.d} min={300} max={10000} readOnly={ro} onChange={(d) => onLiftChange(lift, { d })} />
+          <NumberField label="Поворот" unit="°" value={lift.angle} readOnly={ro} onChange={(angle) => onLiftChange(lift, { angle })} />
         </div>
-        <Segmented label="Двери" value={String(lift.door_side) as "0" | "1" | "2" | "3"} disabled={ro} onChange={(v) => onLiftChange(lift, { door_side: Number(v) })} options={[{ value: "0", title: "↑" }, { value: "1", title: "→" }, { value: "2", title: "↓" }, { value: "3", title: "←" }]} />
-        <div className="flex flex-col gap-1 text-[12px] text-ink-2">
-          Этажи: шахта · остановка
-          {[...floors].reverse().map((f) => (
-            <div key={f.id} className="flex items-center gap-3 text-[13px] text-ink">
-              <label className="flex flex-1 items-center gap-2">
-                <input type="checkbox" checked={lift.floor_ids.includes(f.id)} disabled={ro} onChange={(e) => toggle("floor_ids", f.id, e.target.checked)} />
-                {f.name}
-              </label>
-              <label className="flex items-center gap-1.5 text-ink-2">
-                <input type="checkbox" checked={lift.stop_ids.includes(f.id)} disabled={ro || !lift.floor_ids.includes(f.id)} onChange={(e) => toggle("stop_ids", f.id, e.target.checked)} />
-                остановка
-              </label>
-            </div>
-          ))}
-        </div>
-        <p className="m-0 text-[12px] text-ink-3">Лифт сохраняется сразу и виден на всех своих этажах.</p>
+        <Segmented label="Двери" value={String(lift.door_side) as "0" | "1" | "2" | "3"} readOnly={ro} onChange={(v) => onLiftChange(lift, { door_side: Number(v) })} options={[{ value: "0", title: "↑" }, { value: "1", title: "→" }, { value: "2", title: "↓" }, { value: "3", title: "←" }]} />
+        {ro ? (
+          <ReadField label="Этажи">
+            {[...floors]
+              .reverse()
+              .filter((f) => lift.floor_ids.includes(f.id))
+              .map((f) => (
+                <span key={f.id} className="block">
+                  {f.name}
+                  {lift.stop_ids.includes(f.id) ? " — остановка" : " — без остановки"}
+                </span>
+              ))}
+          </ReadField>
+        ) : (
+          <div className="flex flex-col gap-1 text-[12px] text-ink-2">
+            Этажи: шахта · остановка
+            {[...floors].reverse().map((f) => (
+              <div key={f.id} className="flex items-center gap-3 text-[13px] text-ink">
+                <label className="flex flex-1 items-center gap-2">
+                  <input type="checkbox" checked={lift.floor_ids.includes(f.id)} onChange={(e) => toggle("floor_ids", f.id, e.target.checked)} />
+                  {f.name}
+                </label>
+                <label className="flex items-center gap-1.5 text-ink-2">
+                  <input type="checkbox" checked={lift.stop_ids.includes(f.id)} disabled={!lift.floor_ids.includes(f.id)} onChange={(e) => toggle("stop_ids", f.id, e.target.checked)} />
+                  остановка
+                </label>
+              </div>
+            ))}
+          </div>
+        )}
+        {!ro && <p className="m-0 text-[12px] text-ink-3">Лифт сохраняется сразу и виден на всех своих этажах.</p>}
       </Section>
     );
   }
