@@ -1,13 +1,20 @@
 """Учёт имущества (5.4; С10, С11, С14–С17, С19): места хранения, единицы, документы,
 остатки, стоимость, QR-метки, реестр, загрузка из Excel."""
 
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
+from urllib.parse import unquote
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from app.core import tasks
 from app.core.config import config
 from app.core.db import transaction
 from app.modules.access import api as access
@@ -15,6 +22,31 @@ from tests.conftest import login, make_client
 from tests.test_building import building_with_floor, save, two_rooms
 
 SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "samples" / "имущество-пример.xlsx"
+
+
+def statement(admin, **params: str) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """Ведомость стоимости (5.4.5 п. 4) — фоновой задачей (R-036): запуск, обработчик, итог;
+    job_id — для Excel."""
+    r = admin.post("/api/inventory/cost", params=params)
+    assert r.status_code == 202, r.text
+    job = r.json()["job_id"]
+    while tasks.run_one():
+        pass
+    got = admin.get(f"/api/system/tasks/{job}").json()
+    assert got["status"] == "done", got
+    return {**got["result"], "job_id": job}
+
+
+@contextmanager
+def viewer_client(admin, app) -> Iterator[TestClient]:  # type: ignore[no-untyped-def]
+    """«Просмотр» без зданий — клиент."""
+    r = admin.post("/api/users", json={"login": "ivanova", "full_name": "Иванова А. П.",
+                                       "role": "viewer", "password": "Temporary-1"})
+    assert r.status_code == 201, r.text
+    with make_client(app) as c:
+        login(c, "ivanova", "Temporary-1")
+        c.post("/api/auth/password", json={"current": "Temporary-1", "new": "Viewer-pass-1"})
+        yield c
 
 
 def confirmed_rooms(admin, building_id) -> dict[str, str]:  # type: ignore[no-untyped-def]
@@ -350,20 +382,71 @@ def test_c19_cost_on_date_by_floor_and_layer(admin) -> None:
             [{"type_id": k["перчатки"]["id"], "qty": 10, "price": 500}],
         ),
     )
-    st = admin.get("/api/inventory/cost", params={"group_by": "floor,layer"}).json()
+    st = statement(admin, group_by="floor,layer")
     rows = {tuple(r["group"]): r for r in st["rows"]}
     monitor = rows[("2 этаж", "Оборудование")]
     # срок 60 мес., прошло 12: остаточная — 4/5
     assert monitor["initial"] == 12000 and monitor["value"] == 9600
     assert rows[("—", "без слоя")]["initial"] == 5000
     # на дату до прихода перчаток их нет
-    past = admin.get(
-        "/api/inventory/cost",
-        params={"at": (date.today() - timedelta(days=30)).isoformat(), "group_by": "floor"},
-    ).json()
+    past = statement(admin, at=(date.today() - timedelta(days=30)).isoformat(), group_by="floor")
     assert past["total"]["initial"] == 12000
-    xlsx = admin.get("/api/inventory/cost.xlsx", params={"group_by": "floor,layer"})
+    xlsx = admin.get(f"/api/inventory/cost/{st['job_id']}.xlsx")
     assert xlsx.status_code == 200 and xlsx.content[:2] == b"PK"
+    assert f"{date.today():%d.%m.%Y}.xlsx" in unquote(xlsx.headers["content-disposition"])
+
+
+def test_r036_cost_statement_is_a_background_task_started_once(admin, app) -> None:
+    """Ведомость стоимости по 50 000 единиц считается в фоне (8.2: «идёт в фоне»), а не в
+    процессе приложения: там она держала соединение и память и под пиком роняла процессы
+    (R-036, ADR-0021). Одинаковая, пока прежняя считается, — та же задача."""
+    _, rooms, _, k = setup(admin)
+    post(admin, document(admin, "opening", {"to_place": rooms["214"]},
+                         [{"type_id": k["монитор"]["id"], "qty": 2, "price": 12000}]))
+    first = admin.post("/api/inventory/cost", params={"group_by": "floor"})
+    assert first.status_code == 202, first.text
+    job = first.json()["job_id"]
+    assert admin.post("/api/inventory/cost", params={"group_by": "floor"}).json()["job_id"] == job
+    other = admin.post("/api/inventory/cost", params={"group_by": "layer"}).json()["job_id"]
+    assert other != job
+    assert admin.get(f"/api/system/tasks/{job}").json()["status"] == "queued"
+    # итога ещё нет — и Excel нет
+    assert admin.get(f"/api/inventory/cost/{job}.xlsx").status_code == 409
+    while tasks.run_one():
+        pass
+    done = admin.get(f"/api/system/tasks/{job}").json()
+    assert done["status"] == "done" and done["result"]["total"]["initial"] == 24000
+    assert admin.get(f"/api/inventory/cost/{job}.xlsx").status_code == 200
+    # посчитанная — не повторяется: новый запрос считает заново
+    assert admin.post("/api/inventory/cost", params={"group_by": "floor"}).json()["job_id"] != job
+    # ошибка в запросе — сразу, без задачи
+    bad = admin.post("/api/inventory/cost", params={"group_by": "floor,цвет"})
+    assert bad.status_code == 400 and "цвет" in bad.json()["error"]["message"]
+    # по ключу чужой задачи Excel ведомости не отдаётся
+    export = admin.post("/api/reports/exports").json()["job_id"]
+    assert admin.get(f"/api/inventory/cost/{export}.xlsx").status_code == 404
+    with viewer_client(admin, app) as v:
+        assert v.post("/api/inventory/cost").status_code == 403
+        assert v.get(f"/api/inventory/cost/{job}.xlsx").status_code == 403
+
+
+def test_r036_old_cost_statements_are_purged(admin) -> None:
+    """Каждое открытие «Стоимости» — задача с ведомостью в итоге (до сотни КБ на объёмах 8.1):
+    посчитанные старше суток удаляются по расписанию, иначе копились бы в базе и копиях
+    годами (R-036, ADR-0021). Свежие и ещё не посчитанные — остаются."""
+    old, fresh = statement(admin, group_by="floor")["job_id"], statement(admin)["job_id"]
+    waiting = admin.post("/api/inventory/cost", params={"group_by": "layer"}).json()["job_id"]
+    with transaction() as s:
+        s.execute(text("UPDATE core.job SET finished_at = now() - interval '2 days' "
+                       "WHERE id = :id"), {"id": old})
+    assert "inventory.purge_cost_statements" in {
+        k for k, d in tasks.registered().items() if d.every}
+    with transaction() as s:
+        tasks.registered()["inventory.purge_cost_statements"].handler(
+            s, {}, tasks.Progress(uuid.uuid4()))
+    assert admin.get(f"/api/system/tasks/{old}").status_code == 404
+    assert admin.get(f"/api/system/tasks/{fresh}").json()["status"] == "done"
+    assert admin.get(f"/api/system/tasks/{waiting}").json()["status"] == "queued"
 
 
 def test_c10_property_list_from_excel(admin) -> None:

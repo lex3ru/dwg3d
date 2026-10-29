@@ -243,12 +243,27 @@ test("С14, С15, С17: найти, ремонт, списание — с ист
 test("С19: стоимость на дату с разбивкой по этажам и слоям, выгрузка в Excel", async ({ page }) => {
   await loginAdmin(page);
   await page.goto("/property?tab=cost");
-  await expect(page.getByRole("columnheader", { name: "Этаж" })).toBeVisible();
+  // ведомость считает обработчик фоновых задач (ADR-0021) — он может быть занят или только
+  // запускаться; 8.2 даёт отчёту «в фоне» 30 с
+  await expect(page.getByRole("columnheader", { name: "Этаж" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("columnheader", { name: "Слой" })).toBeVisible();
   await expect(page.getByText(/Итого на/)).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Excel" }).click();
   expect((await download).suggestedFilename()).toMatch(/^стоимость-на-.*\.xlsx$/);
+});
+
+test("R-036: ведомость ждёт очереди фоновых задач — экран говорит, что ждёт и где проверить", async ({ page }) => {
+  await loginAdmin(page);
+  // обработчик задач занят выгрузкой: ведомость так и стоит в очереди
+  await page.route("**/api/system/tasks/*", (route) =>
+    route.fulfill({ json: { id: route.request().url().split("/").pop(), title: "Ведомость стоимости", status: "queued", progress: { done: 0, total: null }, message: null, error: null, result: null } }),
+  );
+  await page.goto("/property?tab=cost");
+  await expect(page.getByRole("status").filter({ hasText: "Считается ведомость…" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Ведомость ждёт очереди" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("link", { name: "«Состоянии сервера»" })).toHaveAttribute("href", "/settings?tab=status");
+  await expect(page.getByRole("button", { name: "Отменить" })).toBeVisible();
 });
 
 test("R-016: метки ведут на постоянный адрес — в «Настройках» видно куда, при печати не оттуда — предупреждение", async ({ page }) => {

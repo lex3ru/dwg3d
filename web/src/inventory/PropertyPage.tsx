@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Columns3, Download, FileSpreadsheet, FileUp, Plus, QrCode, Truck } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useTree } from "@/catalog/parts";
 import { ApiError, get, post, query } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { CancelJob, useJob } from "@/lib/jobs";
 import { PageBody } from "@/shell/Shell";
 import { useCard } from "@/shell/context";
 import { Button } from "@/ui/button";
@@ -439,13 +440,36 @@ interface Statement {
   total: { units: number; initial: number; value: number };
 }
 
+// 8.2: ведомость по 50 000 единиц считается в фоне (R-036, ADR-0021): при открытии и смене
+// даты или разбивки ставится задача, итог — у задачи; такую же, пока считается, сервер не
+// ставит второй раз
 function CostTab() {
   const [at, setAt] = useState(today());
   const [groups, setGroups] = useState<string[]>(["building", "floor", "layer"]);
-  const params = { at, group_by: groups.join(",") };
-  const st = useQuery({ queryKey: ["inventory", "cost", params], queryFn: () => get<Statement>(`/api/inventory/cost${query(params)}`) });
+  const params = query({ at, group_by: groups.join(",") });
+  const [again, setAgain] = useState(0);
+  const [run, setRun] = useState<{ id: string | null; error: string | null; started: number }>({ id: null, error: null, started: 0 });
+  useEffect(() => {
+    let alive = true;
+    const started = Date.now();
+    setRun({ id: null, error: null, started });
+    post<{ job_id: string }>(`/api/inventory/cost${params}`).then(
+      (r) => alive && setRun({ id: r.job_id, error: null, started }),
+      (e: unknown) => alive && setRun({ id: null, error: (e as ApiError).message, started }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [params, again]);
+  // только задача текущего запуска: прежняя, пока новая не пришла, не выдаёт себя за неё
+  const polled = useJob(run.id);
+  const job = polled && polled.id === run.id ? polled : null;
+  const st = job?.status === "done" ? (job.result as unknown as Statement) : null;
+  // обработчик задач обычно берёт ведомость за доли секунды; дольше 3 с в очереди — он занят
+  // другой задачей (полоса одна с выгрузками и загрузкой здания) или не запущен
+  const waiting = job?.status === "queued" && Date.now() - run.started > 3000;
   const toggle = (g: string) => setGroups((list) => (list.includes(g) ? list.filter((x) => x !== g) : GROUPS.map((x) => x[0]).filter((x) => x === g || list.includes(x))));
-  const titles = useMemo(() => st.data?.group_titles ?? [], [st.data]);
+  const titles = useMemo(() => st?.group_titles ?? [], [st]);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -460,15 +484,46 @@ function CostTab() {
           </label>
         ))}
         <div className="flex-1" />
-        <Button size="sm" asChild>
-          <a href={`/api/inventory/cost.xlsx${query(params)}`} download>
+        {st && job ? (
+          <Button size="sm" asChild>
+            <a href={`/api/inventory/cost/${job.id}.xlsx`} download>
+              <Download /> Excel
+            </a>
+          </Button>
+        ) : (
+          <Button size="sm" disabled>
             <Download /> Excel
-          </a>
-        </Button>
+          </Button>
+        )}
       </div>
       <Card className="overflow-x-auto">
-        {st.isLoading || !st.data ? (
-          <Loading />
+        {!st ? (
+          <div className="flex flex-col gap-2 p-4">
+            {run.error ? (
+              <FormError message={run.error} />
+            ) : job?.status === "failed" || job?.status === "cancelled" ? (
+              <>
+                <p className="m-0 text-[13px] text-ink-2">{job.status === "cancelled" ? "Расчёт отменён." : (job.error ?? "Ведомость не посчиталась.")}</p>
+                <div>
+                  <Button size="sm" onClick={() => setAgain((n) => n + 1)}>
+                    Посчитать заново
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="m-0 text-[13px] text-ink-2" role="status">
+                  {waiting ? "Ведомость ждёт очереди: обработчик фоновых задач занят другой задачей — например, выгрузкой — и посчитает её следом." : "Считается ведомость…"}
+                </p>
+                {waiting && (
+                  <p className="m-0 text-[13px] text-ink-3">
+                    Ждёт долго — проверьте в <Link to="/settings?tab=status">«Состоянии сервера»</Link>, работают ли фоновые задачи.
+                  </p>
+                )}
+                <CancelJob job={job} />
+              </>
+            )}
+          </div>
         ) : (
           <table className="w-full border-collapse text-[13px]">
             <thead>
@@ -481,7 +536,7 @@ function CostTab() {
               </tr>
             </thead>
             <tbody>
-              {st.data.rows.map((r, i) => (
+              {st.rows.map((r, i) => (
                 <tr key={i}>
                   {r.group.map((g, j) => (
                     <td key={j} className="border-b border-line px-3 py-2">
@@ -497,11 +552,11 @@ function CostTab() {
             <tfoot>
               <tr className="font-medium">
                 <td colSpan={Math.max(1, titles.length)} className="px-3 py-2">
-                  Итого на {dateRu(st.data.at)}
+                  Итого на {dateRu(st.at)}
                 </td>
-                <td className="px-3 py-2 font-mono">{st.data.total.units}</td>
-                <td className="px-3 py-2 font-mono">{money(st.data.total.initial)}</td>
-                <td className="px-3 py-2 font-mono">{money(st.data.total.value)}</td>
+                <td className="px-3 py-2 font-mono">{st.total.units}</td>
+                <td className="px-3 py-2 font-mono">{money(st.total.initial)}</td>
+                <td className="px-3 py-2 font-mono">{money(st.total.value)}</td>
               </tr>
             </tfoot>
           </table>

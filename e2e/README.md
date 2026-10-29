@@ -34,10 +34,28 @@ npx playwright test
 - `volume.spec.ts` — на **стенде объёмов 8.1** (`python -m app sample volume` на отдельной
   установке, [docs/INSTALL.md](../docs/INSTALL.md)) с `E2E_VOLUME=1`: план, 3D, поиск,
   карточка, переходы, проведение документа на 100 строк, проверка Excel на 1 000 строк,
-  отчёты и выгрузка, QR-метка на телефоне. Без `E2E_VOLUME` пропускается.
+  отчёты и выгрузка, QR-метка на телефоне, 20 одновременных пользователей (8.1) и пик в 50 и
+  200 одновременных запросов — без 500 и обрывов (R-036). Без `E2E_VOLUME` пропускается.
 
 ```bash
 E2E_VOLUME=1 E2E_URL=http://localhost:8011 npx playwright test tests/volume.spec.ts
+```
+
+Одновременные запросы и пик имеет смысл мерить, как в установке: приложение в образе
+`deploy/Dockerfile`, 4 процесса, ограничено 4 ядрами и 8 ГБ (8.2), — а не `python -m app serve`
+в Windows, где процесс один (ADR-0007), и с обработчиком фоновых задач: ведомость стоимости
+считает он (ADR-0021). Например, с базой `volume` в контейнере `planuchet-devdb`:
+
+```bash
+docker build -f deploy/Dockerfile -t planuchet-perf:dev .
+docker network create planuchet-perf && docker network connect planuchet-perf planuchet-devdb
+docker run -d --name planuchet-perf --network planuchet-perf --cpus 4 --memory 8g \
+  -p 127.0.0.1:8020:8000 -e APP_SECURE_COOKIES=false \
+  -e APP_DATABASE_URL=postgresql+psycopg://app:app@planuchet-devdb:5432/volume planuchet-perf:dev
+docker run -d --name planuchet-perf-worker --network planuchet-perf --init \
+  -e APP_DATABASE_URL=postgresql+psycopg://app:app@planuchet-devdb:5432/volume \
+  planuchet-perf:dev python -m app worker
+E2E_VOLUME=1 E2E_URL=http://127.0.0.1:8020 npx playwright test tests/volume.spec.ts -g "одновременных"
 ```
 
 ## Чистка базы разработки после прогонов

@@ -2,7 +2,12 @@
 
 import re
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
+
+from sqlalchemy import ColumnElement, Date, Numeric, and_, case, cast, func, literal
+
+CENT = Decimal("0.01")
 
 STATES = {
     "in_use": "в работе",
@@ -52,6 +57,20 @@ def months_between(a: date, b: date) -> int:
     return max(0, months)
 
 
+def _months_sql(a: Any, b: Any) -> Any:
+    """months_between в базе."""
+    months = (
+        (func.extract("year", b) - func.extract("year", a)) * 12
+        + func.extract("month", b) - func.extract("month", a)
+        - case((func.extract("day", b) < func.extract("day", a), 1), else_=0)
+    )
+    return func.greatest(months, 0)
+
+
+def _decimal(value: Decimal | float | None) -> Decimal:
+    return value if isinstance(value, Decimal) else Decimal(str(value or 0))
+
+
 def residual(
     price: Decimal | float,
     commissioned_on: date,
@@ -61,20 +80,45 @@ def residual(
     at: date,
 ) -> float:
     """Остаточная стоимость на дату: равномерно по месяцам до нуля; после переоценки — от
-    новой стоимости до конца срока службы."""
+    новой стоимости до конца срока службы. Считается в Decimal, копейки — «половина вверх»,
+    как round() в PostgreSQL: residual_sql в базе даёт копейка в копейку то же (ADR-0017)."""
     if at < commissioned_on:
         return 0.0
-    base, since, life = float(price or 0), commissioned_on, life_months
+    base, since, life = _decimal(price), commissioned_on, life_months
     if value_base is not None and value_date is not None and value_date <= at:
-        base, since = float(value_base), value_date
+        base, since = _decimal(value_base), value_date
         if life:
             life = life - months_between(commissioned_on, value_date)
     if not life:
-        return round(base, 2)
+        return float(base.quantize(CENT, ROUND_HALF_UP))
     if life <= 0:
         return 0.0
-    left = max(0.0, 1 - months_between(since, at) / life)
-    return round(base * left, 2)
+    left = max(0, life - months_between(since, at))
+    return float((base * left / life).quantize(CENT, ROUND_HALF_UP))
+
+
+def residual_sql(
+    price: Any, commissioned_on: Any, life_months: Any, value_base: Any, value_date: Any, at: Any
+) -> Any:
+    """residual в базе — над столбцами (или значениями) запроса: итоги по 50 000 единиц — одним
+    агрегатом, без чтения строк (8.1, R-036). Ветви — те же, что у residual."""
+    at = at if isinstance(at, ColumnElement) else literal(at, Date)
+    revalued = and_(value_base.is_not(None), value_date.is_not(None), value_date <= at)
+    base = case((revalued, value_base), else_=func.coalesce(price, 0))
+    since = case((revalued, value_date), else_=commissioned_on)
+    life = case(
+        (and_(revalued, life_months != 0), life_months - _months_sql(commissioned_on, value_date)),
+        else_=life_months,
+    )
+    left = func.greatest(life - _months_sql(since, at), 0)
+    # делимое — с 12 знаками после запятой: частное получит не меньше, и копейки совпадут с
+    # Decimal, как бы PostgreSQL ни выбирал точность деления (сам он даёт ≥ 8 знаков)
+    return case(
+        (at < commissioned_on, 0),
+        (func.coalesce(life, 0) == 0, func.round(base, 2)),
+        (life < 0, 0),
+        else_=func.round(cast(base * left, Numeric(32, 12)) / life, 2),
+    )
 
 
 # ---------------------------------------------------------------- инвентарные номера

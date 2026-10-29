@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,6 @@ from app.core import uploads
 from app.core.auth import Admin, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
-from app.modules.building import api as building
 from app.modules.files import api as files
 from app.modules.inventory import api, cost, counts, documents, excel, places, printing, units
 from app.modules.inventory.rules import doc_title
@@ -43,34 +43,14 @@ def _pdf(data: bytes, name: str) -> Response:
 
 
 @router.get("/places")
-def place_tree(actor: CurrentActor, session: DB) -> dict[str, Any]:
-    """Места для выбора: здания → этажи → помещения, склады с ячейками."""
-    out = []
-    for b in building.list_buildings(session, actor):
-        floors = []
-        for f in reversed(building.floors(session, b["id"])):
-            floors.append(
-                {
-                    "id": f.id,
-                    "name": f.name,
-                    "rooms": [
-                        {
-                            "key": places.room_key(r.id),
-                            "title": building.room_title(r),
-                            "number": r.number,
-                            "name": r.name,
-                        }
-                        for r in building.live_rooms(session, f.id)
-                    ],
-                }
-            )
-        out.append({"id": b["id"], "name": b["name"], "floors": floors})
-    return {
-        "buildings": out,
-        "warehouses": [
-            places.warehouse_view(session, w) for w in places.warehouses(session, actor)
-        ],
-    }
+def place_tree(actor: CurrentActor, session: DB) -> Response:
+    """Места для выбора: здания → этажи (верхний первым) → помещения, склады с ячейками.
+    Здания с помещениями — готовым JSON из базы, склады (их единицы) — как обычно; три запроса
+    на любое число этажей и складов (8.1, R-036, ADR-0019)."""
+    stores = places.warehouse_views(session, places.warehouses(session, actor))
+    stores_json = json.dumps(jsonable_encoder(stores), ensure_ascii=False, separators=(",", ":"))
+    body = f'{{"buildings":{places.buildings_json(session, actor)},"warehouses":{stores_json}}}'
+    return Response(body, media_type="application/json")
 
 
 @router.get("/place")
@@ -160,8 +140,8 @@ def registry(
     actor: CurrentActor,
     session: DB,
     sort: str = "number",
-    offset: int = 0,
-    limit: int = Query(100, le=1000),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=0, le=1000),
     building_id: uuid.UUID | None = None,
     floor_id: uuid.UUID | None = None,
     place: str | None = None,
@@ -456,7 +436,7 @@ def stock_history(
     return {"items": documents.stock_history(session, actor, place, type_id, model_id)}
 
 
-@router.get("/cost")
+@router.post("/cost", status_code=202)
 def cost_statement(
     actor: Admin,
     session: DB,
@@ -464,22 +444,15 @@ def cost_statement(
     group_by: str = "building,floor,layer",
     building_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    return cost.statement(
-        session, actor, at or date.today(), [g for g in group_by.split(",") if g], building_id
-    )
+    """Ведомость стоимости на дату (5.4.5 п. 4, С19) — фоновой задачей (8.2: «идёт в фоне»,
+    R-036, ADR-0021): ход и итог — /api/system/tasks/{job_id}, Excel — /cost/{job_id}.xlsx."""
+    groups = [g for g in group_by.split(",") if g]
+    return {"job_id": cost.start(session, actor, at or date.today(), groups, building_id)}
 
 
-@router.get("/cost.xlsx")
-def cost_export(
-    actor: Admin,
-    session: DB,
-    at: date | None = None,
-    group_by: str = "building,floor,layer",
-    building_id: uuid.UUID | None = None,
-) -> Response:
-    st = cost.statement(
-        session, actor, at or date.today(), [g for g in group_by.split(",") if g], building_id
-    )
+@router.get("/cost/{job_id}.xlsx")
+def cost_export(job_id: uuid.UUID, actor: Admin, session: DB) -> Response:
+    st = cost.result(session, actor, job_id)
     return _xlsx(excel.statement_export(st), f"стоимость-на-{st['at']:%d.%m.%Y}.xlsx")
 
 

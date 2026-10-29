@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core import events, search
 from app.core.actor import Actor
+from app.core.admission import Admission
 from app.core.auth import Admin, CurrentActor
 from app.core.config import config
 from app.core.db import DB, transaction
@@ -95,6 +96,10 @@ def create_app() -> FastAPI:
             return JSONResponse(AppError("Запрос отклонён: нет заголовка X-Requested-With.",
                                          code="csrf", status=403).body(), status_code=403)
         return await call_next(request)
+
+    # снаружи всех: под пиком лишние запросы ждут очереди, не заняв ни потока, ни соединения
+    # (R-036, ADR-0020)
+    app.add_middleware(Admission, limit=config().db_pool)
 
     @app.exception_handler(AppError)
     async def app_error(_: Request, e: AppError) -> JSONResponse:

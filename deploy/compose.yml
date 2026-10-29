@@ -13,6 +13,8 @@ x-app: &app
     APP_DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app
     APP_BACKUP_DIR: /backups
     APP_WORKERS: ${APP_WORKERS:-4}
+    # запросов одновременно на процесс приложения и соединений в его пуле (ADR-0020)
+    APP_DB_POOL: ${APP_DB_POOL:-10}
     # постоянный адрес системы — по умолчанию на него ведут QR-метки (R-016)
     APP_PUBLIC_URL: ${PUBLIC_URL}
     # память процесса фоновой задачи сверх занятого обработчиком и dwg2dxf, МБ (ADR-0011)
@@ -30,6 +32,9 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # процессам приложения по APP_DB_POOL + 3 соединения и 10 — прочим (docs/INSTALL.md,
+    # «Производительность»): 100 по умолчанию не хватило бы уже восьми процессам
+    command: ["postgres", "-c", "max_connections=200"]
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

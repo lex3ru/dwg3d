@@ -34,8 +34,8 @@ from app.modules.inventory.places import (
     room_key,
     room_property,
 )
-from app.modules.inventory.rules import doc_title, residual
-from app.modules.inventory.units import title_of, visible
+from app.modules.inventory.rules import doc_title
+from app.modules.inventory.units import title_of, value_sql, visible
 from app.modules.journal import api as journal
 
 __all__ = ["on_units_changed", "places_check", "room_key", "room_property"]
@@ -445,26 +445,25 @@ def cost_now(session: Session, actor: Actor, building_id: uuid.UUID) -> dict[str
     ведомости на дату — она перебирает историю всех 50 000 единиц (8.1)."""
     admin(actor)
     today = date.today()
-    rows = session.execute(
+    # одним агрегатом в базе, а не по строкам в Python (R-036)
+    count, price, value = session.execute(
         select(
-            Unit.price, Unit.commissioned_on, Unit.life_months, Unit.value_base, Unit.value_date
+            func.count(),
+            func.coalesce(func.sum(Unit.price), 0),
+            func.coalesce(func.sum(value_sql(today)), 0),
         ).where(
             Unit.building_id == building_id,
             Unit.state != "written_off",
             Unit.commissioned_on <= today,
         )
-    ).all()
+    ).one()
     stock = session.scalar(
         select(func.coalesce(func.sum(StockMove.amount), 0)).where(
             StockMove.building_id == building_id
         )
     )
-    initial = sum(float(r.price or 0) for r in rows) + float(stock or 0)
-    value = sum(
-        residual(r.price, r.commissioned_on, r.life_months, r.value_base, r.value_date, today)
-        for r in rows
-    ) + float(stock or 0)
-    return {"initial": round(initial, 2), "value": round(value, 2), "units": len(rows)}
+    return {"initial": round(float(price + stock), 2), "value": round(float(value + stock), 2),
+            "units": count}
 
 
 def cost_xlsx(statement: dict[str, Any]) -> bytes:

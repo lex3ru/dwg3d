@@ -14,6 +14,7 @@ ADR-0011: задачу дольше её `timeout` и отменённую об�
 """
 
 import importlib
+import json
 import logging
 import multiprocessing
 import os
@@ -31,7 +32,18 @@ from multiprocessing.process import BaseProcess
 from typing import Any
 
 import psycopg
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, or_, select, update
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    delete,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -163,6 +175,30 @@ def enqueue(session: Session, kind: str, payload: dict[str, Any] | None = None,
     session.flush()
     session.execute(select(func.pg_notify(CHANNEL, str(job.id))))
     return job.id
+
+
+def enqueue_once(session: Session, kind: str, payload: dict[str, Any],
+                 actor: Actor | None = None) -> uuid.UUID:
+    """Как enqueue, но та же задача с теми же данными, пока прежняя в очереди или выполняется
+    (и её не отменяют), — прежняя: двести одинаковых запросов под пиком считают одно один раз
+    (R-036). Одновременные запросы ждут друг друга на блокировке до конца транзакции, иначе
+    каждый не увидел бы задачу соседа и поставил свою."""
+    key = json.dumps([kind, payload], sort_keys=True, ensure_ascii=False)
+    session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0))))
+    found = session.scalar(
+        select(Job.id).where(Job.kind == kind, Job.payload == payload,
+                             Job.status.in_(("queued", "running")),
+                             Job.cancel_requested_at.is_(None)).limit(1))
+    return found or enqueue(session, kind, payload, actor)
+
+
+def purge(session: Session, kind: str, finished_before: datetime) -> int:
+    """Удалить завершённые задачи вида kind, кончившиеся раньше finished_before, — для задач,
+    чей итог нужен недолго, а весит заметно (ведомость стоимости — R-036)."""
+    result = session.execute(
+        delete(Job).where(Job.kind == kind, Job.status.in_(("done", "failed", "cancelled")),
+                          Job.finished_at < finished_before))
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 def cancel(session: Session, job: Job) -> None:

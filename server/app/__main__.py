@@ -51,6 +51,22 @@ def serve_workers(requested: int, platform: str = sys.platform) -> int:
     return requested
 
 
+def check_connections(workers: int) -> None:
+    """Предупредить, если под пиком процессам приложения и прочим клиентам не хватит
+    max_connections PostgreSQL: тогда вместо ожидания очереди — «too many clients» и 500
+    (R-036, ADR-0020)."""
+    from app.core.db import connections_needed, engine
+
+    with engine().connect() as conn:
+        limit = int(conn.exec_driver_sql("SHOW max_connections").scalar() or 0)
+    need = connections_needed(workers)
+    if need > limit:
+        logging.getLogger("app").warning(
+            "соединений с базой под пиком нужно до %d, а max_connections — %d: уменьшите "
+            "APP_DB_POOL или APP_WORKERS или увеличьте max_connections (docs/INSTALL.md)",
+            need, limit)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -88,10 +104,20 @@ def main() -> None:
         migrate()
         seed()
         from app.core.config import config
+        from app.core.db import engine
 
+        workers = serve_workers(args.workers or config().workers)
+        check_connections(workers)
+        # супервизору база больше не нужна: соединение миграции не висит до остановки
+        engine().dispose()
+        # проверка живости процесса: отвечает его поток, которому нужен GIL, — занятый долгим
+        # счётом процесс за 5 с по умолчанию не успевал, и супервизор убивал его вместе с
+        # запросами (R-036); зависший по-настоящему найдётся и за минуту. Простаивающее
+        # соединение — дольше, чем его держит Caddy (2 мин): иначе Caddy шлёт запрос в
+        # соединение, которое uvicorn как раз закрыл, и POST получает 502
         uvicorn.run("app.main:serve_app", factory=True, host=args.host, port=args.port,
-                    proxy_headers=True, forwarded_allow_ips="*",
-                    workers=serve_workers(args.workers or config().workers))
+                    proxy_headers=True, forwarded_allow_ips="*", workers=workers,
+                    timeout_worker_healthcheck=60, timeout_keep_alive=130)
     elif args.command == "worker":
         from app.core import tasks
         from app.main import create_app

@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from app.core import tasks
 from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_calc import catalog
-from tests.test_inventory import document, post
+from tests.test_inventory import document, post, statement
 from tests.test_planning import changes
 
 
@@ -107,7 +107,7 @@ def test_r018_text_from_users_is_not_a_formula_in_excel(admin) -> None:
     books = {
         "каталог": admin.get("/api/catalog/export.xlsx"),
         "реестр": admin.get("/api/inventory/units/export.xlsx"),
-        "стоимость": admin.get("/api/inventory/cost.xlsx"),
+        "стоимость": admin.get(f"/api/inventory/cost/{statement(admin)['job_id']}.xlsx"),
         "проект": admin.get(f"/api/projects/{project['id']}/export.xlsx"),
     }
     for d in admin.get("/api/reports").json()["items"]:

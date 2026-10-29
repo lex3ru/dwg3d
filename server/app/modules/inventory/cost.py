@@ -1,17 +1,20 @@
 """Стоимость имущества на дату (5.4.5 п. 4, С19): первоначальная и остаточная, с разбивкой
-по зданию, этажу, месту, слою, типу, подразделению."""
+по зданию, этажу, месту, слою, типу, подразделению. На экране «Стоимость» ведомость считается
+фоновой задачей (8.2: «идёт в фоне», R-036, ADR-0021); отчёты берут statement напрямую."""
 
 import uuid
 from collections import defaultdict
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import tasks
 from app.core.actor import Actor
-from app.core.errors import AppError, Forbidden
+from app.core.errors import AppError, Conflict, Forbidden, NotFound
+from app.modules.access import api as access
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
 from app.modules.inventory.models import StockMove, Unit
@@ -27,6 +30,69 @@ GROUPS = {
     "type": "Тип",
     "department": "Подразделение",
 }
+TASK = "inventory.cost_statement"
+
+
+def _check(actor: Actor, group_by: list[str]) -> None:
+    if not actor.sees_cost:
+        raise Forbidden()
+    for g in group_by:
+        if g not in GROUPS:
+            raise AppError(f"Неизвестная разбивка «{g}».", field="group_by")
+
+
+def start(
+    session: Session,
+    actor: Actor,
+    at: date,
+    group_by: list[str],
+    building_id: uuid.UUID | None = None,
+) -> uuid.UUID:
+    """Поставить ведомость в очередь: ошибки запроса — сразу, счёт — у обработчика задач, а
+    не в процессе приложения, где 50 000 единиц держали соединение и память (8.1, R-036).
+    Такая же, пока прежняя считается, — та же задача."""
+    _check(actor, group_by)
+    if building_id is not None:
+        building.get_building(session, actor, building_id)
+    payload = {
+        "at": at.isoformat(),
+        "group_by": group_by,
+        "building_id": str(building_id) if building_id else None,
+        "user_id": str(actor.user_id),
+    }
+    return tasks.enqueue_once(session, TASK, payload, actor)
+
+
+@tasks.task(TASK, "Ведомость стоимости", timeout=timedelta(minutes=10))
+def run(session: Session, payload: dict[str, Any], _progress: tasks.Progress) -> dict[str, Any]:
+    actor = access.actor_of(access.get(session, uuid.UUID(payload["user_id"])))
+    building_id = payload.get("building_id")
+    st = statement(session, actor, date.fromisoformat(payload["at"]), payload["group_by"],
+                   uuid.UUID(building_id) if building_id else None)
+    return {**st, "at": st["at"].isoformat()}
+
+
+@tasks.task("inventory.purge_cost_statements", "Удаление посчитанных ведомостей стоимости",
+            every=timedelta(hours=6))
+def purge_statements(session: Session, _payload: dict[str, Any], _progress: tasks.Progress
+                     ) -> dict[str, Any]:
+    """Ведомость нужна, пока на неё смотрят и выгружают в Excel; каждое открытие «Стоимости» —
+    новая задача с итогом до сотни КБ на объёмах 8.1 — без удаления копились бы в базе и
+    резервных копиях (R-036, ADR-0021)."""
+    before = datetime.now(UTC) - timedelta(days=1)
+    return {"deleted": tasks.purge(session, TASK, before)}
+
+
+def result(session: Session, actor: Actor, job_id: uuid.UUID) -> dict[str, Any]:
+    """Посчитанная ведомость по ключу задачи — для Excel."""
+    if not actor.sees_cost:
+        raise Forbidden()
+    job = session.get(tasks.Job, job_id)
+    if job is None or job.kind != TASK:
+        raise NotFound("Ведомость не найдена.")
+    if job.status != "done" or job.result is None:
+        raise Conflict("Ведомость ещё не посчитана.", code="not_ready")
+    return {**job.result, "at": date.fromisoformat(job.result["at"])}
 
 
 def statement(
@@ -36,11 +102,7 @@ def statement(
     group_by: list[str],
     building_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    if not actor.sees_cost:
-        raise Forbidden()
-    for g in group_by:
-        if g not in GROUPS:
-            raise AppError(f"Неизвестная разбивка «{g}».", field="group_by")
+    _check(actor, group_by)
     places = Places(session, actor)
     layers = catalog.layer_names(session)
     buildings: dict[uuid.UUID | None, str] = {None: "вне зданий"}

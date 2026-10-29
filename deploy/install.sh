@@ -50,6 +50,9 @@ KEEP_MONTHLY=12
 
 # процессов приложения — по числу ядер сервера: тяжёлый отчёт не задерживает остальных
 APP_WORKERS=4
+# запросов одновременно на процесс, остальные ждут очереди; соединений с базой всего —
+# APP_WORKERS × (APP_DB_POOL + 3) + 10, не больше 200 (docs/INSTALL.md, «Производительность»)
+APP_DB_POOL=10
 
 TZ=Europe/Moscow
 POSTGRES_PASSWORD=$password

@@ -7,8 +7,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import (
+    Select,
+    String,
+    Text,
+    and_,
+    case,
+    cast,
+    func,
+    literal,
+    literal_column,
+    select,
+    true,
+)
+from sqlalchemy.dialects.postgresql import aggregate_order_by
+from sqlalchemy.orm import Session, aliased
 
 from app.core.actor import Actor
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, stale
@@ -173,6 +186,58 @@ class Places:
         return list(dict.fromkeys(out))
 
 
+def title_sql(q: Select[Any], actor: Actor, key: Any) -> tuple[Select[Any], Any]:
+    """Places.title в базе — для сортировки реестра по месту без подписей 8 000 мест в Python
+    (8.1, R-036, ADR-0018): q с присоединёнными помещениями, складами и ячейками и выражение
+    подписи столбца key. Подписи и видимость — как у Places.get."""
+    rooms = building.room_titles()
+    wh, cell, cell_wh = aliased(Warehouse), aliased(Cell), aliased(Warehouse)
+
+    def seen(building_id: Any) -> Any:
+        return true() if actor.is_admin else building_id.in_(list(actor.building_ids))
+
+    q = (
+        q.outerjoin(rooms, literal("r:") + cast(rooms.c.id, String) == key)
+        .outerjoin(wh, literal("w:") + cast(wh.id, String) == key)
+        .outerjoin(cell, literal("c:") + cast(cell.id, String) == key)
+        .outerjoin(cell_wh, cell_wh.id == cell.warehouse_id)
+    )
+    title = func.coalesce(
+        case((and_(rooms.c.id.is_not(None), seen(rooms.c.building_id)),
+              rooms.c.floor_name + " › " + rooms.c.title)),
+        case((and_(wh.id.is_not(None), seen(wh.building_id)), "Склад «" + wh.name + "»")),
+        case((and_(cell_wh.id.is_not(None), seen(cell_wh.building_id)),
+              "Склад «" + cell_wh.name + "» › " + cell.name)),
+        "место недоступно",
+    )
+    return q, title
+
+
+def buildings_json(session: Session, actor: Actor) -> str:
+    """Здания → этажи (верхний первым) → помещения для выбора места (5.4.1) — готовым JSON:
+    его собирает база одним запросом из подзапросов building.tree_sql, на стенде 8.1 это
+    10 000 помещений и 1,4 МБ (R-036, ADR-0019). Помещение — key, title, number, name."""
+    b, f, r = building.tree_sql(actor)
+    empty = literal_column("'[]'::json")
+
+    def agg(row: Any, *order: Any) -> Any:
+        return func.coalesce(func.json_agg(aggregate_order_by(row, *order)), empty)
+
+    rooms = select(agg(
+        func.json_build_object("key", literal("r:") + cast(r.c.id, String), "title", r.c.title,
+                               "number", r.c.number, "name", r.c.name),
+        r.c.number, r.c.name,
+    )).where(r.c.floor_id == f.c.id).scalar_subquery()
+    floors = select(agg(
+        func.json_build_object("id", f.c.id, "name", f.c.name, "rooms", rooms),
+        f.c.position.desc(),
+    )).where(f.c.building_id == b.c.id).scalar_subquery()
+    tree = select(agg(func.json_build_object("id", b.c.id, "name", b.c.name, "floors", floors),
+                      b.c.name))
+    # текстом: иначе драйвер разберёт JSON в объекты Python, а их снова пришлось бы сериализовать
+    return session.scalar(select(cast(tree.scalar_subquery(), Text))) or "[]"
+
+
 def is_storage(place: Place) -> bool:
     return place.kind in ("warehouse", "cell")
 
@@ -180,14 +245,29 @@ def is_storage(place: Place) -> bool:
 # ---------------------------------------------------------------- склады
 
 
-def warehouse_view(session: Session, wh: Warehouse) -> dict[str, Any]:
-    cells = list(
-        session.scalars(
-            select(Cell)
-            .where(Cell.warehouse_id == wh.id, Cell.archived_at.is_(None))
-            .order_by(Cell.position, Cell.name)
+def warehouse_views(session: Session, whs: list[Warehouse]) -> list[dict[str, Any]]:
+    """warehouse_view складов списком: ячейки всех — одним запросом (R-036)."""
+    cells: dict[uuid.UUID, list[Cell]] = {w.id: [] for w in whs}
+    for c in session.scalars(
+        select(Cell)
+        .where(Cell.warehouse_id.in_(list(cells)), Cell.archived_at.is_(None))
+        .order_by(Cell.position, Cell.name)
+    ):
+        cells[c.warehouse_id].append(c)
+    return [warehouse_view(session, w, cells[w.id]) for w in whs]
+
+
+def warehouse_view(
+    session: Session, wh: Warehouse, cells: list[Cell] | None = None
+) -> dict[str, Any]:
+    if cells is None:
+        cells = list(
+            session.scalars(
+                select(Cell)
+                .where(Cell.warehouse_id == wh.id, Cell.archived_at.is_(None))
+                .order_by(Cell.position, Cell.name)
+            )
         )
-    )
     return {
         "id": wh.id,
         "key": f"w:{wh.id}",
