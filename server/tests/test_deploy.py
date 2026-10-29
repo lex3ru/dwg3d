@@ -85,6 +85,25 @@ def test_r039_every_service_limits_its_log() -> None:
         assert int(size[1]) * SIZE[size[2]] * int(options["max-file"]) <= 200 * SIZE["m"], name
 
 
+def test_r037_restore_keeps_the_database_until_the_copy_is_restored() -> None:
+    """restore.sh удалял текущую базу до того, как открыть копию: битая копия стоила данных.
+    Теперь копия восстанавливается в отдельную базу, пока система работает, базы меняются
+    переименованием, прежняя удаляется только после удачного запуска (R-037)."""
+    restore = (DEPLOY / "restore.sh").read_text(encoding="utf-8")
+    steps = [restore.index(s) for s in ("restore_db load", "compose stop", "restore_db swap",
+                                        "up -d --wait", "restore_db drop-before")]
+    assert steps == sorted(steps)
+    commands = re.sub(r"(?m)^\s*#.*$", "", restore)
+    assert "dropdb" not in commands and "pg_restore" not in commands
+    script = (DEPLOY / "backup" / "restore-db.sh").read_text(encoding="utf-8")
+    dropped = re.findall(r"(?m)^\s*(?:if ! |\|\| )?dropdb (?:--if-exists )?(\S+)", script)
+    assert dropped and set(dropped) <= {'"$new"', '"$old"'}
+    # подмена — одной командой psql, то есть одной транзакцией
+    swap = r'"\$db\\" RENAME TO \\"\$old\\"; ALTER DATABASE \\"\$new\\" RENAME TO \\"\$db'
+    assert re.search(swap, script)
+    assert "restore-db.sh" in (DEPLOY / "backup" / "Dockerfile").read_text(encoding="utf-8")
+
+
 def ignored(path: str, rules: list[str]) -> bool:
     """Не попадёт ли путь в контекст сборки по правилам .dockerignore, как их читает Docker:
     решает последнее совпавшее правило («!» — исключение), правило про каталог касается
