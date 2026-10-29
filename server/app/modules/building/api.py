@@ -297,6 +297,24 @@ def room_title(room: Room) -> str:
     return " ".join(p for p in (room.number, room.name) if p) or "помещение без номера"
 
 
+def room_title_sql(number: Any, name: Any) -> Any:
+    """room_title в базе: пустые номер и название пропускаются."""
+    both = func.concat_ws(" ", func.nullif(number, ""), func.nullif(name, ""))
+    return func.coalesce(func.nullif(both, ""), "помещение без номера")
+
+
+def room_titles() -> Any:
+    """Подзапрос подписей всех помещений с названием этажа — модули выше сортируют по ним в
+    базе, не читая 10 000 помещений в Python (8.1, R-036, ADR-0018): id, building_id,
+    floor_name, title. Видимость зданий проверяет тот, кто соединяет."""
+    return (
+        select(Room.id, Room.building_id, Floor.name.label("floor_name"),
+               room_title_sql(Room.number, Room.name).label("title"))
+        .join(Floor, Floor.id == Room.floor_id)
+        .subquery("room_title")
+    )
+
+
 def live_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
     return list(session.scalars(select(Room).where(Room.floor_id == floor_id,
                                                    Room.archived_at.is_(None))

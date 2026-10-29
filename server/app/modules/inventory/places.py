@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Select, String, and_, case, cast, func, literal, select, true
+from sqlalchemy.orm import Session, aliased
 
 from app.core.actor import Actor
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, stale
@@ -171,6 +171,33 @@ class Places:
             if place.building_id:
                 out.append(f"building:{place.building_id}")
         return list(dict.fromkeys(out))
+
+
+def title_sql(q: Select[Any], actor: Actor, key: Any) -> tuple[Select[Any], Any]:
+    """Places.title в базе — для сортировки реестра по месту без подписей 8 000 мест в Python
+    (8.1, R-036, ADR-0018): q с присоединёнными помещениями, складами и ячейками и выражение
+    подписи столбца key. Подписи и видимость — как у Places.get."""
+    rooms = building.room_titles()
+    wh, cell, cell_wh = aliased(Warehouse), aliased(Cell), aliased(Warehouse)
+
+    def seen(building_id: Any) -> Any:
+        return true() if actor.is_admin else building_id.in_(list(actor.building_ids))
+
+    q = (
+        q.outerjoin(rooms, literal("r:") + cast(rooms.c.id, String) == key)
+        .outerjoin(wh, literal("w:") + cast(wh.id, String) == key)
+        .outerjoin(cell, literal("c:") + cast(cell.id, String) == key)
+        .outerjoin(cell_wh, cell_wh.id == cell.warehouse_id)
+    )
+    title = func.coalesce(
+        case((and_(rooms.c.id.is_not(None), seen(rooms.c.building_id)),
+              rooms.c.floor_name + " › " + rooms.c.title)),
+        case((and_(wh.id.is_not(None), seen(wh.building_id)), "Склад «" + wh.name + "»")),
+        case((and_(cell_wh.id.is_not(None), seen(cell_wh.building_id)),
+              "Склад «" + cell_wh.name + "» › " + cell.name)),
+        "место недоступно",
+    )
+    return q, title
 
 
 def is_storage(place: Place) -> bool:

@@ -5,7 +5,7 @@ import uuid
 from datetime import date
 from typing import Any, BinaryIO
 
-from sqlalchemy import Integer, Select, String, bindparam, case, func, or_, select
+from sqlalchemy import Integer, Select, bindparam, case, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, distinct_on
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ from app.modules.inventory.models import (
     UnitEvent,
     UnitFile,
 )
-from app.modules.inventory.places import Places, admin
+from app.modules.inventory.places import Places, admin, title_sql
 from app.modules.inventory.rules import (
     CARD_STATES,
     STATES,
@@ -605,9 +605,8 @@ def registry(
         names = {t.id: t.name for t in catalog.types_by_id(session, type_ids).values()}
         q, first = _ranked(q, Unit.type_id, names, UUID)
     elif by == "place":
-        keys = list(session.scalars(q.with_only_columns(Unit.place).distinct()))
-        places.preload(keys)
-        q, first = _ranked(q, Unit.place, {k: places.title(k) for k in keys}, String)
+        q, title = title_sql(q, actor, Unit.place)
+        first = title.collate("C")
     else:
         first = {
             "number": Unit.number.collate("C"),
@@ -619,7 +618,14 @@ def registry(
     tie = Unit.number.collate("C") if actor.sees_inventory_numbers else Unit.id
     if sort.startswith("-"):
         first, tie = first.desc(), tie.desc()
-    units = list(session.scalars(q.order_by(first, tie).offset(offset).limit(limit)))
+    # порядок — по узким строкам (ключ и поля сортировки), целиком читается только страница:
+    # иначе база сортирует для соединений полные строки 50 000 единиц, на диске
+    page = list(session.scalars(
+        q.with_only_columns(Unit.id, maintain_column_froms=True)
+        .order_by(first, tie).offset(offset).limit(limit)
+    ))
+    loaded = {u.id: u for u in session.scalars(select(Unit).where(Unit.id.in_(page)))}
+    units = [loaded[i] for i in page]
     places.preload(u.place for u in units)
     types = catalog.types_by_id(session, {u.type_id for u in units})
     models = catalog.models_by_id(session, {u.model_id for u in units})

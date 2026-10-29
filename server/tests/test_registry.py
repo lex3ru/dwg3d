@@ -1,8 +1,16 @@
 """Реестр имущества (5.4.8) на объёмах 8.1 (R-036): сортировка, страница и итоги считает база,
 а порядок и итоги — те же, что давал прежний расчёт в Python по всем строкам."""
 
+from types import SimpleNamespace
 from typing import Any
 
+from sqlalchemy import String, column, select, values
+
+from app.core.db import transaction
+from app.modules.access import api as access
+from app.modules.building import api as building
+from app.modules.inventory import places
+from app.modules.inventory.models import Unit
 from tests.test_events import viewer
 from tests.test_inventory import document, post, setup
 
@@ -97,6 +105,42 @@ def test_r036_registry_order_pages_and_totals_as_before(admin, app) -> None:
     check(admin, True)
     with viewer(admin, app, building["id"]) as (v, _):
         check(v, False)
+
+
+def test_r036_room_title_in_database_equals_python() -> None:
+    """Подпись помещения для сортировки по месту считает база (ADR-0018) — так же, как
+    room_title: пустые номер и название пропускаются, без обоих — «помещение без номера»."""
+    pairs = [("214", "Кабинет терапевта"), ("214", ""), ("", "Холл"), ("", ""), (None, None),
+             ("  ", "x"), ("№1", None), (None, "Склад «Б»"), ("Zeta", "ёлка")]
+    table = values(column("number", String), column("name", String), name="rooms").data(pairs)
+    with transaction() as session:
+        got = session.scalars(
+            select(building.room_title_sql(table.c.number, table.c.name)).select_from(table)
+        ).all()
+    assert got == [building.room_title(SimpleNamespace(number=n, name=m)) for n, m in pairs]
+
+
+def test_r036_place_titles_in_database_equal_cards(admin, app) -> None:
+    """Подпись места в базе (сортировка по месту, ADR-0018) — та же, что в карточке: помещение
+    «этаж › номер название», склад, ячейка склада; «просмотру» склад без здания недоступен."""
+    building_ = stock(admin)
+
+    def titles(login: str) -> dict[str, str]:
+        with transaction() as session:
+            actor = access.actor_of(access.find(session, login))
+            q, title = places.title_sql(select(Unit.id), actor, Unit.place)
+            return {str(i): t for i, t in session.execute(q.add_columns(title))}
+
+    items = admin.get("/api/inventory/units", params={"limit": 1000}).json()["items"]
+    assert titles("admin") == {u["id"]: u["place"]["title"] for u in items}
+    assert {u["place"]["kind"] for u in items} == {"room", "warehouse", "cell"}
+    with viewer(admin, app, building_["id"]) as (v, account):
+        seen = v.get("/api/inventory/units", params={"limit": 1000}).json()["items"]
+        got = titles(account["login"])
+    assert {i: got[i] for i in (u["id"] for u in seen)} == {
+        u["id"]: u["place"]["title"] for u in seen}
+    hidden = {u["id"] for u in items} - {u["id"] for u in seen}
+    assert hidden and {got[i] for i in hidden} == {"место недоступно"}
 
 
 def test_r036_home_cost_is_sum_of_cards(admin) -> None:
