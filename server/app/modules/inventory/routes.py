@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,6 @@ from app.core import uploads
 from app.core.auth import Admin, CurrentActor
 from app.core.db import DB
 from app.core.errors import AppError
-from app.modules.building import api as building
 from app.modules.files import api as files
 from app.modules.inventory import api, cost, counts, documents, excel, places, printing, units
 from app.modules.inventory.rules import doc_title
@@ -43,20 +43,14 @@ def _pdf(data: bytes, name: str) -> Response:
 
 
 @router.get("/places")
-def place_tree(actor: CurrentActor, session: DB) -> dict[str, Any]:
+def place_tree(actor: CurrentActor, session: DB) -> Response:
     """Места для выбора: здания → этажи (верхний первым) → помещения, склады с ячейками.
-    Несколько запросов на любое число этажей и складов (8.1, R-036)."""
-    out = building.rooms_by_floor(session, actor)
-    # помещения дополняются на месте: 10 000 словарей второй раз не собираются
-    for b in out:
-        b["floors"].reverse()
-        for f in b["floors"]:
-            for r in f["rooms"]:
-                r["key"] = places.room_key(r.pop("id"))
-    return {
-        "buildings": out,
-        "warehouses": places.warehouse_views(session, places.warehouses(session, actor)),
-    }
+    Здания с помещениями — готовым JSON из базы, склады (их единицы) — как обычно; три запроса
+    на любое число этажей и складов (8.1, R-036, ADR-0019)."""
+    stores = places.warehouse_views(session, places.warehouses(session, actor))
+    stores_json = json.dumps(jsonable_encoder(stores), ensure_ascii=False, separators=(",", ":"))
+    body = f'{{"buildings":{places.buildings_json(session, actor)},"warehouses":{stores_json}}}'
+    return Response(body, media_type="application/json")
 
 
 @router.get("/place")

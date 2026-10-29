@@ -7,7 +7,20 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, String, and_, case, cast, func, literal, select, true
+from sqlalchemy import (
+    Select,
+    String,
+    Text,
+    and_,
+    case,
+    cast,
+    func,
+    literal,
+    literal_column,
+    select,
+    true,
+)
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.orm import Session, aliased
 
 from app.core.actor import Actor
@@ -198,6 +211,31 @@ def title_sql(q: Select[Any], actor: Actor, key: Any) -> tuple[Select[Any], Any]
         "место недоступно",
     )
     return q, title
+
+
+def buildings_json(session: Session, actor: Actor) -> str:
+    """Здания → этажи (верхний первым) → помещения для выбора места (5.4.1) — готовым JSON:
+    его собирает база одним запросом из подзапросов building.tree_sql, на стенде 8.1 это
+    10 000 помещений и 1,4 МБ (R-036, ADR-0019). Помещение — key, title, number, name."""
+    b, f, r = building.tree_sql(actor)
+    empty = literal_column("'[]'::json")
+
+    def agg(row: Any, *order: Any) -> Any:
+        return func.coalesce(func.json_agg(aggregate_order_by(row, *order)), empty)
+
+    rooms = select(agg(
+        func.json_build_object("key", literal("r:") + cast(r.c.id, String), "title", r.c.title,
+                               "number", r.c.number, "name", r.c.name),
+        r.c.number, r.c.name,
+    )).where(r.c.floor_id == f.c.id).scalar_subquery()
+    floors = select(agg(
+        func.json_build_object("id", f.c.id, "name", f.c.name, "rooms", rooms),
+        f.c.position.desc(),
+    )).where(f.c.building_id == b.c.id).scalar_subquery()
+    tree = select(agg(func.json_build_object("id", b.c.id, "name", b.c.name, "floors", floors),
+                      b.c.name))
+    # текстом: иначе драйвер разберёт JSON в объекты Python, а их снова пришлось бы сериализовать
+    return session.scalar(select(cast(tree.scalar_subquery(), Text))) or "[]"
 
 
 def is_storage(place: Place) -> bool:
