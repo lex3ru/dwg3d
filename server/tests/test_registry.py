@@ -1,16 +1,21 @@
-"""Реестр имущества (5.4.8) на объёмах 8.1 (R-036): сортировка, страница и итоги считает база,
-а порядок и итоги — те же, что давал прежний расчёт в Python по всем строкам."""
+"""Реестр имущества (5.4.8) и места хранения (5.4.1) на объёмах 8.1 (R-036): сортировка,
+страница и итоги считает база, а порядок и итоги — те же, что давал прежний расчёт в Python по
+всем строкам; дерево мест — за несколько запросов, а не по запросу на этаж."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import String, column, select, values
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import String, column, event, select, values
 
-from app.core.db import transaction
+from app.core.db import engine, transaction
 from app.modules.access import api as access
 from app.modules.building import api as building
 from app.modules.inventory import places
 from app.modules.inventory.models import Unit
+from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_events import viewer
 from tests.test_inventory import document, post, setup
 
@@ -153,6 +158,75 @@ def test_r036_home_cost_is_sum_of_cards(admin) -> None:
     assert cost["units"] == len(items) == 8
     assert cost["initial"] == round(sum(u["price"] for u in items), 2)
     assert cost["value"] == round(sum(u["value"] for u in items), 2)
+
+
+def old_place_tree(login: str) -> dict[str, Any]:
+    """Дерево мест так, как его собирал прежний код: запрос на каждое здание, этаж и склад."""
+    with transaction() as session:
+        actor = access.actor_of(access.find(session, login))
+        tree = [
+            {"id": b["id"], "name": b["name"], "floors": [
+                {"id": f.id, "name": f.name, "rooms": [
+                    {"key": places.room_key(r.id), "title": building.room_title(r),
+                     "number": r.number, "name": r.name}
+                    for r in building.live_rooms(session, f.id)]}
+                for f in reversed(building.floors(session, b["id"]))]}
+            for b in building.list_buildings(session, actor)
+        ]
+        stores = [places.warehouse_view(session, w) for w in places.warehouses(session, actor)]
+        return jsonable_encoder({"buildings": tree, "warehouses": stores})
+
+
+@contextmanager
+def statements() -> Iterator[list[str]]:
+    """SQL-запросы, ушедшие в базу за время блока."""
+    seen: list[str] = []
+
+    def count(conn, cursor, statement, *_):  # type: ignore[no-untyped-def]
+        seen.append(statement)
+
+    event.listen(engine(), "before_cursor_execute", count)
+    try:
+        yield seen
+    finally:
+        event.remove(engine(), "before_cursor_execute", count)
+
+
+def test_r036_place_tree_as_before_in_few_queries(admin, app) -> None:
+    """Дерево мест (5.4.1) — то же, что прежде, но запросов в базу не больше на любое число
+    этажей и складов: на объёмах 8.1 прежние ≈ 450 запросов и планы 429 этажей стоили 6,7 с
+    при 20 одновременных (R-036)."""
+    building_, rooms, wh, _ = setup(admin)
+    upper = admin.post(f"/api/buildings/{building_['id']}/floors", json={"name": "3 этаж"}).json()
+    assert save(admin, upper["id"], two_rooms(("301", "302")), 1).status_code == 200
+    other, _ = building_with_floor(admin)
+    near = admin.post("/api/inventory/warehouses",
+                      json={"name": "Аптечный", "room_id": rooms["214"][2:]}).json()
+    made = {}
+    for store, cell in ((wh, "Стеллаж 1"), (wh, "Стеллаж 2"), (near, "Полка А")):
+        r = admin.post(f"/api/inventory/warehouses/{store['id']}/cells", json={"name": cell})
+        assert r.status_code == 201, r.text
+        made[cell] = next(c["id"] for c in r.json()["cells"] if c["name"] == cell)
+    assert admin.delete(f"/api/inventory/cells/{made['Стеллаж 1']}").status_code == 204
+
+    with statements() as before:
+        tree = admin.get("/api/inventory/places").json()
+    assert tree == old_place_tree("admin")
+    assert [b["name"] for b in tree["buildings"]] == sorted([building_["name"], other["name"]])
+    with viewer(admin, app, building_["id"]) as (v, account):
+        seen = v.get("/api/inventory/places").json()
+        assert seen == old_place_tree(account["login"])
+        assert [w["name"] for w in seen["warehouses"]] == ["Аптечный"]
+
+    for n in range(4, 8):  # ещё этажи с помещениями и склады с ячейками
+        f = admin.post(f"/api/buildings/{building_['id']}/floors", json={"name": f"{n} этаж"})
+        assert save(admin, f.json()["id"], two_rooms((f"{n}01", f"{n}02")), 1).status_code == 200
+        store = admin.post("/api/inventory/warehouses", json={"name": f"Склад {n}"}).json()
+        admin.post(f"/api/inventory/warehouses/{store['id']}/cells", json={"name": "Полка"})
+    with statements() as after:
+        tree = admin.get("/api/inventory/places").json()
+    assert tree == old_place_tree("admin")
+    assert len(after) == len(before), (len(before), len(after))
 
 
 def test_r036_registry_filters_and_totals_agree(admin) -> None:

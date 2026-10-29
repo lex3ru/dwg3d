@@ -321,6 +321,33 @@ def live_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
                                 .order_by(Room.number, Room.name)))
 
 
+def rooms_by_floor(session: Session, actor: Actor) -> list[dict[str, Any]]:
+    """Здания (не в архиве, видимые) → этажи → живые помещения с подписью — для выбора места
+    (5.4.1). Три запроса на любое число этажей и только нужные поля: без планов этажей и
+    контуров помещений (8.1, R-036). Порядок — как у list_buildings, floors, live_rooms."""
+    query = select(Building.id, Building.name).where(Building.archived_at.is_(None))
+    if not actor.is_admin:
+        query = query.where(Building.id.in_(actor.building_ids or [uuid.uuid4()]))
+    out = [{"id": b.id, "name": b.name, "floors": []}
+           for b in session.execute(query.order_by(Building.name))]
+    ids = [b["id"] for b in out]
+    floors: dict[uuid.UUID, dict[str, Any]] = {}
+    by_building = {b["id"]: b["floors"] for b in out}
+    for f in session.execute(select(Floor.id, Floor.name, Floor.building_id)
+                             .where(Floor.building_id.in_(ids)).order_by(Floor.position)):
+        floors[f.id] = {"id": f.id, "name": f.name, "rooms": []}
+        by_building[f.building_id].append(floors[f.id])
+    # 10 000 помещений — столбцами таблицы, без ORM-слоя: он заметно дороже на таком числе строк
+    room = Room.__table__.c
+    for r in session.execute(select(room.id, room.number, room.name, room.floor_id)
+                             .where(room.building_id.in_(ids), room.archived_at.is_(None))
+                             .order_by(room.number, room.name)):
+        if r.floor_id in floors:
+            floors[r.floor_id]["rooms"].append(
+                {"id": r.id, "number": r.number, "name": r.name, "title": room_title(r)})
+    return out
+
+
 def archived_rooms(session: Session, floor_id: uuid.UUID) -> list[Room]:
     """Убранные помещения этажа — в них могло остаться имущество (R-023)."""
     return list(session.scalars(select(Room).where(Room.floor_id == floor_id,

@@ -44,32 +44,18 @@ def _pdf(data: bytes, name: str) -> Response:
 
 @router.get("/places")
 def place_tree(actor: CurrentActor, session: DB) -> dict[str, Any]:
-    """Места для выбора: здания → этажи → помещения, склады с ячейками."""
-    out = []
-    for b in building.list_buildings(session, actor):
-        floors = []
-        for f in reversed(building.floors(session, b["id"])):
-            floors.append(
-                {
-                    "id": f.id,
-                    "name": f.name,
-                    "rooms": [
-                        {
-                            "key": places.room_key(r.id),
-                            "title": building.room_title(r),
-                            "number": r.number,
-                            "name": r.name,
-                        }
-                        for r in building.live_rooms(session, f.id)
-                    ],
-                }
-            )
-        out.append({"id": b["id"], "name": b["name"], "floors": floors})
+    """Места для выбора: здания → этажи (верхний первым) → помещения, склады с ячейками.
+    Несколько запросов на любое число этажей и складов (8.1, R-036)."""
+    out = building.rooms_by_floor(session, actor)
+    # помещения дополняются на месте: 10 000 словарей второй раз не собираются
+    for b in out:
+        b["floors"].reverse()
+        for f in b["floors"]:
+            for r in f["rooms"]:
+                r["key"] = places.room_key(r.pop("id"))
     return {
         "buildings": out,
-        "warehouses": [
-            places.warehouse_view(session, w) for w in places.warehouses(session, actor)
-        ],
+        "warehouses": places.warehouse_views(session, places.warehouses(session, actor)),
     }
 
 

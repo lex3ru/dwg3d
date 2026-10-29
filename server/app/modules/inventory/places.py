@@ -207,14 +207,29 @@ def is_storage(place: Place) -> bool:
 # ---------------------------------------------------------------- склады
 
 
-def warehouse_view(session: Session, wh: Warehouse) -> dict[str, Any]:
-    cells = list(
-        session.scalars(
-            select(Cell)
-            .where(Cell.warehouse_id == wh.id, Cell.archived_at.is_(None))
-            .order_by(Cell.position, Cell.name)
+def warehouse_views(session: Session, whs: list[Warehouse]) -> list[dict[str, Any]]:
+    """warehouse_view складов списком: ячейки всех — одним запросом (R-036)."""
+    cells: dict[uuid.UUID, list[Cell]] = {w.id: [] for w in whs}
+    for c in session.scalars(
+        select(Cell)
+        .where(Cell.warehouse_id.in_(list(cells)), Cell.archived_at.is_(None))
+        .order_by(Cell.position, Cell.name)
+    ):
+        cells[c.warehouse_id].append(c)
+    return [warehouse_view(session, w, cells[w.id]) for w in whs]
+
+
+def warehouse_view(
+    session: Session, wh: Warehouse, cells: list[Cell] | None = None
+) -> dict[str, Any]:
+    if cells is None:
+        cells = list(
+            session.scalars(
+                select(Cell)
+                .where(Cell.warehouse_id == wh.id, Cell.archived_at.is_(None))
+                .order_by(Cell.position, Cell.name)
+            )
         )
-    )
     return {
         "id": wh.id,
         "key": f"w:{wh.id}",
