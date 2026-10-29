@@ -5,7 +5,7 @@ import uuid
 from datetime import date
 from typing import Any, BinaryIO
 
-from sqlalchemy import Integer, Select, String, bindparam, func, or_, select
+from sqlalchemy import Integer, Select, String, bindparam, case, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, distinct_on
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ from app.modules.inventory.rules import (
     format_number,
     number_value,
     residual,
+    residual_sql,
 )
 from app.modules.journal import api as journal
 from app.modules.system import api as system
@@ -84,6 +85,13 @@ def value_now(unit: Unit, at: date | None = None) -> float:
         unit.value_date,
         at or date.today(),
     )
+
+
+def value_sql(at: date) -> Any:
+    """value_now в базе — для итогов по тысячам единиц одним агрегатом (8.1, R-036)."""
+    return case((Unit.state == "written_off", 0), else_=residual_sql(
+        Unit.price, Unit.commissioned_on, Unit.life_months, Unit.value_base, Unit.value_date, at
+    ))
 
 
 def title_of(type_name: str, model: Any) -> str:
@@ -574,9 +582,12 @@ def registry(
     # 8.1: до 50 000 единиц и до 20 одновременно работающих — сортировка, страница и итоги
     # считаются в базе, читается только показываемая страница (R-036)
     q = registry_query(session, actor, **filters)
-    total, sum_price = session.execute(
-        q.with_only_columns(func.count(), func.coalesce(func.sum(Unit.price), 0),
-                            maintain_column_froms=True)
+    sums = [func.count()]
+    if actor.sees_cost:
+        sums += [func.coalesce(func.sum(Unit.price), 0),
+                 func.coalesce(func.sum(value_sql(date.today())), 0)]
+    total, *money = session.execute(
+        q.with_only_columns(*sums, maintain_column_froms=True)
     ).one()
     by = sort.lstrip("-")
     # «просмотр» не видит стоимость и номера (2.2) и не должен узнать их по порядку строк
@@ -617,16 +628,7 @@ def registry(
         "items": [unit_brief(u, actor, places, types, models) for u in units],
     }
     if actor.sees_cost:
-        today = date.today()
-        out["sum_price"] = round(float(sum_price), 2)
-        costs = q.with_only_columns(
-            Unit.price, Unit.state, Unit.commissioned_on, Unit.life_months, Unit.value_base,
-            Unit.value_date, maintain_column_froms=True,
-        )
-        out["sum_value"] = round(sum(
-            0.0 if r.state == "written_off" else residual(
-                r.price, r.commissioned_on, r.life_months, r.value_base, r.value_date, today)
-            for r in session.execute(costs)), 2)
+        out["sum_price"], out["sum_value"] = (round(float(m), 2) for m in money)
     return out
 
 

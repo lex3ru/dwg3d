@@ -99,6 +99,18 @@ def test_r036_registry_order_pages_and_totals_as_before(admin, app) -> None:
         check(v, False)
 
 
+def test_r036_home_cost_is_sum_of_cards(admin) -> None:
+    """Стоимость на главной (6.5.1) считает база, карточку — Python: итог — сумма карточек
+    единиц здания (ADR-0017)."""
+    building = stock(admin)
+    items = admin.get("/api/inventory/units",
+                      params={"building_id": building["id"], "limit": 1000}).json()["items"]
+    cost = admin.get("/api/home", params={"building_id": building["id"]}).json()["cost"]
+    assert cost["units"] == len(items) == 8
+    assert cost["initial"] == round(sum(u["price"] for u in items), 2)
+    assert cost["value"] == round(sum(u["value"] for u in items), 2)
+
+
 def test_r036_registry_filters_and_totals_agree(admin) -> None:
     """Итоги — по отбору, а не по странице и не по всему реестру."""
     stock(admin)
