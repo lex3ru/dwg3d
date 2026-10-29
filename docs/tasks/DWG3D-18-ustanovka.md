@@ -46,7 +46,7 @@ updated: 2026-10-29
       `max-file`; правила `.dockerignore` не пускают в контекст `server/.dev-data`,
       `server/.volume-data`, `server/tests`, `.env` и пускают `server/app`, `migrations`,
       `web/src`. На `main` падает: 4 из 5 (пятый — проверка разбора правил `.dockerignore`).
-- [ ] 2. Debian 12 или 13 — ADR-0022. Проверить на Debian 13: сборка LibreDWG, пакеты Pango и
+- [x] 2. Debian 12 или 13 — ADR-0022. Проверить на Debian 13: сборка LibreDWG, пакеты Pango и
       шрифтов для WeasyPrint, uv-образ нужной версии.
 - [x] 3. `deploy/Dockerfile`: базовые образы — `тег@sha256`, архив LibreDWG — в файл,
       `LIBREDWG_SHA256` и `sha256sum -c`, потом распаковка. Сборка с неверной суммой падает —
@@ -83,8 +83,9 @@ updated: 2026-10-29
   uv для Debian 12 не выходят с 0.9.30, у Debian 12 уже только LTS; оформить ADR-0022 после
   проверки сборки LibreDWG и Pango на trixie (шаг 2).
 - 2026-10-29 — выбрано с пользователем: версии отмечаются семантическими тегами `vX.Y.Z`; что
-  считать мажорным и минорным изменением и с какого номера начать (есть старый тег
-  `v1-monolith`) — в ADR-0023 (шаг 7).
+  считать мажорным и минорным изменением — в ADR-0023 (шаг 7). Первый тег — `v0.1.0` после
+  merge этого MR, `v1.0.0` — версия, принятая заказчиком (выбор пользователя). Тексты
+  ADR-0022 и ADR-0023 показаны пользователю и одобрены.
 - 2026-10-29 — `test_deploy.py` на `74d00fb` (deploy как в `main`): не закреплены 7 образов
   (`debian:bookworm-slim`, `node:24-alpine`, `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`,
   `python:3.12-slim-bookworm`, `postgres:16-alpine` в `backup/Dockerfile` и `compose.yml`,
