@@ -4,7 +4,7 @@ title: Установка — сборка образа, журналы конт
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-18-ustanovka
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/18
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/e49a39b0-ea98-432f-8af1-2e4fbe987df2
 updated: 2026-10-29
 ---
@@ -39,13 +39,13 @@ updated: 2026-10-29
 
 ## План
 
-- [ ] 1. Тест, который падает: `server/tests/test_deploy.py` (как `test_serve.py` читает
+- [x] 1. Тест, который падает: `server/tests/test_deploy.py` (как `test_serve.py` читает
       `deploy/compose.yml`) — каждый `FROM` в `deploy/Dockerfile`, `deploy/backup/Dockerfile`
       и каждый `image:` в `compose.yml` — `тег@sha256:…`; архив LibreDWG проверяется
       `sha256sum -c` до распаковки; у каждой службы `compose.yml` — `logging` с `max-size` и
       `max-file`; правила `.dockerignore` не пускают в контекст `server/.dev-data`,
       `server/.volume-data`, `server/tests`, `.env` и пускают `server/app`, `migrations`,
-      `web/src`. На `main` падает.
+      `web/src`. На `main` падает: 4 из 5 (пятый — проверка разбора правил `.dockerignore`).
 - [ ] 2. Debian 12 или 13 — ADR-0022. Проверить на Debian 13: сборка LibreDWG, пакеты Pango и
       шрифтов для WeasyPrint, uv-образ нужной версии.
 - [ ] 3. `deploy/Dockerfile`: базовые образы — `тег@sha256`, архив LibreDWG — в файл,
@@ -83,6 +83,14 @@ updated: 2026-10-29
 - 2026-10-29 — выбрано с пользователем: версии отмечаются семантическими тегами `vX.Y.Z`; что
   считать мажорным и минорным изменением и с какого номера начать (есть старый тег
   `v1-monolith`) — в ADR-0023 (шаг 7).
+- 2026-10-29 — `test_deploy.py` на `74d00fb` (deploy как в `main`): не закреплены 7 образов
+  (`debian:bookworm-slim`, `node:24-alpine`, `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`,
+  `python:3.12-slim-bookworm`, `postgres:16-alpine` в `backup/Dockerfile` и `compose.yml`,
+  `caddy:2.10-alpine`); нет `LIBREDWG_SHA256`; у `db` (и остальных) нет `logging`; в контекст
+  сборки идут `server/.dev-data`, `server/.volume-data`, `server/tools`, `server/.env`,
+  `web/.env.local`. Разбор правил `.dockerignore` в тесте — упрощённый, как у Docker
+  (последнее совпавшее правило, правило про каталог — на всё внутри); сверить с настоящим
+  контекстом сборки в шаге 5.
 - 2026-10-29 — `.claude/launch.json` ссылается на `legacy/.tools/libredwg` (R-038), но
   AGENTS.md велит устаревшие конфигурации не трогать, и в задаче Plane этого пункта нет: не
   правим, в FINDINGS — с причиной.
