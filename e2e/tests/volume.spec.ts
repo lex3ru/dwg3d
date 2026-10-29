@@ -15,13 +15,35 @@ function note(what: string, ms: number, limit: number) {
   const line = `${what}: ${ms} мс (норма ${limit} мс)`;
   times.push(line);
   console.log(`8.2 · ${line}`);
-  expect(ms, what).toBeLessThan(limit);
+  // мягко: замеры теста после первого вышедшего за норму тоже попадут в итог
+  expect.soft(ms, what).toBeLessThan(limit);
 }
 
 async function timed<T>(fn: () => Promise<T>): Promise<[T, number]> {
   const t = Date.now();
   const out = await fn();
   return [out, Date.now() - t];
+}
+
+// n одинаковых запросов разом — как n человек, нажавших одно и то же (8.1: до 20 одновременно
+// работающих). Обрыв соединения — код 0.
+async function burst(page: Page, url: string, n: number) {
+  const shots = await Promise.all(
+    Array.from({ length: n }, async () => {
+      const t = Date.now();
+      try {
+        const r = await page.request.get(url, { timeout: 300_000 });
+        await r.body();
+        return { status: r.status(), ms: Date.now() - t };
+      } catch {
+        return { status: 0, ms: Date.now() - t };
+      }
+    }),
+  );
+  const ms = shots.map((s) => s.ms).sort((a, b) => a - b);
+  const codes: Record<number, number> = {};
+  for (const s of shots) codes[s.status] = (codes[s.status] ?? 0) + 1;
+  return { codes, median: ms[Math.floor(n / 2)]!, worst: ms[n - 1]! };
 }
 
 async function stand(page: Page) {
@@ -104,6 +126,29 @@ test.describe("8.2 на объёмах 8.1", () => {
     note("открытие карточки из реестра 50 000 единиц", card, 1000);
   });
 
+  // 8.1: до 20 одновременно работающих — «без замедления против 8.2» (R-036). Каждый вид
+  // запроса — 20 разом, норма — худшему из них; так мерило ревью (docs/review/09-…)
+  test("20 одновременных пользователей — нормы 8.2", async ({ page }) => {
+    test.setTimeout(300_000);
+    await loginAdmin(page);
+    const s = await stand(page);
+    const some = (await (await page.request.get("/api/inventory/units", { params: { limit: 1 } })).json()).items[0];
+    const checks: [string, string, number][] = [
+      ["реестр, первая страница", "/api/inventory/units?sort=number&limit=100", 1000],
+      ["реестр по наименованию", "/api/inventory/units?sort=title&limit=100", 1000],
+      ["реестр по месту", "/api/inventory/units?sort=place&limit=100", 1000],
+      ["места хранения (дерево)", "/api/inventory/places", 1000],
+      ["поиск по инвентарному номеру", `/api/search?q=${encodeURIComponent(some.number)}`, 1000],
+      ["карточка единицы", `/api/inventory/units/${some.id}`, 1000],
+      ["предметы этажа с 2 000 предметов", `/api/floors/${s.floors[0]!.id}/items`, 2000],
+    ];
+    for (const [what, url, limit] of checks) {
+      const b = await burst(page, url, 20);
+      expect.soft(b.codes, `${what}: ответы`).toEqual({ 200: 20 });
+      note(`${what} — 20 одновременных, худший (медиана ${b.median} мс)`, b.worst, limit);
+    }
+  });
+
   test("документ на 100 строк проводится за 2 с, Excel на 1 000 строк проверяется за 10 с", async ({ page }) => {
     await loginAdmin(page);
     const s = await stand(page);
@@ -170,5 +215,28 @@ test.describe("8.2 на объёмах 8.1", () => {
       await expect(page.getByRole("heading", { name: unit.title ?? some.title }).first()).toBeVisible();
     });
     note("QR-метка → карточка на телефоне", ms, 2000);
+  });
+
+  // Пик сверх 8.1 (R-036): медленнее нормы можно, но без 500 и обрывов — процессы приложения
+  // живы. Последним: прежде под таким пиком процессы перезапускались.
+  test("пик: 50 и 200 одновременных — без 500 и обрывов", async ({ page }) => {
+    test.setTimeout(1_200_000);
+    await loginAdmin(page);
+    await stand(page);
+    for (const [what, url] of [
+      ["реестр", "/api/inventory/units?limit=100"],
+      ["ведомость стоимости", "/api/inventory/cost?group_by=building,floor,layer"],
+    ] as const) {
+      for (const n of [50, 200]) {
+        const b = await burst(page, url, n);
+        const line = `${what}, ${n} одновременных: коды ${JSON.stringify(b.codes)}, медиана ${b.median} мс, худший ${b.worst} мс (справочно)`;
+        times.push(line);
+        console.log(`8.2 · ${line}`);
+        expect.soft(b.codes, `${what}, ${n} одновременных`).toEqual({ 200: n });
+      }
+    }
+    const [health, ms] = await timed(() => page.request.get("/api/health"));
+    expect(health.ok()).toBeTruthy();
+    expect(ms, "после пика приложение отвечает сразу").toBeLessThan(1000);
   });
 });
