@@ -32,7 +32,18 @@ from multiprocessing.process import BaseProcess
 from typing import Any
 
 import psycopg
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, or_, select, update
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    delete,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -179,6 +190,15 @@ def enqueue_once(session: Session, kind: str, payload: dict[str, Any],
                              Job.status.in_(("queued", "running")),
                              Job.cancel_requested_at.is_(None)).limit(1))
     return found or enqueue(session, kind, payload, actor)
+
+
+def purge(session: Session, kind: str, finished_before: datetime) -> int:
+    """Удалить завершённые задачи вида kind, кончившиеся раньше finished_before, — для задач,
+    чей итог нужен недолго, а весит заметно (ведомость стоимости — R-036)."""
+    result = session.execute(
+        delete(Job).where(Job.kind == kind, Job.status.in_(("done", "failed", "cancelled")),
+                          Job.finished_at < finished_before))
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 def cancel(session: Session, job: Job) -> None:

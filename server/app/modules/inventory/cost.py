@@ -4,7 +4,7 @@
 
 import uuid
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -70,6 +70,17 @@ def run(session: Session, payload: dict[str, Any], _progress: tasks.Progress) ->
     st = statement(session, actor, date.fromisoformat(payload["at"]), payload["group_by"],
                    uuid.UUID(building_id) if building_id else None)
     return {**st, "at": st["at"].isoformat()}
+
+
+@tasks.task("inventory.purge_cost_statements", "Удаление посчитанных ведомостей стоимости",
+            every=timedelta(hours=6))
+def purge_statements(session: Session, _payload: dict[str, Any], _progress: tasks.Progress
+                     ) -> dict[str, Any]:
+    """Ведомость нужна, пока на неё смотрят и выгружают в Excel; каждое открытие «Стоимости» —
+    новая задача с итогом до сотни КБ на объёмах 8.1 — без удаления копились бы в базе и
+    резервных копиях (R-036, ADR-0021)."""
+    before = datetime.now(UTC) - timedelta(days=1)
+    return {"deleted": tasks.purge(session, TASK, before)}
 
 
 def result(session: Session, actor: Actor, job_id: uuid.UUID) -> dict[str, Any]:

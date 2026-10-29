@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Columns3, Download, FileSpreadsheet, FileUp, Plus, QrCode, Truck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useTree } from "@/catalog/parts";
 import { ApiError, get, post, query } from "@/lib/api";
 import { useMe } from "@/lib/auth";
@@ -448,13 +448,14 @@ function CostTab() {
   const [groups, setGroups] = useState<string[]>(["building", "floor", "layer"]);
   const params = query({ at, group_by: groups.join(",") });
   const [again, setAgain] = useState(0);
-  const [run, setRun] = useState<{ id: string | null; error: string | null }>({ id: null, error: null });
+  const [run, setRun] = useState<{ id: string | null; error: string | null; started: number }>({ id: null, error: null, started: 0 });
   useEffect(() => {
     let alive = true;
-    setRun({ id: null, error: null });
+    const started = Date.now();
+    setRun({ id: null, error: null, started });
     post<{ job_id: string }>(`/api/inventory/cost${params}`).then(
-      (r) => alive && setRun({ id: r.job_id, error: null }),
-      (e: unknown) => alive && setRun({ id: null, error: (e as ApiError).message }),
+      (r) => alive && setRun({ id: r.job_id, error: null, started }),
+      (e: unknown) => alive && setRun({ id: null, error: (e as ApiError).message, started }),
     );
     return () => {
       alive = false;
@@ -464,6 +465,9 @@ function CostTab() {
   const polled = useJob(run.id);
   const job = polled && polled.id === run.id ? polled : null;
   const st = job?.status === "done" ? (job.result as unknown as Statement) : null;
+  // обработчик задач обычно берёт ведомость за доли секунды; дольше 3 с в очереди — он занят
+  // другой задачей (полоса одна с выгрузками и загрузкой здания) или не запущен
+  const waiting = job?.status === "queued" && Date.now() - run.started > 3000;
   const toggle = (g: string) => setGroups((list) => (list.includes(g) ? list.filter((x) => x !== g) : GROUPS.map((x) => x[0]).filter((x) => x === g || list.includes(x))));
   const titles = useMemo(() => st?.group_titles ?? [], [st]);
   return (
@@ -509,8 +513,13 @@ function CostTab() {
             ) : (
               <>
                 <p className="m-0 text-[13px] text-ink-2" role="status">
-                  Считается ведомость…
+                  {waiting ? "Ведомость ждёт очереди: обработчик фоновых задач занят другой задачей — например, выгрузкой — и посчитает её следом." : "Считается ведомость…"}
                 </p>
+                {waiting && (
+                  <p className="m-0 text-[13px] text-ink-3">
+                    Ждёт долго — проверьте в <Link to="/settings?tab=status">«Состоянии сервера»</Link>, работают ли фоновые задачи.
+                  </p>
+                )}
                 <CancelJob job={job} />
               </>
             )}

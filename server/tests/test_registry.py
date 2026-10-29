@@ -239,3 +239,12 @@ def test_r036_registry_filters_and_totals_agree(admin) -> None:
     assert len(got["items"]) == 2
     assert got["sum_price"] == round(sum(u["price"] for u in mine), 2)
     assert got["sum_value"] == round(sum(u["value"] for u in mine), 2)
+
+
+def test_r036_registry_rejects_negative_page(admin) -> None:
+    """Страница считается в базе: отрицательные offset и limit PostgreSQL не принимает — это
+    ошибка запроса (422), а не внутренняя ошибка сервера (500), как стало после переноса
+    сортировки в базу (R-036)."""
+    for params in ({"offset": -1}, {"limit": -1}):
+        assert admin.get("/api/inventory/units", params=params).status_code == 422, params
+    assert admin.get("/api/inventory/units", params={"limit": 0}).json()["items"] == []

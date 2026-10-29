@@ -1,6 +1,7 @@
 """Учёт имущества (5.4; С10, С11, С14–С17, С19): места хранения, единицы, документы,
 остатки, стоимость, QR-метки, реестр, загрузка из Excel."""
 
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, timedelta
@@ -427,6 +428,25 @@ def test_r036_cost_statement_is_a_background_task_started_once(admin, app) -> No
     with viewer_client(admin, app) as v:
         assert v.post("/api/inventory/cost").status_code == 403
         assert v.get(f"/api/inventory/cost/{job}.xlsx").status_code == 403
+
+
+def test_r036_old_cost_statements_are_purged(admin) -> None:
+    """Каждое открытие «Стоимости» — задача с ведомостью в итоге (до сотни КБ на объёмах 8.1):
+    посчитанные старше суток удаляются по расписанию, иначе копились бы в базе и копиях
+    годами (R-036, ADR-0021). Свежие и ещё не посчитанные — остаются."""
+    old, fresh = statement(admin, group_by="floor")["job_id"], statement(admin)["job_id"]
+    waiting = admin.post("/api/inventory/cost", params={"group_by": "layer"}).json()["job_id"]
+    with transaction() as s:
+        s.execute(text("UPDATE core.job SET finished_at = now() - interval '2 days' "
+                       "WHERE id = :id"), {"id": old})
+    assert "inventory.purge_cost_statements" in {
+        k for k, d in tasks.registered().items() if d.every}
+    with transaction() as s:
+        tasks.registered()["inventory.purge_cost_statements"].handler(
+            s, {}, tasks.Progress(uuid.uuid4()))
+    assert admin.get(f"/api/system/tasks/{old}").status_code == 404
+    assert admin.get(f"/api/system/tasks/{fresh}").json()["status"] == "done"
+    assert admin.get(f"/api/system/tasks/{waiting}").json()["status"] == "queued"
 
 
 def test_c10_property_list_from_excel(admin) -> None:
