@@ -5,8 +5,8 @@ import uuid
 from datetime import date
 from typing import Any, BinaryIO
 
-from sqlalchemy import Select, func, or_, select
-from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy import Integer, Select, String, bindparam, func, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY, UUID, distinct_on
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
@@ -547,6 +547,21 @@ def registry_query(
     return q
 
 
+def _ranked(
+    q: Select[Any], column: Any, titles: dict[Any, str], of: Any
+) -> tuple[Select[Any], Any]:
+    """Порядок по подписи, которой нет в таблице единиц (наименование типа, название места):
+    подписи упорядочиваются здесь же, в Python, как прежде, а база получает ранг ключа —
+    двумя массивами, без чужих таблиц и без параметра на каждый ключ (их до 10 000, 8.1)."""
+    order = {t: i for i, t in enumerate(sorted(set(titles.values())))}
+    keys = list(titles)
+    rank = func.unnest(
+        bindparam("rank_keys", keys, type_=ARRAY(of)),
+        bindparam("rank_values", [order[titles[k]] for k in keys], type_=ARRAY(Integer)),
+    ).table_valued("key", "rank").render_derived(name="ranked")
+    return q.join(rank, rank.c.key == column), rank.c.rank
+
+
 def registry(
     session: Session,
     actor: Actor,
@@ -556,14 +571,13 @@ def registry(
     limit: int = 100,
     **filters: Any,
 ) -> dict[str, Any]:
-    # 8.1: до 50 000 единиц — сортировка и итоги по лёгким строкам, целиком читается
-    # только показываемая страница
+    # 8.1: до 50 000 единиц и до 20 одновременно работающих — сортировка, страница и итоги
+    # считаются в базе, читается только показываемая страница (R-036)
     q = registry_query(session, actor, **filters)
-    light = q.with_only_columns(
-        Unit.id, Unit.number, Unit.type_id, Unit.place, Unit.state, Unit.commissioned_on,
-        Unit.price, Unit.responsible, Unit.life_months, Unit.value_base, Unit.value_date,
-    )
-    rows = session.execute(light).all()
+    total, sum_price = session.execute(
+        q.with_only_columns(func.count(), func.coalesce(func.sum(Unit.price), 0),
+                            maintain_column_froms=True)
+    ).one()
     by = sort.lstrip("-")
     # «просмотр» не видит стоимость и номера (2.2) и не должен узнать их по порядку строк
     # (R-015): по цене и номеру ему сортируется по наименованию, при равных — по ключу записи
@@ -571,40 +585,48 @@ def registry(
         by = "title"
     if by not in ("title", "place", "state", "commissioned_on", "price", "responsible"):
         by = "number" if actor.sees_inventory_numbers else "title"
-    tie = (lambda r: r.number) if actor.sees_inventory_numbers else (lambda r: str(r.id))
-    types = catalog.types_by_id(session, {r.type_id for r in rows}) if by == "title" else {}
     places = Places(session, actor)
-    titles: dict[str, str] = {}
-    if by == "place":
-        places.preload(r.place for r in rows)
-        titles = {p: places.title(p) for p in {r.place for r in rows}}
-    first = {
-        "number": lambda r: r.number,
-        "title": lambda r: types[r.type_id].name,
-        "place": lambda r: titles[r.place],
-        "state": lambda r: r.state,
-        "commissioned_on": lambda r: r.commissioned_on,
-        "price": lambda r: float(r.price or 0),
-        "responsible": lambda r: r.responsible,
-    }[by]
-    rows.sort(key=lambda r: (first(r), tie(r)), reverse=sort.startswith("-"))
-    page = [r.id for r in rows[offset : offset + limit]]
-    loaded = {u.id: u for u in session.scalars(select(Unit).where(Unit.id.in_(page)))}
-    units = [loaded[i] for i in page]
+    # строки — по кодам символов (COLLATE "C"), как сравнивает их Python: порядок не зависит
+    # от языковых настроек базы
+    first: Any
+    if by == "title":
+        type_ids = session.scalars(q.with_only_columns(Unit.type_id).distinct())
+        names = {t.id: t.name for t in catalog.types_by_id(session, type_ids).values()}
+        q, first = _ranked(q, Unit.type_id, names, UUID)
+    elif by == "place":
+        keys = list(session.scalars(q.with_only_columns(Unit.place).distinct()))
+        places.preload(keys)
+        q, first = _ranked(q, Unit.place, {k: places.title(k) for k in keys}, String)
+    else:
+        first = {
+            "number": Unit.number.collate("C"),
+            "state": Unit.state.collate("C"),
+            "commissioned_on": Unit.commissioned_on,
+            "price": Unit.price,
+            "responsible": Unit.responsible.collate("C"),
+        }[by]
+    tie = Unit.number.collate("C") if actor.sees_inventory_numbers else Unit.id
+    if sort.startswith("-"):
+        first, tie = first.desc(), tie.desc()
+    units = list(session.scalars(q.order_by(first, tie).offset(offset).limit(limit)))
     places.preload(u.place for u in units)
     types = catalog.types_by_id(session, {u.type_id for u in units})
     models = catalog.models_by_id(session, {u.model_id for u in units})
     out: dict[str, Any] = {
-        "total": len(rows),
+        "total": total,
         "items": [unit_brief(u, actor, places, types, models) for u in units],
     }
     if actor.sees_cost:
         today = date.today()
-        out["sum_price"] = round(sum(float(r.price or 0) for r in rows), 2)
+        out["sum_price"] = round(float(sum_price), 2)
+        costs = q.with_only_columns(
+            Unit.price, Unit.state, Unit.commissioned_on, Unit.life_months, Unit.value_base,
+            Unit.value_date, maintain_column_froms=True,
+        )
         out["sum_value"] = round(sum(
             0.0 if r.state == "written_off" else residual(
                 r.price, r.commissioned_on, r.life_months, r.value_base, r.value_date, today)
-            for r in rows), 2)
+            for r in session.execute(costs)), 2)
     return out
 
 
