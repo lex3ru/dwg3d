@@ -34,15 +34,17 @@ async function burst(page: Page, url: string, n: number, method: "GET" | "POST" 
       try {
         const r = await page.request.fetch(url, { method, headers: H, timeout: 300_000 });
         const body = await r.body();
-        return { status: r.status(), ms: Date.now() - t, body: body.toString() };
-      } catch {
-        return { status: 0, ms: Date.now() - t, body: "" };
+        return { status: r.status(), ms: Date.now() - t, body: body.toString(), error: "" };
+      } catch (e) {
+        return { status: 0, ms: Date.now() - t, body: "", error: String(e).split("\n")[0]! };
       }
     }),
   );
   const ms = shots.map((s) => s.ms).sort((a, b) => a - b);
   const codes: Record<number, number> = {};
   for (const s of shots) codes[s.status] = (codes[s.status] ?? 0) + 1;
+  const errors = [...new Set(shots.map((s) => s.error).filter(Boolean))];
+  if (errors.length) console.log(`обрывы: ${errors.join("; ")}`);
   return { codes, median: ms[Math.floor(n / 2)]!, worst: ms[n - 1]!, bodies: shots.map((s) => s.body) };
 }
 

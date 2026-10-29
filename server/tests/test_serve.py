@@ -3,6 +3,7 @@
 
 import asyncio
 import gc
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ from app import main
 from app.__main__ import serve_workers
 from app.core.admission import Admission
 from app.core.config import config
-from app.core.db import OUTSIDE_QUEUE, engine
+from app.core.db import OUTSIDE_QUEUE, connections_needed, engine
 
 
 def test_windows_serves_with_one_process() -> None:
@@ -142,9 +143,8 @@ def test_r036_requests_at_once_equal_pool_size(app) -> None:  # type: ignore[no-
     assert len(gates) == 1 and gates[0].kwargs == {"limit": config().db_pool}
 
 
-def test_r036_busy_process_is_not_killed_as_hung(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Процесс, занятый долгим счётом, отвечает на проверку живости uvicorn не сразу: за 5 с
-    по умолчанию супервизор убивал его вместе с запросами (R-036)."""
+def served(monkeypatch) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """С какими настройками `python -m app serve` запускает uvicorn."""
     import uvicorn
 
     got: dict[str, Any] = {}
@@ -154,4 +154,47 @@ def test_r036_busy_process_is_not_killed_as_hung(monkeypatch) -> None:  # type: 
     monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: got.update(kw))
     with pytest.raises(SystemExit):
         cli.main()
-    assert got["timeout_worker_healthcheck"] >= 60
+    return got
+
+
+def test_r036_busy_process_is_not_killed_as_hung(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Процесс, занятый долгим счётом, отвечает на проверку живости uvicorn не сразу: за 5 с
+    по умолчанию супервизор убивал его вместе с запросами (R-036)."""
+    assert served(monkeypatch)["timeout_worker_healthcheck"] >= 60
+
+
+def test_r036_idle_connection_outlives_caddy(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Простаивающее соединение Caddy держит до 2 мин (reverse_proxy по умолчанию), uvicorn —
+    5 с: Caddy отправлял запрос в соединение, которое uvicorn как раз закрыл, и POST получал
+    502. На стенде под пиком — «socket hang up» у 2 из 200 запросов (R-036)."""
+    assert served(monkeypatch)["timeout_keep_alive"] > 120
+
+
+COMPOSE = Path(__file__).resolve().parents[2] / "deploy" / "compose.yml"
+
+
+def test_r036_connections_fit_postgres_of_the_installation() -> None:
+    """Под пиком установке нужно соединений не больше, чем пускает PostgreSQL из
+    deploy/compose.yml, — с запасом, и при 8 процессах, которые INSTALL.md разрешает на восьми
+    ядрах: иначе «too many clients» и 500 (R-036, ADR-0020)."""
+    text = COMPOSE.read_text(encoding="utf-8")
+
+    def setting(pattern: str) -> int:
+        found = re.search(pattern, text)
+        assert found, pattern
+        return int(found[1])
+
+    limit = setting(r"max_connections=(\d+)")
+    assert setting(r"APP_DB_POOL:-(\d+)") == config().db_pool
+    assert connections_needed(setting(r"APP_WORKERS:-(\d+)")) <= limit // 2
+    assert connections_needed(8) <= limit * 0.8
+
+
+def test_r036_serve_warns_when_connections_do_not_fit(monkeypatch, caplog) -> None:  # type: ignore[no-untyped-def]
+    with caplog.at_level("WARNING", logger="app"):
+        cli.check_connections(4)
+    assert not caplog.text
+    monkeypatch.setattr(config(), "db_pool", 40)
+    with caplog.at_level("WARNING", logger="app"):
+        cli.check_connections(4)
+    assert "max_connections" in caplog.text and "APP_DB_POOL" in caplog.text
