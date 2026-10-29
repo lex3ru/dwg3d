@@ -7,19 +7,19 @@ include:
 
 stages: [test, e2e]
 
-# uv одной версии во всех заданиях (R-038): образ ниже и архив в e2e. Образы uv на Debian 12
-# (bookworm, как deploy/Dockerfile) выходили до 0.9.30, дальше — только на Debian 13 (ADR-0001).
-# Новая версия — новый UV_RELEASE и UV_RELEASE_SHA256 (файл .sha256 рядом с архивом релиза).
+# uv одной версии во всех заданиях и в deploy/Dockerfile (R-038): образ ниже и архив в e2e.
+# Debian 13 (trixie) — как deploy/Dockerfile (ADR-0001, ADR-0022). Новая версия — новый
+# UV_RELEASE и UV_RELEASE_SHA256 (файл .sha256 рядом с архивом релиза) и образ uv в Dockerfile.
 variables:
-  UV_RELEASE: "0.9.30"
-  UV_RELEASE_SHA256: 8b3762374972daa7a74bbc6896cc73229ca69a07403dd9f9ea3805a51ffd7582
+  UV_RELEASE: "0.12.24"
+  UV_RELEASE_SHA256: b4dfaef47d491a7296981f8374a4595f55dbf84e8937c8ecd2983574d8bb3da6
 
 # Все задания — на docker-раннере (тег docker): задания без тегов берёт shell-раннер, где
 # image и services не действуют. Образ по умолчанию — для agent-files: в Debian slim есть
 # diff с -x, нужный scripts/check-agent-files.sh.
 default:
   tags: [docker]
-  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-bookworm-slim
+  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-trixie-slim
 
 workflow:
   rules:
@@ -36,7 +36,7 @@ workflow:
 
 server:
   stage: test
-  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-bookworm-slim
+  image: ghcr.io/astral-sh/uv:$UV_RELEASE-python3.12-trixie-slim
   <<: *postgres
   variables:
     POSTGRES_USER: app

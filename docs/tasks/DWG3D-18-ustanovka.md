@@ -58,9 +58,9 @@ updated: 2026-10-29
 - [x] 5. `.dockerignore` — белый список: `server/app`, `server/migrations`, `server/alembic.ini`,
       `server/pyproject.toml`, `server/uv.lock`, `web/` без `node_modules` и `dist`. В собранном
       образе нет `.dev-data`, `.volume-data`, `tests`, `tools`.
-- [ ] 6. CI на той же версии Debian, что образ: `UV_RELEASE` и образ uv в `.gitlab-ci.yml`,
+- [x] 6. CI на той же версии Debian, что образ: `UV_RELEASE` и образ uv в `.gitlab-ci.yml`,
       сумма архива uv для `e2e`; ADR-0001 — последствия. pytest в образе CI локально зелёный,
-      с тестами PDF.
+      с тестами PDF: 225 passed, 3 skipped (чертежи заказчика и LibreDWG — как всегда).
 - [ ] 7. Откат (R-037): `install.sh` запоминает установленную версию
       (`git describe --tags --always`), при обновлении печатает прежнюю версию и путь копии
       «перед обновлением», при неудачной сборке или запуске — команды отката. INSTALL:
@@ -108,6 +108,12 @@ updated: 2026-10-29
 - 2026-10-29 — настоящий контекст сборки (`COPY . /ctx` и `find` с новым `.dockerignore`):
   `server/{alembic.ini,app,migrations,pyproject.toml,uv.lock}` и `web/` без `node_modules`,
   `dist`, `tsconfig.tsbuildinfo` — 331 файл; совпадает с разбором правил в `test_deploy.py`.
+- 2026-10-29 — задание `server` локально, как в CI: образ
+  `ghcr.io/astral-sh/uv:0.12.24-python3.12-trixie-slim`, пакеты Pango из `before_script`,
+  `postgres:16-alpine` в своей сети, `CI=true` (тесты PDF не пропускаются), копия рабочего
+  дерева (`git stash create` + `git archive`): ruff чистый, pytest 225 passed, 3 skipped за
+  4 мин 34 с. WeasyPrint предупреждает «HarfBuzz-Subset will be required by future versions»
+  (`libharfbuzz-subset0` не ставится ни в образе, ни в CI) — пока только предупреждение.
 - 2026-10-29 — замечено, не в этой задаче: при печати PDF fontconfig пишет «No writable cache
   directories» (12 строк на процесс) — `HOME=/app` принадлежит root, кэш шрифтов не пишется и
   строится заново в каждом процессе. Так же было на Debian 12 (fontconfig 2.14) — не следствие
