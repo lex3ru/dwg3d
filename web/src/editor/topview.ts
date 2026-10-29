@@ -23,7 +23,10 @@ const done = new Map<string, TopView | null>();
 const pending = new Map<string, Promise<TopView | null>>();
 let renderer: THREE.WebGLRenderer | null = null;
 let queue: Promise<unknown> = Promise.resolve();
-const loader = new GLTFLoader();
+// загрузчик с декодерами сжатых моделей, как в 3D (DWG3D-15); декодеры — отдельным куском
+// сборки: план без моделей их не грузит
+let loader: Promise<GLTFLoader> | null = null;
+const loaderOf = () => (loader ??= import("@/catalog/gltf").then(({ withDecoders }) => withDecoders(new GLTFLoader())));
 
 const keyOf = (t: TypeBrief) => `${t.model_url}|${JSON.stringify(t.model_transform ?? {})}|${t.width}|${t.depth}|${t.height}`;
 
@@ -41,7 +44,7 @@ const heightMaterial = (minY: number, maxY: number) =>
   });
 
 async function render(t: TypeBrief): Promise<TopView | null> {
-  const gltf = await loader.loadAsync(t.model_url!);
+  const gltf = await (await loaderOf()).loadAsync(t.model_url!);
   const { w, d, h } = sizeOf(t);
   const model = placeModel(gltf.scene, transformOf(t.model_transform), [w, h, d]);
   model.updateMatrixWorld(true);

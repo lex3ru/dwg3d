@@ -3,6 +3,7 @@
 import io
 import json
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -204,6 +205,24 @@ def test_3d_model_is_measured(admin) -> None:
         files={"file": ("кушетка.glb", io.BytesIO(b"not a glb at all, no"))},
     )
     assert r.status_code == 400
+
+
+# коробка 1,0 × 0,5 × 0,8 м, сжатая Draco, — как выгружают Blender и Sketchfab (DWG3D-15)
+DRACO_BOX = Path(__file__).parents[2] / "e2e" / "fixtures" / "draco-box.glb"
+
+
+def test_draco_model_is_measured(admin) -> None:
+    """Draco сервер не распаковывает: размер — из min и max координат, они есть и у сжатой
+    сетки (glTF 2.0); сдвиг узла на размер не влияет."""
+    t = admin.post(
+        "/api/catalog/types", json={"name": "Коробка", "width": 1000, "depth": 800, "height": 500}
+    ).json()
+    r = admin.post(
+        f"/api/catalog/types/{t['id']}/model3d",
+        files={"file": ("коробка.glb", io.BytesIO(DRACO_BOX.read_bytes()))},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["model_size"] == [1.0, 0.5, 0.8]  # ширина, высота, глубина — как у типа
 
 
 def packed(text: bytes) -> bytes:
