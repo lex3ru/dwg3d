@@ -89,9 +89,13 @@ def main() -> None:
         seed()
         from app.core.config import config
 
+        # проверка живости процесса: отвечает его поток, которому нужен GIL, — занятый долгим
+        # счётом процесс за 5 с по умолчанию не успевал, и супервизор убивал его вместе с
+        # запросами (R-036); зависший по-настоящему найдётся и за минуту
         uvicorn.run("app.main:serve_app", factory=True, host=args.host, port=args.port,
                     proxy_headers=True, forwarded_allow_ips="*",
-                    workers=serve_workers(args.workers or config().workers))
+                    workers=serve_workers(args.workers or config().workers),
+                    timeout_worker_healthcheck=60)
     elif args.command == "worker":
         from app.core import tasks
         from app.main import create_app

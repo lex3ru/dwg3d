@@ -25,13 +25,20 @@ NAMING = {
 }
 
 
+OUTSIDE_QUEUE = 2
+
+
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING)
 
 
 @lru_cache
 def engine() -> Engine:
-    return create_engine(config().database_url, pool_pre_ping=True, pool_size=10)
+    # пул — столько же, сколько запросов пускает очередь процесса (core/admission.py), и
+    # OUTSIDE_QUEUE сверх: сокеты изменений проверяют сеанс мимо очереди и под пиком не
+    # должны ждать, пока освободится соединение запроса (R-036, ADR-0020)
+    return create_engine(config().database_url, pool_pre_ping=True,
+                         pool_size=config().db_pool, max_overflow=OUTSIDE_QUEUE)
 
 
 @lru_cache
