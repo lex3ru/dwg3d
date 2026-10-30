@@ -21,8 +21,22 @@ interface PartInfo {
   height: number;
   preview: string;
   floor_like: boolean;
-  roof?: boolean;
+  // что это за часть листа — по подписи, штампу и форме (R-061); "" — не понять
+  kind?: string;
 }
+
+// части листа, которые не этажи: по умолчанию «не переводить»
+const KIND: Record<string, string> = {
+  roof: "кровля",
+  frame: "рамка листа",
+  stamp: "штамп",
+  table: "таблица",
+  facade: "фасад",
+  section: "разрез",
+  detail: "узел",
+  scheme: "схема",
+  site: "генплан",
+};
 
 interface PartResult {
   floor_id: string;
@@ -229,7 +243,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
           Перевод не выполнен: {d.error} Планы этажей не изменились — перевод можно повторить.
         </p>
       )}
-      <p className="m-0 text-[13px] text-ink-2">На листе найдено частей: {parts.length}. Укажите, какая часть — какой этаж; таблицы, штампы и подписи переводить не нужно.</p>
+      <p className="m-0 text-[13px] text-ink-2">На листе найдено частей: {parts.length}. Укажите, какая часть — какой этаж. Этажами предложены планы; рамки, штампы, таблицы, фасады и разрезы переводить не нужно.</p>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {parts.map((p, i) => {
           const result = d.results[p.key];
@@ -240,7 +254,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
               </svg>
               <div className="text-[13px] font-medium">
                 {p.name || `Часть ${i + 1}`}
-                {p.roof && <span className="font-normal text-ink-2"> — кровля, не этаж</span>}
+                {p.kind && KIND[p.kind] && <span className="font-normal text-ink-2"> — {KIND[p.kind]}, не этаж</span>}
               </div>
               <div className="text-[12px] text-ink-2">
                 {metres(p.width)} × {metres(p.height)} м

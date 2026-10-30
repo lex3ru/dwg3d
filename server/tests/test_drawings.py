@@ -285,7 +285,7 @@ def test_extra_drawings_convert_without_check_errors(path: Path) -> None:
     if path.name.startswith("2022"):
         # 13 этажей: подвал, 1–11, технический; план кровли — не этаж
         floors = [p for p in found if min(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]) >= 5000
-                  and not p.extra.get("roof")]
+                  and p.kind != "roof"]
         assert len(floors) == 13, [p.name for p in floors]
     for part in found:
         if min(part.bbox[2] - part.bbox[0], part.bbox[3] - part.bbox[1]) < 5000:
@@ -697,3 +697,141 @@ def test_r060_dwg2dxf_comes_from_the_environment_not_from_legacy(monkeypatch, tm
     found = read.dwg2dxf()
     assert found is not None and found == shutil.which("dwg2dxf")
     assert Path(found).resolve() == tool.resolve()
+
+
+# ---------------------------------------------------------------- рамки, штампы, подписи
+
+
+def sheets_dxf(frame: str = "Формат") -> bytes:
+    """Многолистовой чертёж 1:100 в пространстве модели (мм здания): три листа А2, рамка —
+    на слое frame, штамп 185 × 55 мм в правом нижнем углу — на «0», название листа — только в
+    штампе. Листы 1 и 2 — друг над другом, на каждом план 50 × 30 м; подпись первого листа
+    стоит над планом второго. Лист 3 — справа от первого: фасад и таблица 18,5 × 8 м с
+    заголовком «Таблица помещений 2-го этажа». Название второго листа — две строки TEXT."""
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 4
+    msp = doc.modelspace()
+    for name in {frame, "Стены", "Перегородки"} - {"0"}:
+        doc.layers.add(name)
+    width, height = 56900, 41000  # рамка А2: 569 × 410 мм
+
+    def poly(points, layer: str = "0") -> None:  # type: ignore[no-untyped-def]
+        msp.add_lwpolyline(points, close=True, dxfattribs={"layer": layer})
+
+    def line(a, b) -> None:  # type: ignore[no-untyped-def]
+        msp.add_line(a, b, dxfattribs={"layer": "0"})
+
+    def text(value: str, x: float, y: float, h: float = 300) -> None:
+        msp.add_text(value, height=h, dxfattribs={"insert": (x, y)})
+
+    def sheet(ox: float, oy: float, title: list[str]) -> None:
+        poly([(ox, oy), (ox + width, oy), (ox + width, oy + height), (ox, oy + height)], frame)
+        x0, x1, y1 = ox + width - 18500, ox + width, oy + 5500
+        line((x0, y1), (x1, y1))
+        line((x0, oy), (x0, y1))
+        for dx in (700, 1700, 4000, 5500, 6500):
+            line((x0 + dx, oy), (x0 + dx, y1))
+        for dy in range(500, 5500, 500):
+            line((x0, oy + dy), (x0 + 6500, oy + dy))
+        for dy in (1500, 3500):
+            line((x0 + 6500, oy + dy), (x1, oy + dy))
+        for i, label in enumerate(("Изм.", "Лист", "№ докум.", "Подп.", "Дата")):
+            text(label, x0 + 100 + i * 1300, oy + 3100, 250)
+        for i, row in enumerate(title):
+            text(row, x0 + 7000, oy + 2500 - i * 700, 500)
+        text("Стадия", x1 - 4000, oy + 4500, 250)
+
+    def plan(ox: float, oy: float, first: int) -> None:
+        x0, y0, x1, y1 = ox + 4000, oy + 9500, ox + 54000, oy + 39500
+        poly([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], "Стены")
+        poly([(x0 + 300, y0 + 300), (x1 - 300, y0 + 300), (x1 - 300, y1 - 300),
+              (x0 + 300, y1 - 300)], "Стены")
+        for i, x in enumerate((x0 + 20000, x0 + 35000)):
+            poly([(x, y0 + 300), (x + 120, y0 + 300), (x + 120, y1 - 300), (x, y1 - 300)],
+                 "Перегородки")
+            text(str(first + i), x - 8000, y0 + 15000)
+        text(str(first + 2), x1 - 8000, y0 + 15000)
+
+    sheet(0, 0, ["План 1-го этажа"])
+    plan(0, 0, 101)
+    sheet(0, -45000, ["Обмерный план", "2-го этажа"])
+    plan(0, -45000, 201)
+    ox = 62000
+    sheet(ox, 0, ["Фасад 1-5"])
+    poly([(ox + 4000, 20000), (ox + 44000, 20000), (ox + 44000, 35000), (ox + 4000, 35000)])
+    for i in range(8):
+        for y in (22000, 28000):
+            wx = ox + 6000 + i * 4800
+            poly([(wx, y), (wx + 1500, y), (wx + 1500, y + 1800), (wx, y + 1800)])
+    tx0, tx1 = ox + 4000, ox + 22500
+    poly([(tx0, 6000), (tx1, 6000), (tx1, 14000), (tx0, 14000)])
+    for i in range(1, 10):
+        line((tx0, 6000 + i * 800), (tx1, 6000 + i * 800))
+    for x in (tx0 + 1500, tx0 + 12000):
+        line((x, 6000), (x, 14000))
+    for i in range(10):
+        y = 6200 + i * 800
+        text(str(i + 1), tx0 + 300, y, 300)
+        text("Комната", tx0 + 1800, y, 300)
+        text("18,5", tx0 + 12300, y, 300)
+    text("Таблица помещений 2-го этажа", tx0, 14500, 500)
+    out = io.StringIO()
+    doc.write(out)
+    return out.getvalue().encode()
+
+
+@pytest.mark.parametrize("frame", ["Формат", "0"], ids=["frame-layer", "frame-on-0"])
+def test_r061_frames_stamps_tables_and_facades_are_not_offered_as_floors(admin, frame) -> None:
+    """Лист 1:100: рамки, штампы, таблица и фасад крупнее 5 м. До исправления все они —
+    «новый этаж…»; должно — «не переводить», этажами предлагаются только планы (R-061).
+    Рамка на слое, который разбор пропускает, — штамп отдельной частью; рамка на «0» — рамка
+    со штампом одна часть, а на листах с планом — вместе с планом."""
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    d = upload(admin, b["id"], sheets_dxf(frame))
+    full = admin.get(f"/api/drawings/{d['id']}").json()
+    floors = {(p["name"], p["level"]) for p in full["parts"] if p["floor_like"]}
+    assert floors == {("План 1-го этажа", 1), ("Обмерный план 2-го этажа", 2)}
+    other = {p["kind"] for p in full["parts"] if not p["floor_like"]}
+    assert other == ({"stamp", "table", "facade"} if frame != "0" else {"frame", "table", "facade"})
+    assert {p["kind"] for p in full["parts"] if p["floor_like"]} == {"plan"}
+
+
+def test_r062_a_part_is_named_by_its_own_caption_and_stamp(tmp_path) -> None:
+    """Подпись плана — в штампе под ним, а над нижним планом стоит штамп верхнего листа. До
+    исправления нижний план назван по верхнему листу, верхний — без названия, таблица
+    «Таблица помещений 2-го этажа» — 2-й этаж; должно — каждый по своей подписи, у
+    таблицы номера этажа нет (R-062)."""
+    path = tmp_path / "листы.dxf"
+    path.write_bytes(sheets_dxf())
+    found = parts.split(read.load(path))
+    named = {(p.name, p.level, p.kind) for p in found if p.name}
+    assert ("План 1-го этажа", 1, "plan") in named
+    assert ("Обмерный план 2-го этажа", 2, "plan") in named
+    assert ("Таблица помещений 2-го этажа", None, "table") in named
+    assert ("Фасад 1-5", None, "facade") in named
+
+
+def test_r063_room_number_is_not_a_door_mark_or_a_level_and_the_name_reads_whole(tmp_path) -> None:
+    """В помещении 101 выше номера — марка двери «7» на слое дверей и номер-марка «5» на «0»
+    у стены, название — две строки TEXT «Комната» / «персонала» на слое «Текст»; в 102
+    выше номера — отметка «14.350» без знака. До исправления номера — «7» и «14.350»,
+    название — одно слово или никакого (слой текста пропускался); должно — 101 «Комната
+    персонала» и 102 (R-063)."""
+    doc = ezdxf.read(io.StringIO(sample_dxf().decode()))
+    msp = doc.modelspace()
+    doc.layers.add("Двери")
+    for t in msp.query("TEXT"):
+        if t.dxf.text == "Регистратура":
+            t.dxf.text, t.dxf.layer = "Комната", "Текст"
+    msp.add_text("персонала", height=250, dxfattribs={"layer": "Текст", "insert": (1500, 2150)})
+    msp.add_text("7", height=300, dxfattribs={"layer": "Двери", "insert": (2500, 4500)})
+    msp.add_text("5", height=300, dxfattribs={"insert": (600, 5200)})
+    msp.add_text("14.350", height=300, dxfattribs={"insert": (7000, 4000)})
+    out = io.StringIO()
+    doc.write(out)
+    path = tmp_path / "подписи.dxf"
+    path.write_bytes(out.getvalue().encode())
+    drawing = read.load(path)
+    result = convert.convert(drawing, parts.split(drawing)[0].bbox)
+    assert {(r.number, r.name) for r in result.plan.rooms} == {
+        ("101", "Комната персонала"), ("102", "")}

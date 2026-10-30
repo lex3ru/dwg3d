@@ -20,7 +20,6 @@ from app.modules.building.plan import Plan
 from app.modules.files import api as files
 from app.modules.journal import api as journal
 
-MIN_FLOOR = 5000.0  # мм: часть меньше — подпись, штамп, таблица; по умолчанию не этаж
 MAX_SCALE = 10_000.0  # 1:10 000 — мельче планов здания не чертят
 
 
@@ -238,9 +237,10 @@ def analyze_drawing(
             "preview": p.preview,
             "width": round(p.bbox[2] - p.bbox[0]),
             "height": round(p.bbox[3] - p.bbox[1]),
-            "roof": bool(p.extra.get("roof")),
-            "floor_like": min(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]) >= MIN_FLOOR
-            and not p.extra.get("roof"),
+            "kind": p.kind,
+            "roof": p.kind == "roof",
+            # рамки, штампы, таблицы, фасады — по умолчанию «не переводить» (R-061)
+            "floor_like": p.floor_like,
         }
         for p in found
     ])
@@ -251,7 +251,7 @@ def analyze_drawing(
         "scale": loaded.scale,
         "by": loaded.scale_by,
         "largest": round(largest),
-        "small": largest < MIN_FLOOR,
+        "small": largest < parts_mod.MIN_FLOOR,
     }
     drawing.status = "ready" if found else "failed"
     if not found:

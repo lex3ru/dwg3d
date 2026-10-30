@@ -10,8 +10,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import polygonize
 
 from app.modules.building import geometry
-from app.modules.building.drawing import glyphs, walls
-from app.modules.building.drawing.layers import role, text_kind
+from app.modules.building.drawing import captions, glyphs, walls
+from app.modules.building.drawing.layers import NOT_NUMBERS, labels_layer, role, text_kind
 from app.modules.building.drawing.read import Drawing, Seg
 from app.modules.building.plan import Column, Opening, Plan, RoomLabel, Wall
 
@@ -623,34 +623,38 @@ def _labels(
     rooms: list[geometry.RoomShape],  # type: ignore[no-untyped-def]
     noise: list[list[Seg]],
 ) -> tuple[list[RoomLabel], int]:
-    texts = [
-        t
-        for t in drawing.texts
-        if _inside(bbox, (t.x, t.y))
-        and role(t.layer) not in ("ignore",)
-        or "зон" in t.layer.lower()
-    ]
-    texts = [t for t in texts if _inside(bbox, (t.x, t.y))]
-    found: list[tuple[float, float, str, str]] = [
-        (t.x, t.y, t.text, text_kind(t.text)) for t in texts
-    ]
-    found += [(x, y, text, "number") for x, y, text in glyphs.read(noise)]
+    """Номер и название помещения — из текстов в нём. Тексты слоёв дверей, окон и стен — марки,
+    а не номера; название в несколько строк — целиком (R-063)."""
+    found: list[tuple[captions.Line, str]] = []
+    for line in captions.lines([t for t in drawing.texts if _inside(bbox, (t.x, t.y))]):
+        if not labels_layer(line.layer):
+            continue
+        layer = role(line.layer)
+        kind = text_kind(line.text)
+        if kind == "number" and layer in NOT_NUMBERS:
+            kind = "none"
+        found.append((line, kind))
+    found += [(captions.Line("", x, y, 0, text), "number") for x, y, text in glyphs.read(noise)]
     out: list[RoomLabel] = []
     labelled = 0
     for i, room in enumerate(rooms, 1):
-        inside = [
-            f
-            for f in found
-            if f[3] in ("number", "name") and room.polygon.contains(Point(f[0], f[1]))
-        ]
-        numbers = [f for f in inside if f[3] == "number"]
-        names = [f for f in inside if f[3] == "name"]
+        inside = [(t, k) for t, k in found if k in ("number", "name", "area")
+                  and room.polygon.contains(Point(t.x, t.y))]
+        numbers = [t for t, k in inside if k == "number"]
+        blocks = captions.blocks([t for t, k in inside if k == "name"])
+        names = [" ".join(t.text for t in b) for b in blocks]
+        heads = [b[0] for b in blocks]
         cx, cy = room.polygon.representative_point().coords[0]
-        # номер — верхний (под ним площадь или название)
-        number = max(numbers, key=lambda f: f[1], default=None)
-        name = min(names, key=lambda f: math.dist((f[0], f[1]), (cx, cy)), default=None)
-        anchor = number or name
-        x, y = (anchor[0], anchor[1]) if anchor else (cx, cy)
+        # номер — тот, рядом с которым название или площадь; без них — верхний (под ним
+        # обычно площадь или название)
+        near = [t for t, k in inside if k in ("name", "area")]
+        number = (min(numbers, key=lambda t: min(math.dist((t.x, t.y), (n.x, n.y)) for n in near))
+                  if near and numbers else max(numbers, key=lambda t: t.y, default=None))
+        at = (number.x, number.y) if number else (cx, cy)
+        name = min(range(len(heads)), key=lambda j: math.dist((heads[j].x, heads[j].y), at),
+                   default=None)
+        anchor = number or (heads[name] if name is not None else None)
+        x, y = (anchor.x, anchor.y) if anchor else (cx, cy)
         if number:
             labelled += 1
         out.append(
@@ -658,8 +662,8 @@ def _labels(
                 id=f"new-{i}",
                 x=round(x, 1),
                 y=round(y, 1),
-                number=(number[2] if number else "")[:30],
-                name=(" ".join(name[2].split()) if name else "")[:200],
+                number=(number.text if number else "")[:30],
+                name=(names[name] if name is not None else "")[:200],
             )
         )
     return out, labelled
