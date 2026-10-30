@@ -614,6 +614,27 @@ def test_r059_a_part_with_200k_short_lines_on_layer_0_converts_in_seconds(tmp_pa
     assert sorted(o.kind for o in result.plan.openings) == ["door", "window"]
 
 
+def test_r059_t_joints_of_thousands_of_walls_are_split_in_seconds() -> None:
+    """Исправление плана режет стену в узлах примыканий. Раньше после каждого разреза оно
+    заново сверяло каждую стену с каждым узлом: на части листа с тысячами стен перевод шёл
+    часами. Длинная стена и 500 примыкающих к ней — секунды, стена в 501 кусок (R-059)."""
+    from app.modules.building import geometry
+    from app.modules.building.plan import Plan, Wall
+
+    nodes = {"a": (0.0, 0.0), "b": (100_000.0, 0.0)}
+    plan_walls = [Wall(id="long", a="a", b="b", thickness=200, kind="bearing")]
+    for i in range(1, 501):
+        nodes[f"t{i}"], nodes[f"u{i}"] = (i * 199.0, 0.0), (i * 199.0, 3000.0)
+        plan_walls.append(Wall(id=f"w{i}", a=f"t{i}", b=f"u{i}", thickness=100,
+                               kind="partition"))
+    start = time.monotonic()
+    fixed, done = geometry.fix(Plan(nodes=nodes, walls=plan_walls))
+    assert time.monotonic() - start < 10
+    on_line = [w for w in fixed.walls if fixed.nodes[w.a][1] == fixed.nodes[w.b][1] == 0]
+    assert len(on_line) == 501
+    assert any("примыкания: 500" in d for d in done), done
+
+
 def test_r059_the_progress_moves_inside_a_part(admin, monkeypatch) -> None:
     """Ход перевода меняется и внутри части — по этапам, а не стоит на одном делении (R-059)."""
     seen: list[tuple[int, int | None, str | None]] = []

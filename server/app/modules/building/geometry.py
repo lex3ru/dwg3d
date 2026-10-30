@@ -392,32 +392,33 @@ def _merge_close_nodes(plan: Plan, note: object) -> None:
 
 
 def _split_t_joints(plan: Plan) -> int:
+    """Узел стены, лежащий на другой прямой стене не у её концов, режет её. Узлы на стене
+    ищет дерево; укоротившаяся стена и её новая часть проверяются снова. Перебор всех узлов
+    на каждую стену заново после каждого разреза на переводе чертежа с тысячами стен шёл
+    часами (R-059)."""
+    used = {n for w in plan.walls for n in (w.a, w.b)}
+    ids = [n for n in plan.nodes if n in used]
+    if not ids:
+        return 0
+    points = [Point(plan.nodes[n]) for n in ids]
+    tree = STRtree(points)
     count = 0
-    changed = True
-    while changed:
-        changed = False
-        degree: dict[str, int] = {}
-        for w in plan.walls:
-            degree[w.a] = degree.get(w.a, 0) + 1
-            degree[w.b] = degree.get(w.b, 0) + 1
-        for w in list(plan.walls):
-            if abs(w.bulge) > 1e-9:
+    i = 0
+    while i < len(plan.walls):  # части разрезанных стен — в конце списка
+        w = plan.walls[i]
+        i += 1
+        if abs(w.bulge) > 1e-9:
+            continue
+        line = centerline(plan, w)
+        for j in sorted(int(j) for j in tree.query(line, predicate="dwithin", distance=ON_LINE)):
+            nid = ids[j]
+            if nid in (w.a, w.b):
                 continue
-            line = centerline(plan, w)
-            for nid, xy in plan.nodes.items():
-                if nid in (w.a, w.b) or nid not in degree:
-                    continue
-                p = Point(xy)
-                if line.distance(p) > ON_LINE:
-                    continue
-                at = line.project(p)
-                if at < NODE_TOL or at > line.length - NODE_TOL:
-                    continue
+            at = line.project(points[j])
+            if NODE_TOL <= at <= line.length - NODE_TOL:
                 _split_wall(plan, w, nid, at)
                 count += 1
-                changed = True
-                break
-            if changed:
+                i -= 1  # на укоротившейся стене могут лежать и другие узлы
                 break
     return count
 
