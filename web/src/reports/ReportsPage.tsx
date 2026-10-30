@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Archive, FileDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useTree } from "@/catalog/parts";
 import type { ProjectView } from "@/editor/Editor";
@@ -8,7 +8,7 @@ import { PlacePicker, usePlaceTree } from "@/inventory/parts";
 import { today, type Doc } from "@/inventory/types";
 import { ApiError, get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { CancelJob, useJob, watchJob } from "@/lib/jobs";
+import { CancelJob, type Job, useJob, watchJob } from "@/lib/jobs";
 import type { BuildingSummary } from "@/pages/Buildings";
 import { lastBuilding } from "@/pages/PlanIndex";
 import { PageBody } from "@/shell/Shell";
@@ -226,6 +226,49 @@ function ParamField({ p, value, onChange, buildingId }: { p: Param; value: strin
 }
 
 const EXPORT_KEY = "full-export-job";
+const GONE = "Архива больше нет. Соберите выгрузку заново.";
+
+// R-027: архив удаляют по сроку, в резервной копии его нет — до скачивания сервер говорит, есть ли
+// он (HEAD), иначе браузер покажет лишь сбой загрузки; почему архива нет — в итоге задачи
+export function ArchiveLink({ job }: { job: Job }) {
+  const [gone, setGone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const deleted = typeof job.result?.deleted === "string" ? job.result.deleted : null;
+  const href = `/api/reports/exports/${job.id}`;
+  const fetchArchive = async (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    setError(null);
+    const head = await fetch(href, { method: "HEAD", credentials: "same-origin" }).catch(() => null);
+    if (head?.ok) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = "";
+      a.click();
+      return;
+    }
+    if (head?.status !== 404) return setError(head ? "Архив не скачался — попробуйте ещё раз." : "Нет связи с сервером.");
+    // у HEAD нет тела — почему архива нет, скажет GET: на удалённый архив ответ короткий
+    const body = await fetch(href, { credentials: "same-origin" })
+      .then((r) => r.json())
+      .catch(() => null);
+    setGone(body?.error?.message ?? GONE);
+  };
+  if (deleted || gone) {
+    return (
+      <p className="m-0 text-[13px] text-ink-2" role="status">
+        {deleted ?? gone}
+      </p>
+    );
+  }
+  return (
+    <>
+      <a href={href} download onClick={fetchArchive} className="text-[13px]">
+        Скачать архив
+      </a>
+      <FormError message={error} />
+    </>
+  );
+}
 
 // 7.4: архив здания — таблицы Excel и все файлы; фоновой задачей
 function FullExport({ building }: { building: BuildingSummary }) {
@@ -262,7 +305,7 @@ function FullExport({ building }: { building: BuildingSummary }) {
       </h2>
       <p className="m-0 text-[13px] text-ink-2">
         Архив: таблицы Excel (помещения, расстановка, имущество, остатки, документы, история) и все файлы — чертежи, подложки, фото и документы, 3D-модели. Его можно хранить отдельно и
-        прочитать без системы.
+        прочитать без системы. В системе архив хранится срок из «Настроек» и в резервные копии не входит — скачайте его и сохраните отдельно.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button variant="primary" disabled={!!running || start.isPending} onClick={() => start.mutate(false)}>
@@ -278,11 +321,7 @@ function FullExport({ building }: { building: BuildingSummary }) {
         </p>
       )}
       {running && <CancelJob job={job} />}
-      {job?.status === "done" && (
-        <a href={`/api/reports/exports/${job.id}`} download className="text-[13px]">
-          Скачать архив
-        </a>
-      )}
+      {job?.status === "done" && <ArchiveLink key={job.id} job={job} />}
       {job?.status === "failed" && <FormError message={job.error ?? "Выгрузка не удалась."} />}
       {job?.status === "cancelled" && <p className="m-0 text-[13px] text-ink-2">Выгрузка отменена.</p>}
       <FormError message={error} />
