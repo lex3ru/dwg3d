@@ -310,43 +310,46 @@ def strips(body, kind_of) -> list[Strip]:  # type: ignore[no-untyped-def]
             edges += [(a, b) for a, b in zip(cs, cs[1:], strict=False) if math.dist(a, b) > OVERLAP]
     if not edges:
         return []
-    lines = [LineString(e) for e in edges]
-    tree = STRtree(lines)
+    # пары граней ищет дерево, проверяют массивы: у тела стен части листа их миллионы (R-059)
+    e = np.array(edges, dtype=float)
+    a, b = e[:, 0], e[:, 1]
+    length = np.hypot(*(b - a).T)
+    d = (b - a) / length[:, None]
+    n = np.stack([-d[:, 1], d[:, 0]], axis=1)  # внутрь тела
+    lines = shapely.linestrings(e)
+    i, j = STRtree(lines).query(lines, predicate="dwithin", distance=MAX_T)
+    order = np.lexsort((j, i))
+    i, j = i[order], j[order]
+    i, j = i[i < j], j[i < j]
+    dot = lambda u, v: (u * v).sum(axis=1)  # noqa: E731
+    t = dot((a[j] + b[j]) / 2 - a[i], n[i])
+    s0 = np.minimum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])).clip(min=0)
+    s1 = np.minimum(np.maximum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])), length[i])
+    ok = (dot(d[i], d[j]) <= -PARALLEL) & (t >= MIN_T) & (t <= MAX_T) & (s1 - s0 >= OVERLAP)
+    i, t, s0, s1 = i[ok], t[ok], s0[ok], s1[ok]
+    p0 = a[i] + d[i] * s0[:, None]
+    p1 = a[i] + d[i] * s1[:, None]
+    shift = n[i] * t[:, None]
+    # пустота между двумя стенами — не стена: полоса между гранями — в теле стен хотя бы на
+    # 90 %. Сначала 15 точек полосы; точная площадь — только если внутри не все и не меньше 10
     near = body.buffer(5)
+    shapely.prepare(near)
+    samples = [p0 + (p1 - p0) * u + shift * w for u in (0.1, 0.3, 0.5, 0.7, 0.9)
+               for w in (0.25, 0.5, 0.75)]
+    inside = sum(shapely.contains_xy(near, s[:, 0], s[:, 1]).astype(int) for s in samples)
+    unsure = np.flatnonzero((inside >= 10) & (inside < len(samples)))
+    full = inside == len(samples)
+    if len(unsure):
+        bands = shapely.polygons(np.stack([p0[unsure], p1[unsure], p1[unsure] + shift[unsure],
+                                           p0[unsure] + shift[unsure]], axis=1))
+        full[unsure] = (shapely.area(shapely.intersection(bands, near))
+                        >= 0.9 * shapely.area(bands))
     out: list[Strip] = []
-    for i, (a, b) in enumerate(edges):
-        d = _unit(_sub(b, a))
-        n = (-d[1], d[0])  # внутрь тела
-        length = math.dist(a, b)
-        for j in tree.query(lines[i].buffer(MAX_T)):
-            j = int(j)
-            if j <= i:
-                continue
-            c, e = edges[j]
-            if _dot(d, _unit(_sub(e, c))) > -PARALLEL:
-                continue
-            mid = ((c[0] + e[0]) / 2, (c[1] + e[1]) / 2)
-            t = _dot(_sub(mid, a), n)
-            if not MIN_T <= t <= MAX_T:
-                continue
-            s0, s1 = sorted((_dot(_sub(c, a), d), _dot(_sub(e, a), d)))
-            s0, s1 = max(s0, 0.0), min(s1, length)
-            if s1 - s0 < OVERLAP:
-                continue
-            p0, p1 = _along(a, d, s0), _along(a, d, s1)
-            band = Polygon([p0, p1, _along(p1, n, t), _along(p0, n, t)])
-            if band.intersection(near).area < 0.9 * band.area:
-                continue  # пустота между двумя стенами
-            h = (n[0] * t / 2, n[1] * t / 2)
-            ma, mb = (p0[0] + h[0], p0[1] + h[1]), (p1[0] + h[0], p1[1] + h[1])
-            out.append(
-                Strip(
-                    ma,
-                    mb,
-                    round(t / 5) * 5,
-                    kind_of(Point((ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2), t),
-                )
-            )
+    for k in np.flatnonzero(full):
+        ma, mb = p0[k] + shift[k] / 2, p1[k] + shift[k] / 2
+        mid = Point((ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2)
+        out.append(Strip((float(ma[0]), float(ma[1])), (float(mb[0]), float(mb[1])),
+                         round(float(t[k]) / 5) * 5, kind_of(mid, float(t[k]))))
     return out
 
 

@@ -18,7 +18,9 @@ from app.modules.building.plan import Column, Opening, Plan, RoomLabel, Wall
 NODE = 5.0  # мм: точки ближе — один узел
 LONG = 1000.0  # мм: линия не короче — линия здания, а не штрих, значок или буква
 WALL_SHARE = 0.1  # длинных линий на слоях стен меньше этой доли от прочих — стены и на «0»
-END = 600.0  # мм: линия прочего слоя не дальше от обрыва стены — кандидат в окна (R-059)
+# мм: линия прочего слоя не дальше от обрыва стены — кандидат в окна (R-059); проёма шире не
+# бывает (walls.join, _bridge), а окно в широком проёме бывает нарисовано кусками
+END = walls.WIDE_MAX
 MAX_WINDOW_LINES = 20_000  # больше кандидатов — только самые длинные
 # этапы перевода части — ход виден и внутри части (R-059)
 STAGES = ("стены", "проёмы", "окна и витражи", "узлы и проверка", "помещения")
@@ -416,13 +418,16 @@ def _bridge(plan: Plan, window_lines: list[LineString]) -> None:
     lines = [LineString([plan.nodes[w.a], plan.nodes[w.b]]) for w in plan.walls]
     tree = STRtree(lines) if lines else None
     window_tree = STRtree(window_lines) if window_lines else None
+    # концы напротив — из дерева концов: на части листа их тысячи (R-059)
+    end_tree = STRtree([Point(e[1]) for e in ends]) if ends else None
     used: set[str] = set()
     n = len(plan.openings)
     for node, p, d, w in sorted(ends, key=lambda e: e[0]):
-        if node in used:
+        if node in used or end_tree is None:
             continue
         best = None
-        for other, q, dq, wq in ends:
+        near = sorted(int(k) for k in end_tree.query(Point(p), predicate="dwithin", distance=7000))
+        for other, q, dq, wq in (ends[k] for k in near):
             if other == node or other in used:
                 continue
             v = walls._sub(q, p)
@@ -492,8 +497,12 @@ def _bridge_to_walls(plan: Plan, used: set[str]) -> None:
         degree.setdefault(w.a, []).append(w)
         degree.setdefault(w.b, []).append(w)
     n = len(plan.openings)
+    # стены на пути луча — из дерева; разрезанные и новые стены — в конце списка, их мало
+    first = len(plan.walls)
+    tree = STRtree([LineString([plan.nodes[w.a], plan.nodes[w.b]]) for w in plan.walls]) \
+        if plan.walls else None
     for node, ws in list(degree.items()):
-        if len(ws) != 1 or node in used:
+        if len(ws) != 1 or node in used or tree is None:
             continue
         w = ws[0]
         other = w.b if w.a == node else w.a
@@ -501,7 +510,8 @@ def _bridge_to_walls(plan: Plan, used: set[str]) -> None:
         d = walls._unit(walls._sub(p, q))
         ray = LineString([p, walls._along(p, d, 2200)])
         best = None
-        for v in plan.walls:
+        crossed = sorted(int(k) for k in tree.query(ray))
+        for v in [plan.walls[k] for k in crossed] + plan.walls[first:]:
             if v is w or node in (v.a, v.b):
                 continue
             line = LineString([plan.nodes[v.a], plan.nodes[v.b]])
