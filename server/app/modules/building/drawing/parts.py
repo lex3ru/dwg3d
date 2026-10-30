@@ -119,8 +119,6 @@ def split(drawing: Drawing) -> list[Part]:
         part.floor_like = min(x1 - x0, y1 - y0) >= MIN_FLOOR and (
             part.kind == "plan" or (not part.kind and not planned))
         part.extra.pop("ortho", None)
-        if part.kind == "roof":
-            part.extra["roof"] = True
     return parts
 
 
