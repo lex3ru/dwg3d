@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError, post } from "@/lib/api";
-import { CancelJob, type Job } from "./jobs";
+import { CancelJob, inQueue, type Job } from "./jobs";
 
 vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), post: vi.fn() }));
 
@@ -53,4 +53,14 @@ test("задача успела завершиться — ошибки нет; 
   fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
   await screen.findByText("Нет связи с сервером.");
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отменить" }).disabled).toBe(false);
+});
+
+// R-067: перевод, вставший в полосе чертежей за другим, показывался как «Перевод…»
+test("задача в очереди дольше 3 с — ждёт очереди", () => {
+  const at = Date.parse("2026-10-30T10:00:00Z");
+  const queued = job("queued", { created_at: "2026-10-30T10:00:00.123456+00:00" });
+  expect(inQueue(queued, at + 2000)).toBe(false);
+  expect(inQueue(queued, at + 4000)).toBe(true);
+  expect(inQueue({ ...queued, status: "running" }, at + 60_000)).toBe(false);
+  expect(inQueue(job("queued"), at + 60_000)).toBe(false);
 });

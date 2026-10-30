@@ -19,6 +19,14 @@ export interface Job {
   error: string | null;
   cancel_requested?: boolean;
   result?: Record<string, unknown> | null;
+  created_at?: string;
+}
+
+/** Задача стоит в очереди дольше 3 с: обработчик обычно берёт её за доли секунды, а дольше — он
+ *  занят другой задачей той же полосы или не запущен (R-067). useJob спрашивает о задаче раз в
+ *  секунду — ответ меняется без своего таймера. */
+export function inQueue(job: Job | null | undefined, now = Date.now()): boolean {
+  return job?.status === "queued" && !!job.created_at && now - Date.parse(job.created_at) > 3000;
 }
 
 /** Задача завершилась: выполнена, не удалась или отменена (R-026). */
