@@ -401,7 +401,6 @@ class _Running:
     timeout: timedelta
     process: BaseProcess
     deadline: float
-    started: float
 
 
 def _start(job: Job, setup: Callable[[], Any] | None) -> _Running | None:
@@ -418,17 +417,19 @@ def _start(job: Job, setup: Callable[[], Any] | None) -> _Running | None:
     process.start()
     # начало, конец, отказ и отмена задачи — в журнал обработчика: по ним разбирают сбои (R-069)
     log.info("task %s %s: started", job.kind, job.id)
-    now = time.monotonic()
     return _Running(job.id, job.kind, definition.timeout, process,
-                    now + definition.timeout.total_seconds(), now)
+                    time.monotonic() + definition.timeout.total_seconds())
 
 
 def _finished(run: _Running) -> None:
     """Задача завершилась сама: выполнена или отказала — с причиной (R-069)."""
     with transaction() as s:
         job = s.get(Job, run.job_id)
-        status, error = (job.status, job.error) if job is not None else ("gone", None)
-    took = time.monotonic() - run.started
+        if job is None:
+            return
+        status, error = job.status, job.error
+        took = ((job.finished_at - job.started_at).total_seconds()
+                if job.finished_at and job.started_at else 0.0)
     if status == "done":
         log.info("task %s %s: done in %.1f s", run.kind, run.job_id, took)
     else:
