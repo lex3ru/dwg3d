@@ -602,6 +602,17 @@ def test_r070_a_caption_with_a_byte_outside_utf8_does_not_break_the_conversion(t
     assert {r.number: r.name for r in result.plan.rooms}["101"] == "Регистратура, м²"
 
 
+def test_r070_utf8_captions_of_an_old_dxf_without_codepage_stay_readable(tmp_path) -> None:
+    """DXF R12 без кодовой страницы читается как cp1252; байты UTF-8, которых в cp1252 нет
+    (второй байт «э» — 0x8D), приходят суррогатами и нужны, чтобы вернуть кириллицу."""
+    caption = "План 1-го этажа"
+    data = "\n".join(["0", "SECTION", "2", "ENTITIES", "0", "TEXT", "8", "0", "10", "0", "20",
+                      "0", "30", "0", "40", "500", "1", caption, "0", "ENDSEC", "0", "EOF", ""])
+    path = tmp_path / "r12.dxf"
+    path.write_bytes(data.encode())
+    assert [t.text for t in read.load(path).texts] == [caption]
+
+
 def test_r059_a_part_with_200k_short_lines_on_layer_0_converts_in_seconds(tmp_path) -> None:
     """Стены на своих слоях, а на «0» в помещении — 200 000 коротких штрихов (штриховки,
     текст линиями). До исправления все они — кандидаты в окна: перевод части — минуты и
