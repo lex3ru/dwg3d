@@ -920,3 +920,24 @@ def test_r065_the_new_floor_elevation_comes_from_its_name(admin) -> None:
         pass
     floors = admin.get(f"/api/buildings/{b['id']}").json()["floors"]
     assert [(f["name"], f["elevation"]) for f in floors] == [("Второй", 3300)]
+
+
+def test_r066_an_open_plan_is_not_reported_as_clean(tmp_path) -> None:
+    """Угол наружных стен не дорисован: стены обрываются ни к чему не примкнув, правое
+    помещение не замкнуто. Проверка 5.1.5 этого не видит, и до исправления итог части —
+    «без замечаний проверки»; должно — в итоге видно, что план не замкнут: концы стен без
+    примыкания и малая доля этажа в помещениях (R-066)."""
+    path = tmp_path / "угол.dxf"
+    path.write_bytes(boxes_dxf(1, open_corner=True))
+    drawing = read.load(path)
+    stats = convert.convert(drawing, parts.split(drawing)[0].bbox).stats
+    assert stats["issues"] == 0, stats
+    assert stats["open_ends"] >= 2 and stats["covered"] < convert.MIN_COVERED, stats
+    assert stats["closed"] is False, stats
+
+    path = tmp_path / "план.dxf"
+    path.write_bytes(sample_dxf())
+    drawing = read.load(path)
+    stats = convert.convert(drawing, parts.split(drawing)[0].bbox).stats
+    assert stats["open_ends"] == 0 and stats["covered"] >= 75, stats
+    assert stats["closed"] is True, stats

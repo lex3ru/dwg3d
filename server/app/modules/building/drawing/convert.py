@@ -1,6 +1,7 @@
 """Часть чертежа → план этажа (5.1.3 п. 2–3)."""
 
 import math
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,11 @@ END = walls.WIDE_MAX
 MAX_WINDOW_LINES = 20_000  # больше кандидатов — только самые длинные
 # этапы перевода части — ход виден и внутри части (R-059)
 STAGES = ("стены", "проёмы", "окна и витражи", "узлы и проверка", "помещения")
+# план не замкнут (R-066): помещения покрывают меньшую долю очертания этажа, %. Проверка 5.1.5
+# этого не видит, а итог обещал бы готовый план. На тестовых чертежах у годных планов — 85–98 %,
+# у планов с оборванными стенами — 45–64 %. Концы стен без примыкания есть и у годных (мебель,
+# стойки, ограждения: 10–20 % стен) — только подсказка, где искать
+MIN_COVERED = 70
 HEIGHTS = {
     "door": (2100.0, 0.0),
     "window": (1500.0, 800.0),
@@ -181,6 +187,7 @@ def convert(drawing: Drawing, bbox: tuple[float, float, float, float],
     labels, labelled = _labels(drawing, bbox, analysis.rooms, noise)
     plan.rooms = labels
     final = geometry.analyze(plan)
+    ends, covered = _closure(plan, final)
     result = Result(plan, notes)
     result.stats = {
         "walls": len(plan.walls),
@@ -191,10 +198,24 @@ def convert(drawing: Drawing, bbox: tuple[float, float, float, float],
         "issues": len(final.issues),
         "doors": sum(o.kind == "door" for o in plan.openings),
         "windows": sum(o.kind in ("window", "glazing") for o in plan.openings),
+        "open_ends": ends,
+        "covered": covered,
+        "closed": covered >= MIN_COVERED,
     }
     if done:
         result.notes.append("Исправлено при переводе: " + "; ".join(done))
     return result
+
+
+def _closure(plan: Plan, analysis: geometry.Analysis) -> tuple[int, int]:
+    """Замкнут ли план (R-066): концы стен, ни к чему не примкнувшие, и доля очертания этажа
+    (перекрытия), которую покрывают помещения, %. У стены, оборванной разрывом, оба счёта
+    видны: концы торчат, помещения вдоль разрыва не замкнуты."""
+    used = Counter(n for w in plan.walls for n in (w.a, w.b))
+    ends = sum(1 for n in used.values() if n == 1)
+    outline = sum(p.area for p in analysis.slabs)
+    rooms = sum(r.polygon.area for r in analysis.rooms)
+    return ends, round(100 * rooms / outline) if outline else 0
 
 
 # ---------------------------------------------------------------- колонны
