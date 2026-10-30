@@ -16,6 +16,8 @@
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+import shapely
 from shapely import STRtree, unary_union
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.geometry.polygon import orient
@@ -92,28 +94,39 @@ def is_thin(poly: Polygon, max_t: float = MAX_T) -> bool:
 # ---------------------------------------------------------------- 1. масса стен
 
 
+def lines_of(segs: list[Seg]) -> np.ndarray:
+    """Отрезки — массивом линий shapely: сотни тысяч за доли секунды (R-059)."""
+    if not segs:
+        return np.empty(0, dtype=object)
+    return shapely.linestrings(np.array([(s.a, s.b) for s in segs], dtype=float))
+
+
 def _components(segs: list[Seg]) -> list[list[int]]:
-    """Связные группы отрезков (касание в пределах SNAP)."""
-    lines = [LineString([s.a, s.b]) for s in segs]
-    tree = STRtree(lines)
-    parent = list(range(len(segs)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for i, line in enumerate(lines):
-        for j in tree.query(line.buffer(SNAP)):
-            j = int(j)
-            if j > i and lines[j].distance(line) <= SNAP:
-                ri, rj = find(i), find(j)
-                if ri != rj:
-                    parent[ri] = rj
+    """Связные группы отрезков (касание в пределах SNAP). Пары соседей ищет одним запросом
+    дерево, группы сливаются по массивам: на сотнях тысяч отрезков — секунды, а не минуты
+    (R-059)."""
+    if not segs:
+        return []
+    lines = lines_of(segs)
+    left, right = STRtree(lines).query(lines, predicate="dwithin", distance=SNAP)
+    keep = left < right
+    left, right = left[keep], right[keep]
+    parent = np.arange(len(segs))
+    while True:
+        a, b = parent[left], parent[right]
+        differ = a != b
+        if not differ.any():
+            break
+        # корень с большим номером подвешивается к меньшему, затем пути сжимаются до корней
+        np.minimum.at(parent, np.maximum(a[differ], b[differ]), np.minimum(a[differ], b[differ]))
+        while True:
+            up = parent[parent]
+            if np.array_equal(up, parent):
+                break
+            parent = up
     groups: dict[int, list[int]] = {}
-    for i in range(len(segs)):
-        groups.setdefault(find(i), []).append(i)
+    for i, root in enumerate(parent.tolist()):
+        groups.setdefault(root, []).append(i)
     return list(groups.values())
 
 

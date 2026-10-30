@@ -1,30 +1,43 @@
 """Что значит слой чертежа — по его названию. Названия слоёв у проектировщиков разные,
-поэтому роли угадываются по частям слов; неизвестный слой в стены не идёт."""
+поэтому роль угадывается по началу слов названия; неизвестный слой в стены не идёт."""
 
 import re
 
 ROLES: list[tuple[str, tuple[str, ...]]] = [
-    # порядок важен: первое совпадение решает
+    # порядок важен: первое совпадение решает; слово названия должно начинаться с корня
     (
         "ignore",
         (
             "размер",
             "dim",
+            "bemaß",
+            "bemass",
+            "maß",
             "ось",
             "оси",
+            "осей",
+            "осев",
             "axis",
+            "axes",
+            "achs",
             "grid",
+            "raster",
             "текст",
             "text",
+            "schrift",
+            "beschrift",
             "надпис",
             "формат",
             "лист",
             "рамк",
             "frame",
+            "rahmen",
             "title",
+            "plankopf",
             "штамп",
             "мебел",
             "furn",
+            "möbel",
             "сантех",
             "оборуд",
             "equip",
@@ -48,20 +61,28 @@ ROLES: list[tuple[str, tuple[str, ...]]] = [
             "мусор",
         ),
     ),
-    ("window", ("окн", "окон", "window", "витраж", "glaz")),
-    ("door", ("двер", "door", "ворот")),
-    ("column", ("колон", "column", "пилон", "двутавр", "стойк")),
-    ("stair", ("лестн", "stair", "марш", "ступен")),
-    ("lift", ("лифт", "lift", "elev")),
-    ("partition", ("перегор", "partition", "гипсок", "гкл")),
+    ("window", ("окн", "окон", "window", "fenster", "витраж", "glaz")),
+    ("door", ("двер", "door", "tür", "ворот")),
+    ("column", ("колон", "column", "stütz", "пилон", "двутавр", "стойк")),
+    ("stair", ("лестн", "stair", "trepp", "марш", "ступен")),
+    ("lift", ("лифт", "lift", "elev", "aufzug")),
+    ("partition", ("перегор", "partition", "trennw", "гипсок", "гкл")),
     (
         "wall",
         (
+            # «блок» — не стены: так называют и функциональные блоки, зоны (R-058)
             "стен",
             "wall",
+            "wand",
+            "wände",
+            "mauer",
             "кирпич",
-            "блок",
+            "газоблок",
+            "пеноблок",
             "бетон",
+            "газобетон",
+            "пенобетон",
+            "железобетон",
             "жб",
             "монолит",
             "несущ",
@@ -71,14 +92,29 @@ ROLES: list[tuple[str, tuple[str, ...]]] = [
             "insul",
         ),
     ),
-    ("fill", ("штрих", "hatch")),
+    ("fill", ("штрих", "hatch", "schraff")),
 ]
+
+# латинские буквы, неотличимые от кириллицы: «Cтены» с латинской C — это «Стены»
+LOOKALIKE = str.maketrans("aceopxykmthb", "асеорхукмтнв")
+CYRILLIC = re.compile(r"[а-яё]")
+
+
+def words(layer: str) -> list[str]:
+    """Слова названия слоя: «A-WALL_ext» → a, wall, ext; «НесущиеСтены» → несущие, стены."""
+    split = re.sub(r"(?<=[a-zа-яёß])(?=[A-ZА-ЯЁ])", " ", layer).lower().replace("ё", "е")
+    out = []
+    for word in re.findall(r"[a-zа-яäöüß]+", split):
+        if CYRILLIC.search(word):
+            word = word.translate(LOOKALIKE)
+        out.append(word)
+    return out
 
 
 def role(layer: str) -> str:
-    name = layer.lower()
-    for role_name, words in ROLES:
-        if any(w in name for w in words):
+    found = words(layer)
+    for role_name, roots in ROLES:
+        if any(w.startswith(roots) for w in found):
             return role_name
     return "other"
 
