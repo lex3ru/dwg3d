@@ -2,21 +2,25 @@
 остатки, документы, история) и всеми файлами (чертежи, подложки, фото и документы имущества,
 3D-модели каталога) — чтобы данные учреждения можно было хранить отдельно и прочитать без
 системы. Длительная операция (6.6): фоновая задача с ходом выполнения; по окончании —
-сообщение со ссылкой на архив."""
+сообщение со ссылкой на архив.
+
+Архив — почти все файлы системы ещё раз, поэтому он хранится срок из «Настроек» и не входит
+в резервные копии: его скачивают и хранят отдельно (R-027, ADR-0024)."""
 
 import re
 import uuid
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import report, tasks
 from app.core.actor import Actor
 from app.core.config import config
-from app.core.errors import Forbidden, NotFound
+from app.core.errors import AppError, Forbidden, NotFound
 from app.modules.access import api as access
 from app.modules.building import api as building
 from app.modules.catalog import api as catalog
@@ -24,6 +28,14 @@ from app.modules.files import api as files
 from app.modules.inventory import api as inventory
 from app.modules.journal import api as journal
 from app.modules.planning import api as planning
+from app.modules.system import api as system
+
+TASK = "reports.full_export"
+# почему архива нет — в итоге выгрузки, для ссылки и карточки «Полная выгрузка» (R-027)
+EXPIRED = ("Архив удалён {at:%d.%m.%Y} — истёк срок хранения из «Настроек». "
+           "Соберите выгрузку заново.")
+VANISHED = ("Архива больше нет — например, после восстановления резервной копии: архивы "
+            "в неё не входят. Соберите выгрузку заново.")
 
 README = """Полная выгрузка: {name}
 Сформирована: {at:%d.%m.%Y %H:%M}
@@ -56,6 +68,17 @@ def exports_dir() -> Path:
     return path
 
 
+def _days(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 365:
+        raise AppError("Срок хранения архивов — целое число дней от 1 до 365.")
+    return value
+
+
+def register_settings() -> None:
+    system.register("export_days", system.SettingDef(
+        "Срок хранения архивов полной выгрузки, дней", 30, _days))
+
+
 def start(session: Session, actor: Actor, building_id: uuid.UUID | None) -> uuid.UUID:
     if not actor.is_admin:
         raise Forbidden()
@@ -63,7 +86,7 @@ def start(session: Session, actor: Actor, building_id: uuid.UUID | None) -> uuid
         building.get_building(session, actor, building_id)
     return tasks.enqueue(
         session,
-        "reports.full_export",
+        TASK,
         {"building_id": str(building_id) if building_id else None, "user_id": str(actor.user_id)},
         actor,
     )
@@ -131,7 +154,62 @@ def _floor_tables(session: Session, actor: Actor, b: Any) -> tuple[report.Report
     return rooms, layout
 
 
-@tasks.task("reports.full_export", "Полная выгрузка", timeout=timedelta(minutes=60))
+def sweep(session: Session, expired_before: datetime | None = None) -> int:
+    """Удалить ненужные архивы (R-027): недособранные — упавших и отменённых выгрузок — и
+    оставшиеся без задачи; с expired_before — и готовые, собранные раньше. Архивы ждущих и
+    идущих выгрузок остаются. Возвращает, сколько удалено."""
+    removed = 0
+    for path in exports_dir().glob("*.zip"):
+        try:
+            job = session.get(tasks.Job, uuid.UUID(path.stem))
+        except ValueError:
+            continue
+        ours = job is not None and job.kind == TASK
+        if ours and job.status in ("queued", "running"):
+            continue
+        done = ours and job.status == "done"
+        if done and (expired_before is None or job.finished_at >= expired_before):
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:  # Windows: файл ещё открыт — уберёт следующая уборка
+            continue
+        removed += 1
+        if done:
+            _forget(job, EXPIRED.format(at=date.today()))
+    return removed
+
+
+def _forget(job: tasks.Job, why: str) -> None:
+    job.result = {**(job.result or {}), "deleted": why,
+                  "deleted_at": datetime.now(UTC).isoformat()}
+
+
+def _unfinished(session: Session, _payload: dict[str, Any], _reason: str) -> None:
+    """Выгрузка упала или отменена — недособранный архив удаляется сразу (R-027). Какой из
+    архивов её, уборка поймёт сама: статус задачи к этому времени уже стоит."""
+    sweep(session)
+
+
+@tasks.task("reports.purge_exports", "Удаление архивов полной выгрузки по сроку",
+            every=timedelta(hours=1))
+def purge(session: Session, _payload: dict[str, Any], _progress: tasks.Progress
+          ) -> dict[str, Any]:
+    days = system.get(session, "export_days")
+    removed = sweep(session, datetime.now(UTC) - timedelta(days=days))
+    # архив пропал без уборки — восстановили резервную копию, а архивов в ней нет
+    for job in session.scalars(select(tasks.Job).where(tasks.Job.kind == TASK,
+                                                       tasks.Job.status == "done")):
+        if not (job.result or {}).get("deleted") and not (exports_dir() / f"{job.id}.zip"
+                                                          ).exists():
+            _forget(job, VANISHED)
+    if removed:
+        journal.record(session, None, "reports.purge_exports",
+                       f"Удалено архивов полной выгрузки: {removed}", entity="settings:system")
+    return {"removed": removed}
+
+
+@tasks.task(TASK, "Полная выгрузка", timeout=timedelta(minutes=60), on_fail=_unfinished)
 def run(session: Session, payload: dict[str, Any], progress: tasks.Progress) -> dict[str, Any]:
     account = access.get(session, uuid.UUID(payload["user_id"]))
     actor = access.actor_of(account)
@@ -319,7 +397,9 @@ def export_file(session: Session, actor: Actor, job_id: uuid.UUID) -> tuple[Path
     if not actor.is_admin:
         raise Forbidden()
     job = session.get(tasks.Job, job_id)
-    path = exports_dir() / f"{job_id}.zip"
-    if job is None or job.kind != "reports.full_export" or not path.exists():
+    if job is None or job.kind != TASK or job.status != "done":
         raise NotFound("Выгрузка не найдена — возможно, её уже удалили.")
+    path = exports_dir() / f"{job_id}.zip"
+    if not path.exists():
+        raise NotFound((job.result or {}).get("deleted") or VANISHED)
     return path, str((job.result or {}).get("file") or "Выгрузка.zip")
