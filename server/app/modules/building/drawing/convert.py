@@ -1,6 +1,7 @@
 """Часть чертежа → план этажа (5.1.3 п. 2–3)."""
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +16,14 @@ from app.modules.building.drawing.read import Drawing, Seg
 from app.modules.building.plan import Column, Opening, Plan, RoomLabel, Wall
 
 NODE = 5.0  # мм: точки ближе — один узел
+LONG = 1000.0  # мм: линия не короче — линия здания, а не штрих, значок или буква
+WALL_SHARE = 0.1  # длинных линий на слоях стен меньше этой доли от прочих — стены и на «0»
+# мм: линия прочего слоя не дальше от обрыва стены — кандидат в окна (R-059); проёма шире не
+# бывает (walls.join, _bridge), а окно в широком проёме бывает нарисовано кусками
+END = walls.WIDE_MAX
+MAX_WINDOW_LINES = 20_000  # больше кандидатов — только самые длинные
+# этапы перевода части — ход виден и внутри части (R-059)
+STAGES = ("стены", "проёмы", "окна и витражи", "узлы и проверка", "помещения")
 HEIGHTS = {
     "door": (2100.0, 0.0),
     "window": (1500.0, 800.0),
@@ -42,16 +51,63 @@ def _inside(bbox: tuple[float, float, float, float], p: tuple[float, float]) -> 
     return bbox[0] - 1 <= p[0] <= bbox[2] + 1 and bbox[1] - 1 <= p[1] <= bbox[3] + 1
 
 
-def convert(drawing: Drawing, bbox: tuple[float, float, float, float]) -> Result:
+def _has_walls(segs: list[Seg], roles: dict[str, str]) -> bool:
+    """Стены части — на слоях стен, а не на «0» и прочих: длинных линий на слоях стен хотя бы
+    WALL_SHARE от длинных линий прочих слоёв. Слой стен с одним обрывком или значками — не
+    повод терять здание, начерченное на «0» (R-058). Штриховки и текст линиями — короткие и
+    не в счёт."""
+    length = {"wall": 0.0, "other": 0.0}
+    for s in segs:
+        r = roles[s.layer]
+        d = math.dist(s.a, s.b)
+        if d >= LONG:
+            if r in ("wall", "partition"):
+                length["wall"] += d
+            elif r == "other":
+                length["other"] += d
+    return length["wall"] > 0 and length["wall"] >= WALL_SHARE * length["other"]
+
+
+def _near_ends(segs: list[Seg], strips: list[walls.Strip], notes: list[str]) -> list[Seg]:
+    """Линии прочих слоёв у обрывов стен — там, где бывает окно (R-059): полоса шириной со
+    стену на END за каждым концом полосы стены. Фигура, задевшая полосу, берётся целиком.
+    Остальное (штриховки, мебель, текст линиями — сотни тысяч линий) в окна не годится."""
+    if not segs or not strips:
+        return []
+    bands = []
+    for s in strips:
+        d = walls._unit(walls._sub(s.b, s.a))
+        n = (-d[1], d[0])
+        h = s.t / 2 + 100
+        for p, out in ((s.a, (-d[0], -d[1])), (s.b, d)):
+            p0, p1 = walls._along(p, out, -50), walls._along(p, out, END)
+            bands.append(Polygon([walls._along(p0, n, h), walls._along(p1, n, h),
+                                  walls._along(p1, n, -h), walls._along(p0, n, -h)]))
+    _, hit = STRtree(walls.lines_of(segs)).query(bands, predicate="intersects")
+    shapes = {segs[int(i)].shape for i in hit}
+    out = [s for s in segs if s.shape in shapes]
+    if len(out) > MAX_WINDOW_LINES:
+        out = sorted(out, key=lambda s: -math.dist(s.a, s.b))[:MAX_WINDOW_LINES]
+        notes.append(f"Окна на слоях без роли искались по {MAX_WINDOW_LINES} самым длинным "
+                     "линиям у обрывов стен: их там слишком много")
+    return out
+
+
+def convert(drawing: Drawing, bbox: tuple[float, float, float, float],
+            step: Callable[[int, str], None] | None = None) -> Result:
+    """step(i, этап) — перед каждым этапом из STAGES, чтобы ход был виден внутри части."""
+
+    def stage(i: int) -> None:
+        if step is not None:
+            step(i, STAGES[i])
+
+    stage(0)
     segs = [s for s in drawing.segs if _inside(bbox, s.a) and _inside(bbox, s.b)]
     roles = {s.layer: role(s.layer) for s in segs}
-    has_walls = any(r in ("wall", "partition") for r in roles.values())
+    has_walls = _has_walls(segs, roles)
     wall_roles = {"wall", "partition"} if has_walls else {"wall", "partition", "other"}
     wall_segs = [s for s in segs if roles[s.layer] in wall_roles]
     column_segs = [s for s in segs if roles[s.layer] == "column"]
-    # окна бывают и на слое окон, и блоками на слое «0»: в проёме стены годятся оба
-    window_roles = {"window", "other"} if has_walls else {"window"}
-    window_lines = [LineString([s.a, s.b]) for s in segs if roles[s.layer] in window_roles]
     arcs = [a for a in drawing.arcs if _inside(bbox, a.center) and role(a.layer) != "ignore"]
     fills = [
         f
@@ -79,9 +135,17 @@ def convert(drawing: Drawing, bbox: tuple[float, float, float, float]) -> Result
         return "bearing" if t >= 180 else "partition"
 
     strips = walls.strips(body, kind_of)
+    stage(1)
+    notes: list[str] = []
+    # окна бывают и на слое окон, и блоками на слое «0»: в проёме стены годятся оба, но из
+    # прочих слоёв — только линии у обрывов стен
+    window_segs = [s for s in segs if roles[s.layer] == "window"]
+    if has_walls:
+        window_segs += _near_ends([s for s in segs if roles[s.layer] == "other"], strips, notes)
+    window_lines = [LineString([s.a, s.b]) for s in window_segs]
     joined, gaps = walls.join(strips, body, window_lines, arcs)
+    stage(2)
     # окна, витражи между простенками: полосы из линий окон, не попавшие в проёмы стен
-    window_segs = [s for s in segs if roles[s.layer] in window_roles]
     window_body, _, _ = walls.mass(window_segs, [])
     reach = body.buffer(150)
     hug = body.buffer(250)
@@ -100,6 +164,7 @@ def convert(drawing: Drawing, bbox: tuple[float, float, float, float]) -> Result
     ]
     both = unary_union([body, window_body])
     extended = walls.extend(joined + window_strips, both)
+    stage(3)
     plan, glazed = _graph(extended)
     _openings(plan, gaps)
     _glazing(plan, glazed)
@@ -111,11 +176,12 @@ def convert(drawing: Drawing, bbox: tuple[float, float, float, float]) -> Result
     plan, more = geometry.fix(plan)
     done += more
     _drop_crowded_openings(plan)
+    stage(4)
     analysis = geometry.analyze(plan)
     labels, labelled = _labels(drawing, bbox, analysis.rooms, noise)
     plan.rooms = labels
     final = geometry.analyze(plan)
-    result = Result(plan)
+    result = Result(plan, notes)
     result.stats = {
         "walls": len(plan.walls),
         "openings": len(plan.openings),
@@ -352,13 +418,16 @@ def _bridge(plan: Plan, window_lines: list[LineString]) -> None:
     lines = [LineString([plan.nodes[w.a], plan.nodes[w.b]]) for w in plan.walls]
     tree = STRtree(lines) if lines else None
     window_tree = STRtree(window_lines) if window_lines else None
+    # концы напротив — из дерева концов: на части листа их тысячи (R-059)
+    end_tree = STRtree([Point(e[1]) for e in ends]) if ends else None
     used: set[str] = set()
     n = len(plan.openings)
     for node, p, d, w in sorted(ends, key=lambda e: e[0]):
-        if node in used:
+        if node in used or end_tree is None:
             continue
         best = None
-        for other, q, dq, wq in ends:
+        near = sorted(int(k) for k in end_tree.query(Point(p), predicate="dwithin", distance=7000))
+        for other, q, dq, wq in (ends[k] for k in near):
             if other == node or other in used:
                 continue
             v = walls._sub(q, p)
@@ -428,8 +497,12 @@ def _bridge_to_walls(plan: Plan, used: set[str]) -> None:
         degree.setdefault(w.a, []).append(w)
         degree.setdefault(w.b, []).append(w)
     n = len(plan.openings)
+    # стены на пути луча — из дерева; разрезанные и новые стены — в конце списка, их мало
+    first = len(plan.walls)
+    tree = STRtree([LineString([plan.nodes[w.a], plan.nodes[w.b]]) for w in plan.walls]) \
+        if plan.walls else None
     for node, ws in list(degree.items()):
-        if len(ws) != 1 or node in used:
+        if len(ws) != 1 or node in used or tree is None:
             continue
         w = ws[0]
         other = w.b if w.a == node else w.a
@@ -437,7 +510,8 @@ def _bridge_to_walls(plan: Plan, used: set[str]) -> None:
         d = walls._unit(walls._sub(p, q))
         ray = LineString([p, walls._along(p, d, 2200)])
         best = None
-        for v in plan.walls:
+        crossed = sorted(int(k) for k in tree.query(ray))
+        for v in [plan.walls[k] for k in crossed] + plan.walls[first:]:
             if v is w or node in (v.a, v.b):
                 continue
             line = LineString([plan.nodes[v.a], plan.nodes[v.b]])

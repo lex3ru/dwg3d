@@ -21,6 +21,7 @@ from app.modules.files import api as files
 from app.modules.journal import api as journal
 
 MIN_FLOOR = 5000.0  # мм: часть меньше — подпись, штамп, таблица; по умолчанию не этаж
+MAX_SCALE = 10_000.0  # 1:10 000 — мельче планов здания не чертят
 
 
 def _plain(value: Any) -> Any:
@@ -41,6 +42,8 @@ def view(d: Drawing, full: bool = False) -> dict[str, Any]:
         "created_at": d.created_at,
         "parts": len(parts),
         "results": d.results or {},
+        "scale": d.scale,
+        "sheet": d.sheet or {},
         "file_url": f"/api/files/{d.file_id}",
     }
     if full:
@@ -64,6 +67,7 @@ def upload(
         status="analyzing",
         parts=[],
         results={},
+        sheet={},
         created_by=actor.user_id,
     )
     session.add(drawing)
@@ -106,6 +110,37 @@ def get(session: Session, actor: Actor, drawing_id: uuid.UUID) -> Drawing:
     if drawing is None:
         raise NotFound("Чертёж не найден.")
     api.get_building(session, actor, drawing.building_id)
+    return drawing
+
+
+def set_scale(
+    session: Session, actor: Actor, drawing_id: uuid.UUID, scale: float | None
+) -> Drawing:
+    """Масштаб листа задан администратором (None — снова по чертежу): чертёж разбирается
+    заново; части теперь другие, итоги прежнего перевода к ним не относятся (ADR-0025)."""
+    if not actor.is_admin:
+        raise Forbidden()
+    drawing = get(session, actor, drawing_id)
+    if drawing.status in ("analyzing", "converting"):
+        raise AppError("Чертёж ещё обрабатывается — дождитесь окончания.", code="busy")
+    if scale is not None and not 0 < scale <= MAX_SCALE:
+        raise AppError(f"Масштаб — от 1:1 до 1:{MAX_SCALE:.0f}.", field="scale")
+    drawing.scale = scale
+    drawing.status, drawing.error = "analyzing", None
+    drawing.parts, drawing.results, drawing.sheet = [], {}, {}
+    drawing.job_id = tasks.enqueue(
+        session, "building.analyze_drawing", {"drawing_id": str(drawing.id)}, actor
+    )
+    journal.record(
+        session,
+        actor,
+        "drawing.scale",
+        f"Чертёж «{drawing.name}»: масштаб "
+        + (f"1:{scale:g}" if scale is not None else "— по чертежу")
+        + ", разбирается заново",
+        entity=f"drawing:{drawing.id}",
+        refs=[f"building:{drawing.building_id}"],
+    )
     return drawing
 
 
@@ -157,7 +192,7 @@ def _load(session: Session, drawing: Drawing):  # type: ignore[no-untyped-def]
     from app.modules.building.drawing import read
 
     record = files.get(session, drawing.file_id)
-    return read.load(files.path_of(record.sha256))
+    return read.load(files.path_of(record.sha256), drawing.scale)
 
 
 def _not_done(session: Session, payload: dict[str, Any], error: str) -> None:
@@ -209,6 +244,15 @@ def analyze_drawing(
         }
         for p in found
     ])
+    largest = float(max((max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]) for p in found),
+                        default=0))
+    # ни одной части размером с этаж — похоже, чертёж в масштабе листа (R-057, ADR-0025)
+    drawing.sheet = {
+        "scale": loaded.scale,
+        "by": loaded.scale_by,
+        "largest": round(largest),
+        "small": largest < MIN_FLOOR,
+    }
     drawing.status = "ready" if found else "failed"
     if not found:
         drawing.error = "На чертеже не нашлось ни одного плана: нет линий стен."
@@ -229,16 +273,22 @@ def convert_drawing(
     account = access.get(session, uuid.UUID(payload["actor_id"]))
     actor = access.actor_of(account)
     mapping = payload["mapping"]
-    total = len(mapping) + 1
+    # ход — по этапам каждой части: тяжёлая часть не стоит на одном делении (R-059)
+    stages = len(convert.STAGES)
+    total = len(mapping) * stages + 1
     progress(0, total, "Чтение чертежа")
     loaded = _load(session, drawing)
     parts = {p["key"]: p for p in drawing.parts}
     results: dict[str, Any] = dict(drawing.results or {})
     converted = []
-    for i, m in enumerate(mapping, 1):
+    for i, m in enumerate(mapping):
         part = parts[m["key"]]
-        progress(i, total, f"Перевод: {part.get('name') or m['key']}")
-        converted.append(convert.convert(loaded, tuple(part["bbox"])))  # type: ignore[arg-type]
+        title = part.get("name") or m["key"]
+
+        def step(k: int, what: str, i: int = i, title: str = title) -> None:
+            progress(1 + i * stages + k, total, f"Перевод: {title} — {what}")
+
+        converted.append(convert.convert(loaded, tuple(part["bbox"]), step))  # type: ignore[arg-type]
     how = _align(session, drawing.building_id, mapping, [r.plan for r in converted])
     for m, result, placed in zip(mapping, converted, how, strict=True):
         if placed:

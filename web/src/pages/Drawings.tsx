@@ -35,6 +35,14 @@ interface PartResult {
   notes: string[];
 }
 
+// что нашёл разбор о масштабе листа (ADR-0025)
+interface SheetInfo {
+  scale?: number;
+  by?: "units" | "dimensions" | "admin";
+  largest?: number;
+  small?: boolean;
+}
+
 interface DrawingInfo {
   id: string;
   name: string;
@@ -44,7 +52,18 @@ interface DrawingInfo {
   created_at: string;
   parts: PartInfo[] | number;
   results: Record<string, PartResult>;
+  scale: number | null;
+  sheet: SheetInfo;
 }
+
+const SCALES = [1, 50, 100, 200, 250, 500, 1000];
+const SCALE_BY: Record<NonNullable<SheetInfo["by"]>, string> = {
+  units: "как начерчен",
+  dimensions: "по размерам чертежа",
+  admin: "задан вручную",
+};
+
+const metres = (mm: number) => (mm / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 
 const STATUS: Record<DrawingInfo["status"], [string, Tone]> = {
   analyzing: ["разбирается", "muted"],
@@ -189,10 +208,22 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
       </div>
     );
   }
-  if (d.status === "failed") return <div className="border-t border-line px-3 py-3 text-sm text-bad">{d.error}</div>;
+  const rescaled = () => {
+    // части после разбора — другие: выбор этажей заново
+    setChoice({});
+    setNames({});
+  };
+  if (d.status === "failed")
+    return (
+      <div className="flex flex-col gap-3 border-t border-line px-3 py-3">
+        <div className="text-sm text-bad">{d.error}</div>
+        <SheetScale key={String(d.scale)} drawing={d} buildingId={buildingId} onChange={rescaled} />
+      </div>
+    );
   const existing = parts.filter((p) => choice[p.key] && choice[p.key] !== "new" && floors.find((f) => f.id === choice[p.key])?.walls);
   return (
     <div className="flex flex-col gap-3 border-t border-line px-3 py-3">
+      <SheetScale key={String(d.scale)} drawing={d} buildingId={buildingId} onChange={rescaled} />
       {d.error && (
         <p className="m-0 rounded-lg bg-bad-soft px-3 py-2 text-[13px] text-bad" role="alert">
           Перевод не выполнен: {d.error} Планы этажей не изменились — перевод можно повторить.
@@ -212,7 +243,7 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
                 {p.roof && <span className="font-normal text-ink-2"> — кровля, не этаж</span>}
               </div>
               <div className="text-[12px] text-ink-2">
-                {(p.width / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} × {(p.height / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} м
+                {metres(p.width)} × {metres(p.height)} м
               </div>
               <label className="flex flex-col gap-1 text-[12px] text-ink-2">
                 Этаж
@@ -265,6 +296,69 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
           Перевести в планы
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Масштаб листа: как он определён, предупреждение, если на листе нет части размером с этаж, и
+// выбор масштаба — чертёж разбирается заново (5.1.3 п. 1, R-057, ADR-0025)
+function SheetScale({ drawing, buildingId, onChange }: { drawing: DrawingInfo; buildingId: string; onChange: () => void }) {
+  const client = useQueryClient();
+  const current = drawing.scale === null ? "" : String(drawing.scale);
+  const [value, setValue] = useState(current);
+  const [error, setError] = useState<string | null>(null);
+  const apply = useMutation({
+    mutationFn: () => post<DrawingInfo>(`/api/drawings/${drawing.id}/scale`, { scale: value ? Number(value) : null }),
+    onSuccess: (r) => {
+      onChange();
+      if (r.job_id) watchJob({ id: r.job_id, title: `Разбор чертежа «${r.name}»`, href: `/buildings?b=${buildingId}` });
+      client.invalidateQueries({ queryKey: ["drawing", drawing.id] });
+      client.invalidateQueries({ queryKey: ["drawings", buildingId] });
+    },
+    onError: (e) => setError((e as ApiError).message),
+  });
+  const sheet = drawing.sheet ?? {};
+  const options = drawing.scale === null || SCALES.includes(drawing.scale) ? SCALES : [...SCALES, drawing.scale].sort((a, b) => a - b);
+  const converted = Object.keys(drawing.results).length > 0;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+        {sheet.scale !== undefined && sheet.by && (
+          <span className="text-ink-2">
+            Масштаб листа 1:{sheet.scale.toLocaleString("ru-RU")} — {SCALE_BY[sheet.by]}.
+          </span>
+        )}
+        <select
+          aria-label="Масштаб листа"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="h-8 rounded-md border border-line-strong bg-surface px-1.5 text-[13px] text-ink max-md:h-11"
+        >
+          <option value="">масштаб — по чертежу</option>
+          {options.map((s) => (
+            <option key={s} value={String(s)}>
+              масштаб 1:{s}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          onClick={() => {
+            setError(null);
+            apply.mutate();
+          }}
+          disabled={value === current || apply.isPending}
+        >
+          Разобрать заново
+        </Button>
+      </div>
+      {sheet.small && (
+        <p className="m-0 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn" role="alert">
+          На листе нет ни одной части размером с этаж (наибольшая — {metres(sheet.largest ?? 0)} м): похоже, чертёж начерчен в масштабе листа. Выберите масштаб и разберите чертёж заново.
+        </p>
+      )}
+      {converted && value !== current && <p className="m-0 text-[12px] text-ink-2">Итоги перевода частей сбросятся; переведённые этажи останутся как есть.</p>}
+      <FormError message={error} />
     </div>
   );
 }

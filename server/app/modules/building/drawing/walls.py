@@ -16,6 +16,8 @@
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+import shapely
 from shapely import STRtree, unary_union
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.geometry.polygon import orient
@@ -92,28 +94,39 @@ def is_thin(poly: Polygon, max_t: float = MAX_T) -> bool:
 # ---------------------------------------------------------------- 1. масса стен
 
 
+def lines_of(segs: list[Seg]) -> np.ndarray:
+    """Отрезки — массивом линий shapely: сотни тысяч за доли секунды (R-059)."""
+    if not segs:
+        return np.empty(0, dtype=object)
+    return shapely.linestrings(np.array([(s.a, s.b) for s in segs], dtype=float))
+
+
 def _components(segs: list[Seg]) -> list[list[int]]:
-    """Связные группы отрезков (касание в пределах SNAP)."""
-    lines = [LineString([s.a, s.b]) for s in segs]
-    tree = STRtree(lines)
-    parent = list(range(len(segs)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for i, line in enumerate(lines):
-        for j in tree.query(line.buffer(SNAP)):
-            j = int(j)
-            if j > i and lines[j].distance(line) <= SNAP:
-                ri, rj = find(i), find(j)
-                if ri != rj:
-                    parent[ri] = rj
+    """Связные группы отрезков (касание в пределах SNAP). Пары соседей ищет одним запросом
+    дерево, группы сливаются по массивам: на сотнях тысяч отрезков — секунды, а не минуты
+    (R-059)."""
+    if not segs:
+        return []
+    lines = lines_of(segs)
+    left, right = STRtree(lines).query(lines, predicate="dwithin", distance=SNAP)
+    keep = left < right
+    left, right = left[keep], right[keep]
+    parent = np.arange(len(segs))
+    while True:
+        a, b = parent[left], parent[right]
+        differ = a != b
+        if not differ.any():
+            break
+        # корень с большим номером подвешивается к меньшему, затем пути сжимаются до корней
+        np.minimum.at(parent, np.maximum(a[differ], b[differ]), np.minimum(a[differ], b[differ]))
+        while True:
+            up = parent[parent]
+            if np.array_equal(up, parent):
+                break
+            parent = up
     groups: dict[int, list[int]] = {}
-    for i in range(len(segs)):
-        groups.setdefault(find(i), []).append(i)
+    for i, root in enumerate(parent.tolist()):
+        groups.setdefault(root, []).append(i)
     return list(groups.values())
 
 
@@ -135,33 +148,40 @@ def _compact(poly: Polygon, aspect: float = 3.0) -> bool:
 
 
 def _close_gaps(lines: list[LineString]) -> list[LineString]:
-    """Висящий конец, не доходящий до линии на SNAP, дотягивается до неё."""
-    tree = STRtree(lines)
-    ends: dict[tuple[int, int], int] = {}
-    for line in lines:
-        for p in (line.coords[0], line.coords[-1]):
-            key = (round(p[0]), round(p[1]))
-            ends[key] = ends.get(key, 0) + 1
-    extra = []
-    for i, line in enumerate(lines):
-        for p in (line.coords[0], line.coords[-1]):
-            pt = Point(p)
-            # конец, которого касается ещё что-то, не висит
-            near = [int(j) for j in tree.query(pt.buffer(1.0)) if int(j) != i]
-            if any(lines[j].distance(pt) < 0.5 for j in near):
-                continue
-            best = None
-            for j in tree.query(pt.buffer(SNAP)):
-                j = int(j)
-                if j == i:
-                    continue
-                d = lines[j].distance(pt)
-                if 0.5 <= d <= SNAP and (best is None or d < best[0]):
-                    best = (d, j)
-            if best:
-                q = lines[best[1]].interpolate(lines[best[1]].project(pt))
-                extra.append(LineString([p, (q.x, q.y)]))
-    return lines + extra
+    """Висящий конец, не доходящий до линии на SNAP, дотягивается до неё. Концы и соседей
+    ищет дерево разом для всех линий (R-059)."""
+    if not lines:
+        return lines
+    arr = np.array(lines, dtype=object)
+    tree = STRtree(arr)
+    coords = shapely.get_coordinates(arr)
+    sizes = shapely.get_num_coordinates(arr)
+    last = np.cumsum(sizes) - 1
+    ends = shapely.points(np.concatenate([coords[last - sizes + 1], coords[last]]))
+    owner = np.tile(np.arange(len(arr)), 2)
+    # конец, которого касается ещё что-то, не висит
+    pi, lj = tree.query(ends, predicate="dwithin", distance=0.5)
+    touched = np.zeros(len(ends), dtype=bool)
+    touched[pi[lj != owner[pi]]] = True
+    free = np.flatnonzero(~touched)
+    pi, lj = tree.query(ends[free], predicate="dwithin", distance=SNAP)
+    pi = free[pi]
+    other = lj != owner[pi]
+    pi, lj = pi[other], lj[other]
+    dist = shapely.distance(ends[pi], arr[lj])
+    far = dist >= 0.5
+    pi, lj, dist = pi[far], lj[far], dist[far]
+    if not len(pi):
+        return lines
+    # у каждого конца — ближайшая линия
+    order = np.lexsort((dist, pi))
+    pi, lj = pi[order], lj[order]
+    first = np.r_[True, pi[1:] != pi[:-1]]
+    pi, lj = pi[first], lj[first]
+    to = shapely.line_interpolate_point(arr[lj], shapely.line_locate_point(arr[lj], ends[pi]))
+    extra = shapely.linestrings(np.stack([shapely.get_coordinates(ends[pi]),
+                                          shapely.get_coordinates(to)], axis=1))
+    return lines + list(extra)
 
 
 def mass(segs: list[Seg], fills: list[Fill]) -> tuple[Polygon, list[Polygon], list[list[Seg]]]:
@@ -175,6 +195,13 @@ def mass(segs: list[Seg], fills: list[Fill]) -> tuple[Polygon, list[Polygon], li
         if _extent(part) >= NOISE:
             keep += part
             continue
+        # колонна не меньше 0,03 м² и не вытянута больше чем втрое — значит, не уже 100 мм:
+        # значки, буквы, точки отсеиваются без построения граней
+        xs = [p[0] for s in part for p in (s.a, s.b)]
+        ys = [p[1] for s in part for p in (s.a, s.b)]
+        if len(part) < 3 or min(max(xs) - min(xs), max(ys) - min(ys)) < 100:
+            noise.append(part)
+            continue
         faces = list(polygonize(unary_union([LineString([s.a, s.b]) for s in part])))
         outline = unary_union(faces) if faces else Polygon()
         if faces and isinstance(outline, Polygon) and _compact(outline):
@@ -183,7 +210,10 @@ def mass(segs: list[Seg], fills: list[Fill]) -> tuple[Polygon, list[Polygon], li
             noise.append(part)
     lines = [LineString([s.a, s.b]) for s in keep if math.dist(s.a, s.b) > 0.5]
     noded = unary_union(_close_gaps(lines)) if lines else MultiLineString()
-    thin = [f for f in polygonize(noded) if f.area > 1000 and is_thin(f)]
+    faces = shapely.get_parts(shapely.polygonize(shapely.get_parts(noded)))
+    faces = faces[shapely.area(faces) > 1000]
+    # тонкие грани — стены: сжатые на половину наибольшей толщины, они исчезают
+    thin = list(faces[shapely.is_empty(shapely.buffer(faces, -MAX_T / 2, join_style="mitre"))])
     thin += _leftovers(keep, thin)
     thin += [
         p
@@ -205,50 +235,65 @@ def mass(segs: list[Seg], fills: list[Fill]) -> tuple[Polygon, list[Polygon], li
 LONE_T = 100.0  # толщина стены, нарисованной одной линией
 
 
+def _on_faces(lines: np.ndarray, faces: list[Polygon]) -> np.ndarray:
+    """Какие линии лежат на контурах граней (в 3 мм): все их точки через 100 мм у контура."""
+    if not faces or not len(lines):
+        return np.zeros(len(lines), dtype=bool)
+    rings = STRtree(shapely.get_exterior_ring(np.array(faces, dtype=object)))
+    counts = np.ceil(shapely.length(lines) / 100).astype(int) + 1
+    owner = np.repeat(np.arange(len(lines)), counts)
+    starts = np.cumsum(counts) - counts
+    frac = (np.arange(len(owner)) - starts[owner]) / (counts[owner] - 1)
+    points = shapely.line_interpolate_point(lines[owner], frac, normalized=True)
+    near = np.zeros(len(points), dtype=bool)
+    near[rings.query(points, predicate="dwithin", distance=3)[0]] = True
+    return np.logical_and.reduceat(near, starts)
+
+
 def _leftovers(segs: list[Seg], faces: list[Polygon]) -> list[Polygon]:
     """Линии стен, не ставшие гранью замкнутого тела: пары параллельных на толщине стены —
-    незамкнутая двойная стена; одиночная длинная — стена в одну линию."""
-    edge = unary_union([f.exterior for f in faces]).buffer(3) if faces else Polygon()
-    left = [
-        s for s in segs if math.dist(s.a, s.b) >= 200 and not edge.contains(LineString([s.a, s.b]))
-    ]
-    if not left:
+    незамкнутая двойная стена; одиночная длинная — стена в одну линию. Пары ищет дерево и
+    проверяют массивы: в части листа их бывают миллионы (R-059)."""
+    long = [s for s in segs if math.dist(s.a, s.b) >= 200]
+    lines = lines_of(long)
+    left = np.flatnonzero(~_on_faces(lines, faces))
+    if not len(left):
         return []
-    lines = [LineString([s.a, s.b]) for s in left]
-    tree = STRtree(lines)
-    paired: set[int] = set()
-    out: list[Polygon] = []
-    for i, s in enumerate(left):
-        a, b = s.a, s.b
-        d = _unit(_sub(b, a))
-        n = (-d[1], d[0])
-        length = math.dist(a, b)
-        for j in tree.query(lines[i].buffer(MAX_T)):
-            j = int(j)
-            if j <= i:
-                continue
-            c, e = left[j].a, left[j].b
-            if abs(_dot(d, _unit(_sub(e, c)))) < PARALLEL:
-                continue
-            t = _dot(_sub(c, a), n)
-            if not MIN_T <= abs(t) <= MAX_T or abs(_dot(_sub(e, a), n) - t) > 5:
-                continue
-            s0, s1 = sorted((_dot(_sub(c, a), d), _dot(_sub(e, a), d)))
-            s0, s1 = max(s0, 0.0), min(s1, length)
-            if s1 - s0 < 200:
-                continue
-            p0, p1 = _along(a, d, s0), _along(a, d, s1)
-            out.append(Polygon([p0, p1, _along(p1, n, t), _along(p0, n, t)]).buffer(0))
-            paired.update((i, j))
-    solid = unary_union(faces) if faces else Polygon()
-    for i, s in enumerate(left):
-        # одиночная линия, пересекающая стену, — не стена (засечка, знак разрыва)
-        if (
-            i not in paired
-            and math.dist(s.a, s.b) >= 600
-            and lines[i].intersection(solid).length <= 30
-        ):
-            out.append(lines[i].buffer(LONE_T / 2, cap_style="flat"))
+    lines = lines[left]
+    a = np.array([long[k].a for k in left], dtype=float)
+    b = np.array([long[k].b for k in left], dtype=float)
+    length = np.hypot(*(b - a).T)
+    d = (b - a) / length[:, None]
+    n = np.stack([-d[:, 1], d[:, 0]], axis=1)
+    i, j = STRtree(lines).query(lines, predicate="dwithin", distance=MAX_T)
+    i, j = i[i < j], j[i < j]
+    dot = lambda u, v: (u * v).sum(axis=1)  # noqa: E731
+    t = dot(a[j] - a[i], n[i])
+    s0 = np.minimum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])).clip(min=0)
+    s1 = np.minimum(np.maximum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])), length[i])
+    pair = (
+        (np.abs(dot(d[i], d[j])) >= PARALLEL)
+        & (np.abs(t) >= MIN_T)
+        & (np.abs(t) <= MAX_T)
+        & (np.abs(dot(b[j] - a[i], n[i]) - t) <= 5)
+        & (s1 - s0 >= 200)
+    )
+    i, t, s0, s1 = i[pair], t[pair], s0[pair], s1[pair]
+    p0 = a[i] + d[i] * s0[:, None]
+    p1 = a[i] + d[i] * s1[:, None]
+    shift = n[i] * t[:, None]
+    out = list(shapely.polygons(np.stack([p0, p1, p1 + shift, p0 + shift], axis=1)))
+    paired = np.zeros(len(left), dtype=bool)
+    paired[i] = paired[j[pair]] = True
+    # одиночная линия, пересекающая стену, — не стена (засечка, знак разрыва)
+    lone = np.flatnonzero(~paired & (length >= 600))
+    if len(lone) and faces:
+        k, f = STRtree(np.array(faces, dtype=object)).query(lines[lone], predicate="intersects")
+        crossed = np.zeros(len(lone))
+        np.add.at(crossed, k, shapely.length(shapely.intersection(
+            lines[lone][k], np.array(faces, dtype=object)[f])))
+        lone = lone[crossed <= 30]
+    out += list(shapely.buffer(lines[lone], LONE_T / 2, cap_style="flat"))
     return out
 
 
@@ -265,43 +310,46 @@ def strips(body, kind_of) -> list[Strip]:  # type: ignore[no-untyped-def]
             edges += [(a, b) for a, b in zip(cs, cs[1:], strict=False) if math.dist(a, b) > OVERLAP]
     if not edges:
         return []
-    lines = [LineString(e) for e in edges]
-    tree = STRtree(lines)
+    # пары граней ищет дерево, проверяют массивы: у тела стен части листа их миллионы (R-059)
+    e = np.array(edges, dtype=float)
+    a, b = e[:, 0], e[:, 1]
+    length = np.hypot(*(b - a).T)
+    d = (b - a) / length[:, None]
+    n = np.stack([-d[:, 1], d[:, 0]], axis=1)  # внутрь тела
+    lines = shapely.linestrings(e)
+    i, j = STRtree(lines).query(lines, predicate="dwithin", distance=MAX_T)
+    order = np.lexsort((j, i))
+    i, j = i[order], j[order]
+    i, j = i[i < j], j[i < j]
+    dot = lambda u, v: (u * v).sum(axis=1)  # noqa: E731
+    t = dot((a[j] + b[j]) / 2 - a[i], n[i])
+    s0 = np.minimum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])).clip(min=0)
+    s1 = np.minimum(np.maximum(dot(a[j] - a[i], d[i]), dot(b[j] - a[i], d[i])), length[i])
+    ok = (dot(d[i], d[j]) <= -PARALLEL) & (t >= MIN_T) & (t <= MAX_T) & (s1 - s0 >= OVERLAP)
+    i, t, s0, s1 = i[ok], t[ok], s0[ok], s1[ok]
+    p0 = a[i] + d[i] * s0[:, None]
+    p1 = a[i] + d[i] * s1[:, None]
+    shift = n[i] * t[:, None]
+    # пустота между двумя стенами — не стена: полоса между гранями — в теле стен хотя бы на
+    # 90 %. Сначала 15 точек полосы; точная площадь — только если внутри не все и не меньше 10
     near = body.buffer(5)
+    shapely.prepare(near)
+    samples = [p0 + (p1 - p0) * u + shift * w for u in (0.1, 0.3, 0.5, 0.7, 0.9)
+               for w in (0.25, 0.5, 0.75)]
+    inside = sum(shapely.contains_xy(near, s[:, 0], s[:, 1]).astype(int) for s in samples)
+    unsure = np.flatnonzero((inside >= 10) & (inside < len(samples)))
+    full = inside == len(samples)
+    if len(unsure):
+        bands = shapely.polygons(np.stack([p0[unsure], p1[unsure], p1[unsure] + shift[unsure],
+                                           p0[unsure] + shift[unsure]], axis=1))
+        full[unsure] = (shapely.area(shapely.intersection(bands, near))
+                        >= 0.9 * shapely.area(bands))
     out: list[Strip] = []
-    for i, (a, b) in enumerate(edges):
-        d = _unit(_sub(b, a))
-        n = (-d[1], d[0])  # внутрь тела
-        length = math.dist(a, b)
-        for j in tree.query(lines[i].buffer(MAX_T)):
-            j = int(j)
-            if j <= i:
-                continue
-            c, e = edges[j]
-            if _dot(d, _unit(_sub(e, c))) > -PARALLEL:
-                continue
-            mid = ((c[0] + e[0]) / 2, (c[1] + e[1]) / 2)
-            t = _dot(_sub(mid, a), n)
-            if not MIN_T <= t <= MAX_T:
-                continue
-            s0, s1 = sorted((_dot(_sub(c, a), d), _dot(_sub(e, a), d)))
-            s0, s1 = max(s0, 0.0), min(s1, length)
-            if s1 - s0 < OVERLAP:
-                continue
-            p0, p1 = _along(a, d, s0), _along(a, d, s1)
-            band = Polygon([p0, p1, _along(p1, n, t), _along(p0, n, t)])
-            if band.intersection(near).area < 0.9 * band.area:
-                continue  # пустота между двумя стенами
-            h = (n[0] * t / 2, n[1] * t / 2)
-            ma, mb = (p0[0] + h[0], p0[1] + h[1]), (p1[0] + h[0], p1[1] + h[1])
-            out.append(
-                Strip(
-                    ma,
-                    mb,
-                    round(t / 5) * 5,
-                    kind_of(Point((ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2), t),
-                )
-            )
+    for k in np.flatnonzero(full):
+        ma, mb = p0[k] + shift[k] / 2, p1[k] + shift[k] / 2
+        mid = Point((ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2)
+        out.append(Strip((float(ma[0]), float(ma[1])), (float(mb[0]), float(mb[1])),
+                         round(float(t[k]) / 5) * 5, kind_of(mid, float(t[k]))))
     return out
 
 

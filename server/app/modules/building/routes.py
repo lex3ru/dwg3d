@@ -226,3 +226,13 @@ class ConvertIn(BaseModel):
 def convert_drawing(drawing_id: uuid.UUID, body: ConvertIn, actor: CurrentActor, session: DB
                     ) -> dict[str, Any]:
     return {"job_id": drawings.start_convert(session, actor, drawing_id, body.parts)}
+
+
+class ScaleIn(BaseModel):
+    scale: float | None = None  # 1:scale; пусто — по чертежу (ADR-0025)
+
+
+@router.post("/drawings/{drawing_id}/scale")
+def set_drawing_scale(drawing_id: uuid.UUID, body: ScaleIn, actor: Admin, session: DB
+                      ) -> dict[str, Any]:
+    return drawings.view(drawings.set_scale(session, actor, drawing_id, body.scale))

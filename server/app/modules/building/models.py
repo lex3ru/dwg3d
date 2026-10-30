@@ -111,6 +111,10 @@ class Drawing(Base):
     error: Mapped[str | None] = mapped_column(String(2000))
     parts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     results: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # масштаб листа, заданный администратором; пусто — по чертежу (ADR-0025)
+    scale: Mapped[float | None] = mapped_column(Float)
+    # что нашёл разбор: масштаб, откуда он, наибольшая часть, мм, и не мала ли она
+    sheet: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),

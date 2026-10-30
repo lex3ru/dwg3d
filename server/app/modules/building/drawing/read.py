@@ -3,10 +3,12 @@
 
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,6 +47,8 @@ SKIP = {
     "MESH",
 }
 UNITS = {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0, 14: 100.0}  # $INSUNITS → мм
+# чертёж в миллиметрах меньше — это лист в масштабе, а не здание 1:1 (ADR-0025)
+SHEET = 20_000.0
 
 
 @dataclass
@@ -86,18 +90,29 @@ class Drawing:
     fills: list[Fill] = field(default_factory=list)
     texts: list[Text] = field(default_factory=list)
     layers: set[str] = field(default_factory=set)
-    unit: float = 1.0  # мм в единице чертежа
+    unit: float = 1.0  # мм здания в единице чертежа
+    # масштаб листа (500 — чертёж 1:500) и откуда он: units — чертёж 1:1, dimensions — по
+    # множителю размеров, admin — задан администратором (5.1.3 п. 1, ADR-0025)
+    scale: float = 1.0
+    scale_by: str = "units"
 
 
 def _fix_text(text: str) -> str:
-    """Текст UTF-8, прочитанный как cp1252 (DXF без указания кодировки), — обратно."""
-    if "Ð" not in text and "Ñ" not in text:
-        return text
-    try:
-        fixed = text.encode("cp1252", errors="surrogateescape").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return text
-    return fixed
+    """Текст UTF-8, прочитанный как cp1252 (DXF без указания кодировки), — обратно; байты,
+    которых в cp1252 нет, ezdxf отдаёт одиночными суррогатами, и они нужны для этого. Что
+    осталось одиночным суррогатом — байт, который не читается как UTF-8: с ним план не
+    сохраняется, а это знак cp1252 — «м²» с однобайтовым «²» (R-070)."""
+    if "Ð" in text or "Ñ" in text:
+        try:
+            return text.encode("cp1252", errors="surrogateescape").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    text = re.sub(
+        "[\udc80-\udcff]+",
+        lambda m: bytes(ord(c) - 0xDC00 for c in m.group()).decode("cp1252", errors="replace"),
+        text,
+    )
+    return re.sub("[\ud800-\udfff]", "", text)
 
 
 def dwg2dxf() -> str | None:
@@ -160,6 +175,48 @@ def _unit(doc: ezdxf.document.Drawing, extent: float) -> float:
     return 1000.0 if 0 < extent < 2000 else 1.0
 
 
+def _dimlfac(doc: ezdxf.document.Drawing) -> float | None:
+    """Множитель размеров (DIMLFAC), общий для большинства размеров модели, если он больше 1.
+    На листе в масштабе он пересчитывает миллиметры бумаги в миллиметры здания: 500 — лист
+    1:500 (R-057). Выноски узлов в другом масштабе остаются в меньшинстве."""
+    default = doc.header.get("$DIMLFAC", 1.0)
+    seen: Counter[float] = Counter()
+    for dim in doc.modelspace().query("DIMENSION"):
+        try:
+            value = dim.override().get("dimlfac")
+        except Exception:  # размер без стиля — как без множителя
+            continue
+        seen[round(float(default if value is None else value), 4)] += 1
+    total = sum(seen.values())
+    if total < 3:
+        return None
+    value, count = seen.most_common(1)[0]
+    return value if 2 * count > total and value > 1 else None
+
+
+def _span(entities: list[DXFGraphic]) -> float:
+    """Размах чертежа в его единицах по отрезкам и полилиниям; одиночные фигуры далеко в
+    стороне (0,5 % с каждого края) не в счёт."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for e in entities:
+        t = e.dxftype()
+        if t == "LINE":
+            points = [e.dxf.start, e.dxf.end]
+        elif t == "LWPOLYLINE":
+            points = list(e.get_points("xy"))
+        else:
+            continue
+        xs += [p[0] for p in points]
+        ys += [p[1] for p in points]
+    if not xs:
+        return 0.0
+    xs.sort()
+    ys.sort()
+    cut = len(xs) // 200
+    return math.hypot(xs[-1 - cut] - xs[cut], ys[-1 - cut] - ys[cut])
+
+
 def _walk(entities, depth: int = 0, parent: str | None = None):  # type: ignore[no-untyped-def]
     for e in entities:
         t = e.dxftype()
@@ -180,7 +237,9 @@ def _walk(entities, depth: int = 0, parent: str | None = None):  # type: ignore[
         yield e
 
 
-def load(path: Path) -> Drawing:
+def load(path: Path, scale: float | None = None) -> Drawing:
+    """scale — масштаб листа, заданный администратором; без него — по размерам чертежа, а
+    нет и их — 1:1 (ADR-0025)."""
     with tempfile.TemporaryDirectory() as tmp:
         dxf = to_dxf(path, Path(tmp))
         try:
@@ -189,12 +248,24 @@ def load(path: Path) -> Drawing:
             raise AppError(f"Файл не читается как DXF: {e}", code="bad_dxf") from e
     drawing = Drawing()
     raw: list[DXFGraphic] = list(_walk(doc.modelspace()))
-    xs = []
-    for e in raw[:2000]:
-        if e.dxftype() == "LINE":
-            xs += [e.dxf.start.x, e.dxf.end.x]
-    extent = (max(xs) - min(xs)) if xs else 0
-    k = _unit(doc, extent)
+    code = doc.header.get("$INSUNITS", 0)
+    if scale:
+        # масштаб листа — к миллиметрам бумаги, если единицы не указаны
+        drawing.scale, drawing.scale_by = scale, "admin"
+        k = UNITS.get(code, 1.0) * scale
+    else:
+        xs = []
+        for e in raw[:2000]:
+            if e.dxftype() == "LINE":
+                xs += [e.dxf.start.x, e.dxf.end.x]
+        extent = (max(xs) - min(xs)) if xs else 0
+        k = _unit(doc, extent)
+        found = _dimlfac(doc)
+        # множитель размеров — масштаб, только если чертёж в мм и размером с лист: у чертежа
+        # в метрах DIMLFAC = 1000 переводит подписи в миллиметры
+        if found and UNITS.get(code, 1.0) == 1.0 and _span(raw) < SHEET:
+            drawing.scale, drawing.scale_by = found, "dimensions"
+            k = found
     drawing.unit = k
 
     def pt(v) -> Pt:  # type: ignore[no-untyped-def]
