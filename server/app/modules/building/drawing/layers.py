@@ -122,14 +122,20 @@ def role(layer: str) -> str:
 
 
 AREA = re.compile(r"^\d{1,4}([.,]\d{1,2})?\s*(м2|м²|кв\.?\s*м)?$")
-DIMENSION = re.compile(r"^[\d\s ]{4,}$|^[+−-]\d+[.,]\d{3}$")
+# размер; отметка уровня — метры с тремя знаками, со знаком или без: «+3.300», «14.350» (R-063)
+DIMENSION = re.compile(r"^[\d\s ]{4,}$|^[+−±-]?\d+[.,]\d{3}$")
 NUMBER = re.compile(r"^(№\s*)?[А-ЯA-Z]?\d{1,4}([./-]\d{1,4}){0,3}[а-яa-z]?$", re.IGNORECASE)
 MARK = re.compile(r"^[А-ЯЁA-Z]{1,5}[-\s]?\d[\d.,\-/хx]*[А-ЯЁA-Zа-я]?$")
-FLOOR = re.compile(
-    r"(план\s+)?(-?\d+)\s*-?\s*(го|й|ой|ий)?\s*этаж|подвал|цокол|техн[^\s]*\s+этаж|"
-    r"мансард|кровл|чердак",
-    re.IGNORECASE,
-)
+# тексты на слоях дверей, окон и стен — марки и позиции, а не номера помещений (R-063)
+NOT_NUMBERS = {"door", "window", "wall", "partition", "column"}
+# слои надписей и зон: для стен их нет, а подписи помещений на них бывают (R-063)
+LABEL_LAYERS = ("текст", "text", "schrift", "beschrift", "надпис", "anno", "зон", "zone")
+
+
+def labels_layer(layer: str) -> bool:
+    """Тексты слоя — подписи помещений: всё, кроме размеров, осей, рамок и прочего, что
+    разбор пропускает, а из пропускаемого — слои текста и зон."""
+    return role(layer) != "ignore" or any(w.startswith(LABEL_LAYERS) for w in words(layer))
 
 
 def text_kind(text: str) -> str:
