@@ -835,3 +835,88 @@ def test_r063_room_number_is_not_a_door_mark_or_a_level_and_the_name_reads_whole
     result = convert.convert(drawing, parts.split(drawing)[0].bbox)
     assert {(r.number, r.name) for r in result.plan.rooms} == {
         ("101", "Комната персонала"), ("102", "")}
+
+
+# ---------------------------------------------------------------- карточка чертежа (DWG3D-23)
+
+
+def boxes_dxf(n: int = 3, open_corner: bool = False) -> bytes:
+    """n планов без подписей: коробки 9 × 6 м двойными линиями стен (300 мм) с перегородкой и
+    дверью в 20 м друг от друга. open_corner — правый нижний угол не дорисован: нижняя стена
+    обрывается на x = 6 м, правая — на y = 3 м; концы не смотрят друг на друга, и мостом с
+    проёмом, как обрывы на одной линии, разрыв не закрывается."""
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 4
+    msp = doc.modelspace()
+    doc.layers.add("Стены")
+
+    def ring(ox: float, points: list[tuple[float, float]]) -> None:
+        msp.add_lwpolyline([(ox + x, y) for x, y in points], close=True,
+                           dxfattribs={"layer": "Стены"})
+
+    for i in range(n):
+        ox = i * 29000
+        if not open_corner:
+            ring(ox, [(0, 0), (9000, 0), (9000, 6000), (0, 6000)])
+            ring(ox, [(300, 300), (8700, 300), (8700, 5700), (300, 5700)])
+        else:
+            ring(ox, [(6000, 0), (0, 0), (0, 6000), (9000, 6000), (9000, 3000), (8700, 3000),
+                      (8700, 5700), (300, 5700), (300, 300), (6000, 300)])
+        ring(ox, [(5000, 300), (5120, 300), (5120, 2000), (5000, 2000)])
+        ring(ox, [(5000, 2900), (5120, 2900), (5120, 5700), (5000, 5700)])
+    out = io.StringIO()
+    doc.write(out)
+    return out.getvalue().encode()
+
+
+def test_r064_two_parts_on_one_floor_and_repeated_new_names_are_refused(admin) -> None:
+    """Две части на один этаж сервер принимал — побеждала последняя, — как и новые этажи с
+    одним названием; должно — отказ с названиями частей и этажа, чертёж готов к переводу
+    (R-064)."""
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    floor = admin.post(f"/api/buildings/{b['id']}/floors", json={"name": "1 этаж"}).json()
+    d = upload(admin, b["id"], sample_dxf())
+    k1, k2 = (p["key"] for p in d["parts"])
+
+    def refused(*chosen: dict) -> str:  # type: ignore[type-arg]
+        r = admin.post(f"/api/drawings/{d['id']}/convert", json={"parts": list(chosen)})
+        assert r.status_code == 400, r.text
+        return r.json()["error"]["message"]
+
+    message = refused({"key": k1, "floor_id": floor["id"]}, {"key": k2, "floor_id": floor["id"]})
+    assert "«План 1-го этажа»" in message and "«План 2-го этажа»" in message, message
+    assert "«1 этаж»" in message, message
+    message = refused({"key": k1, "new_floor": {"name": "Этаж А"}},
+                      {"key": k2, "new_floor": {"name": " этаж  а "}})
+    assert "«Этаж А»" in message, message
+    message = refused({"key": k2, "new_floor": {"name": "1 ЭТАЖ"}})
+    assert "«1 этаж»" in message and "уже есть" in message, message
+    assert admin.get(f"/api/drawings/{d['id']}").json()["status"] == "ready"
+    assert [f["name"] for f in admin.get(f"/api/buildings/{b['id']}").json()["floors"]] == [
+        "1 этаж"]
+
+
+def test_r065_the_new_floor_elevation_comes_from_its_name(admin) -> None:
+    """Три плана без подписей названы «1 этаж», «3 этаж», «2 этаж» в порядке частей на листе.
+    До исправления отметки шли по порядку частей — ±0, +3,300, +6,600; должно — по номеру из
+    названия. Номера в названии нет — по подписи части, как раньше (R-065)."""
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    d = upload(admin, b["id"], boxes_dxf(3))
+    assert [p["level"] for p in d["parts"]] == [None, None, None]
+    admin.post(f"/api/drawings/{d['id']}/convert", json={"parts": [
+        {"key": p["key"], "new_floor": {"name": name}}
+        for p, name in zip(d["parts"], ["1 этаж", "3 этаж", "2 этаж"], strict=True)]})
+    while tasks.run_one():
+        pass
+    floors = admin.get(f"/api/buildings/{b['id']}").json()["floors"]
+    assert {f["name"]: f["elevation"] for f in floors} == {
+        "1 этаж": 0, "2 этаж": 3300, "3 этаж": 6600}
+
+    b = admin.post("/api/buildings", json={"name": "Корпус 2"}).json()
+    d = upload(admin, b["id"], sample_dxf())
+    admin.post(f"/api/drawings/{d['id']}/convert", json={"parts": [
+        {"key": d["parts"][1]["key"], "new_floor": {"name": "Второй"}}]})
+    while tasks.run_one():
+        pass
+    floors = admin.get(f"/api/buildings/{b['id']}").json()["floors"]
+    assert [(f["name"], f["elevation"]) for f in floors] == [("Второй", 3300)]
