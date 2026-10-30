@@ -297,6 +297,7 @@ def analyze_drawing(
         "by": loaded.scale_by,
         "largest": round(largest),
         "small": largest < parts_mod.MIN_FLOOR,
+        "read_errors": loaded.read_errors,
     }
     drawing.status = "ready" if found else "failed"
     if not found:

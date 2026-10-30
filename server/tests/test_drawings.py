@@ -450,7 +450,7 @@ def test_r017_dwg2dxf_is_limited_in_memory_and_time(monkeypatch, tmp_path) -> No
                     '{ ulimit -v; ulimit -t; env; } > "$3"\n')
     tool.chmod(0o755)
     monkeypatch.setenv("APP_DWG2DXF", str(tool))
-    out = read.to_dxf(_dwg(tmp_path), tmp_path).read_text().splitlines()
+    out = read.to_dxf(_dwg(tmp_path), tmp_path)[0].read_text().splitlines()
     memory, cpu = out[0], out[1]
     assert memory != "unlimited" and cpu != "unlimited", out[:2]
     assert not [line for line in out[2:] if line.startswith("APP_")]
@@ -941,3 +941,32 @@ def test_r066_an_open_plan_is_not_reported_as_clean(tmp_path) -> None:
     stats = convert.convert(drawing, parts.split(drawing)[0].bbox).stats
     assert stats["open_ends"] == 0 and stats["covered"] >= 75, stats
     assert stats["closed"] is True, stats
+
+
+def test_r069_dwg_read_errors_are_counted_in_the_sheet(admin, monkeypatch, tmp_path) -> None:
+    """LibreDWG прочитал повреждённый DWG частично: DXF получился, а в stderr — строки
+    «ERROR:». До исправления они отбрасывались; должно — их число в итоге разбора (R-069).
+    Вывод — как у dwg2dxf 0.14 на DWG с испорченными байтами."""
+    stderr = (b"ERROR: Invalid object handle 0.0.0 at pos @6.2\n"
+              b"ERROR: Invalid texts size 126. Need min. 252 bits, have 42 for DICTIONARY.\n"
+              b"Warning: check_CRC mismatch 1955-1971 = 16: EA97 <=> E952\n\n"
+              b"ERROR: num_reactors: 84 > AVAIL_BITS(hdl_dat): 40\n"
+              b"Warning: Empty ENDBLK for \"*\" 1F\n")
+
+    def run(args, **kwargs):  # type: ignore[no-untyped-def]
+        Path(args[args.index("-o") + 1]).write_bytes(sample_dxf())
+        return subprocess.CompletedProcess(args, 0, b"", stderr)
+
+    tool = tmp_path / "dwg2dxf"
+    tool.write_text("")
+    monkeypatch.setenv("APP_DWG2DXF", str(tool))
+    monkeypatch.setattr(read.subprocess, "run", run)
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    r = admin.post(f"/api/buildings/{b['id']}/drawings",
+                   files={"file": ("план.dwg", io.BytesIO(_dwg(tmp_path).read_bytes()))})
+    assert r.status_code == 201, r.text
+    while tasks.run_one():
+        pass
+    d = admin.get(f"/api/drawings/{r.json()['id']}").json()
+    assert d["status"] == "ready", d
+    assert d["sheet"]["read_errors"] == 3, d["sheet"]

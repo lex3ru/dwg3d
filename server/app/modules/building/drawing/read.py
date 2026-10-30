@@ -95,6 +95,8 @@ class Drawing:
     # множителю размеров, admin — задан администратором (5.1.3 п. 1, ADR-0025)
     scale: float = 1.0
     scale_by: str = "units"
+    # строк «ERROR:» у LibreDWG: DWG прочитан частично, хотя DXF получился (R-069)
+    read_errors: int = 0
 
 
 def _fix_text(text: str) -> str:
@@ -122,6 +124,9 @@ def dwg2dxf() -> str | None:
 
 # процессорного времени dwg2dxf, с — не дольше разбора чертежа (15 мин, ADR-0011)
 DWG2DXF_SECONDS = 900
+# ошибка чтения в выводе dwg2dxf (LibreDWG 0.14): «ERROR: bit_read_RC buffer overflow…»;
+# предупреждения («Warning: …») бывают и у целого DWG
+DWG_ERROR = re.compile(rb"^ERROR\b", re.MULTILINE)
 
 
 def _limits(memory: int) -> None:
@@ -135,12 +140,14 @@ def _limits(memory: int) -> None:
         resource.setrlimit(kind, (value, value))
 
 
-def to_dxf(path: Path, workdir: Path) -> Path:
-    """DXF как есть; DWG — через LibreDWG."""
+def to_dxf(path: Path, workdir: Path) -> tuple[Path, int]:
+    """DXF как есть; DWG — через LibreDWG. Второе — сколько ошибок чтения LibreDWG написал:
+    у повреждённого или восстановленного DWG их сотни, а DXF всё равно получается — без
+    того, что не прочиталось (R-069)."""
     with open(path, "rb") as f:
         head = f.read(6)
     if not head.startswith(b"AC10"):
-        return path
+        return path, 0
     tool = dwg2dxf()
     if tool is None:
         raise AppError(
@@ -164,7 +171,7 @@ def to_dxf(path: Path, workdir: Path) -> Path:
         raise AppError(
             f"DWG не читается (версия или повреждение файла): {tail.strip()}", code="bad_dwg"
         )
-    return out
+    return out, len(DWG_ERROR.findall(result.stderr))
 
 
 def _unit(doc: ezdxf.document.Drawing, extent: float) -> float:
@@ -241,12 +248,12 @@ def load(path: Path, scale: float | None = None) -> Drawing:
     """scale — масштаб листа, заданный администратором; без него — по размерам чертежа, а
     нет и их — 1:1 (ADR-0025)."""
     with tempfile.TemporaryDirectory() as tmp:
-        dxf = to_dxf(path, Path(tmp))
+        dxf, errors = to_dxf(path, Path(tmp))
         try:
             doc, _auditor = recover.readfile(str(dxf))
         except Exception as e:
             raise AppError(f"Файл не читается как DXF: {e}", code="bad_dxf") from e
-    drawing = Drawing()
+    drawing = Drawing(read_errors=errors)
     raw: list[DXFGraphic] = list(_walk(doc.modelspace()))
     code = doc.header.get("$INSUNITS", 0)
     if scale:

@@ -34,6 +34,7 @@ from app.core.errors import AppError, stale
 from app.core.module import Module
 from app.modules import INSTALLED
 from app.modules.access import api as access
+from app.modules.calc import api as calc
 
 log = logging.getLogger("app")
 _SAFE = {"GET", "HEAD", "OPTIONS"}
@@ -235,6 +236,7 @@ def serve_app() -> FastAPI:
             importlib.import_module(name)
     gc.collect()
     gc.freeze()
+    calc.report_gc_pauses()
     return app
 
 
