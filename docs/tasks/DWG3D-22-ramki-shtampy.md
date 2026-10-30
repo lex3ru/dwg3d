@@ -4,7 +4,7 @@ title: Перевод чертежей: рамки, штампы и подпис
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-22-ramki-shtampy
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/22
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/5e09f23a-f63c-49d7-af32-f50619489468
 updated: 2026-10-30
 ---
