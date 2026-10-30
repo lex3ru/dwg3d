@@ -5,14 +5,17 @@ import { loginAdmin, unique } from "./helpers";
 // На стенде проверяется и на «Бастионе» (docs/ACCEPTANCE.md); здесь — на чертеже из теста,
 // чтобы сценарий шёл и там, где чертежей заказчика нет.
 
-// DXF R12: два этажа рядом, стены двойными линиями, перегородка с дверью, номера помещений
-function dxf(): string {
-  const out: string[] = ["0", "SECTION", "2", "ENTITIES"];
+// DXF R12: два этажа рядом, стены двойными линиями, перегородка с дверью, номера помещений.
+// sheet — лист 1:sheet в миллиметрах бумаги, без размеров: масштаба в чертеже нет (R-057)
+function dxf(sheet = 1): string {
+  const head = sheet === 1 ? [] : ["0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC"];
+  const out: string[] = [...head, "0", "SECTION", "2", "ENTITIES"];
+  const n = (v: number) => String(v / sheet);
   const line = (layer: string, x0: number, y0: number, x1: number, y1: number) =>
-    out.push("0", "LINE", "8", layer, "10", String(x0), "20", String(y0), "30", "0", "11", String(x1), "21", String(y1), "31", "0");
+    out.push("0", "LINE", "8", layer, "10", n(x0), "20", n(y0), "30", "0", "11", n(x1), "21", n(y1), "31", "0");
   const ring = (layer: string, pts: [number, number][]) => pts.forEach((p, i) => line(layer, ...p, ...pts[(i + 1) % pts.length]!));
   const text = (x: number, y: number, h: number, value: string) =>
-    out.push("0", "TEXT", "8", "0", "10", String(x), "20", String(y), "30", "0", "40", String(h), "1", value);
+    out.push("0", "TEXT", "8", "0", "10", n(x), "20", n(y), "30", "0", "40", n(h), "1", value);
   const floor = (ox: number, title: string, a: string, b: string) => {
     ring("Стены", [[ox, 0], [ox + 9000, 0], [ox + 9000, 6000], [ox, 6000]]);
     ring("Стены", [[ox + 300, 300], [ox + 8700, 300], [ox + 8700, 5700], [ox + 300, 5700]]);
@@ -50,4 +53,23 @@ test("С1: чертёж с двумя этажами — части, этажи,
 
   await page.getByText("1 этаж — открыть план").click();
   await expect(page.getByRole("img", { name: "План этажа" }).getByText("101")).toBeVisible();
+});
+
+test("С1: лист в масштабе без размеров — предупреждение, масштаб 1:100, части в метрах здания (R-057)", async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginAdmin(page);
+  const b = await (await page.request.post("/api/buildings", { headers: { "X-Requested-With": "app" }, data: { name: unique("С1-масштаб-") } })).json();
+  await page.goto(`/buildings?b=${b.id}`);
+  await page.getByLabel("Файл чертежа").setInputFiles({ name: "лист.dxf", mimeType: "application/dxf", buffer: Buffer.from(dxf(100)) });
+  await expect(page.getByText("выберите этажи")).toBeVisible({ timeout: 60_000 });
+  // масштаба в чертеже нет: весь лист — одна часть меньше метра
+  await expect(page.getByText("Масштаб листа 1:1 — как начерчен.")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "нет ни одной части размером с этаж" })).toBeVisible();
+
+  await page.getByLabel("Масштаб листа").selectOption("100");
+  await page.getByRole("button", { name: "Разобрать заново" }).click();
+  await expect(page.getByText("Масштаб листа 1:100 — задан вручную.")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("План 1-го этажа")).toBeVisible();
+  await expect(page.getByText("9 × 6 м")).toHaveCount(2);
+  await expect(page.getByRole("alert").filter({ hasText: "размером с этаж" })).toHaveCount(0);
 });
