@@ -44,6 +44,12 @@ test("С1: чертёж с двумя этажами — части, этажи,
   await page.getByRole("button", { name: "Перевести в планы" }).click();
   await expect(page.getByText("2 этаж — открыть план")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText("без замечаний проверки").first()).toBeVisible();
+  // R-068: что система сделала при переводе — под итогом части
+  await expect(page.getByText(/^Совмещён с другими этажами: /)).toBeVisible();
+  // R-064: переведённые части больше не предлагаются — повторный перевод не заменит планы
+  await expect(page.getByLabel("Этаж для части План 1-го этажа")).toHaveValue("");
+  await expect(page.getByLabel("Этаж для части План 2-го этажа")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Перевести в планы" })).toBeDisabled();
 
   const building = await (await page.request.get(`/api/buildings/${b.id}`)).json();
   expect(building.floors.map((f: { name: string }) => f.name)).toEqual(["1 этаж", "2 этаж"]);
