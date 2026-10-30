@@ -4,7 +4,7 @@ title: Перевод чертежей: масштаб, роли слоёв, т�
 status: in-progress
 owner: Yury Mikhailov
 branch: DWG3D-21-masshtab-sloi
-mr: <ссылка на MR>
+mr: https://git.mosai.pro/tristanov.ab/dwg3d/-/merge_requests/21
 plane: https://plane.mosai.pro/mosai/projects/8f656022-6097-4c22-8b21-3d9a197dfe4a/issues/158aee6f-032a-4b00-a03f-aa68af64b6ff
 updated: 2026-10-30
 ---
