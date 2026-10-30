@@ -12,47 +12,68 @@ import ezdxf
 import pytest
 
 from app.core import tasks
-from app.modules.building.drawing import convert, parts, read
+from app.modules.building.drawing import convert, layers, parts, read
 from tests.test_inventory import document, kinds, post
 from tests.test_planning import changes
 
 ROOT = Path(__file__).resolve().parents[2]
-# конвертер DWG на машине разработчика (в образе — свой, deploy/Dockerfile)
-if (ROOT / "legacy/.tools/libredwg/bin/dwg2dxf").exists():
-    os.environ.setdefault("APP_DWG2DXF", str(ROOT / "legacy/.tools/libredwg/bin/dwg2dxf"))
+# конвертер DWG — из APP_DWG2DXF или PATH: в образе он есть (deploy/Dockerfile), на машине
+# разработчика обычно нет, и тесты DWG пропускаются (R-060, docs/INSTALL.md)
 
 
-def sample_dxf(partition: float | None = 5000) -> bytes:
+def sample_dxf(partition: float | None = 5000, *, sheet: float = 1, walls: str = "Стены",
+               partitions: str = "Перегородки", zones: str | None = None,
+               stray: str | None = None) -> bytes:
     """Два этажа рядом на одном листе: коробка 9 × 6 м двойными линиями стен (300 мм),
     перегородка (120 мм) с дверным проёмом, окно в наружной стене, подписи помещений.
-    partition — x перегородки; None — перегородку снесли, обе подписи в одном помещении."""
+    partition — x перегородки; None — перегородку снесли, обе подписи в одном помещении.
+    sheet — чертёж в масштабе листа 1:sheet (мм бумаги), без размеров: масштаба в нём нет.
+    walls, partitions — слои стен и перегородок; zones — слой функциональных зон: штриховки
+    и значки зон в помещениях; stray — слой, на котором под планом лежит обрывок стены."""
     doc = ezdxf.new("R2010")
     doc.header["$INSUNITS"] = 4
     msp = doc.modelspace()
-    for name in ("Стены", "Перегородки", "Окна", "Текст"):
+    for name in {walls, partitions, "Окна", "Текст", zones or "0", stray or "0"} - {"0"}:
         doc.layers.add(name)
 
     def floor(ox: float, title: str, n1: str, n2: str) -> None:
+        def at(x: float, y: float) -> tuple[float, float]:
+            return ((ox + x) / sheet, y / sheet)
+
         def poly(points, layer):  # type: ignore[no-untyped-def]
-            msp.add_lwpolyline([(ox + x, y) for x, y in points], close=True,
+            msp.add_lwpolyline([at(x, y) for x, y in points], close=True,
                                dxfattribs={"layer": layer})
+
+        def text(value: str, height: float, x: float, y: float, layer: str = "0") -> None:
+            msp.add_text(value, height=height / sheet,
+                         dxfattribs={"layer": layer, "insert": at(x, y)})
         # наружные стены: внешний и внутренний контур, в нижней стене — проём под окно
         poly([(0, 0), (3000, 0), (3000, 300), (300, 300), (300, 5700), (8700, 5700),
-              (8700, 300), (4500, 300), (4500, 0), (9000, 0), (9000, 6000), (0, 6000)], "Стены")
+              (8700, 300), (4500, 300), (4500, 0), (9000, 0), (9000, 6000), (0, 6000)], walls)
         for x0, x1 in ((3000, 4500),):
-            msp.add_line((ox + x0, 100), (ox + x1, 100), dxfattribs={"layer": "Окна"})
-            msp.add_line((ox + x0, 200), (ox + x1, 200), dxfattribs={"layer": "Окна"})
+            msp.add_line(at(x0, 100), at(x1, 100), dxfattribs={"layer": "Окна"})
+            msp.add_line(at(x0, 200), at(x1, 200), dxfattribs={"layer": "Окна"})
         # перегородка (по умолчанию x = 5000) с дверью 900 мм (просвет y 2000…2900)
         if partition is not None:
             a, b = partition, partition + 120
-            poly([(a, 300), (b, 300), (b, 2000), (a, 2000)], "Перегородки")
-            poly([(a, 2900), (b, 2900), (b, 5700), (a, 5700)], "Перегородки")
-        msp.add_text(n1, height=300, dxfattribs={"layer": "0", "insert": (ox + 2500, 3000)})
-        msp.add_text("Регистратура", height=250,
-                     dxfattribs={"layer": "0", "insert": (ox + 1500, 2500)})
-        msp.add_text(n2, height=300, dxfattribs={"layer": "0", "insert": (ox + 7000, 3000)})
-        msp.add_text(title, height=500, dxfattribs={"layer": "Текст",
-                                                    "insert": (ox + 2000, 6800)})
+            poly([(a, 300), (b, 300), (b, 2000), (a, 2000)], partitions)
+            poly([(a, 2900), (b, 2900), (b, 5700), (a, 5700)], partitions)
+        if zones is not None:
+            # зона помещения — штриховка, в ней значок зоны: крестик 10 × 10 см
+            for x0, x1 in ((300, 5000), (5120, 8700)):
+                hatch = msp.add_hatch(dxfattribs={"layer": zones})
+                hatch.paths.add_polyline_path([at(x0, 300), at(x1, 300), at(x1, 5700),
+                                               at(x0, 5700)])
+                fx, fy = x0 + 600, 4800
+                msp.add_line(at(fx, fy), at(fx + 100, fy + 100), dxfattribs={"layer": zones})
+                msp.add_line(at(fx, fy + 100), at(fx + 100, fy), dxfattribs={"layer": zones})
+        if stray is not None:
+            # под планом — обрывок стены 1 м: слой стен на листе есть, но почти пуст
+            poly([(0, -1500), (1000, -1500), (1000, -1200), (0, -1200)], stray)
+        text(n1, 300, 2500, 3000)
+        text("Регистратура", 250, 1500, 2500)
+        text(n2, 300, 7000, 3000)
+        text(title, 500, 2000, 6800, "Текст")
 
     floor(0, "План 1-го этажа", "101", "102")
     floor(20000, "План 2-го этажа", "201", "202")
@@ -433,3 +454,203 @@ def test_r017_dwg2dxf_is_limited_in_memory_and_time(monkeypatch, tmp_path) -> No
     memory, cpu = out[0], out[1]
     assert memory != "unlimited" and cpu != "unlimited", out[:2]
     assert not [line for line in out[2:] if line.startswith("APP_")]
+
+
+# ---------------------------------------------------------------- масштаб, слои, тяжёлые части
+
+
+def sheet_dxf(dimlfac: float = 500, units: int = 4) -> bytes:
+    """Лист 1:500 в миллиметрах бумаги: три плана 120 × 80 (60 × 40 м здания) в 20 (10 м)
+    друг от друга, стены 0,6 (300 мм), перегородка 0,24 (120 мм). Размеры показывают метры
+    здания — у всех, кроме двух (выноска узла), DIMLFAC = dimlfac. units — $INSUNITS."""
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = units
+    msp = doc.modelspace()
+    doc.layers.add("Стены")
+
+    def box(x0: float, y0: float, x1: float, y1: float) -> None:
+        msp.add_lwpolyline([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True,
+                           dxfattribs={"layer": "Стены"})
+
+    for i in range(3):
+        ox = i * 140
+        box(ox, 0, ox + 120, 80)
+        box(ox + 0.6, 0.6, ox + 60, 79.4)
+        box(ox + 60.24, 0.6, ox + 119.4, 79.4)
+        msp.add_linear_dim(base=(ox, -10), p1=(ox, 0), p2=(ox + 120, 0),
+                           override={"dimlfac": dimlfac}).render()
+        msp.add_linear_dim(base=(ox - 10, 0), p1=(ox, 0), p2=(ox, 80), angle=90,
+                           override={"dimlfac": dimlfac}).render()
+    for y in (90, 100):
+        msp.add_linear_dim(base=(0, y), p1=(0, 80), p2=(10, 80)).render()
+    out = io.StringIO()
+    doc.write(out)
+    return out.getvalue().encode()
+
+
+def test_r057_the_sheet_scale_comes_from_the_dimensions(tmp_path) -> None:
+    """Лист 1:500 в миллиметрах бумаги: масштаб — по DIMLFAC большинства размеров, части —
+    в метрах здания, каждый план отдельно; до исправления — одна часть меньше метра (R-057)."""
+    path = tmp_path / "лист.dxf"
+    path.write_bytes(sheet_dxf())
+    drawing = read.load(path)
+    assert (drawing.scale, drawing.scale_by) == (500, "dimensions")
+    found = parts.split(drawing)
+    sizes = [(round(p.bbox[2] - p.bbox[0]), round(p.bbox[3] - p.bbox[1])) for p in found]
+    assert sizes == [(60000, 40000)] * 3
+    result = convert.convert(drawing, found[0].bbox)
+    assert sorted({w.thickness for w in result.plan.walls}) == [120, 300]
+    assert result.stats["rooms"] == 2
+
+
+def test_r057_dimensions_in_other_units_do_not_scale_the_drawing(tmp_path) -> None:
+    """Чертёж в метрах, размеры показывают миллиметры (DIMLFAC = 1000): это единицы
+    подписи, а не масштаб листа — здание остаётся 60 × 40 м."""
+    path = tmp_path / "метры.dxf"
+    path.write_bytes(sheet_dxf(dimlfac=1000, units=6))
+    drawing = read.load(path)
+    assert (drawing.scale, drawing.scale_by) == (1, "units")
+    assert round(parts.split(drawing)[0].bbox[2]) == 120_000
+
+
+def test_r057_the_admin_sets_the_scale_and_the_drawing_is_analyzed_again(admin) -> None:
+    """Масштаба на листе нет (1:100 без размеров): всё сливается в одну часть меньше метра, и
+    система предупреждает. Администратор задаёт 1:100 — чертёж разбирается заново, части — в
+    метрах здания, перевод даёт план (R-057)."""
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    d = upload(admin, b["id"], sample_dxf(sheet=100))
+    assert d["scale"] is None
+    assert (d["sheet"]["scale"], d["sheet"]["by"], d["sheet"]["small"]) == (1, "units", True)
+
+    r = admin.post(f"/api/drawings/{d['id']}/scale", json={"scale": 100})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "analyzing"
+    while tasks.run_one():
+        pass
+    full = admin.get(f"/api/drawings/{d['id']}").json()
+    assert full["scale"] == 100
+    assert (full["sheet"]["scale"], full["sheet"]["by"], full["sheet"]["small"]) == (
+        100, "admin", False)
+    assert [(p["name"], p["width"], p["floor_like"]) for p in full["parts"]] == [
+        ("План 1-го этажа", 9000, True), ("План 2-го этажа", 9000, True)]
+
+    job = admin.post(f"/api/drawings/{d['id']}/convert", json={"parts": [
+        {"key": full["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}]}).json()["job_id"]
+    while tasks.run_one():
+        pass
+    assert admin.get(f"/api/system/tasks/{job}").json()["status"] == "done"
+    floor = admin.get(f"/api/buildings/{b['id']}").json()["floors"][0]
+    plan = admin.get(f"/api/floors/{floor['id']}/plan").json()
+    assert sorted(r["number"] for r in plan["rooms"]) == ["101", "102"]
+
+    # «по чертежу» — снова сам: масштаба на листе нет, 1:1
+    r = admin.post(f"/api/drawings/{d['id']}/scale", json={"scale": None})
+    assert r.status_code == 200, r.text
+    while tasks.run_one():
+        pass
+    again = admin.get(f"/api/drawings/{d['id']}").json()
+    assert (again["scale"], again["sheet"]["by"], again["results"]) == (None, "units", {})
+
+
+@pytest.mark.parametrize(("layer", "expected"), [
+    ("Блоки", "other"),  # функциональные блоки — зоны, не стены
+    ("Функциональные блоки", "other"),
+    ("Настенные светильники", "other"),  # «стен» — не начало слова
+    ("Cтены", "wall"),  # латинская C
+    ("Стены", "wall"),
+    ("Стены наружные", "wall"),
+    ("A-WALL", "wall"),
+    ("Wände", "wall"),
+    ("Газобетон", "wall"),
+    ("Газоблоки", "wall"),
+    ("Achsen", "ignore"),
+    ("Axes", "ignore"),
+    ("Bemaßung", "ignore"),
+    ("Окна", "window"),
+    ("Двери", "door"),
+])
+def test_r058_layer_role_by_whole_words(layer: str, expected: str) -> None:
+    assert layers.role(layer) == expected
+
+
+@pytest.mark.parametrize("names", [
+    {"walls": "0", "partitions": "0", "zones": "Функциональные блоки"},
+    {"partitions": "Cтены"},
+    {"walls": "0", "partitions": "0", "stray": "Стены"},
+], ids=["zone-blocks", "latin-c", "stray-wall"])
+def test_r058_walls_are_not_lost_to_the_layer_names(tmp_path, names: dict[str, str]) -> None:
+    """Стены на слое «0», а слой с «блок» в названии — зоны со штриховками и значками;
+    перегородки на «Cтены» с латинской C; на слое стен — только обрывок под планом. До
+    исправления стен почти нет или теряются перегородки (R-058)."""
+    path = tmp_path / "слои.dxf"
+    path.write_bytes(sample_dxf(**names))  # type: ignore[arg-type]
+    drawing = read.load(path)
+    result = convert.convert(drawing, parts.split(drawing)[0].bbox)
+    assert {r.number for r in result.plan.rooms} == {"101", "102"}
+    assert sorted({w.thickness for w in result.plan.walls}) == [120, 300]
+    assert sorted(o.kind for o in result.plan.openings) == ["door", "window"]
+
+
+def test_r059_a_part_with_200k_short_lines_on_layer_0_converts_in_seconds(tmp_path) -> None:
+    """Стены на своих слоях, а на «0» в помещении — 200 000 коротких штрихов (штриховки,
+    текст линиями). До исправления все они — кандидаты в окна: перевод части — минуты и
+    гигабайты; должно — секунды, и план тот же (R-059)."""
+    import random
+
+    path = tmp_path / "штрихи.dxf"
+    path.write_bytes(sample_dxf())
+    drawing = read.load(path)
+    bbox = parts.split(drawing)[0].bbox
+    rnd = random.Random(59)
+    for i in range(200_000):
+        x, y = rnd.uniform(600, 4600), rnd.uniform(600, 5400)
+        drawing.segs.append(read.Seg("0", (x, y), (x + rnd.uniform(-40, 40), y + 40),
+                                     10**6 + i))
+    start = time.monotonic()
+    result = convert.convert(drawing, bbox)
+    elapsed = time.monotonic() - start
+    assert elapsed < 30, elapsed
+    assert {r.number for r in result.plan.rooms} == {"101", "102"}
+    assert sorted(o.kind for o in result.plan.openings) == ["door", "window"]
+
+
+def test_r059_the_progress_moves_inside_a_part(admin, monkeypatch) -> None:
+    """Ход перевода меняется и внутри части — по этапам, а не стоит на одном делении (R-059)."""
+    seen: list[tuple[int, int | None, str | None]] = []
+    original = tasks.Progress.__call__
+
+    def record(self, done, total=None, message=None):  # type: ignore[no-untyped-def]
+        seen.append((done, total, message))
+        original(self, done, total, message)
+
+    b = admin.post("/api/buildings", json={"name": "Корпус"}).json()
+    d = upload(admin, b["id"], sample_dxf())
+    monkeypatch.setattr(tasks.Progress, "__call__", record)
+    admin.post(f"/api/drawings/{d['id']}/convert", json={"parts": [
+        {"key": d["parts"][0]["key"], "new_floor": {"name": "1 этаж"}}]})
+    while tasks.run_one():
+        pass
+    inside = [(done, message) for done, _, message in seen
+              if message and message.startswith("Перевод")]
+    assert len({done for done, _ in inside}) >= 4, inside
+    assert len({message for _, message in inside}) >= 4, inside
+
+
+def test_r060_dwg2dxf_comes_from_the_environment_not_from_legacy(monkeypatch, tmp_path) -> None:
+    """Стенд разработки не ссылается на несуществующий legacy/.tools: dwg2dxf — из
+    APP_DWG2DXF или PATH (R-060)."""
+    import json
+    import shutil
+
+    launch = json.loads((ROOT / ".claude/launch.json").read_text(encoding="utf-8"))
+    for c in launch["configurations"]:
+        if c["name"] in ("server", "worker"):
+            assert "legacy/" not in " ".join(c.get("runtimeArgs", [])), c["name"]
+    tool = tmp_path / ("dwg2dxf.exe" if sys.platform == "win32" else "dwg2dxf")
+    tool.write_text("")
+    tool.chmod(0o755)
+    monkeypatch.delenv("APP_DWG2DXF", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    found = read.dwg2dxf()
+    assert found is not None and found == shutil.which("dwg2dxf")
+    assert Path(found).resolve() == tool.resolve()
