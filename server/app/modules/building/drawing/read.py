@@ -3,6 +3,7 @@
 
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -97,7 +98,15 @@ class Drawing:
 
 
 def _fix_text(text: str) -> str:
-    """Текст UTF-8, прочитанный как cp1252 (DXF без указания кодировки), — обратно."""
+    """Текст UTF-8, прочитанный как cp1252 (DXF без указания кодировки), — обратно. Байт,
+    который не читается как UTF-8, ezdxf отдаёт одиночным суррогатом, и с ним план не
+    сохраняется: это знак cp1252 — «м²» с однобайтовым «²» (R-070)."""
+    text = re.sub(
+        "[\udc80-\udcff]+",
+        lambda m: bytes(ord(c) - 0xDC00 for c in m.group()).decode("cp1252", errors="replace"),
+        text,
+    )
+    text = re.sub("[\ud800-\udfff]", "", text)
     if "Ð" not in text and "Ñ" not in text:
         return text
     try:

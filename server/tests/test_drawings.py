@@ -591,6 +591,17 @@ def test_r058_walls_are_not_lost_to_the_layer_names(tmp_path, names: dict[str, s
     assert sorted(o.kind for o in result.plan.openings) == ["door", "window"]
 
 
+def test_r070_a_caption_with_a_byte_outside_utf8_does_not_break_the_conversion(tmp_path) -> None:
+    """В подписи UTF-8 — «м²» с однобайтовым «²» (0xB2, cp1252): ezdxf отдаёт его одиночным
+    суррогатом, план с такой подписью не проходит проверку, и перевод части падал (R-070)."""
+    path = tmp_path / "подпись.dxf"
+    path.write_bytes(sample_dxf().replace("Регистратура".encode(),
+                                          "Регистратура, м".encode() + b"\xb2", 1))
+    drawing = read.load(path)
+    result = convert.convert(drawing, parts.split(drawing)[0].bbox)
+    assert {r.number: r.name for r in result.plan.rooms}["101"] == "Регистратура, м²"
+
+
 def test_r059_a_part_with_200k_short_lines_on_layer_0_converts_in_seconds(tmp_path) -> None:
     """Стены на своих слоях, а на «0» в помещении — 200 000 коротких штрихов (штриховки,
     текст линиями). До исправления все они — кандидаты в окна: перевод части — минуты и
