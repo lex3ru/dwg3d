@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.core import tasks
 from app.core.config import config
 from app.core.db import transaction
+from app.core.errors import AppError
 from app.modules.journal import api as journal
 from app.modules.journal.models import Entry
 
@@ -52,6 +53,11 @@ def _crash(session, payload: dict[str, Any], progress: tasks.Progress) -> dict[s
     if multiprocessing.parent_process() is None:
         raise RuntimeError("задача должна идти в дочернем процессе")
     os._exit(9)
+
+
+@tasks.task("test.refuse", "Задача, которая отказывает")
+def _refuse(session, payload: dict[str, Any], progress: tasks.Progress) -> dict[str, Any]:
+    raise AppError("Строка 12: номер 000154 уже занят.")
 
 
 @tasks.task("test.hungry", "Задача, которой не хватает памяти", on_fail=_failed)
@@ -188,3 +194,29 @@ def test_r013_only_tasks_of_silent_workers_are_requeued() -> None:
         assert job(alive)["status"] == "running"
     with transaction() as s:
         assert s.get(tasks.Job, alive).worker == "other"
+
+
+def test_r069_the_worker_log_tells_start_end_refusal_and_cancel(admin, caplog) -> None:
+    """До исправления обработчик писал о задаче только остановку по сроку — разбирать сбои
+    не по чему; должно — начало, конец, отказ с причиной и отмену (R-069)."""
+    caplog.set_level("INFO", logger="app.core.tasks")
+    quick = enqueue("test.quick", tag="log")
+    refused = enqueue("test.refuse")
+    heavy = enqueue("test.heavy", tag="log-heavy")
+    with worker():
+        assert wait(quick, "done")["status"] == "done"
+        assert wait(refused, "failed")["status"] == "failed"
+        assert wait(heavy, "running")["status"] == "running"
+        assert admin.post(f"/api/system/tasks/{heavy}/cancel").status_code == 200
+        assert wait(heavy, "cancelled", timeout=15)["status"] == "cancelled"
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.core.tasks"]
+
+    def about(job_id: uuid.UUID) -> list[str]:
+        return [line for line in lines if str(job_id) in line]
+
+    assert [line.split(": ", 1)[1].split(" ", 1)[0] for line in about(quick)] == [
+        "started", "done"], lines
+    assert all(line.startswith(f"task test.quick {quick}: ") for line in about(quick)), lines
+    assert any(": failed after " in line and line.endswith(": Строка 12: номер 000154 уже занят.")
+               for line in about(refused)), lines
+    assert any(line.endswith(": cancelled") for line in about(heavy)), lines

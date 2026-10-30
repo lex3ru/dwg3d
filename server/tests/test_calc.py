@@ -2,12 +2,15 @@
 «непросматриваемые места», освещённость помещений с нормами."""
 
 import gc
+import logging
+import time
 from typing import Any
 
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from app.core.db import transaction
+from app.modules.calc import api as calc
 from app.modules.calc import cameras
 from app.modules.catalog.module import seed
 from tests.test_building import building_with_floor, save, two_rooms
@@ -180,6 +183,27 @@ def test_calc_time_is_logged(admin, caplog) -> None:
     lines = [r.getMessage() for r in caplog.records if r.name == "app.modules.calc.api"]
     assert len(lines) == 1
     assert lines[0].startswith(f"calc camera floor {f['id']}: {result['took_ms']} ms (data ")
+
+
+def test_r069_gc_pauses_are_info_only_in_the_app_process(caplog, monkeypatch) -> None:
+    """Строка «gc gen2» — прибор задержки расчётов в процессе приложения (ADR-0010). До
+    исправления её писали все процессы — в журнале обработчика десятки строк на задачу
+    чертежа; должно — INFO только там, где её включил serve_app (R-069)."""
+    caplog.set_level("DEBUG", logger="app.modules.calc.api")
+
+    def pause() -> list[logging.LogRecord]:
+        caplog.clear()
+        calc._gc_watch("start", {"generation": 2, "collected": 0})
+        time.sleep(0.03)
+        calc._gc_watch("stop", {"generation": 2, "collected": 0})
+        return [r for r in caplog.records if r.getMessage().startswith("gc gen2")]
+
+    quiet = pause()
+    assert quiet and all(r.levelno == logging.DEBUG for r in quiet), quiet
+    monkeypatch.setattr(calc, "_gc_level", calc._gc_level)
+    calc.report_gc_pauses()
+    loud = pause()
+    assert loud and all(r.levelno == logging.INFO for r in loud), loud
 
 
 def _containers(value: Any) -> Any:

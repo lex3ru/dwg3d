@@ -35,6 +35,14 @@ log = logging.getLogger(__name__)
 
 # паузы сборки мусора в процессе, мс (DWG3D-10): сколько их пришлось на расчёт
 _gc = {"ms": 0.0, "at": 0.0}
+# строка о полной сборке — прибор задержки расчётов в процессе приложения (ADR-0010), её
+# включает serve_app; обработчику задач паузы не мешают, там она только шумит (R-069)
+_gc_level = logging.DEBUG
+
+
+def report_gc_pauses() -> None:
+    global _gc_level
+    _gc_level = logging.INFO
 
 
 def _gc_watch(phase: str, info: dict[str, int]) -> None:
@@ -45,7 +53,8 @@ def _gc_watch(phase: str, info: dict[str, int]) -> None:
     took = (now - _gc["at"]) * 1000
     _gc["ms"] += took
     if info["generation"] == 2 and took > 20:
-        log.info("gc gen2 %d ms, collected %d, pid %d", round(took), info["collected"], os.getpid())
+        log.log(_gc_level, "gc gen2 %d ms, collected %d, pid %d", round(took), info["collected"],
+                os.getpid())
 
 
 gc.callbacks.append(_gc_watch)

@@ -397,6 +397,7 @@ def _child(job_id: str, kind: str, payload: dict[str, Any], module: str,
 @dataclass
 class _Running:
     job_id: uuid.UUID
+    kind: str
     timeout: timedelta
     process: BaseProcess
     deadline: float
@@ -414,8 +415,25 @@ def _start(job: Job, setup: Callable[[], Any] | None) -> _Running | None:
         args=(str(job.id), job.kind, job.payload, definition.handler.__module__, setup,
               config().task_memory_mb))
     process.start()
-    return _Running(job.id, definition.timeout, process,
+    # начало, конец, отказ и отмена задачи — в журнал обработчика: по ним разбирают сбои (R-069)
+    log.info("task %s %s: started", job.kind, job.id)
+    return _Running(job.id, job.kind, definition.timeout, process,
                     time.monotonic() + definition.timeout.total_seconds())
+
+
+def _finished(run: _Running) -> None:
+    """Задача завершилась сама: выполнена или отказала — с причиной (R-069)."""
+    with transaction() as s:
+        job = s.get(Job, run.job_id)
+        if job is None:
+            return
+        status, error = job.status, job.error
+        took = ((job.finished_at - job.started_at).total_seconds()
+                if job.finished_at and job.started_at else 0.0)
+    if status == "done":
+        log.info("task %s %s: done in %.1f s", run.kind, run.job_id, took)
+    else:
+        log.info("task %s %s: %s after %.1f s: %s", run.kind, run.job_id, status, took, error)
 
 
 def _stop(run: _Running) -> None:
@@ -450,14 +468,18 @@ def _watch(running: dict[str, _Running]) -> None:
             if _fail(run.job_id, f"Задача прервалась аварийно (код {run.process.exitcode}): "
                                  "например, не хватило памяти. Подробности — в журнале работы "
                                  "сервера."):
-                log.error("task %s: process exited with %s", run.job_id, run.process.exitcode)
+                log.error("task %s %s: process exited with %s", run.kind, run.job_id,
+                          run.process.exitcode)
+            else:
+                _finished(run)
         elif run.job_id in asked:
             _stop(run)
-            _fail(run.job_id, CANCELLED, status="cancelled")
+            if _fail(run.job_id, CANCELLED, status="cancelled"):
+                log.info("task %s %s: cancelled", run.kind, run.job_id)
         elif time.monotonic() > run.deadline:
             _stop(run)
             if _fail(run.job_id, f"Задача шла дольше {_minutes(run.timeout)} и остановлена."):
-                log.warning("task %s: stopped after %s", run.job_id, run.timeout)
+                log.warning("task %s %s: stopped after %s", run.kind, run.job_id, run.timeout)
         else:
             continue
         del running[lane]

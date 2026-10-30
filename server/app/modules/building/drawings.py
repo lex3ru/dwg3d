@@ -158,12 +158,13 @@ def start_convert(
     ]
     if not chosen:
         raise AppError("Выберите хотя бы одну часть чертежа и этаж для неё.", code="nothing")
-    floors = {str(f.id) for f in api.floors(session, drawing.building_id)}
+    floors = {str(f.id): f.name for f in api.floors(session, drawing.building_id)}
     for m in chosen:
         if m.get("floor_id") and str(m["floor_id"]) not in floors:
             raise AppError("Этаж не из этого здания — обновите страницу.", field="floor_id")
         if m.get("new_floor") and not str(m["new_floor"].get("name", "")).strip():
             raise AppError("Укажите название нового этажа.", field="name")
+    _one_part_per_floor(drawing, chosen, floors)
     drawing.status = "converting"
     drawing.error = None
     drawing.job_id = tasks.enqueue(
@@ -182,6 +183,50 @@ def start_convert(
         refs=[f"building:{drawing.building_id}"],
     )
     return drawing.job_id
+
+
+def _same_name(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def _quoted(titles: list[str]) -> str:
+    quoted = [f"«{t}»" for t in titles]
+    return ", ".join(quoted[:-1]) + " и " + quoted[-1]
+
+
+def _one_part_per_floor(drawing: Drawing, chosen: list[dict[str, Any]],
+                        floors: dict[str, str]) -> None:
+    """На этаж — одна часть листа, названия новых этажей не повторяются: иначе план этажа —
+    из последней части, например из штампа с той же подписью (5.1.3 п. 1, 4, R-064)."""
+    names = {p["key"]: p.get("name") or f"Часть {i}" for i, p in enumerate(drawing.parts, 1)}
+    by_name = {_same_name(n): n for n in floors.values()}
+    onto: dict[str, list[str]] = {}
+    new: dict[str, list[str]] = {}
+    shown: dict[str, str] = {}
+    for m in chosen:
+        if m.get("floor_id"):
+            onto.setdefault(str(m["floor_id"]), []).append(names[m["key"]])
+            continue
+        name = str(m["new_floor"]["name"]).strip()
+        if _same_name(name) in by_name:
+            raise AppError(
+                f"Этаж «{by_name[_same_name(name)]}» в здании уже есть — выберите его в списке "
+                f"для части «{names[m['key']]}» или назовите новый этаж иначе.",
+                code="same_name", field="name")
+        new.setdefault(_same_name(name), []).append(names[m["key"]])
+        shown.setdefault(_same_name(name), name)
+    for floor_id, titles in onto.items():
+        if len(titles) > 1:
+            raise AppError(
+                f"Части {_quoted(titles)} выбраны на один этаж «{floors[floor_id]}» — у этажа "
+                "одна часть листа: остальные — «не переводить» или на другой этаж.",
+                code="same_floor", field="floor_id")
+    for name, titles in new.items():
+        if len(titles) > 1:
+            raise AppError(
+                f"Новый этаж «{shown[name]}» выбран для частей {_quoted(titles)} — названия "
+                "этажей не повторяются: у каждой части свой этаж.",
+                code="same_name", field="name")
 
 
 # ---------------------------------------------------------------- фоновые задачи
@@ -252,6 +297,7 @@ def analyze_drawing(
         "by": loaded.scale_by,
         "largest": round(largest),
         "small": largest < parts_mod.MIN_FLOOR,
+        "read_errors": loaded.read_errors,
     }
     drawing.status = "ready" if found else "failed"
     if not found:
@@ -265,7 +311,7 @@ def analyze_drawing(
 def convert_drawing(
     session: Session, payload: dict[str, Any], progress: tasks.Progress
 ) -> dict[str, Any]:
-    from app.modules.building.drawing import convert
+    from app.modules.building.drawing import captions, convert
 
     drawing = session.get(Drawing, uuid.UUID(payload["drawing_id"]))
     if drawing is None:
@@ -299,7 +345,11 @@ def convert_drawing(
             new = m["new_floor"]
             height = new.get("height") or 3300
             elevation = new.get("elevation")
-            level = parts[m["key"]].get("level")
+            # номер этажа — из названия, которое ввёл администратор, а нет его там — из
+            # подписи части: иначе отметки идут по порядку частей на листе (R-065)
+            level = captions.level(new["name"])
+            if level is None:
+                level = parts[m["key"]].get("level")
             if elevation is None and level is not None:
                 # «План 3-го этажа» — на отметке двух этажей над первым; подвал — под ним
                 elevation = (level - 1) * height if level > 0 else level * height

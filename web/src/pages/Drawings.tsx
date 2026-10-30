@@ -5,25 +5,14 @@ import { Link } from "react-router";
 import { ApiError, get, post } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format";
-import { CancelJob, finished, useJob, watchJob } from "@/lib/jobs";
+import { CancelJob, finished, inQueue, useJob, watchJob } from "@/lib/jobs";
 import type { FloorInfo } from "@/editor/plan";
 import { Button } from "@/ui/button";
 import { FormError } from "@/ui/form";
 import { Chip, type Tone } from "@/ui/misc";
+import { type PartInfo, type PartResult, propose } from "./drawingParts";
 
 // Загрузка чертежа и перевод его частей в планы этажей (5.1.3, С1)
-
-interface PartInfo {
-  key: string;
-  name: string;
-  level: number | null;
-  width: number;
-  height: number;
-  preview: string;
-  floor_like: boolean;
-  // что это за часть листа — по подписи, штампу и форме (R-061); "" — не понять
-  kind?: string;
-}
 
 // части листа, которые не этажи: по умолчанию «не переводить»
 const KIND: Record<string, string> = {
@@ -38,23 +27,14 @@ const KIND: Record<string, string> = {
   site: "генплан",
 };
 
-interface PartResult {
-  floor_id: string;
-  floor: string;
-  walls: number;
-  openings: number;
-  rooms: number;
-  labelled: number;
-  issues: number;
-  notes: string[];
-}
-
 // что нашёл разбор о масштабе листа (ADR-0025)
 interface SheetInfo {
   scale?: number;
   by?: "units" | "dimensions" | "admin";
   largest?: number;
   small?: boolean;
+  // строк «ERROR» у LibreDWG: DWG прочитан частично (R-069)
+  read_errors?: number;
 }
 
 interface DrawingInfo {
@@ -86,15 +66,6 @@ const STATUS: Record<DrawingInfo["status"], [string, Tone]> = {
   done: ["переведён", "ok"],
   failed: ["не получилось", "bad"],
 };
-
-function floorName(part: PartInfo): string {
-  if (part.level !== null && part.level !== undefined) return part.level < 0 ? "Подвал" : `${part.level} этаж`;
-  if (/техн/i.test(part.name)) return "Технический этаж";
-  if (/мансард/i.test(part.name)) return "Мансарда";
-  if (/цокол/i.test(part.name)) return "Цокольный этаж";
-  const name = part.name.replace(/^план\s+/i, "").trim();
-  return name ? name[0]!.toUpperCase() + name.slice(1) : "";
-}
 
 export function DrawingsSection({ buildingId, buildingName, floors }: { buildingId: string; buildingName: string; floors: FloorInfo[] }) {
   const client = useQueryClient();
@@ -173,23 +144,19 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
     }
   }, [job, client, id, buildingId]);
 
-  // предложение: часть-этаж — на этаж с тем же названием или новый; мелочь — не переводить
+  // предложение: переведённые части и не-этажи — «не переводить», этаж — одной части (R-064).
+  // Заново — после каждой задачи чертежа (разбор, перевод) и когда меняются этажи здания: иначе
+  // после перевода остаётся прежний выбор, и «Перевести в планы» переведёт те же части ещё раз
+  const suggest = () => propose(parts, drawing.data?.results ?? {}, floors);
+  const basis = `${drawing.data?.job_id}:${drawing.data?.status}:${floors.map((f) => f.id).join(",")}`;
+  const [proposed, setProposed] = useState("");
   useEffect(() => {
-    if (!parts.length) return;
-    setChoice((c) => {
-      if (Object.keys(c).length) return c;
-      const out: Record<string, string> = {};
-      for (const p of parts) {
-        const result = drawing.data?.results[p.key];
-        const same = floors.find((f) => f.name.toLowerCase() === floorName(p).toLowerCase());
-        out[p.key] = result ? result.floor_id : !p.floor_like ? "" : same ? same.id : "new";
-      }
-      return out;
-    });
-    // часть без подписи — «N этаж» по порядку среди частей-этажей
-    const order = parts.filter((p) => p.floor_like);
-    setNames((n) => (Object.keys(n).length ? n : Object.fromEntries(parts.map((p) => [p.key, floorName(p) || `${order.indexOf(p) + 1 || 1} этаж`]))));
-  }, [parts, floors, drawing.data]);
+    if (!parts.length || proposed === basis) return;
+    const next = propose(parts, drawing.data?.results ?? {}, floors);
+    setChoice(next.choice);
+    setNames(next.names);
+    setProposed(basis);
+  }, [parts, floors, drawing.data, basis, proposed]);
 
   const convert = useMutation({
     mutationFn: () =>
@@ -211,12 +178,22 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
   if (d.status === "analyzing" || d.status === "converting") {
     const p = job?.progress;
     const share = p?.total ? p.done / p.total : 0;
+    // полоса чертежей одна (ADR-0011): этот ждёт, пока обработчик закончит другой (R-067)
+    const waiting = inQueue(job);
+    const what = d.status === "analyzing" ? "Разбор" : "Перевод";
     return (
       <div className="flex flex-col gap-2 border-t border-line px-3 py-3">
-        <div className="text-[13px] text-ink-2">{job?.message ?? (d.status === "analyzing" ? "Разбор чертежа…" : "Перевод…")}</div>
-        <div className="h-2 rounded bg-muted-soft" role="progressbar" aria-valuenow={Math.round(share * 100)} aria-valuemin={0} aria-valuemax={100}>
-          <div className="h-2 rounded bg-accent transition-all" style={{ width: `${Math.max(5, share * 100)}%` }} />
+        <div className="text-[13px] text-ink-2" role="status">
+          {waiting ? `${what} ждёт очереди: обработчик фоновых задач занят другим чертежом и возьмёт этот следом.` : (job?.message ?? (d.status === "analyzing" ? "Разбор чертежа…" : "Перевод…"))}
         </div>
+        <div className="h-2 rounded bg-muted-soft" role="progressbar" aria-valuenow={Math.round(share * 100)} aria-valuemin={0} aria-valuemax={100}>
+          {!waiting && <div className="h-2 rounded bg-accent transition-all" style={{ width: `${Math.max(5, share * 100)}%` }} />}
+        </div>
+        {waiting && (
+          <p className="m-0 text-[13px] text-ink-3">
+            Ждёт долго — проверьте в <Link to="/settings?tab=status">«Состоянии сервера»</Link>, работают ли фоновые задачи.
+          </p>
+        )}
         <p className="m-0 text-[12px] text-ink-3">Можно уйти с экрана — по окончании придёт сообщение.</p>
         <CancelJob job={job} />
       </div>
@@ -243,7 +220,24 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
           Перевод не выполнен: {d.error} Планы этажей не изменились — перевод можно повторить.
         </p>
       )}
-      <p className="m-0 text-[13px] text-ink-2">На листе найдено частей: {parts.length}. Укажите, какая часть — какой этаж. Этажами предложены планы; рамки, штампы, таблицы, фасады и разрезы переводить не нужно.</p>
+      <p className="m-0 text-[13px] text-ink-2">
+        На листе найдено частей: {parts.length}. Укажите, какая часть — какой этаж: на этаж — одна часть. Этажами предложены планы, которые ещё не переведены; рамки, штампы, таблицы, фасады и разрезы переводить не нужно.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => setChoice(Object.fromEntries(parts.map((p) => [p.key, ""])))} disabled={!Object.values(choice).some(Boolean)}>
+          Не переводить ни одной
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            const next = suggest();
+            setChoice(next.choice);
+            setNames(next.names);
+          }}
+        >
+          Предложить этажи
+        </Button>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {parts.map((p, i) => {
           const result = d.results[p.key];
@@ -292,7 +286,17 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
                   <span className="text-ink-2">
                     стен {result.walls}, проёмов {result.openings}, помещений {result.rooms} (с номерами {result.labelled})
                   </span>
-                  <span className={result.issues ? "text-warn" : "text-ok"}>{result.issues ? `замечаний проверки: ${result.issues}` : "без замечаний проверки"}</span>
+                  {result.closed === false && (
+                    <span className="text-warn">
+                      план не замкнут: помещения — {result.covered} % этажа, концов стен без примыкания — {result.open_ends}. Проверьте стены в редакторе.
+                    </span>
+                  )}
+                  {(result.issues > 0 || result.closed !== false) && <span className={result.issues ? "text-warn" : "text-ok"}>{result.issues ? `замечаний проверки: ${result.issues}` : "без замечаний проверки"}</span>}
+                  {result.notes.map((n) => (
+                    <span key={n} className="text-ink-2">
+                      {n}
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
@@ -306,7 +310,14 @@ function DrawingDetail({ id, buildingId, buildingName, floors }: { id: string; b
       )}
       <FormError message={error} />
       <div>
-        <Button variant="primary" onClick={() => convert.mutate()} disabled={convert.isPending || !Object.values(choice).some(Boolean)}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setError(null);
+            convert.mutate();
+          }}
+          disabled={convert.isPending || !Object.values(choice).some(Boolean)}
+        >
           Перевести в планы
         </Button>
       </div>
@@ -366,6 +377,11 @@ function SheetScale({ drawing, buildingId, onChange }: { drawing: DrawingInfo; b
           Разобрать заново
         </Button>
       </div>
+      {!!sheet.read_errors && (
+        <p className="m-0 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn" role="alert">
+          DWG прочитан с ошибками: {sheet.read_errors.toLocaleString("ru-RU")}. Часть чертежа могла не прочитаться — если планы неполные, сохраните чертёж в DXF в программе, где он сделан, и загрузите DXF.
+        </p>
+      )}
       {sheet.small && (
         <p className="m-0 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn" role="alert">
           На листе нет ни одной части размером с этаж (наибольшая — {metres(sheet.largest ?? 0)} м): похоже, чертёж начерчен в масштабе листа. Выберите масштаб и разберите чертёж заново.
