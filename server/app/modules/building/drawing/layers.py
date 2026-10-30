@@ -2,6 +2,7 @@
 поэтому роль угадывается по началу слов названия; неизвестный слой в стены не идёт."""
 
 import re
+from functools import cache
 
 ROLES: list[tuple[str, tuple[str, ...]]] = [
     # порядок важен: первое совпадение решает; слово названия должно начинаться с корня
@@ -111,6 +112,7 @@ def words(layer: str) -> list[str]:
     return out
 
 
+@cache  # слоёв на листе десятки, а отрезков — сотни тысяч
 def role(layer: str) -> str:
     found = words(layer)
     for role_name, roots in ROLES:
