@@ -52,6 +52,9 @@ def start_export(actor: Admin, session: DB, building_id: uuid.UUID | None = None
 
 
 @router.get("/reports/exports/{job_id}")
+@router.head("/reports/exports/{job_id}")  # отдельно: у GET и HEAD в схеме API свои имена
 def download_export(job_id: uuid.UUID, actor: Admin, session: DB) -> FileResponse:
+    """HEAD — есть ли ещё архив: интерфейс спрашивает до скачивания, чтобы на удалённый
+    архив показать сообщение, а не сбой загрузки в браузере (R-027)."""
     path, name = dump.export_file(session, actor, job_id)
     return FileResponse(path, media_type="application/zip", filename=name)

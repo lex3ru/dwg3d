@@ -104,6 +104,15 @@ def test_r037_restore_keeps_the_database_until_the_copy_is_restored() -> None:
     assert "restore-db.sh" in (DEPLOY / "backup" / "Dockerfile").read_text(encoding="utf-8")
 
 
+def test_r027_backups_skip_full_export_archives() -> None:
+    """Архив полной выгрузки — почти все файлы системы ещё раз: в копии он занимал место
+    до года после удаления (ежемесячные копии). Его хранят отдельно (7.4), копия — без него
+    (R-027)."""
+    script = (DEPLOY / "backup" / "backup.sh").read_text(encoding="utf-8")
+    copies = [line for line in script.splitlines() if "rsync" in line and " /data/" in line]
+    assert copies and all("--exclude=/exports/" in c for c in copies)
+
+
 def ignored(path: str, rules: list[str]) -> bool:
     """Не попадёт ли путь в контекст сборки по правилам .dockerignore, как их читает Docker:
     решает последнее совпавшее правило («!» — исключение), правило про каталог касается

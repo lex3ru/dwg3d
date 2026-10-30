@@ -1,12 +1,17 @@
 """Отчёты (5.6), главная (6.5.1), полная выгрузка (7.4)."""
 
 import io
+import uuid
 import zipfile
 from datetime import date
 
 from openpyxl import load_workbook
+from sqlalchemy import text
 
 from app.core import tasks
+from app.core.db import transaction
+from app.modules.catalog import api as catalog_api
+from app.modules.reports import dump
 from tests.test_building import building_with_floor, save, two_rooms
 from tests.test_calc import catalog
 from tests.test_inventory import document, post, statement
@@ -203,3 +208,107 @@ def test_full_export_is_an_archive_readable_without_the_system(admin) -> None:
         "Цвет обивки",
         "бежевый",
     ]
+
+
+# ---------------------------------------------------------------- срок хранения архивов (R-027)
+
+
+def export(admin, building_id: str) -> str:  # type: ignore[no-untyped-def]
+    r = admin.post("/api/reports/exports", params={"building_id": building_id})
+    assert r.status_code == 202, r.text
+    return str(r.json()["job_id"])
+
+
+def archive(job_id: str):  # type: ignore[no-untyped-def]
+    return dump.exports_dir() / f"{job_id}.zip"
+
+
+def purge_exports() -> None:
+    """Уборка архивов — как её запускает расписание."""
+    assert tasks.registered()["reports.purge_exports"].every
+    with transaction() as s:
+        tasks.registered()["reports.purge_exports"].handler(s, {}, tasks.Progress(uuid.uuid4()))
+
+
+def test_r027_archives_older_than_the_setting_are_purged(admin) -> None:
+    """Архив полной выгрузки — почти все файлы системы; без удаления каждая выгрузка жила в
+    данных и резервных копиях навсегда (R-027). Срок — в «Настройках»; свежие архивы, идущие
+    выгрузки и задачи других видов уборка не трогает."""
+    for left in dump.exports_dir().glob("*.zip"):  # архивы прошлых тестов: их задач уже нет
+        left.unlink()
+    b, _ = building_with_floor(admin)
+    old, fresh = export(admin, b["id"]), export(admin, b["id"])
+    while tasks.run_one():
+        pass
+    running = export(admin, b["id"])
+    with transaction() as s:
+        s.execute(text("UPDATE core.job SET status = 'running' WHERE id = :id"), {"id": running})
+    archive(running).write_bytes(b"PK")  # собирается прямо сейчас
+    stray = dump.exports_dir() / f"{uuid.uuid4()}.zip"
+    stray.write_bytes(b"PK")  # задачи нет — остался от удалённой задачи
+    settings = admin.get("/api/system/settings").json()
+    days = next(i for i in settings["items"] if i["key"] == "export_days")
+    assert days["value"] == 30
+    r = admin.patch("/api/system/settings",
+                    json={"version": settings["version"], "values": {"export_days": 0}})
+    assert r.status_code == 400 and r.json()["error"]["field"] == "export_days"
+    r = admin.patch("/api/system/settings",
+                    json={"version": settings["version"], "values": {"export_days": 10}})
+    assert r.status_code == 200, r.text
+    with transaction() as s:
+        s.execute(text("UPDATE core.job SET finished_at = now() - interval '11 days' "
+                       "WHERE id = :id"), {"id": old})
+    purge_exports()
+    assert not archive(old).exists() and not stray.exists()
+    assert archive(fresh).exists() and archive(running).exists()
+    gone = admin.get(f"/api/system/tasks/{old}").json()
+    assert gone["status"] == "done" and gone["result"]["deleted_at"]
+    r = admin.get(gone["result"]["href"])
+    assert r.status_code == 404
+    assert "срок" in r.json()["error"]["message"] and "заново" in r.json()["error"]["message"]
+    assert admin.get(f"/api/reports/exports/{fresh}").status_code == 200
+    entry = admin.get("/api/journal").json()["items"][0]
+    assert entry["action"] == "reports.purge_exports"
+    assert entry["summary"] == "Удалено архивов полной выгрузки: 2"
+
+
+def test_r027_failed_and_cancelled_exports_leave_no_archive(admin, monkeypatch) -> None:
+    """Упавшая или отменённая выгрузка оставляла недособранный архив навсегда (R-027)."""
+    b, _ = building_with_floor(admin)
+
+    def broken(_session):  # type: ignore[no-untyped-def]
+        raise RuntimeError("каталог не выгрузился")
+
+    failed = export(admin, b["id"])
+    with monkeypatch.context() as m:
+        m.setattr(catalog_api, "export_xlsx", broken)
+        assert tasks.run_one()
+    assert admin.get(f"/api/system/tasks/{failed}").json()["status"] == "failed"
+    assert not archive(failed).exists()
+    # отменённую обработчик останавливает вместе с процессом, затем закрывает задачу (ADR-0011)
+    cancelled = export(admin, b["id"])
+    with transaction() as s:
+        s.execute(text("UPDATE core.job SET status = 'running' WHERE id = :id"),
+                  {"id": cancelled})
+    archive(cancelled).write_bytes(b"PK")  # процесс остановлен посреди архива
+    assert tasks._fail(uuid.UUID(cancelled), tasks.CANCELLED, status="cancelled")
+    assert admin.get(f"/api/system/tasks/{cancelled}").json()["status"] == "cancelled"
+    assert not archive(cancelled).exists()
+
+
+def test_r027_vanished_archive_link_gives_a_clear_message(admin) -> None:
+    """Архивов нет в резервной копии: после восстановления задача «готово», а архива нет.
+    Ссылка отвечает понятным текстом, интерфейс проверяет архив запросом HEAD до скачивания."""
+    b, _ = building_with_floor(admin)
+    job_id = export(admin, b["id"])
+    assert tasks.run_one()
+    href = f"/api/reports/exports/{job_id}"
+    r = admin.head(href)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    archive(job_id).unlink()
+    assert admin.head(href).status_code == 404
+    r = admin.get(href)
+    assert r.status_code == 404 and "заново" in r.json()["error"]["message"]
+    purge_exports()
+    result = admin.get(f"/api/system/tasks/{job_id}").json()["result"]
+    assert result["deleted_at"] and result["deleted"] == r.json()["error"]["message"]

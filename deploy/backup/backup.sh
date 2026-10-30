@@ -32,10 +32,12 @@ mkdir -p "$work"
 echo "backup: $stamp"
 pg_dump -Fc -f "$work/db.dump" || fail "Не удалось выгрузить базу данных."
 previous=$(find "$root/daily" -mindepth 1 -maxdepth 1 -type d ! -name '*.part' | sort | tail -n 1)
+# архивы полной выгрузки (exports/) — почти все файлы ещё раз; их скачивают и хранят
+# отдельно, в данных они живут срок из «Настроек» (R-027, ADR-0024)
 if [ -n "$previous" ] && [ -d "$previous/files" ]; then
-  rsync -a --delete --link-dest="$previous/files" /data/ "$work/files/" || fail "Не удалось скопировать файлы."
+  rsync -a --delete --exclude=/exports/ --link-dest="$previous/files" /data/ "$work/files/" || fail "Не удалось скопировать файлы."
 else
-  rsync -a --delete /data/ "$work/files/" || fail "Не удалось скопировать файлы."
+  rsync -a --delete --exclude=/exports/ /data/ "$work/files/" || fail "Не удалось скопировать файлы."
 fi
 rm -rf "$target"
 mv "$work" "$target"

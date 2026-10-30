@@ -62,7 +62,7 @@ def test_scheduled_tasks_are_enqueued_once_per_period() -> None:
     with transaction() as s:
         kinds = sorted(s.scalars(select(tasks.Job.kind)))
     assert kinds == ["access.purge_sessions", "inventory.purge_cost_statements",
-                     "system.purge_journal"]
+                     "reports.purge_exports", "system.purge_journal"]
 
 
 def test_interrupted_tasks_are_requeued() -> None:

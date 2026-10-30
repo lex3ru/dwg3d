@@ -66,6 +66,7 @@ function General() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => get<Settings>("/api/system/settings") });
   const [org, setOrg] = useState("");
   const [years, setYears] = useState("5");
+  const [exportDays, setExportDays] = useState("30");
   const [error, setError] = useState<ApiError | null>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
@@ -73,12 +74,13 @@ function General() {
     const value = (key: string) => settings.data.items.find((i) => i.key === key)?.value;
     setOrg(String(value("organization_name") ?? ""));
     setYears(String(value("journal_years") ?? 5));
+    setExportDays(String(value("export_days") ?? 30));
   }, [settings.data]);
   const save = useMutation({
     mutationFn: () =>
       patch<Settings>("/api/system/settings", {
         version: settings.data!.version,
-        values: { organization_name: org, journal_years: Number.parseInt(years, 10) },
+        values: { organization_name: org, journal_years: Number.parseInt(years, 10), export_days: Number.parseInt(exportDays, 10) },
       }),
     onSuccess: (data) => {
       client.setQueryData(["settings"], data);
@@ -101,6 +103,10 @@ function General() {
         </Field>
         <Field label="Срок хранения журнала, лет" hint="Записи старше удаляются автоматически раз в сутки." error={error?.field === "journal_years" ? error.message : undefined}>
           {(p) => <Input {...p} type="number" min={1} max={50} value={years} onChange={(e) => setYears(e.target.value)} className="w-32" />}
+        </Field>
+        {/* R-027: архив — почти все файлы системы ещё раз; его скачивают и хранят отдельно (7.4) */}
+        <Field label="Срок хранения архивов полной выгрузки, дней" hint="Архивы старше удаляются автоматически раз в час. В резервные копии они не входят — скачанный архив храните отдельно." error={error?.field === "export_days" ? error.message : undefined}>
+          {(p) => <Input {...p} type="number" min={1} max={365} value={exportDays} onChange={(e) => setExportDays(e.target.value)} className="w-32" />}
         </Field>
         <p className="m-0 text-[13px] text-ink-2">Вид инвентарного номера и наклейки — на вкладке «Учёт имущества»; пороги камер и освещённость появятся на этапе 7.</p>
         <FormError message={error && !error.field ? error.message : null} />
