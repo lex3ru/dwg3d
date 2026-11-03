@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, SecretStr
 
 from app.core.auth import Admin, CurrentActor
@@ -24,30 +24,44 @@ def camera(item_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict:
     return api.view(source, actor)
 
 
+class PreviewResponse(StreamingResponse):
+    """Ожидание камеры входит в отменяемую передачу, а не в транзакцию (ADR-0027)."""
+
+    async def stream_response(self, send):
+        frames = self.body_iterator
+        started = False
+        try:
+            try:
+                first = await anext(frames)
+            except StopAsyncIteration:
+                raise AppError("Не удалось получить видео с камеры.", status=502) from None
+            started = True
+            await send({"type": "http.response.start", "status": self.status_code,
+                        "headers": self.raw_headers})
+            await send({"type": "http.response.body", "body": first, "more_body": True})
+            async for chunk in frames:
+                await send({"type": "http.response.body", "body": chunk, "more_body": True})
+        except AppError as error:
+            if not started:
+                response = JSONResponse(error.body(), status_code=error.status,
+                                        headers={"Cache-Control": "no-store"})
+                await send({"type": "http.response.start", "status": response.status_code,
+                            "headers": response.raw_headers})
+                await send({"type": "http.response.body", "body": response.body})
+                return
+        finally:
+            await frames.aclose()
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+
 @router.get("/cameras/{item_id}/preview")
-async def live(item_id: uuid.UUID, actor: CurrentActor, session: DB) -> StreamingResponse:
+def live(item_id: uuid.UUID, actor: CurrentActor, session: DB) -> StreamingResponse:
     source = api.connection(session, actor, item_id)
     if source is None:
         raise NotFound("Физическая камера ещё не подключена.")
-    frames = preview(api.stream_url(source))
-    try:
-        first = await anext(frames)
-    except StopAsyncIteration:
-        raise AppError("Не удалось получить видео с камеры.", status=502) from None
-
-    async def body():
-        try:
-            yield first
-            async for chunk in frames:
-                yield chunk
-        except AppError:
-            # После отправки заголовков JSON-ошибка уже невозможна. Клиент переподключится.
-            return
-        finally:
-            await frames.aclose()
-
-    return StreamingResponse(body(), media_type="multipart/x-mixed-replace; boundary=ffmpeg",
-                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+    return PreviewResponse(preview(api.stream_url(source)),
+                           media_type="multipart/x-mixed-replace; boundary=ffmpeg",
+                           headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 class ConnectionIn(BaseModel):

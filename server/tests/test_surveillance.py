@@ -169,3 +169,53 @@ def test_camera_directory_includes_unconfigured_cameras_only(admin):
     assert rows[0]["configured"] is False
     assert rows[0]["floor_id"] == floor["id"]
     assert "address" not in rows[0] and "password" not in rows[0]
+
+
+def test_disconnect_before_first_frame_releases_channel(monkeypatch):
+    from app.modules.surveillance.routes import PreviewResponse
+
+    async def run():
+        started = asyncio.Event()
+        disconnected = asyncio.Event()
+        killed = []
+
+        async def read(_):
+            started.set()
+            await asyncio.Event().wait()
+
+        async def receive():
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        process = SimpleNamespace(stdout=SimpleNamespace(read=read), returncode=None,
+                                  kill=lambda: killed.append(True), wait=AsyncMock())
+        monkeypatch.setattr(stream, "slots", asyncio.Semaphore(1))
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+        frames = stream.preview("rtsp://camera/live")
+        response = PreviewResponse(frames)
+        task = asyncio.create_task(response({"type": "http"}, receive, AsyncMock()))
+        await asyncio.wait_for(started.wait(), 1)
+        assert stream.slots.locked()
+        disconnected.set()
+        await asyncio.wait_for(task, 1)
+        assert killed == [True]
+        assert not stream.slots.locked()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", [None, 503, 504])
+def test_preview_startup_error_keeps_json_response(admin, monkeypatch, failure):
+    _, _, url = camera(admin)
+    admin.put(url, json={"address": "rtsp://camera/live", "version": 0})
+
+    async def failing_preview(_):
+        if failure:
+            raise AppError("Камера недоступна.", status=failure)
+        return
+        yield  # генератор без кадров
+
+    monkeypatch.setattr("app.modules.surveillance.routes.preview", failing_preview)
+    response = admin.get(url + "/preview")
+    assert response.status_code == (failure or 502)
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["error"]["message"]
