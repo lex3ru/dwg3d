@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { CountingPanel } from "./CountingPanel";
 import { Video } from "lucide-react";
 import { get, put } from "@/lib/api";
 import { useMe } from "@/lib/auth";
@@ -113,7 +114,7 @@ function ConnectionForm({ itemId, data, onSaved }: { itemId: string; data: Conne
 export function CameraWindow({ itemId, title, onClose }: { itemId: string; title: string; onClose?: () => void }) {
   const [open, setOpen] = useState(true);
   const admin = useMe().role === "admin";
-  const [tab, setTab] = useState<"video" | "settings">("video");
+  const [tab, setTab] = useState<"video" | "settings" | "analytics">("video");
   const camera = useQuery({
     queryKey: ["surveillance", itemId],
     queryFn: () => get<Connection>(`/api/surveillance/cameras/${itemId}`),
@@ -125,17 +126,18 @@ export function CameraWindow({ itemId, title, onClose }: { itemId: string; title
       <div className="flex gap-2">
         <Button onClick={() => setTab("video")} variant={tab === "video" ? "primary" : "ghost"}>Видео</Button>
         <Button onClick={() => setTab("settings")} variant={tab === "settings" ? "primary" : "ghost"}>Настройки</Button>
+        <Button onClick={() => setTab("analytics")} variant={tab === "analytics" ? "primary" : "ghost"}>Аналитика</Button>
       </div>
       {camera.isPending && <p>Загрузка подключения…</p>}
       {camera.isError && <p role="alert">Не удалось загрузить камеру. Проверьте доступ и настройки подключения.</p>}
-      {camera.data && (tab === "video" ? (
+      {camera.data && (tab === "analytics" ? <CountingPanel itemId={itemId} /> : tab === "video" ? (
         camera.data.configured ? <LivePreview itemId={itemId} /> : <>
           <p>Физическая камера ещё не подключена.</p>
           {admin ? <Button onClick={() => setTab("settings")}>Настроить подключение</Button> : <p>Обратитесь к администратору.</p>}
         </>
       ) : <>
         {admin ? <ConnectionForm key={camera.data.version} itemId={itemId} data={camera.data} onSaved={() => { void camera.refetch().then(() => setTab("video")); }} /> : <p>Подключение настроено администратором.</p>}
-        <p>Аналитика не подключена. Подсчёт посетителей и другие задачи появятся на следующем этапе.</p>
+        <p>Подсчёт проходов настраивается на вкладке «Аналитика».</p>
       </>)}
     </Dialog>
   </>;

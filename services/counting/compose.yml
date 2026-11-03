@@ -1,0 +1,23 @@
+services:
+  counting:
+    build:
+      context: ../..
+      dockerfile: services/counting/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 45s
+    cpus: 2
+    mem_limit: 2g
+    environment:
+      COUNTING_APP_URL: ${COUNTING_APP_URL:-http://127.0.0.1:8010}
+      COUNTING_TOKEN_FILE: /run/secrets/counting_token
+    network_mode: host
+    volumes:
+      - counting-data:/data
+      - ${COUNTING_MODEL_DIR:?Set COUNTING_MODEL_DIR}:/models:ro
+    secrets:
+      - counting_token
+secrets:
+  counting_token:
+    file: ${COUNTING_TOKEN_FILE:?Set COUNTING_TOKEN_FILE}
+volumes:
+  counting-data:

@@ -44,3 +44,7 @@ dist/
 # real drawings of the user's buildings: data, not code
 /Поэтажные планы *.dxf
 /Поэтажные планы *.pdf
+
+# Локальный исходный прототип с датасетом — отдельный репозиторий.
+# Нужное ядро сервиса сохранено в services/counting/core/.
+/video/

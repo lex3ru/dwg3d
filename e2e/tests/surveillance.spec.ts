@@ -40,6 +40,20 @@ test("камера на плане: настройка адреса, просм�
   await expect(dialog.getByLabel("Пароль камеры")).toHaveValue("");
   await expect(dialog.getByLabel("Пароль камеры")).toHaveAttribute("placeholder", /Сохранён/);
   await page.screenshot({ path: testInfo.outputPath("camera-settings.png") });
+  await dialog.getByRole("button", { name: "Аналитика", exact: true }).click();
+  const overlay = dialog.getByRole("img", { name: /Разметка прохода/ });
+  const area = (await overlay.boundingBox())!;
+  for (const [x, y] of [[.2, .5], [.8, .5], [.5, .8]]) {
+    await page.mouse.click(area.x + area.width * x!, area.y + area.height * y!);
+  }
+  await dialog.getByLabel("Включить подсчёт проходов").check();
+  await dialog.getByRole("button", { name: "Сохранить аналитику" }).click();
+  await expect(dialog.getByText("Состояние сервиса: нет связи")).toBeVisible();
+  const counting = await (await page.request.get(`/api/surveillance/cameras/${item.id}/analytics`)).json();
+  expect(counting.settings.enabled).toBe(true);
+  expect(counting.version).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath("camera-analytics.png") });
+
   await dialog.getByRole("button", { name: "Закрыть" }).click();
   await page.getByRole("link", { name: "Видеокамеры", exact: true }).click();
   await page.goto(`/cameras?building=${building.id}`);

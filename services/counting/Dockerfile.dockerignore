@@ -1,0 +1,6 @@
+**
+!services/
+!services/counting/
+!services/counting/**
+**/__pycache__
+**/.pytest_cache

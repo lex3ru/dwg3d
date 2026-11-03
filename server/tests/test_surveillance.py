@@ -219,3 +219,41 @@ def test_preview_startup_error_keeps_json_response(admin, monkeypatch, failure):
     assert response.status_code == (failure or 502)
     assert response.headers["content-type"] == "application/json"
     assert response.json()["error"]["message"]
+
+
+def test_counting_settings_and_idempotent_delivery(admin, app, monkeypatch):
+    from uuid import uuid4
+
+    from pydantic import SecretStr
+
+    from app.core.config import config
+
+    monkeypatch.setattr(config(), "analytics_token", SecretStr("test-counting-token"))
+    _, item, url = camera(admin)
+    admin.put(url, json={"address": "rtsp://camera/live", "version": 0})
+    payload = {"enabled": True, "door": "Холл", "version": 0,
+               "p1": {"x": .2, "y": .5}, "p2": {"x": .8, "y": .5},
+               "inside": {"x": .5, "y": .8}}
+    assert admin.put(url + "/analytics", json=payload).status_code == 200
+    assert admin.put(url + "/analytics", json=payload).status_code == 409
+    with make_client(app) as client:
+        assert client.get("/api/surveillance/service/config").status_code == 403
+        client.headers["Authorization"] = "Bearer test-counting-token"
+        configs = client.get("/api/surveillance/service/config").json()["cameras"]
+        assert configs[0]["id"] == item["id"]
+        assert client.post("/api/surveillance/service/status", json={
+            "camera_id": item["id"], "version": 1, "state": "running"
+        }).status_code == 200
+        assert admin.get(url + "/analytics").json()["state"] == "running"
+        event = {"id": str(uuid4()), "camera_id": item["id"], "version": 1,
+                 "door": "Холл", "direction": "in", "occurred_at": "2026-11-03T10:00:00Z"}
+        for _ in range(2):
+            response = client.post("/api/surveillance/service/events", json={"events": [event]})
+            assert response.status_code == 200, response.text
+    result = admin.get(url + "/events").json()
+    assert len(result["items"]) == 1
+    assert result["counts"] == {"in": 1, "out": 0}
+    assert admin.put(url + "/analytics", json={**payload, "version": 1}).status_code == 200
+    assert admin.get(url + "/analytics").json()["state"] == "offline"
+    invalid = {**payload, "version": 2, "inside": {"x": .5, "y": .5}}
+    assert admin.put(url + "/analytics", json=invalid).status_code == 422
