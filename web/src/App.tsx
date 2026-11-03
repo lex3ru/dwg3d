@@ -29,11 +29,13 @@ import { ProjectPage } from "@/projects/ProjectPage";
 import { ProjectsPage } from "@/projects/ProjectsPage";
 import { ReportsPage } from "@/reports/ReportsPage";
 import { homeFor, MENU } from "@/shell/menu";
+import { CamerasPage } from "@/surveillance/CamerasPage";
 import { Shell } from "@/shell/Shell";
 import { Loading } from "@/ui/misc";
 
 const READY: Record<string, React.ReactNode> = {
   "/": <HomePage />,
+  "/cameras": <CamerasPage />,
   "/reports": <ReportsPage />,
   "/users": <Users />,
   "/journal": <Journal />,

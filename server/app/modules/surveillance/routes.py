@@ -13,6 +13,11 @@ from app.modules.surveillance.stream import preview
 router = APIRouter(prefix="/api/surveillance", tags=["surveillance"])
 
 
+@router.get("/cameras")
+def cameras(building_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict:
+    return {"items": api.cameras(session, actor, building_id)}
+
+
 @router.get("/cameras/{item_id}")
 def camera(item_id: uuid.UUID, actor: CurrentActor, session: DB) -> dict:
     source = api.connection(session, actor, item_id)

@@ -40,4 +40,17 @@ test("камера на плане: настройка адреса, просм�
   await expect(dialog.getByLabel("Пароль камеры")).toHaveValue("");
   await expect(dialog.getByLabel("Пароль камеры")).toHaveAttribute("placeholder", /Сохранён/);
   await page.screenshot({ path: testInfo.outputPath("camera-settings.png") });
+  await dialog.getByRole("button", { name: "Закрыть" }).click();
+  await page.getByRole("link", { name: "Видеокамеры", exact: true }).click();
+  await page.goto(`/cameras?building=${building.id}`);
+  await expect(page.getByRole("heading", { name: "Видеокамеры", exact: true })).toBeVisible();
+  const card = page.getByRole("region", { name: "Камера у входа" });
+  await expect(card).toBeVisible();
+  await expect(card.getByRole("status")).toHaveText("Камера не отвечает. Проверьте подключение.");
+  await page.getByRole("button", { name: "Приостановить просмотр" }).click();
+  await expect(card.getByText("Просмотр приостановлен")).toBeVisible();
+  await card.getByRole("button", { name: "Открыть камеру" }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Закрыть" }).click();
+  await page.screenshot({ path: testInfo.outputPath("camera-directory.png") });
 });

@@ -3,11 +3,13 @@
 import uuid
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import Actor
 from app.core.errors import AppError, Forbidden, stale
+from app.modules.building import api as building
+from app.modules.catalog import api as catalog
 from app.modules.journal import api as journal
 from app.modules.planning import api as planning
 from app.modules.surveillance.models import CameraConnection
@@ -82,3 +84,32 @@ def stream_url(source: CameraConnection) -> str:
         password = quote(decrypt(source.password), safe="")
         credentials = f"{user}:{password}@"
     return urlunsplit(parsed._replace(netloc=credentials + parsed.netloc))
+
+
+def cameras(session: Session, actor: Actor, building_id: uuid.UUID) -> list[dict]:
+    """Все камеры здания, включая ещё не подключённые (ТЗ 8.4, ADR-0027)."""
+    if actor.is_guest:
+        raise Forbidden()
+    building.get_building(session, actor, building_id)
+    types = {t.id: t for t in catalog.types_with(
+        session, ["Разрешение по горизонтали", "Угол обзора по горизонтали, макс."]
+    )}
+    out = []
+    for floor in building.floors(session, building_id):
+        items = planning.floor_items(session, actor, floor.id)
+        ids = [item.id for item in items]
+        connected = set(session.scalars(select(CameraConnection.item_id).where(
+            CameraConnection.item_id.in_(ids)
+        ))) if ids else set()
+        rooms = {r.id: " ".join(filter(None, [r.number, r.name]))
+                 for r in building.live_rooms(session, floor.id)}
+        for item in items:
+            if item.type_id not in types and item.id not in connected:
+                continue
+            kind = types.get(item.type_id)
+            title = item.label or (kind.name if kind else "Камера")
+            out.append({"id": str(item.id), "title": title,
+                        "type_name": kind.name if kind else "Камера", "floor_id": str(floor.id),
+                        "floor_name": floor.name, "room": rooms.get(item.room_id, "Вне помещения"),
+                        "configured": item.id in connected})
+    return out

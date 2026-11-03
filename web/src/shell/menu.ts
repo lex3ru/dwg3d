@@ -1,6 +1,6 @@
 import {
   BarChart3, BookOpen, Building2, ClipboardCheck, DoorOpen, FileText, FolderKanban, History,
-  House, Link2, Package, PencilRuler, Settings, Users, Warehouse, type LucideIcon,
+  House, Link2, Package, PencilRuler, Settings, Users, Video, Warehouse, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/lib/types";
 
@@ -25,6 +25,8 @@ export const MENU: MenuItem[] = [
     about: "Редактор здания: строительство этажей в 2D и вид в 3D с прогулкой (этап 1), расстановка по слоям (этап 4), обзор камер и освещённость (этап 7) — 6.5.2." },
   { path: "/projects", title: "Проекты", icon: FolderKanban, group: "Планировка", roles: ["admin"], stage: 8,
     about: "Проекты будущих расстановок, сравнение, спецификация и смета, применение с выдачей со склада (6.5.7)." },
+  { path: "/cameras", title: "Видеокамеры", icon: Video, group: "Видеонаблюдение", roles: ["admin", "viewer"], stage: 7,
+    about: "Все камеры выбранного здания: просмотр потоков, подключение и переход к камере на плане." },
   { path: "/property", title: "Имущество", icon: Package, group: "Учёт имущества", roles: ["admin", "viewer"], stage: 5,
     about: "Реестр инвентарных единиц с фильтрами и карточкой: состояние, место, ответственный, стоимость, история (6.5.4)." },
   { path: "/warehouse", title: "Склад", icon: Warehouse, group: "Учёт имущества", roles: ["admin"], stage: 5,

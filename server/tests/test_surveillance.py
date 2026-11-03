@@ -77,6 +77,9 @@ def test_access_and_no_connection(admin, app):
         assert result.status_code == 200, result.text
         assert result.json()["configured"]
         assert "address" not in viewer.get(url).json()
+        listed = viewer.get("/api/surveillance/cameras", params={"building_id": building["id"]})
+        assert listed.status_code == 200
+        assert listed.json()["items"][0]["id"] == item["id"]
         update = viewer.put(url, json={"address": "rtsp://other/live", "version": 1})
         assert update.status_code == 403
         other_building = admin.post("/api/buildings", json={"name": "Другое здание"}).json()
@@ -86,6 +89,9 @@ def test_access_and_no_connection(admin, app):
             {"type_id": item["type_id"], "x": 1000, "y": 1000}
         ]).json()["items"][0]
         other_url = f"/api/surveillance/cameras/{placed['id']}"
+        assert viewer.get("/api/surveillance/cameras", params={
+            "building_id": other_building["id"]
+        }).status_code == 404
         assert viewer.get(other_url).status_code == 404
         assert viewer.get(other_url + "/preview").status_code == 404
     with make_client(app) as anonymous:
@@ -143,3 +149,23 @@ def test_preview_can_continue_in_response_task(monkeypatch):
         assert await asyncio.create_task(response()) == [b"b"]
         assert not stream.slots.locked()
     asyncio.run(run())
+
+
+def test_camera_directory_includes_unconfigured_cameras_only(admin):
+    from tests.test_calc import catalog as base_catalog
+
+    types, _ = base_catalog(admin)
+    building, floor = building_with_floor(admin)
+    response = changes(admin, floor["id"], create=[
+        {"type_id": types["Камера цилиндрическая"]["id"], "x": 1000, "y": 1000, "label": "К1"},
+        {"type_id": types["Стол письменный 1200×600"]["id"], "x": 3000, "y": 1000},
+    ])
+    assert response.status_code == 200, response.text
+    result = admin.get("/api/surveillance/cameras", params={"building_id": building["id"]})
+    assert result.status_code == 200, result.text
+    rows = result.json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["title"] == "К1"
+    assert rows[0]["configured"] is False
+    assert rows[0]["floor_id"] == floor["id"]
+    assert "address" not in rows[0] and "password" not in rows[0]

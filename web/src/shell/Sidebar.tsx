@@ -88,7 +88,7 @@ function BuildingSwitcher() {
   const list = useQuery({ queryKey: ["buildings", false], queryFn: () => get<{ items: BuildingSummary[] }>("/api/buildings") });
   const items = list.data?.items ?? [];
   if (!items.length) return null;
-  const fromUrl = pathname.startsWith("/plan/") ? pathname.split("/")[2] : pathname === "/projects" || pathname === "/" ? params.get("building") : null;
+  const fromUrl = pathname.startsWith("/plan/") ? pathname.split("/")[2] : pathname === "/projects" || pathname === "/cameras" || pathname === "/" ? params.get("building") : null;
   const current = items.find((b) => b.id === fromUrl) ?? items.find((b) => b.id === lastBuilding()) ?? items[0]!;
   return (
     <div className="border-b border-line px-4 py-3">
@@ -106,7 +106,7 @@ function BuildingSwitcher() {
               /* не запомнится */
             }
             // проекты — по зданию: остаёмся в списке проектов, иначе — план здания
-            navigate(pathname === "/projects" || pathname === "/" ? `${pathname}?building=${e.target.value}` : `/plan/${e.target.value}`);
+            navigate(pathname === "/projects" || pathname === "/cameras" || pathname === "/" ? `${pathname}?building=${e.target.value}` : `/plan/${e.target.value}`);
           }}
           className="mt-1 h-8 w-full rounded-md border border-line-strong bg-surface px-1.5 text-sm text-ink max-md:h-11"
         >

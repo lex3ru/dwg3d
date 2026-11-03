@@ -6,7 +6,7 @@ import { useMe } from "@/lib/auth";
 import { Button } from "@/ui/button";
 import { Dialog } from "@/ui/dialog";
 
-function LivePreview({ itemId }: { itemId: string }) {
+export function LivePreview({ itemId }: { itemId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState("Подключение…");
   const [attempt, setAttempt] = useState(0);
@@ -110,7 +110,7 @@ function ConnectionForm({ itemId, data, onSaved }: { itemId: string; data: Conne
   </form>;
 }
 
-export function CameraWindow({ itemId, title }: { itemId: string; title: string }) {
+export function CameraWindow({ itemId, title, onClose }: { itemId: string; title: string; onClose?: () => void }) {
   const [open, setOpen] = useState(true);
   const admin = useMe().role === "admin";
   const [tab, setTab] = useState<"video" | "settings">("video");
@@ -121,7 +121,7 @@ export function CameraWindow({ itemId, title }: { itemId: string; title: string 
   });
   return <>
     <Button onClick={() => setOpen(true)}><Video /> Видео с камеры</Button>
-    <Dialog open={open} onOpenChange={setOpen} title={title} wide description="Видеонаблюдение">
+    <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) onClose?.(); }} title={title} wide description="Видеонаблюдение">
       <div className="flex gap-2">
         <Button onClick={() => setTab("video")} variant={tab === "video" ? "primary" : "ghost"}>Видео</Button>
         <Button onClick={() => setTab("settings")} variant={tab === "settings" ? "primary" : "ghost"}>Настройки</Button>
