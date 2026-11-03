@@ -21,7 +21,7 @@ async def preview(url: str) -> AsyncIterator[bytes]:
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-                "-rtsp_transport", "tcp", "-rw_timeout", "10000000", "-i", url,
+                "-rtsp_transport", "tcp", "-timeout", "10000000", "-i", url,
                 "-t", "60", "-an", "-vf", "fps=5,scale=960:-2", "-threads", "1",
                 "-c:v", "mjpeg", "-q:v", "5", "-f", "mpjpeg", "pipe:1",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,

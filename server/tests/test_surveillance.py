@@ -114,9 +114,12 @@ def test_close_preview_kills_process(monkeypatch):
                                   wait=AsyncMock())
         slots = asyncio.Semaphore(1)
         monkeypatch.setattr(stream, "slots", slots)
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+        spawn = AsyncMock(return_value=process)
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
         frames = stream.preview("rtsp://camera/stream1")
         assert await anext(frames) == b"frame"
+        assert "-timeout" in spawn.call_args.args
+        assert "-rw_timeout" not in spawn.call_args.args
         assert slots.locked()
         await frames.aclose()
         assert killed == [True]
