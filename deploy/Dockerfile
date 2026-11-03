@@ -45,7 +45,7 @@ FROM python:3.12-slim-trixie@sha256:aa943ce411423c7582288f18707ff66eddcbaeb51050
 # в .gitlab-ci.yml (ADR-0001)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b \
-    libfontconfig1 fonts-dejavu-core \
+    libfontconfig1 fonts-dejavu-core ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home /app app && mkdir -p /data && chown app /data
 WORKDIR /app

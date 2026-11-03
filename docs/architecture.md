@@ -45,6 +45,7 @@
 | planning | `…/planning` | расстановка предметов на плане |
 | inventory | `…/inventory` | единицы и остатки, склады и места, документы, стоимость, инвентаризация, метки |
 | link | `…/link` | связь предмета на плане с инвентарной единицей |
+| surveillance | `…/surveillance` | Подключения физических камер, шифрование паролей и RTSP-превью (ADR-0027) |
 | calc | `…/calc` | расчёты на плане: обзор камер, освещённость |
 | projects | `…/projects` | предлагаемые изменения расстановки, сравнение и применение |
 | reports | `…/reports` | отчёты и ведомости, главная, полная выгрузка и срок хранения её архивов |
@@ -52,7 +53,7 @@
 | Интерфейс | `web/src` | SPA на React; данные — React Query; редактор `editor/`: план в SVG, 3D на three.js; сбой отрисовки раздела или 3D ловит граница ошибок (`ui/ErrorBoundary.tsx`) |
 
 Уровни модулей снизу вверх (`server/app/modules/__init__.py`):
-journal → access, files, system → building, catalog → planning, inventory → calc, link, projects → reports, transfer.
+journal → access, files, system → building, catalog → planning, inventory → calc, link, projects, surveillance → reports, transfer.
 
 Модуль вызывает только модули ниже и только через их `api.py`. Когда нижнему модулю нужно
 сообщить о событии верхнему, верхний подписывается на крючок нижнего при сборке приложения

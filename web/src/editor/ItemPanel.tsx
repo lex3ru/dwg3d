@@ -10,6 +10,7 @@ import { get } from "@/lib/api";
 import { journalUrl } from "@/lib/journal";
 import { useMe } from "@/lib/auth";
 import { Button } from "@/ui/button";
+import { CameraWindow } from "@/surveillance/CameraWindow";
 import { align, arrayCopies, distribute, fitAlong, footprint, sizeOf, WARNING_TEXT, type Align, type Item, type Placed, type WarningCode } from "./items";
 import { CalcParams, type CalcInfo } from "./calc";
 import { registrable, UnitBlock, type LinkView } from "./link";
@@ -60,7 +61,10 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
   const models = (full.data?.models ?? []).filter((m) => !m.archived || m.id === item.model_id);
   const model = models.find((m) => m.id === item.model_id);
   const nameOf = (i: Item) => cat.types.get(i.type_id)?.name ?? "предмет";
-  const admin = useMe().role === "admin";
+  const role = useMe().role;
+  const admin = role === "admin";
+  const project = useEditor(store, (s) => s.project);
+  const isCamera = calcs.some((c) => c.key === "camera" && c.type_ids.includes(item.type_id));
 
   return (
     <>
@@ -170,6 +174,7 @@ function OneItem({ item, store, cat, roomsById, readOnly, warnings, link, onRegi
             </Button>
           </div>
         )}
+        {isCamera && role !== "guest" && !project && <CameraWindow itemId={item.id} title={item.label || t?.name || "Камера"} />}
         <UnitBlock item={item} link={link} cat={cat} onRegister={() => onRegister([item.id])} readOnly={readOnly} />
       </Section>
       {t?.container && (
