@@ -345,8 +345,8 @@ class LiveCamera:
             self.rows.extend((f, *b) for b in self.boxes)
             self.raw = frame
         if t - self.preview_t >= PREVIEW_EVERY_S:
-            self.preview_t = t
             self.preview = self._render_preview(frame, t)
+            self.preview_t = t
 
     def count(self, now=None):
         """Пересчитать события по окну и зафиксировать созревшие. Возвращает новые события."""
@@ -391,6 +391,18 @@ class LiveCamera:
         img = cv2.resize(frame, None, fx=k, fy=k) if k < 1 else frame.copy()
         for tid, x, y, w, h, _ in self.boxes:
             cv2.rectangle(img, (int(x * k), int(y * k)), (int((x + w) * k), int((y + h) * k)), track_color(tid), 2)
+        # Точка ног и последняя секунда пути у видимых сейчас людей (ADR-0029).
+        trails = {box[0]: [] for box in self.boxes}
+        for f, tid, x, y, w, h, _ in reversed(self.rows):
+            if self.last_f - f > PROC_FPS:
+                break
+            if tid in trails:
+                trails[tid].append((round((x + w / 2) * k), round((y + h) * k)))
+        for tid, trail in trails.items():
+            if trail:
+                color = track_color(tid)
+                cv2.polylines(img, [np.asarray(trail, np.int32)], False, color, 2)
+                cv2.circle(img, trail[0], 4, color, -1)
         draw_doors(img, self.cfg["doors"], k, 2)
         self.flashes = [(t0, e) for t0, e in self.flashes if t - t0 < 3.0]
         for j, (_, e) in enumerate(self.flashes[-4:]):

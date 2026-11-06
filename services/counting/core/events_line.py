@@ -96,6 +96,27 @@ def at_foreign_border(box, L, W, H, p):
     return False
 
 
+def confirmed_crossings(foot, heights, line, band):
+    """Смена устойчивой стороны и пересечение самого отрезка порога (ADR-0029)."""
+    distance = (foot - line.p1) @ line.n
+    along = (foot - line.p1) @ line.t
+    stable = candidate = consecutive = 0
+    crossing = None
+    for i, d in enumerate(distance):
+        if i and ((distance[i - 1] <= 0 < d) or (distance[i - 1] >= 0 > d)):
+            fraction = -distance[i - 1] / (d - distance[i - 1])
+            position = along[i - 1] + fraction * (along[i] - along[i - 1])
+            crossing = i if 0 <= position <= line.length else None
+        side = 1 if d > band * heights[i] else -1 if d < -band * heights[i] else 0
+        consecutive = consecutive + 1 if side == candidate else 1
+        candidate = side
+        if side and consecutive >= 2 and side != stable:
+            if stable and crossing is not None:
+                yield ("in" if side > 0 else "out"), crossing
+            stable = side
+            crossing = None
+
+
 def line_events(tracks, lines, fps, n_frames, W, H, p: LineParams):
     """Ядро логики: tracks {id: [[frame, x, y, w, h], ...]}, lines [DoorLine].
     Возвращает события {door, kind: in|out, t, frame, track, rule}."""
@@ -112,6 +133,11 @@ def line_events(tracks, lines, fps, n_frames, W, H, p: LineParams):
             starts_mid = frames[0] / fps > p.edge_s
             ends_mid = (n_frames - frames[-1]) / fps > p.edge_s
             for L in lines:
+                if not p.use_terminal:
+                    for kind, i in confirmed_crossings(foot, heights, L, p.band):
+                        raw.append({"door": L.door, "kind": kind, "t": float(frames[i] / fps),
+                                    "frame": int(frames[i]), "track": int(tid), "rule": "cross"})
+                    continue
                 d = (foot - L.p1) @ L.n / heights            # >0 — сторона комнаты
                 u = (foot - L.p1) @ L.t / L.length           # 0..1 — в пределах отрезка
                 on_seg = (u >= -p.margin) & (u <= 1 + p.margin)
@@ -131,8 +157,6 @@ def line_events(tracks, lines, fps, n_frames, W, H, p: LineParams):
                     if side and new != side and on_seg[i] and ok_scale(i):
                         emit("out" if new < 0 else "in", i, "cross")
                     side = new
-                if not p.use_terminal:
-                    continue
                 # 2) обрыв у линии со стороны комнаты, а до/после — глубже в комнате.
                 # Если человек уже пересёк линию видимым, трек кончается по ту сторону
                 # (d < -band) и сюда не попадает — двойного счёта нет.
@@ -148,6 +172,8 @@ def line_events(tracks, lines, fps, n_frames, W, H, p: LineParams):
 
     # гасим пары «выход, затем вход» у той же двери с разных треков — обрыв трека
     raw.sort(key=lambda ev: ev["t"])
+    if not p.use_terminal:
+        return raw
     dead = track_breaks(raw, p.cancel_s, other_track=True)
     # гасим «туда-обратно» одного и того же трека у той же двери: человек топчется у линии
     if p.dither_s > 0:

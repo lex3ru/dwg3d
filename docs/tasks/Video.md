@@ -110,3 +110,7 @@ cd server && uv run ruff check app migrations tests && uv run pytest
 cd web && npm run typecheck && npm run lint && npm test && npm run build
 cd e2e && E2E_URL=http://127.0.0.1:8018 npx playwright test tests/surveillance.spec.ts --project=компьютер
 ```
+
+2026-11-04. ADR-0029 дополняет подсчёт подтверждением перехода каждого человека
+и проверкой порога на свежем кадре трекера. Для оценки полноты на К3 нужен проход
+с известным направлением и числом людей.

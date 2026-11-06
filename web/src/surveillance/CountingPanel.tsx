@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { get, put } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { Button } from "@/ui/button";
@@ -28,16 +28,39 @@ export function CountingPanel({ itemId }: { itemId: string }) {
   </>;
 }
 
+function CounterPreview({ itemId }: { itemId: string }) {
+  const [sequence, setSequence] = useState(0);
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  function next(ok: boolean) {
+    setAvailable(ok);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setSequence(n => n + 1), ok ? 400 : 1500);
+  }
+  return <div>
+    <img src={`/api/surveillance/cameras/${itemId}/analytics/frame?n=${sequence}`}
+      alt="Кадр счётчика с линией двери, рамками людей и следами движения"
+      className={available === false ? "hidden" : "w-full rounded-lg bg-black"}
+      onLoad={() => next(true)} onError={() => next(false)} />
+    {available === false && <p role="status">Свежего кадра пока нет. Ждём подключения счётчика…</p>}
+    <p>Стрелка показывает вход. Точка под рамкой показывает положение ног, след — движение за последнюю секунду.</p>
+  </div>;
+}
+
 function Editor({ itemId, data, saved }: { itemId: string; data: Configuration; saved: () => void }) {
   const [points, setPoints] = useState<Point[]>(data.settings ? [data.settings.p1, data.settings.p2, data.settings.inside] : []);
   const [enabled, setEnabled] = useState(data.settings?.enabled ?? false);
   const [door, setDoor] = useState(data.settings?.door ?? "Вход");
+  const [diagnostic, setDiagnostic] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return <div className="flex flex-col gap-3">
     <label>Название двери / помещения <input className="rounded border border-line p-2" value={door} maxLength={100} onChange={e => setDoor(e.target.value)} /></label>
     <p>Укажите два конца линии порога, затем точку со стороны помещения, вход в которое считаем. Для новой разметки нажмите «Разметить заново».</p>
-    <div className="relative">
+    {data.settings?.enabled && <Button aria-pressed={diagnostic} onClick={() => setDiagnostic(v => !v)}>
+      {diagnostic ? "Вернуться к разметке" : "Проверить подсчёт вживую"}</Button>}
+    {diagnostic ? <CounterPreview itemId={itemId} /> : <div className="relative">
       <LivePreview itemId={itemId} />
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Разметка прохода: два конца линии и сторона входа" className="absolute left-0 top-0 aspect-video w-full cursor-crosshair" onClick={e => {
         if (points.length === 3) return;
@@ -47,9 +70,9 @@ function Editor({ itemId, data, saved }: { itemId: string; data: Configuration; 
         {points[0] && points[1] && <line x1={points[0].x*100} y1={points[0].y*100} x2={points[1].x*100} y2={points[1].y*100} stroke="#facc15" strokeWidth="0.6" />}
         {points.map((p, i) => <circle key={i} cx={p.x*100} cy={p.y*100} r="1" fill={i === 2 ? "#22c55e" : "#facc15"} />)}
       </svg>
-    </div>
-    <span>{points.length === 3 ? "Зелёная точка — сторона входа" : `Выбрано точек: ${points.length} из 3`}</span>
-    <Button onClick={() => setPoints([])}>Разметить заново</Button>
+    </div>}
+    {!diagnostic && <span>{points.length === 3 ? "Зелёная точка — сторона входа" : `Выбрано точек: ${points.length} из 3`}</span>}
+    {!diagnostic && <Button onClick={() => setPoints([])}>Разметить заново</Button>}
     <label><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} /> Включить подсчёт проходов</label>
     {error && <p role="alert">{error}</p>}
     <Button disabled={busy || points.length !== 3 || !door.trim()} onClick={async () => {

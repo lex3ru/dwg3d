@@ -42,3 +42,33 @@ def test_crossings_have_opposite_directions():
     line = make_line("Вход", (200, 200), (440, 200), (320, 400))
     result = line_events(tracks, [line], 10, 200, 640, 480, LineParams(smooth=1))
     assert [(e["track"], e["kind"]) for e in result] == [(1, "in"), (2, "out")]
+
+
+def test_confirmed_passages():
+    import numpy as np
+    from events_line import LineParams, line_events, make_line
+
+    line = make_line("Вход", (100, 200), (300, 200), (200, 300))
+
+    def walk(xs, ys, start=0):
+        return np.array([(start+i, x-10, y-100, 20, 100) for i, (x, y) in enumerate(zip(xs, ys))])
+
+    def directions(tracks):
+        events = line_events(tracks, [line], 15, 120, 640, 480,
+                             LineParams(band=.03, min_track_s=.4, use_terminal=False))
+        return [(e["track"], e["kind"]) for e in events]
+
+    # Встречные люди у одного порога, проходы разделены одной секундой.
+    assert directions({1: walk([160]*16, np.linspace(230, 170, 16)),
+                       2: walk([250]*16, np.linspace(170, 230, 16), 15)}) == [(1, "out"), (2, "in")]
+    # Подтверждение уже за концом отрезка, пересечение внутри него.
+    diagonal = walk([190, 220, 245, 265, 280, 295, 340, 360],
+                    [178, 183, 188, 193, 198, 201, 205, 210])
+    assert directions({1: diagonal}) == [(1, "in")]
+    outside = diagonal.copy()
+    outside[:, 1] += 120
+    assert directions({1: outside}) == []
+    assert directions({1: walk([180]*9, [185, 190, 195, 198, 201, 198, 195, 190, 185])}) == []
+    # Оба подтверждённых перехода одного человека, даже при быстром возвращении.
+    assert directions({1: walk([180]*32, list(np.linspace(170, 230, 16)) +
+                               list(np.linspace(230, 170, 16)))}) == [(1, "in"), (1, "out")]

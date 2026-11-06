@@ -1,4 +1,6 @@
 """Контракт отдельного счётчика проходов (ADR-0028, ТЗ 9.2)."""
+import asyncio
+import http.client
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -15,7 +17,7 @@ from app.core.errors import AppError, Forbidden, stale
 from app.modules.journal import api as journal
 from app.modules.surveillance import api
 from app.modules.surveillance.models import CameraConnection, CountingConfig, Passage
-from app.modules.surveillance.routes import router
+from app.modules.surveillance.routes import PreviewResponse, router
 
 
 class Point(BaseModel):
@@ -90,8 +92,42 @@ def configurations(response: Response, service: Service, session: DB):
     rows = session.execute(select(CountingConfig, CameraConnection).join(
         CameraConnection, CountingConfig.item_id == CameraConnection.item_id))
     return {"cameras": [{"id": str(row.item_id), "version": row.version,
-                         "source": api.stream_url(source), **row.settings}
+                         "connection_version": source.version, "source": api.stream_url(source),
+                         **row.settings}
                         for row, source in rows if row.settings.get("enabled")]}
+
+
+def _diagnostic_frame(path: str) -> bytes:
+    settings = config()
+    conn = http.client.HTTPConnection("127.0.0.1", settings.analytics_preview_port, timeout=2)
+    try:
+        token = settings.analytics_token.get_secret_value()
+        conn.request("GET", path, headers={"Authorization": f"Bearer {token}"})
+        result = conn.getresponse()
+        if result.status == 200 and result.getheader("Content-Type") == "image/jpeg":
+            frame = result.read(2 * 1024 * 1024)
+            if frame.startswith(b"\xff\xd8") and frame.endswith(b"\xff\xd9"):
+                return frame
+    except (OSError, http.client.HTTPException):
+        pass
+    finally:
+        conn.close()
+    raise AppError("Свежий кадр счётчика пока недоступен.", status=503)
+
+
+@router.get("/cameras/{item_id}/analytics/frame")
+def diagnostic_preview(item_id: uuid.UUID, actor: Admin, session: DB) -> PreviewResponse:
+    source = api.connection(session, actor, item_id)
+    row = session.get(CountingConfig, item_id)
+    if not source or not row or not row.settings.get("enabled"):
+        raise AppError("Включите подсчёт и сохраните разметку.", status=409)
+    path = f"/{item_id}/{row.version}/{source.version}"
+
+    async def frame():
+        # Запрос к счётчику выполняется после закрытия транзакции (ADR-0027).
+        yield await asyncio.to_thread(_diagnostic_frame, path)
+
+    return PreviewResponse(frame(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 class Event(BaseModel):

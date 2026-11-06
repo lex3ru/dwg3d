@@ -8,6 +8,7 @@ services:
     cpus: 2
     mem_limit: 2g
     environment:
+      COUNTING_PREVIEW_PORT: ${COUNTING_PREVIEW_PORT:-8769}
       COUNTING_APP_URL: ${COUNTING_APP_URL:-http://127.0.0.1:8010}
       COUNTING_TOKEN_FILE: /run/secrets/counting_token
     network_mode: host

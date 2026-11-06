@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Config(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="APP_", env_file=None)
 
+    analytics_preview_port: int = 8769
     analytics_token: SecretStr = SecretStr("")
 
     database_url: str = "postgresql+psycopg://app:app@127.0.0.1:55432/app"

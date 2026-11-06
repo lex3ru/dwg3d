@@ -257,3 +257,26 @@ def test_counting_settings_and_idempotent_delivery(admin, app, monkeypatch):
     assert admin.get(url + "/analytics").json()["state"] == "offline"
     invalid = {**payload, "version": 2, "inside": {"x": .5, "y": .5}}
     assert admin.put(url + "/analytics", json=invalid).status_code == 422
+
+
+def test_diagnostic_frame_requires_enabled_camera_and_current_versions(admin, app, monkeypatch):
+    _, item, url = camera(admin)
+    frame_url = url + "/analytics/frame"
+    with make_client(app) as anonymous:
+        assert anonymous.get(frame_url).status_code == 401
+    assert admin.get(frame_url).status_code == 409
+    admin.put(url, json={"address": "rtsp://camera/live", "version": 0})
+    admin.put(url + "/analytics", json={
+        "enabled": True, "door": "Холл", "version": 0, "p1": {"x": .2, "y": .5},
+        "p2": {"x": .8, "y": .5}, "inside": {"x": .5, "y": .8}})
+    paths = []
+
+    def snapshot(path):
+        paths.append(path)
+        return b"jpeg"
+
+    monkeypatch.setattr("app.modules.surveillance.analytics._diagnostic_frame", snapshot)
+    response = admin.get(frame_url)
+    assert response.content == b"jpeg"
+    assert response.headers["cache-control"] == "no-store"
+    assert paths == [f"/{item['id']}/1/1"]

@@ -17,6 +17,7 @@ os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "core/app"))
+from diagnostics import start_preview_server
 import live
 import pipeline
 
@@ -89,6 +90,7 @@ def main():
     torch.set_num_threads(2)
     queue = Outbox(os.environ.get("COUNTING_OUTBOX", "/data/outbox.db"))
     engine = live.LiveEngine()
+    snapshots = start_preview_server(engine, token, int(os.getenv("COUNTING_PREVIEW_PORT", "8769")))
     engine.start()
     print("Сервис подсчёта запущен", flush=True)
     stop = threading.Event()
@@ -138,6 +140,8 @@ def main():
                 print("События сохранены в очереди; доставка будет повторена", flush=True)
             stop.wait(3)
     finally:
+        snapshots.shutdown()
+        snapshots.server_close()
         engine.stop_ev.set()
         engine.join(timeout=30)
         for cam_id in list(engine.cams):
